@@ -355,7 +355,7 @@ class _Stand:
         def answer(system: str, user: str, **kwargs: Any) -> Any:
             question = next(q for q in replies if q in user)
             reply = replies[question]
-            if system == execute._CLOSED_BOOK_SYSTEM:
+            if system == execute.CLOSED_BOOK_SYSTEM:
                 return reply, {"web_search": "plugin", "citations": CITED}
             return reply, {"web_search": False, "citations": []}
 

@@ -7,20 +7,10 @@ publishes them under its own account — exactly as it already does with health.
 **Only aggregates** leave the perimeter (invariant 3). No questions, no answers,
 no corpus chunks: `Card` does not contain them and cannot.
 
-The first version of the payload returned six flat numbers. It is unfit for
-three reasons at once, and all three came to light on a live rig:
-
-* the headline number was computed over the answerable half of the set, while
-  the control half — the one the halves were introduced for — never left at all;
-* the arm was not named, although it was set by a setting: two nodes published
-  "71%" measured by different arms, and the storefront could not tell them apart;
-* a ``raw`` endpoint has no arm B — it refuses to run — and such a node was left
-  with no numbers at all despite excellent retrieval.
-
-So ``version``, ``kind`` and ``arm`` appeared in the payload, and the numbers
-were split by half of the set. ``version`` is mandatory: the receiving side has
-to know what it is reading, and an old Space must be able to refuse rather than
-to misunderstand.
+The payload carries ``version``, ``kind`` and ``arm``, and its numbers are split
+by half of the set: the arm differs between kinds of node, and the storefront has
+to tell them apart. ``version`` is mandatory: the receiving side has to know what
+it is reading, and an old Space must be able to refuse rather than misunderstand.
 """
 
 from __future__ import annotations

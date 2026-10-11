@@ -24,7 +24,7 @@ from syft_benchmark.config import (
     StatusReason,
 )
 from syft_benchmark.db import QaPair, session_scope
-from syft_benchmark.generation import filter_stage, pipeline, web_check
+from syft_benchmark.generation import control, filter_stage, pipeline, web_check
 from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.llm import LLMError, Provider
 from syft_benchmark.runs import judge as run_judge
@@ -159,6 +159,16 @@ def _pairs() -> list[QaPair]:
     return rows
 
 
+def _archive(question: str) -> list[str]:
+    """Live retrieval: the archive states every answer and the false premise's
+    correction, and nothing on the missing detail."""
+    if question == KINDS["unanswerable_property"][0]:
+        return []
+    if question == KINDS["false_premise"][0]:
+        return ["The council restored the lighthouse."]
+    return [f"{SECRET}: Harbourton council restored the lighthouse."]
+
+
 def _rows() -> dict[str, QaPair]:
     with session_scope() as session:
         rows = list(
@@ -179,6 +189,11 @@ class _Models:
         self.judge_down_for: set[str] = set()
         monkeypatch.setattr(web_check, "chat", self.web_chat)
         monkeypatch.setattr(run_judge, "chat", self.judge_chat)
+        # The archive check finds every answer, the control gate the false
+        # premise's correction.
+        monkeypatch.setattr(
+            control, "chat", lambda *_a, **_k: ('{"answered": true}', {})
+        )
 
     def _kind(self, question: str) -> str:
         return next(k for k, (q, _, _) in KINDS.items() if q == question)
@@ -228,9 +243,7 @@ def test_every_kind_goes_through_the_web_check(
     models.judge_down_for = {"multihop_synthesis"}
     conf = _settings(filter_judge_model="google/gemini-3.1-pro-preview")
 
-    report = filter_stage.filter_pending(
-        _space(), settings=conf, retrieve=lambda _q: []
-    )
+    report = filter_stage.filter_pending(_space(), settings=conf, retrieve=_archive)
     rows = _rows()
 
     # The bare question, nothing of the publisher's, search on.
@@ -282,7 +295,7 @@ def test_every_kind_goes_through_the_web_check(
     assert "web check: checked 8, removed 4, kept 3, failed 1" in report.line()
 
     models.judge_down_for = set()
-    again = filter_stage.filter_pending(_space(), settings=conf, retrieve=lambda _q: [])
+    again = filter_stage.filter_pending(_space(), settings=conf, retrieve=_archive)
     retried = _rows()["multihop_synthesis"]
     assert retried.status == PairStatus.ACTIVE.value
     assert retried.meta["web_check"]["attempts"] == 2
@@ -374,7 +387,7 @@ def test_the_cap_spreads_across_kinds_after_the_check(
     report = pipeline.filter_and_rotate(
         _space(),
         settings=_settings(dataset_mode=DatasetMode.ROLLING, dataset_max_pairs=4),
-        retrieve=lambda _q: [],
+        retrieve=_archive,
     )
 
     rows = _rows()

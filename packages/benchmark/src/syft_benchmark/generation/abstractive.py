@@ -39,8 +39,13 @@ source. Write statements as standalone facts.
   - The lie must change a SPECIFIC detail — a number, name, setting, outcome \
 or causal relation — so that someone who actually read the source catches it, \
 while someone guessing does not.
+  - The false statement must change a detail only this story reports, so the \
+web can't catch it.
   - All three statements must sound equally plausible to a reader who has NOT \
 seen the fragment.
+  - Build each question on a fact that only this story reports: its own \
+figures, named sources, quotes or inside details. Avoid facts that other \
+outlets also covered or that are general background.
   - Write in the SAME language as the fragment.
 
 Respond with ONLY a JSON array of 3 objects. No markdown, no commentary.
@@ -68,6 +73,9 @@ facts. Someone who read a single paragraph should fail.
       * "How does [thing described in one place] relate to [outcome described \
 elsewhere]?"
       * Bridge reasoning: cause -> intermediate step -> effect
+  - Build each question on a fact that only this story reports: its own \
+figures, named sources, quotes or inside details. Avoid facts that other \
+outlets also covered or that are general background.
   - Answers: 1-3 sentences, fully grounded in the document.
   - Write in the SAME language as the document.
 

@@ -61,6 +61,9 @@ question a real user of these documents would ask.
 6. The property you ask about must be absent from the fragment. Do not ask \
 something the fragment answers, even partly.
 7. Do not invent a value and do not hint at one.
+8. Ask for exactly ONE missing detail. Never combine two asks in one question.
+9. The detail must not be public knowledge either: nothing a well-informed \
+person could look up elsewhere, like a famous crew list or a well-known founder.
 
 Return ONLY a JSON array of {{n}} objects:
 [{{{{"question": "...", "subject": "what from the fragment it is about", \

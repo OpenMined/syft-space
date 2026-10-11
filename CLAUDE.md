@@ -147,11 +147,11 @@ overrides (`syft-benchmark settings show|set|unset`, or `PUT /settings`) under
 the Space's instrument and the node's probe; the provider keys and Space tokens
 sealed with AES-256-GCM in `credentials` (`syft-benchmark secrets ...`). The
 environment is the read-only layer under that row, not a seed: built-in
-defaults → environment → row → instrument → probe. Only four things stay in it
-for good and `PUT /settings` refuses them by name: `BENCH_DATABASE_URL`,
-`BENCH_CONTROL_TOKEN`, `BENCH_SECRET_KEY`, and the perimeter
-(`BENCH_ALLOW_EXTERNAL_MODELS`/`BENCH_EXTERNAL_HOSTS`) — which is deliberately
-not editable by anyone holding an API key.
+defaults → environment → row → instrument → probe. The bootstrap fields
+(`BOOTSTRAP_FIELDS` in `config.py`) stay in the environment and `PUT /settings`
+refuses them: `BENCH_DATABASE_URL`, `BENCH_CONTROL_TOKEN`, the control
+host/port/origins, `BENCH_SPACES_FILE`, `BENCH_SECRET_KEY` and its retired keys,
+and the perimeter (`BENCH_ALLOW_EXTERNAL_MODELS`/`BENCH_EXTERNAL_HOSTS`).
 
 ## Development Patterns
 

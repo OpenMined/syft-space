@@ -3,8 +3,9 @@
 A port of `OMSyft/scripts/qa_judge.py`.
 
   * ``correct``     — answered to the substance of the gold answer;
-  * ``abstain``     — honestly said it did not know: not counted as an error;
-  * ``hallucinate`` — answered confidently and wide of the gold answer.
+  * ``abstain``     — honestly said it did not know, or answered incompletely
+                      with nothing false in it: not counted as an error;
+  * ``hallucinate`` — stated something that contradicts the gold answer.
 
 Abstention is separated from a miss deliberately, and that is the main
 distinction in the measurement. A model that says "I do not know" about a corpus
@@ -16,7 +17,7 @@ there is no score, but three shares.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -165,23 +166,6 @@ def detect_abstain(answer: str) -> bool:
     return not _ANSWER_SIGNALS.search(text)
 
 
-def grade_behavior(answer: str) -> Grade:
-    """Read a control answer by regexes alone, without a judge.
-
-    How control rows were graded before ``grade_control``; runs no longer call
-    it. Abstaining is the correct behaviour, any answer is an invention, and a
-    hedge of the form "I do not know, but most likely X" is caught by the answer
-    signals and counted as an answer.
-    """
-    if is_error(answer):
-        return Grade(Verdict.TECHNICAL, answer[:300])
-    if detect_abstain(answer):
-        return Grade(Verdict.ABSTAIN, "abstained — there is no answer in the corpus")
-    return Grade(
-        Verdict.HALLUCINATE, "answered a question with no answer in the corpus"
-    )
-
-
 def grade_mcq(answer: str, expected: str) -> bool | None:
     """A multiple-choice question: match the letter without calling a judge.
 
@@ -204,10 +188,9 @@ def grade_mcq(answer: str, expected: str) -> bool | None:
     return None
 
 
-_JUDGE_SYSTEM = """\
-You are a strict grading assistant. Compare a model's answer against the \
-expected answer for one question.
-
+# The grading rules, shared with the console judge (``runs/console.py``): a
+# verdict pasted from a chat is asked for and read the same way.
+JUDGE_RULES = """\
 Rules:
 - The answer is correct if it states the same facts as the expected answer. \
 Paraphrasing and extra correct detail are fine; wrong or contradicting facts \
@@ -219,9 +202,28 @@ differently from the expected answer.
 - For multiple choice the model must pick the same option as the expected \
 answer.
 
-Return ONLY a JSON object, no markdown and no commentary:
-{"correct": true, "confidence": 0.0, "reasoning": "one short sentence"}
+Separately, set "false_claims": does the answer state anything that \
+contradicts the expected answer? A different name, number, date or option \
+for what the question asks is a false claim. Leaving facts out, or saying it \
+does not know, is not.
 """
+
+_JUDGE_SYSTEM = f"""\
+You are a strict grading assistant. Compare a model's answer against the \
+expected answer for one question.
+
+{JUDGE_RULES}
+Return ONLY a JSON object, no markdown and no commentary:
+{{"correct": true, "false_claims": false, "confidence": 0.0, \
+"reasoning": "one short sentence"}}
+"""
+
+# Recorded after the judge's own reasoning, so the row says why a "not correct"
+# did not become a hallucination, or why it did without the judge saying so.
+_NOTHING_FALSE_NOTE = "(not correct, nothing false: counted as did not know)"
+_NO_FALSE_CLAIMS_NOTE = (
+    "(the judge did not say whether anything is false: counted as hallucinated)"
+)
 
 _KEY_FACTS_SYSTEM = """\
 You check whether an explanation covers a list of required facts.
@@ -248,6 +250,49 @@ the fragments. If the answer adds facts that are not in the fragments, \
 "grounded" is false. If the answer only says it does not know, "grounded" is \
 true.
 """
+
+
+def _flag(value: Any) -> bool | None:
+    """A judge's yes/no field; None — absent or not a yes/no.
+
+    ``bool()`` alone would read the string "false" as true.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word in {"true", "yes"}:
+            return True
+        if word in {"false", "no"}:
+            return False
+    return None
+
+
+def free_text_verdict(data: dict[str, Any]) -> tuple[Verdict, str]:
+    """The free-text judge's reply as a verdict and the note to record with it.
+
+    Not correct is a hallucination only when the judge says something in the
+    answer is false; an answer that is merely incomplete counts as did not know.
+    When the judge does not say (a model that dropped the field, an unreadable
+    value), the answer counts as hallucinated, so no invention is hidden by a
+    missing field.
+    """
+    if _flag(data.get("correct")) is True:
+        return Verdict.CORRECT, ""
+    false_claims = _flag(data.get("false_claims"))
+    if false_claims is None:
+        return Verdict.HALLUCINATE, _NO_FALSE_CLAIMS_NOTE
+    if false_claims:
+        return Verdict.HALLUCINATE, ""
+    return Verdict.ABSTAIN, _NOTHING_FALSE_NOTE
+
+
+def free_text_grade(data: dict[str, Any]) -> tuple[Verdict, str]:
+    """The verdict and the reasoning to record: the judge's own, then the note."""
+    verdict, note = free_text_verdict(data)
+    return verdict, f"{str(data.get('reasoning', ''))[:400]} {note}".strip()
 
 
 def grade(
@@ -325,10 +370,9 @@ def grade(
             judge_user=user,
         )
 
-    correct = bool(data.get("correct", False))
-    reasoning = str(data.get("reasoning", ""))[:400]
+    verdict, reasoning = free_text_grade(data)
     return Grade(
-        Verdict.CORRECT if correct else Verdict.HALLUCINATE,
+        verdict,
         reasoning,
         judge_system=_JUDGE_SYSTEM,
         judge_user=user,
@@ -411,9 +455,9 @@ def grade_key_facts(
 
     share = sum(covered) / len(facts)
     reasoning = f"covered {sum(covered)} of {len(facts)} facts"
-    verdict = (
-        Verdict.CORRECT if share >= conf.key_facts_threshold else Verdict.HALLUCINATE
-    )
+    # Below the bar is incomplete, not invented: a fact left out is not a false
+    # one, so it counts as did not know.
+    verdict = Verdict.CORRECT if share >= conf.key_facts_threshold else Verdict.ABSTAIN
     return Grade(
         verdict,
         reasoning,
@@ -433,8 +477,8 @@ def check_grounded(
 ) -> tuple[bool | None, str]:
     """Whether the answer follows from what the endpoint found.
 
-    Meaningful only for run B: in run A there are no chunks at all, and there is
-    nothing to ground.
+    Asked in arm C: in arm A there are no chunks at all, and there is nothing to
+    ground.
 
     Returns:
         (grounded, explanation); None means the judging did not succeed
@@ -660,3 +704,93 @@ def grade_control(
         behavior=behavior.value,
         **spent(usage),
     )
+
+
+# --- grading by the item's kind ---------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Gradable:
+    """What grading needs to know about an item: its text, gold answer and kind."""
+
+    question: str
+    expected: str
+    generator: str = ""
+    task_type: str = ""
+    meta: dict[str, Any] | None = None
+
+    @property
+    def control(self) -> bool:
+        return is_control(self.generator, self.meta)
+
+
+def answer_citations(usage: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The web sources an answer cited; empty — it did not search."""
+    if not usage or not usage.get("web_search"):
+        return []
+    return [c for c in usage.get("citations") or [] if isinstance(c, dict)]
+
+
+def grade_item(
+    item: Gradable,
+    answer: str,
+    *,
+    citations: Sequence[dict[str, Any]] = (),
+    settings: Settings | None = None,
+    judge: Provider | None = None,
+    defer: bool = False,
+    wrap: Callable[[Callable[..., Grade]], Callable[..., Grade]] | None = None,
+) -> Grade:
+    """Grade one answer by its item's kind, the same way in every block.
+
+    Control items go to the behaviour judge (seeing the answer's web
+    citations), key-facts items to the facts check, everything else to the
+    free-text judge, options matched by letter first.
+
+    Args:
+        item: The question, its gold answer and kind
+        answer: What the answerer said
+        citations: The answer's web citations; read for control items only
+        settings: The process settings
+        judge: The panel seat grading it
+        defer: Do not call the judge, return "awaiting a judge"
+        wrap: Applied to the grader before the call (timing)
+    """
+    run: Callable[[Callable[..., Grade]], Callable[..., Grade]] = wrap or (lambda f: f)
+    if item.control:
+        return run(grade_control)(
+            control_case(item.generator, item.question, item.expected, item.meta),
+            answer,
+            citations=citations,
+            settings=settings,
+            judge=judge,
+            defer=defer,
+        )
+    if str((item.meta or {}).get("grading") or "judge") == "key_facts":
+        facts = [str(f) for f in (item.meta or {}).get("key_facts", [])]
+        return run(grade_key_facts)(
+            answer, facts, settings=settings, judge=judge, defer=defer
+        )
+    return run(grade)(
+        item.question,
+        item.expected,
+        answer,
+        is_mcq=item.task_type == "choice",
+        settings=settings,
+        judge=judge,
+        defer=defer,
+    )
+
+
+def holds(item: Gradable, graded: Grade) -> bool:
+    """The answer is a right one for its item.
+
+    A control item is right unless the answer made something up (declined,
+    corrected or web-sourced, as the report's fabrication rate counts it);
+    any other item only when correct. A failed or pending grade is not.
+    """
+    if graded.failed or graded.verdict is Verdict.PENDING:
+        return False
+    if item.control:
+        return graded.verdict is not Verdict.HALLUCINATE
+    return graded.verdict is Verdict.CORRECT

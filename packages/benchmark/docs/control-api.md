@@ -1,17 +1,11 @@
 # Control from outside
 
-The benchmark can be driven from a console, or from the Space's UI. This
-document is about the second way: what the benchmark exposes, what it accepts
-and why it is like that. The measurement itself meanwhile goes the same way as
-the daily cycle — stages 1–9 in [README.md](README.md).
+The benchmark can be driven from the console or from the Space's UI through the
+control API. A measurement goes through the same stages as the console cycle
+([README.md](README.md)).
 
-## Who decides what
-
-The Space's owner decides **what to measure, with what and when**. The
-benchmark decides **how the measurement is built**. The boundary runs here, and
-it is not a formality: the list of arms, the panel of judges and the thresholds
-are properties of the instrument, shared across all the nodes of one
-installation, and there is no place for them in the Space's database.
+The Space's owner decides **what to measure, with what and when**; the
+benchmark decides **how the measurement is built**.
 
 ```mermaid
 sequenceDiagram
@@ -31,113 +25,53 @@ sequenceDiagram
 
 ## Three layers of settings
 
-There are some sixty-five settings, and they belong to different owners.
-
 | Layer | What is in it | Where it is set |
 | --- | --- | --- |
-| **Installation** | the defaults under everything: addresses, models, concurrency, thresholds | one row in this service's database — `PUT /settings` |
-| **Instrument** | arms, blocks, judges, models under test, thresholds | per Space, and optionally per individual node — see below |
-| **Probe** | set mode, window, generators, `top_k`, similarity threshold | per Space and per individual node |
+| **Installation** | defaults under everything: addresses, models, concurrency, thresholds | `installation_settings` row — `PUT /settings`, `syft-benchmark settings` |
+| **Instrument** | arms, blocks, judges, models under test, thresholds | `target.instrument` — the Space sends the same one to every target of a connection |
+| **Probe** | set mode, window, generators, `top_k`, similarity threshold | `target.probe` — per target |
 
-All three are rows in this service's database. A value that can be written in
-two places is a value that disagrees with itself on the day somebody edits the
-wrong one, so there is exactly one place for each of the sixty-five.
+Applied in order installation → instrument → probe (`compose.py`) on every
+launch; the closer to the node, the more authority. Each layer stores only
+overrides: an unset field means "take it from the layer below", not zero. A
+`RunRequest` may carry `instrument` / `probe` layers on top, for that launch
+only. The card states the instrument each run used.
 
-**The environment is the layer under the row**, read-only and supplied by the
-deployment. An edit made in the row outranks it — for good, not until the next
-restart. It is not a one-time seed, deliberately: the container's compose file
-sets the addresses that differ inside a container, and a seed would have
-applied them once and then silently stopped, leaving an installation pointed at
-a model provider inside itself.
+**The environment is under the row:** read-only, from the deployment; a value
+in the row outranks it.
 
-**Four things stay in the environment** and `PUT /settings` refuses them by
-name: the database URL, because it is the address of the row; the control key,
-because it guards the API that edits the row; the master key, because it opens
-the stored secrets; and the perimeter — `allow_external_models` and
-`external_hosts`. The last is the one that matters. The ban on calls outside is
-a check rather than an agreement, because the questions are built from private
-documents; a list of allowed hosts that anyone holding this key could edit
-would not be a perimeter. It is a decision for whoever has the host.
+**Environment only** (`BOOTSTRAP_FIELDS`; `PUT /settings` refuses them):
+`database_url`, `control_token`, `control_host`, `control_port`,
+`control_origins`, `spaces_file`, `secret_key`, `secret_keys_retired`, and the
+perimeter — `allow_external_models`, `external_hosts`.
 
-**The secrets are in neither.** The provider keys and the Space tokens are
-sealed with AES-256-GCM in a table of their own, each ciphertext bound to the
-name of the slot it belongs in so that a row cannot be copied from `judge_key`
-into `subject_key`. They are kept out of the settings document on purpose: the
-settings are read on every launch, copied into a job's snapshot and every run's
-params, handed out by `/defaults` and written to the log, and a key among them
-would arrive everywhere they arrive.
+**Secrets** (`llm_api_key`, `generator_key`, `judge_key`, `subject_key`, and
+each target's Space token) are sealed with AES-256-GCM in `credentials`, each
+ciphertext bound to its slot name. They are never in the settings document,
+snapshots, `/defaults` or logs, and are never handed out: `GET /credentials`
+lists names and when each was set. With no master key, storing a secret answers
+503.
 
-They go in and do not come out. `GET /credentials` says what is stored and
-when it was last set — the same thing a target's token has always said about
-itself. With no master key configured, `PUT` answers 503 rather than storing
-plain text: an installation with half its secrets encrypted and no record of
-which half is worse than one that said no.
+## The key and the service
 
-The layers are applied in one order: the installation's row → the
-instrument → the node's probe. The closer a layer is to a specific node, the
-more authority it has — because it was set by whoever knows most about that
-node.
-
-**An unset field means "take it from the layer above", not zero.** Without that
-distinction a settings form opened and closed without a single edit would zero
-out the freshness window and the similarity threshold.
-
-**`target.instrument` carries a per-node override, the same way `target.probe`
-does** — `compose.py` merges it over the connection's own instrument with more
-authority, before either reaches the installation's defaults. Nothing here
-enforces that every node of one Space share an instrument; the card declares
-the instrument each run actually used, in its own `instrument` block, so a
-reader can always tell whether two cards are comparable rather than assuming
-they must be.
-
-## A key is mandatory
-
-Until `BENCH_CONTROL_TOKEN` is set, the API answers only on `/health` and tells
-everything else that it is not configured. This is not over-caution: its one
-working route raises work that costs hours and money in external models, and a
-port open by default would mean that anyone who could reach the network could
-spend someone else's budget. The behaviour is the same as a Space's with
-`benchmarks_mode=off`: not "you may not" but "there is nothing here".
+Until `BENCH_CONTROL_TOKEN` is set, the API answers only `/health` and tells
+everything else that it is not configured.
 
 ```bash
 uv run syft-benchmark serve                 # address and port from the settings
-uv run syft-benchmark serve --port 8300     # over the settings, one-off
+uv run syft-benchmark serve --port 8300     # one-off override
 ```
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `BENCH_CONTROL_TOKEN` | empty | The key; while it is empty only `/health` stays alive |
-| `BENCH_CONTROL_HOST` | `0.0.0.0` | The address to listen on |
-| `BENCH_CONTROL_PORT` | `8200` | The port |
-| `BENCH_CONTROL_ORIGINS` | `[]` | The origins CORS is allowed for |
+| `BENCH_CONTROL_TOKEN` | empty | The key; while empty only `/health` answers |
+| `BENCH_CONTROL_HOST` | `0.0.0.0` | Listen address |
+| `BENCH_CONTROL_PORT` | `8200` | Port |
+| `BENCH_CONTROL_ORIGINS` | `[]` | CORS origins; empty means no browser requests |
 
-An empty list of origins means there are no browser requests at all: the UI
-comes here from its own server, not from a page. Filling it in means opening
-the launching of measurements to any open tab.
+One process holds the API, the job queue worker and the schedule thread.
 
-The same process also holds the job queue and the schedule. There is no reason
-to separate them: the queue is strictly sequential, a measurement spends almost
-all its time waiting on a socket, and three processes would have to agree
-through the database they already share.
-
-## Where the service runs
-
-**In a container, beside the Space.** The Space keeps ChromaDB as a subprocess
-in its own container, listening on `0.0.0.0:8100`. A port has to be published
-only to reach it from the host; from a sibling container on the same docker
-network it is plain `http://<the Space's container>:8100`. So the benchmark
-joins the rig's network and reads the index straight over HTTP.
-
-`docker exec` into the Space's container is a fallback for the one case that
-route does not cover: a port that was never published at all. It mounts no
-docker socket for the ordinary path — a service that goes out to external model
-providers has no business holding a root-equivalent privilege on the host.
-
-What this costs is one piece of configuration that cannot be guessed: a
-target's `chroma_host` is the Space's **container name**, not `localhost`.
-Inside a container `localhost` is the benchmark itself, and a target left at
-the default will look for the index in the wrong place and find nothing.
-Checking the target says so at once rather than an hour into a run.
+### In a container
 
 ```bash
 cd packages/benchmark
@@ -145,157 +79,104 @@ cp .env.example .env                       # at least BENCH_CONTROL_TOKEN
 docker compose --profile service up -d --build
 ```
 
-Without the profile only the database comes up — that is the console flow,
-where the CLI runs on the host against it. The profile is what adds the
-service.
+Without the profile only the database comes up (the console flow). The image
+runs `alembic upgrade head` and then `serve`; the container runs with `TZ=UTC`.
 
-The image runs `alembic upgrade head` on start: a service whose schema has to
-be brought up to date by hand from somewhere else is a service that comes up
-broken on the one deploy nobody was watching.
+The Space runs ChromaDB inside its container on `0.0.0.0:8100`; the benchmark
+joins the rig's network and reads it at `http://<Space container>:8100`. A
+target's `chroma_host` must be the Space's **container name**, not `localhost`.
+`docker exec` into the Space's container is the fallback when the port is not
+reachable; the compose file mounts no docker socket.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `BENCH_SPACE_NETWORK` | `syft-space-network` | The rig's docker network to join. A Space raised by its own compose file names it that; one raised as part of a larger rig gets that project's name — `docker network ls` says which |
+| `BENCH_SPACE_NETWORK` | `syft-space-network` | The rig's docker network to join (`docker network ls`) |
 | `BENCH_CONTROL_PORT` | `8200` | The port published to the host |
-| `ollama_url` | `http://host.docker.internal:11434` | A local Ollama lives on the host, so it is reached through the host gateway. An external provider is a URL and needs none of this |
+| `BENCH_OLLAMA_URL` | `http://host.docker.internal:11434` | A local Ollama on the host; set it in `.env` for an external provider |
 
-The measurement extras are not in the image: `metrics` drags in torch and
-`spacy` is gigabytes, both are optional and both are guarded at every use. A
-rig that wants them builds with `--build-arg EXTRAS="--extra metrics"`.
+The `metrics` extra (torch, for BERTScore) is not in the image; build with
+`--build-arg EXTRAS="--extra metrics"` to include it.
 
 ## The schedule
 
-A target carries an interval (`24h`, `6h`, `90m`) and, for a daily one, the
-hour it should land on. The service watches them itself: a thread beside the
-queue looks at the table twice a minute and puts a measurement in it when the
-moment comes, marked `trigger=schedule` so that the history tells a nightly run
-from a pressed button.
+A target carries `schedule` — an interval (`24h`, `6h`, `90m`) — and, for a
+daily one, `schedule_at` (`HH:MM`, **UTC**). A thread beside the queue checks
+the enabled targets every 30 seconds and queues a measurement with
+`trigger=schedule`. `next_run_at` on the target says when it fires next.
 
-It is set where the endpoint is configured — the Space's page for it — and
-arrives here in the target's spec like any other setting. Per endpoint rather
-than per Space: a corpus that changes daily wants a nightly run, and one kept
-for reference wants far less.
+* A schedule seen for the first time is planned, not fired.
+* A changed schedule is replanned.
+* Missed windows are not worked off: one overdue measurement, then the plan
+  moves forward from now.
+* A target already queued or running is not queued twice.
 
-**The hour is UTC.** Not for convenience but because nothing else can be
-honest: a container knows nothing of the owner's night, and a service that took
-its own clock for it would shift every schedule the day the host moved. The
-Space's form says so where the hour is set, and shows `next_run_at` in the
-reader's own time zone where it is read.
-
-`next_run_at` on the target says when it will fire, and is handed out rather
-than left to the UI to work out — it is the answer to "why has it not run yet"
-and "did my change take". Three rules about it:
-
-* a schedule **saved for the first time is planned, not fired**. "Every 24h at
-  03:00" means tonight, and answering a saved form with hours of paid work is
-  not what was asked for;
-* a schedule **changed is replanned**. Otherwise switching a measurement from
-  nightly to hourly would leave it nightly until the night it was already
-  waiting for;
-* **windows slept through are not worked off.** A service that was down for
-  three nights owes one measurement, not three: only the last of them would
-  have been about today.
-
-A measurement that outruns its own schedule is not overtaken — a target already
-queued or running is not queued twice. A node answering under double load is
-not the node that answered yesterday, and the numbers would diverge for a
-reason of their own.
+`PUT /targets/{key}` with an enabled schedule is refused (422) when no web
+check model (`filter_model`) is set.
 
 ## The routes
 
+All routes except `/health` require `BENCH_CONTROL_TOKEN`.
+
 | Route | What it does |
 | --- | --- |
-| `GET /health` | Without a key: is there anyone at this address at all |
-| `GET /capabilities` | What the installation can do: arms, blocks, generators, models, provider |
-| `GET /schema` | The shape of the settings fields — names, types, bounds, groups |
-| `GET /models` | The model catalogue, filtered: what a picker may offer |
-| `POST /models/refresh` | Fetch the provider's model list afresh and store it |
-| `GET /defaults` | What an unset setting will turn out to be |
-| `GET/PUT /settings` | The installation's own overrides — the layer under the instrument |
-| `GET /credentials` | Which secrets are stored, and since when. Never the values |
+| `GET /health` | No key: is the service up, is a key configured |
+| `GET /capabilities` | Arms, blocks, generators, models, text metrics, provider |
+| `GET /schema` | The shape of the settings fields: names, types, bounds, choices, groups |
+| `GET /models` | The model catalogue, filtered (`q`, `vendor`, `supports`, `lacks`, `web_search`, `include_retired`, `limit`) |
+| `POST /models/refresh` | Fetch the provider's model list and store it |
+| `GET /defaults` | What an unset field resolves to, per layer |
+| `GET/PUT /settings` | The installation's overrides; `PUT` replaces the whole document |
+| `GET /credentials` | Stored secret names and when they were set |
 | `PUT/DELETE /credentials/{name}` | Store a secret, sealed; remove one |
 | `POST /credentials/rotate` | Re-seal every secret under the active master key |
-| `GET /targets` | All registered targets as a list |
-| `GET/PUT/DELETE /targets/{key}` | One target: read, create or amend, remove |
+| `GET /targets` | All targets, each with its last job |
+| `GET/PUT/DELETE /targets/{key}` | Read, create or replace whole, remove (measurements stay) |
 | `POST /targets/{key}/check` | Are the index, the node and every configured model reachable |
-| `POST /targets/{key}/runs` | Put a measurement in the queue — any combination of building the set, filtering it and evaluating it, in one job |
-| `POST /targets/{key}/filter` | Screen this node's pending pairs on their own, in a job of their own |
-| `POST /targets/{key}/judge` | Grade this node's pending verdicts on their own, in a job of their own |
-| `POST /targets/{key}/report` | Rebuild the card of the newest measurement — synchronous, no job |
-| `POST /targets/{key}/publish` | Build that same card and hand it to the Space — synchronous |
-| `POST /targets/{key}/retract` | Retract the published card through the Space — synchronous |
-| `POST /targets/{key}/session` | Mint a short-lived, single-target token for the console — see [The console](#the-console) |
-| `GET /targets/{key}/jobs` | The node's measurement history |
-| `GET /jobs/{id}` | One job: its state, progress and card |
-| `POST /jobs/{id}/cancel` | Stop a queued or running job |
-| `DELETE /jobs/{id}` | Discard a finished job: its runs, verdicts and card |
+| `GET /targets/{key}/window?days=` | How many articles the freshness window holds |
+| `POST /targets/{key}/runs` | Queue a measurement (202) |
+| `POST /targets/{key}/filter` | Queue a filter pass over pending pairs (202) |
+| `POST /targets/{key}/judge` | Queue a judging pass over pending verdicts (202) |
+| `POST /targets/{key}/report` | Build the card of the newest measuring launch — synchronous |
+| `POST /targets/{key}/publish` | Build that card and hand it to the Space — synchronous |
+| `POST /targets/{key}/retract` | Retract the published card through the Space |
+| `POST /targets/{key}/session` | Mint a console session token — see [The console](#the-console) |
+| `GET /targets/{key}/jobs` | The target's last 20 jobs |
+| `GET /jobs/{id}` | One job: state, progress, card |
+| `POST /jobs/{id}/cancel` | Ask a queued or running job to stop |
+| `DELETE /jobs/{id}` | Discard a finished job, its runs and verdicts; 409 while live |
 
-### Why `/schema` rather than a form in the Space
+Launches on a disabled target answer 409. `PUT /targets/{key}` and
+`POST /targets/{key}/runs` answer 422 when a judge and a tested model share a
+vendor under `judge_policy=strict`; a run that evaluates also needs
+`filter_model` (422 "Choose a web check model").
 
-The list of settings could have been repeated in the Space, and at first that
-would have been simpler. But then every new field here would mean a migration
-there, and a forgotten migration would mean a form that silently cannot
-configure something that already works.
+Reasons (why an arm is unmeasurable, why a job did not finish, `trust.flags`)
+are codes; the UI words them. The text of a failed call passes through as is.
 
-So what goes out is the **shape** of the fields: name, type, bounds, allowed
-values, group. There are deliberately no labels — by the same rule under which
-the card hands over `trust.flags` as codes: the wording belongs to whoever is
-displaying it, and in their reader's language.
+### `/schema` and `/models`
 
-The same goes for reasons: why an arm is unmeasurable, why a job did not finish
-— as codes. The only thing that passes through as is is the text of a failed
-call: it is not enumerable, and hiding it is worse than showing it
-untranslated.
+`/schema` sends the shape of the fields, not labels, so a new setting needs no
+change in the Space. Model fields say `catalog: "models"`; the form fetches the
+list from `/models`.
 
-### Why `/models` is a route of its own
-
-`choices` on a field carries its own values — three arms, four blocks — and the
-form draws them as they arrive. Three hundred models cannot travel that way,
-and they change on a refresh rather than on a release. So a field says
-`catalog: "models"` instead, and the form fetches the list from here.
-
-The form recognising the four model fields by name is exactly the coupling
-`/schema` exists to prevent: a fifth such field would then need a release on the
-other side before anyone could pick a model for it.
-
-**One model, one identifier, whoever serves it.** The settings hold this
-service's name for a model — `anthropic/claude-sonnet-5` — and the provider's
-own name for it is worked out where the call is made: the same model is
-`claude-sonnet-5` at Anthropic's own API. Moving an installation from one
-provider to another therefore does not rewrite the settings, and measurements
-taken on either side stay comparable.
-
-**A moving name is pinned as a setting is saved.** `~anthropic/claude-sonnet-latest`
-means a different model every few months. The catalogue hands out the map
-(`pins`) so a form can show both, but what is stored is what the name meant on
-the day it was chosen — otherwise a run could not be repeated, and two runs a
-season apart would sit in one report under one name.
-
-**The catalogue is not a whitelist.** A model released this morning is in no
-snapshot; it goes through, marked as unknown. Refusing it would make the picker
-less capable than a text box.
-
-The list that ships with the code is the floor. `POST /models/refresh` stores a
-newer one in `model_catalog` and that is what is read from then on. Fetching it
-is a call outside the perimeter, so it is an explicit action rather than a
-schedule, and it answers 403 naming the host to open when the perimeter forbids
-it. An installation that never opens it works from the shipped snapshot.
-
-Models this rig has pulled itself are added live from Ollama and stand first in
-the list: they are inside the perimeter, which is where the generator belongs.
-They are asked for only when the shared address is an Ollama — a gateway has no
-such route.
+* One identifier per model, whoever serves it (`anthropic/claude-sonnet-5`);
+  the provider's own name is resolved at call time.
+* A moving alias (`~anthropic/claude-sonnet-latest`) is pinned to its current
+  model when a setting is saved; the catalogue hands out the map as `pins`.
+* The catalogue is not a whitelist: an unknown model is accepted and marked
+  unknown.
+* The shipped `data/models.json` is the floor; `POST /models/refresh` stores a
+  newer list in `model_catalog`. Refreshing is a call outside the perimeter: it
+  answers 403 naming the host when the perimeter forbids it.
+* When `ollama_url` points at an Ollama, its pulled models are listed first.
 
 ## The console
 
-Everything above is a door for a service that already holds
-`BENCH_CONTROL_TOKEN`. The session token this section describes opens a
-second, narrower door — scoped to one target — reached two ways: the Space's
-own UI mints one per request and proxies through it, so its owner reviews a
-target from the endpoint's own page without a browser ever holding the
-token; the benchmark's own frontend (`packages/benchmark/frontend`) instead
-hands the token straight to the browser, for reviewing a target without a
-Space in front of it at all.
+`POST /targets/{key}/session` (installation key required) mints a signed token
+scoped to one target, valid for an hour (`control/session.py`; no table). The
+Space's UI mints one per request and proxies through it; the benchmark's own
+frontend (`packages/benchmark/frontend`, served at `/ui` when built) holds it in
+the browser.
 
 ```mermaid
 sequenceDiagram
@@ -309,261 +190,120 @@ sequenceDiagram
     O->>B: GET /ui, then every /console/* call with that token
 ```
 
-A session token is a signed claim, not a database row — verifying it costs a
-signature check, not a query, and there is nothing to expire in a table. It
-names exactly one target and carries its own expiry (`control/session.py`);
-holding it grants that one target's data and controls, never the rest of the
-installation. `POST /targets/{key}/session` is itself one of the routes
-above, guarded the ordinary way — only something that already holds the
-installation's own token can mint one.
-
-Under that narrower guard, `/console/*` deliberately returns what the routes
-above never do — the text of a pair's question and answer, a result's
-reasoning — because a review screen with none of that would have nothing to
-show:
+`/console/*` returns what the service routes never do: question and answer
+texts, reasoning, block details (`denial`, `repeats` from `Result.extra`).
 
 | Route | What it does |
 | --- | --- |
+| `GET/PUT /console/probe` | This target's probe layer, its fields, the inherited values. The instrument is not editable here |
 | `GET /console/pairs` | This target's pairs, filterable by status, cohort, generator |
-| `GET/PATCH/DELETE /console/pairs/{id}` | Read one pair; override its status by hand; remove it outright if nothing has measured it yet |
-| `GET /console/results` | This target's results, filterable by verdict, pair or launch |
-| `POST /console/results/{id}/verdict` | Record a verdict by hand — inserted, never a rewrite |
-| `GET/PUT /console/probe` | This target's own probe layer, its fields, and what an unset field resolves to |
-| `POST /console/runs` / `/filter` / `/judge` | The same launches as the service routes, scoped to this one target |
+| `GET/PATCH/DELETE /console/pairs/{id}` | Read a pair; override its status; delete it if no result references it |
+| `GET /console/results` | This target's results, filterable by verdict, pair, launch |
+| `POST/DELETE /console/results/{id}/verdict` | Record a verdict by hand (inserted, not a rewrite); withdraw it |
+| `POST /console/runs` / `filter` / `judge` | The same launches as the service routes |
 | `GET /console/jobs` | This target's job history |
-| `POST /console/report` / `/publish` / `/retract` | The same report actions as the service routes |
+| `POST /console/report` / `publish` / `retract` | Card actions; `job` names the launch, default the newest measuring one |
 
-`/console/probe` is deliberately narrower than `PUT /targets/{key}`: it
-changes only the probe layer, never the url, the credentials or the
-instrument. A per-target instrument override is set the same way probe's
-Space-wide layer is — through `PUT /targets/{key}`'s full spec, called by
-whoever assembles it — rather than through a session scoped to one target.
+`POST /console/report` returns the owner's view of the card: it adds
+`score_label` and `trust.doubts` (prose), which a published card never carries
+(`owner_payload_for` in `publish/space.py`). With `record`, the card is kept as
+the job's published card.
 
-A result from `denial_loop` or `monte_carlo` also carries `denial` or
-`repeats` — the round the model gave its answer up on, how many times the
-question was repeated and how far the repeats agreed. Both blocks record the
-answer they **started from**, so without these a block result is the direct one
-repeated, and its verdict is unaccountable: `hallucinate` on a pressure row
-means the answer was given up, not that it was wrong. They come out of
-`Result.extra`, behind the session token like the rest of this section; a
-published card carries none of it.
+Run reports, under `/console/report`:
 
-`POST /console/report` carries two fields the service route and
-`/console/publish` do not: `score_label` and `trust.doubts` — the same
-reasons as `trust.flags`, spelled out in prose. Both stay behind the session
-token; a published card only ever carries the codes
-([owner_payload_for](../src/syft_benchmark/publish/space.py)).
+| Route | What it does |
+| --- | --- |
+| `GET /runs` | Active jobs and a page of finished runs |
+| `GET /runs/{job}` | One run's report, without per-question rows |
+| `GET /runs/{job}/generated` | The questions the job wrote, and its build per kind |
+| `GET /runs/{job}/filter` | The job's filter decisions |
+| `GET /runs/{job}/questions` | One model's questions in the run, paged |
+| `GET /runs/{job}/questions/{qa}` | One question in full |
+| `GET /runs/{job}/questions/{qa}/fragments` | The passages sent with the arm C answer |
+| `PUT/DELETE /runs/{job}/questions/{qa}/exclusion` | Leave a question out of this run's figures (`retire` also retires the pair); put it back |
+| `GET /runs/{job}/summary.docx` | The run's summary document: figures only |
+| `GET /runs/{job}/export.xlsx` | Everything in the run, full texts |
 
 ## The model provider
 
-The benchmark does the counting, and the bill goes to the key's owner. So the
-installation tells you about itself: which address, how it introduces itself to
-the provider, whether a key is set, which hosts are open and which roles have
-their own provider rather than the shared one.
-
-**The key does not leave the perimeter — neither as a value nor into any
-storage.** The Space never calls the provider even once, and a copy of the
-secret in a service that does not use it would be extra surface, not
-convenience. In the UI the field only shows: "a key is set" and the address.
-
-The roles are listed one by one because each has its own address/key pair. A
-single answer "the provider is such-and-such" for all three is sometimes simply
-wrong: the generator reads documents and should normally stay inside the
-perimeter, while the models under test are almost always external — and an
-owner looking at a shared answer would think the documents go nowhere.
-
-`editable: false` is stated explicitly. Editing from here would mean both a
-copy of the key in the benchmark's database and — in an installation serving
-several Spaces — that one owner changes the bill for all the rest. The key is
-changed in the service's environment.
+`/capabilities` describes the provider without the key: address, app name,
+whether a key is set, open external hosts, and per role (generator, subject,
+judge) its address, whether a key is set and whether it has its own provider.
+The key is changed in the benchmark's settings or secrets, never through the
+Space.
 
 ## Jobs
 
-A measurement runs for hours, and an HTTP request does not live that long. The
-route puts a job into the queue and answers `202` at once; a worker thread does
-the work, checking in on the same row.
-
-The queue is shared and strictly sequential. This is not a simplification: a
-measurement is bounded not by the processor but by the model provider and by
-the node under test itself, and two jobs at once will speed up neither — but
-will spoil both. A node answering under double load is not the same node that
-answered yesterday.
+A launch queues a job and answers `202`; a worker thread runs it. One active
+job per target: launching while one is queued or running returns that job.
 
 | State | Meaning |
 | --- | --- |
-| `queued` | Waiting: one job at a time is allowed per node |
-| `running` | In progress; `phase` says on what exactly |
-| `succeeded` | Finished counting. A non-empty `error` — it went through, but not entirely |
-| `failed` | Did not reach the end at all |
-| `cancelled` | Stopped by the owner; what was measured stayed in the database |
+| `queued` | Waiting |
+| `running` | In progress; `phase` (`generate`, `filter`, `evaluate`, `judge`, `report`, `publish`) says where |
+| `succeeded` | Finished; a non-empty `error` means partly |
+| `failed` | Did not reach the end |
+| `cancelled` | Stopped; what was measured stays |
 
-**Stopping is a request, not a kill.** The run finishes writing the current
-question and exits by itself: half a measurement is data too, and its verdicts
-are already in the database.
+`kind` is `pipeline` (`/runs`), `filter` or `judge`. Stopping is a request:
+the run finishes the current question and exits. A job whose priced calls reach
+$100 is stopped the same way (`over_budget: …`).
 
-### A job is the handle on one measurement
+Every run a job opens carries its id, so a launch's report and audit can be
+read afterwards (`syft-benchmark audit <space> --job <id>`). A launch that
+resumed a finished pass opens no run for it; those verdicts belong to the
+earlier launch. Runs started from the CLI have no job.
 
-Every run a job opens carries its id, and so every verdict can be traced back
-to the launch that obtained it. Without that a job and its runs would share a
-target and a span of time and nothing else — and time cannot tell a nightly
-measurement from one somebody started by hand in the same hour.
-
-This is what makes a launch readable afterwards rather than only while it runs:
-
-* **the report of that measurement**, as against the node's numbers today. They
-  differ for two reasons and both are ordinary — a later launch overwrites the
-  latest verdict per question, and a rolling set drops the questions that were
-  screened out since. Scoped to a launch, neither happens: a question retired
-  from the set was still asked in August, and screening it out afterwards does
-  not unask it;
-* **the audit of that measurement.** Settings change between launches, and an
-  export that mixed two of them would lay answers obtained at different
-  similarity thresholds side by side under one heading. The job's row already
-  carries the settings snapshot it was launched with, so the numbers and the
-  configuration that produced them are read together.
-
-From the console that is `syft-benchmark audit <space> --job <id>`. The id is
-the one the job history hands out.
-
-One honest limit. A launch that resumed a pass already finished opens no run
-for it — there is nothing left to ask — so the verdicts it inherited belong to
-the earlier launch that obtained them. Scoped to a job, "what did this launch
-measure" is exactly that, and it is not the same question as "what did the node
-look like when this launch ended".
-
-A run started from the console belongs to no job and says so with an empty
-field. That is a fact rather than a gap: filling it in afterwards would mean
-inventing a launch that never happened.
-
-### "Reached the end" and "measured something" are different things
-
-A job reports more than that the runs have finished. A model provider that is
-down gives a full pass over the set, zero verdicts and a thoroughly reassuring
-result; an empty freshness window gives a full pass over zero questions. Both
-would report "went through", and the owner would go looking for numbers that do
-not exist.
-
-| Code | When |
+| Error code | When |
 | --- | --- |
-| `nothing_generated: …` | The set was to be built and every generator call was refused |
-| `no_questions` | There were runs, there turned out to be nothing to ask |
-| `nothing_graded: …` | Questions were asked, not a single verdict came out |
-| `no_card` | There is nothing to report |
+| `nothing_generated: …` | The set was to be built and every generator call failed |
+| `no_questions` | There was nothing to ask |
+| `nothing_graded: …` | Questions were asked, no verdict came out |
+| `no_card` | Nothing to report |
 | `publish_refused: …` | The Space did not accept the card |
+| `over_budget: …` | The spending cap stopped the job |
 | `target_gone` | The target no longer exists |
-| `service_restarted` | The process restarted in the middle of a measurement |
+| `service_restarted` | The process restarted mid-job |
 
-A trial run (`limit`) takes several items **per generator**, not in total — for
-the same reason the limit in the console is built that way
-([03-dataset.md](03-dataset.md)): a generator is a distinct skill, and a total
-cap at a small value would simply throw some skills out of the measurement
-while the report called the result accuracy. A thin sample is not hidden but
-named: the card carries `few_samples` in `trust.flags`, and the reader sees how
-many questions the numbers stand on.
+### What a launch does
 
-### Building the set, filtering it and asking it questions are separate steps
+`RunRequest` fields:
 
-`generate`, `filter` and `evaluate` answer three different questions, and a
-launch chooses any combination of them:
-
-| Field | Answers |
+| Field | Meaning |
 | --- | --- |
-| `generate` | Build the question set from the corpus before anything else? None — as configured on the target |
-| `filter` | Screen the pending pairs `generate` just built? None — follow `generate`, so a launch that built a set also decides what of it is fit |
-| `evaluate` | Ask and grade against the set that results? None — yes |
-| `defer_judging` | Collect answers without calling a judge, leaving every verdict `pending`? Default `false` |
+| `generate` | Build the set first. `null` — as `generate_in_cycle` says |
+| `filter` | Screen the pending pairs just built. `null` — follow `generate` |
+| `evaluate` | Ask and grade. `null` — yes |
+| `defer_judging` | Collect answers without a judge, leaving verdicts `pending`; no card. Default `false` |
+| `publish` | Hand the card to the Space at the end. Default `true` |
+| `limit` | Items **per generator**, for a trial run; the card flags `few_samples` |
+| `instrument`, `probe` | Layers for this launch only |
 
-`evaluate: false` is the launch that only wants the set refreshed and
-screened: no model under test is asked a single question, so there is nothing
-to grade and no card, and `job.total` stays `0` for exactly that reason — no
-passes were ever planned. `generate: false, evaluate: true` asks and grades
-against whatever is already active in the set without rebuilding it first.
-`defer_judging: true` narrows that further to asking alone, leaving every
-verdict `pending` for `POST /targets/{key}/judge` to grade afterwards — the
-live equivalent of `export-judging`/`import-judging` ([05-judging.md](05-judging.md)).
+`evaluate: false` only refreshes the set: no questions, no card, `total` stays
+`0`. `defer_judging: true` leaves grading to `POST /targets/{key}/judge`.
 
-`POST /targets/{key}/filter` and `POST /targets/{key}/judge` run either step
-on its own, over whatever is already stored, without a fresh `generate` or
-`evaluate` alongside it.
+### The card
 
-### The card is not the same decision as publishing it
+`job.card` holds the card built at the end of a measurement, in the shape the
+Space receives, whether or not it was published. `publish` decides only whether
+it is also sent to the Space (`POST {space}/api/v1/endpoints/{slug}/quality`).
 
-`JobView.card` carries the card assembled right after measuring — in the same
-shape the Space is handed, [payload_for](../src/syft_benchmark/publish/space.py)
-— and it is there whether or not `publish` was ticked, and whether or not the
-Space took it. Building it costs nothing extra: the verdicts it is built from
-are already in the database, and withholding the one readable summary of a run
-until someone agrees to make it public would mean "how did this go" has no
-answer of its own.
+A card is of one launch: the job of the newest run. Filtering and judging open
+no runs, so they improve that launch's card rather than start a new one. When
+the newest run has no job (started from the CLI), the card is the node as of
+now.
 
-`publish` on `POST /targets/{key}/runs` decides one thing only: whether the
-card built at the end of that run is also handed to the Space
-(`POST /endpoints/{slug}/quality`), from where it may reach a marketplace. A
-run with `publish: false`, or one the Space refused (`publish_refused`,
-`benchmarks_mode` off), still has its `card` — read it from `GET /jobs/{id}` or
-`GET /targets/{key}/jobs`.
+`DELETE /jobs/{id}` removes the job, its runs and verdicts; `qa_pairs` belong
+to the target and stay.
 
-Reviewing before publishing does not need a new run at all:
-`POST /targets/{key}/report` rebuilds the card synchronously,
-`POST /targets/{key}/publish` hands it to the Space, and
-`POST /targets/{key}/retract` takes it back — three plain HTTP calls, none of
-them a queued job, since none of them asks a model or the node under test.
+## The target registry
 
-**A card is of one launch.** Both routes build it from the runs of the newest
-measurement, not from every verdict standing in the database: otherwise a
-generator switched off yesterday would still speak on today's card, two cards
-an hour apart could differ because a judging pass finished in between rather
-than because anything was measured, and no two of them would be comparable.
-Which launch that is follows the **newest run**, not the newest job: a run
-opened outside the queue — by the CLI, or before the job table existed —
-belongs to no launch, and the card is then the node as of now, as it always
-was. Filtering, generating and judging open no runs, so none of them starts a
-new card: grading yesterday's answers improves yesterday's card.
+Targets live in the `targets` table. `config/spaces.json` is a seed: a target
+missing from the table is taken from the file at start-up. Changes from the UI
+are never written back to the file. A target stores overrides only.
 
-`DELETE /jobs/{id}` discards a finished job — its own row, the runs it opened
-and their verdicts, card included. Not the question set: `qa_pairs` belongs to
-the target and is shared by every job that ever measured it, past and future,
-so deleting one run's data does not thin it out for the rest. A job still
-queued or running answers `409` — cancel it first, on its own terms.
-
-## The node registry
-
-Targets live in a table, while `config/spaces.json` remains a **seed**: a
-target that is not in the table is taken from the file at service start-up. An
-installation configured by the file keeps working, knowing nothing about the
-UI.
-
-There is deliberately no way back: changes from the UI are not written to the
-file. A service that rewrites a human's configuration file sooner or later
-wipes out something it did not understand.
-
-What a target stores is **overrides**, not the full set of settings. A full
-snapshot would freeze the installation's defaults as of the day the target was
-created, and a raised answer ceiling would never reach a single node.
-
-### What the check walks
-
-Three roads, and any of them can be out while the others are fine. To the index
-the benchmark goes past the Space API, over the internal network or through
-`docker exec`; to the node, by ordinary HTTP with a token; to each model, out
-through the perimeter to whatever provider that role points at.
-
-The models are the road most easily left broken. They are named in the
-instrument, which is edited in a UI, while the address and the key reaching them
-are the installation's own layer — so an instrument full of a gateway's model
-names on an installation with no gateway configured is a working configuration
-that cannot answer a single question. The check asks once per distinct address
-and name; on an external provider that is a one-token request, which is the
-price of the button and far below the price of learning the same thing from the
-run it precedes.
-
-### The collection's name
-
-The collection in the index is named after the Space's dataset, not after the
-target's key. The two coincide only when the key has been hand-picked to match
-the index. So the name is a field of the target, and `POST
-/targets/{key}/check` returns a list of what is actually in the index: the
-owner should not have to guess what the Space called the collection.
-
-A Space creating a target from the UI fills the name in itself — it knows its
-own dataset.
+`POST /targets/{key}/check` walks three roads: to the index (HTTP or
+`docker exec`), to the node (HTTP with the token), and to each configured model
+(one request per distinct address and name). It returns the collections
+actually present in the index: the collection is named after the Space's
+dataset, not the target key, and is a field of the target.

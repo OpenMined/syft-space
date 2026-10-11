@@ -2,12 +2,9 @@
 
 An honesty benchmark for [Syft Space](https://github.com/OpenMined/syft-space) endpoints.
 
-It builds a dataset from a Space's corpus, tests the model, the endpoint and the
-pair of them across three arms, and hands the Space a verdict to publish.
-
-What is under test is not the RAG system by itself but **the model's interaction
-with it**: first the model answers alone, then the endpoint answers, then the
-same model is handed the material the endpoint retrieved and answers with it.
+It builds a question set from a Space's corpus, asks it three ways, and hands
+the Space a card to publish. What is under test is **the model's interaction
+with RAG**:
 
 | Arm | Who answers | What it gets | Correct behaviour | What it measures |
 | --- | --- | --- | --- | --- |
@@ -15,26 +12,22 @@ same model is handed the material the endpoint retrieved and answers with it.
 | **B** `open_book` | the endpoint | the question; it has the corpus | a correct answer | the owner's product |
 | **C** `model_with_context` | the **same** model as in A | question + the endpoint's retrieval | a correct answer | the model's work with RAG |
 
-The set has two halves: on one, an answer exists in the corpus by construction;
-on the other there is no answer at all — and the correct behaviour there is to
-stay silent. There are three outcomes: `correct`, `abstain`, `hallucinate`.
+Half of the set is answerable from the corpus; the control half has no answer,
+and the correct behaviour there is to abstain or refute the premise. Outcomes:
+`correct`, `abstain`, `hallucinate`.
 
 **The benchmark measures, the Space publishes, SyftHub displays.** There are no
-hub credentials here and there must not be: metrics go to the Space, and the
-Space puts them out under its own account — exactly as it already does with
-health.
+hub credentials here.
 
-**Documentation — [docs/README.md](docs/README.md):** the problem, the pipeline,
-the stages, and links to everything else.
+Documentation: [docs/README.md](docs/README.md).
 
 ---
 
 ## Running it as a service
 
-The benchmark is a service: the control API, the job queue and the schedule in
-one container, driven from the Space's UI. It joins the rig's docker network
-and reads the Space's index over HTTP — the Space keeps ChromaDB inside its own
-container on port 8100, and a sibling container reaches it by name.
+The control API, the job queue and the schedule run in one container, driven
+from the Space's UI. The container joins the rig's docker network and reads the
+Space's ChromaDB (port 8100 inside the Space's container) over HTTP.
 
 ```bash
 cd packages/benchmark
@@ -44,24 +37,19 @@ uv run syft-benchmark secrets keygen >> .env   # the master key for stored secre
 docker compose --profile service up -d --build
 ```
 
-The schema is brought up to date on start. Then connect it from the Space's UI
-and configure a target there — with one thing that cannot be guessed: its
-`chroma_host` is the Space's **container name**. Inside a container `localhost`
-is the benchmark itself.
+The schema is migrated on start. Connect the benchmark from the Space's UI and
+configure a target there; its `chroma_host` is the Space's **container name**
+(inside a container `localhost` is the benchmark itself).
 
-`BENCH_SPACE_NETWORK` names the network to join when the rig does not call it
-`syft-space-network` — `docker network ls` says which. The rest is in
-[control-api](docs/control-api.md).
+`BENCH_SPACE_NETWORK` names the network to join when it is not
+`syft-space-network` (`docker network ls`). Details: [control-api](docs/control-api.md).
 
 ---
 
 ## Quick start from the console
 
-The console is where the pipeline is developed and a measurement is taken
-apart by hand — stage by stage, with the files in view. Everything below runs
-from this directory: the config paths and `prepend_sys_path` in `alembic.ini`
-are relative to it, and the virtualenv is its own — the benchmark shares the
-repository with the Space, not a process.
+Run from this directory: `alembic.ini` paths are relative to it, and the
+virtualenv is its own.
 
 ```bash
 cd packages/benchmark
@@ -69,25 +57,25 @@ cd packages/benchmark
 cp .env.example .env
 cp config/spaces.example.json config/spaces.json   # fill in your own Spaces
 
-docker compose up -d          # the benchmark's Postgres on 5442, without the service
+docker compose up -d          # Postgres on 5442, without the service
 uv sync
-uv run alembic upgrade head   # schema
+uv run alembic upgrade head
 
-uv run syft-benchmark doctor  # is everything in place
+uv run syft-benchmark doctor
 uv run syft-benchmark chunks docs --collection syft_knowledge_base
 
 uv run syft-benchmark generate docs --limit 2   # 2 items from EVERY generator
+uv run syft-benchmark filter docs
 uv run syft-benchmark freeze docs --out config/slice-docs.json --limit 60
-uv run syft-benchmark evaluate docs            # all three arms from the settings
-uv run syft-benchmark status docs              # what is collected, what is left
+uv run syft-benchmark evaluate docs            # the arms from the settings
+uv run syft-benchmark status docs
 uv run syft-benchmark report docs --out reports/latest.md
 uv run syft-benchmark report docs --docx reports/latest.docx   # with charts
 uv run syft-benchmark audit docs --out reports/audit.jsonl
 uv run syft-benchmark publish docs
 ```
 
-Start with `--limit 2`: that is enough to see a working pipeline across every
-kind of item, and cheap if it does not work.
+Start with `--limit 2`: it exercises every kind of item cheaply.
 
 ---
 
@@ -95,51 +83,33 @@ kind of item, and cheap if it does not work.
 
 | Command | Stage | In detail |
 | --- | --- | --- |
-| `spaces` | the Space registry and its settings | [01-setup](docs/01-setup.md) |
+| `spaces` | the Space registry and the current settings | [01-setup](docs/01-setup.md) |
 | `doctor` | check that everything a run depends on is in place | [01-setup](docs/01-setup.md) |
 | `chunks <space>` | read the Space's index and show how much material there is | [01-setup](docs/01-setup.md) |
-| `models [query]` | the model catalogue; `--refresh` fetches the provider's list afresh | [01-setup](docs/01-setup.md) |
-| `upstreams` | which host actually served each answer, and how the verdicts fell | [04-evaluation](docs/04-evaluation.md) |
-| `generators` | the generator line-up, model roles, blocks and their settings | [02-generation](docs/02-generation.md) |
-| `generate` | build items; `--mode`, `--period`, `--new-cohort` pick the set | [02](docs/02-generation.md), [03](docs/03-dataset.md) |
+| `models [query]` | the model catalogue; `--refresh` fetches the provider's list | [01-setup](docs/01-setup.md) |
+| `settings` | the installation's settings row: `show`, `set`, `unset` | [01-setup](docs/01-setup.md) |
+| `secrets` | provider keys and Space tokens, sealed: `keygen`, `list`, `set`, `unset`, `rotate` | [01-setup](docs/01-setup.md) |
+| `generators` | the generators: what each builds and how it is judged | [02-generation](docs/02-generation.md) |
+| `generate` | build items; `--mode`, `--period`, `--new-cohort`, `--limit` | [02](docs/02-generation.md), [03](docs/03-dataset.md) |
+| `filter` | screen `pending` pairs into `active` / `rejected` | [02-generation](docs/02-generation.md) |
 | `freeze <space> --out <file>` | freeze a slice of questions | [03-dataset](docs/03-dataset.md) |
 | `cohorts <space>` | the set's cohorts and the comparison between them | [03-dataset](docs/03-dataset.md) |
-| `evaluate -m <arm> -b <block>` | ask the questions and judge the answers | [04-evaluation](docs/04-evaluation.md) |
-| `status` | what is collected, what is missing, and what will finish it | [04-evaluation](docs/04-evaluation.md) |
+| `evaluate -m <arm> -b <block>` | ask the questions and judge the answers; `--defer-judging` | [04-evaluation](docs/04-evaluation.md) |
+| `status` | what is collected, what is missing, what will finish it | [04-evaluation](docs/04-evaluation.md) |
+| `upstreams` | which host served each call, and how the verdicts fell | [04-evaluation](docs/04-evaluation.md) |
 | `export-questions` / `import-answers` | testing a model by hand through a chat | [04-evaluation](docs/04-evaluation.md) |
+| `judge` | grade the answers a deferred pass left `pending` | [05-judging](docs/05-judging.md) |
 | `export-judging` / `import-judging` | judging through a chat, without an API | [05-judging](docs/05-judging.md) |
-| `report` | fold verdicts into metrics; `--docx` — a document with charts | [06-report](docs/06-report.md) |
-| `audit <space>` | export the raw records; `--job` — of one launch | [07-audit](docs/07-audit.md) |
-| `publish` / `retract <space>` | hand the metrics to the Space; retract what was published | [08-publish](docs/08-publish.md) |
-| `cycle --every 24h --at 03:00` | the whole daily cycle, from the console | [docs/README](docs/README.md) |
-| `settings` | the installation's own defaults: `show`, `set`, `unset` | [01-setup](docs/01-setup.md) |
-| `secrets` | the provider keys, sealed: `keygen`, `list`, `set`, `unset`, `rotate` | [01-setup](docs/01-setup.md) |
-| `serve` | the service: the control API, the queue and the schedule | [control-api](docs/control-api.md) |
+| `report` | metrics; `--docx` writes a document with charts | [06-report](docs/06-report.md) |
+| `audit <space>` | export the raw records; `--job`, `--judge`, `--no-context` | [07-audit](docs/07-audit.md) |
+| `publish` / `retract <space>` | hand the card to the Space; retract it | [08-publish](docs/08-publish.md) |
+| `cycle [--every 24h --at 03:00]` | the whole cycle from the console | [docs/README](docs/README.md) |
+| `serve` | the control API, the queue and the schedule | [control-api](docs/control-api.md) |
 
-Publishing is a separate command rather than the tail of a run: a run can be
-interrupted halfway, and there is no point publishing half the results.
-
-`serve` raises the same thing for people who do not live in a console: the
-Space's owner connects the benchmark on their side, configures it and presses
-"measure" — or sets a schedule and presses nothing. A key is mandatory,
-otherwise the API answers only on `/health`: its one working route costs hours
-and money.
-
-`cycle` is the console's way to the same place and is not the deployment: the
-service fires its own schedule, and a `cycle` running beside it would be a
-second source of truth measuring the same nodes.
-
----
-
-## State
-
-The three-arm pipeline, the control half of the set, the audit log, option
-shuffling, the report as a document, parallel runs, resuming from the point of
-interruption, the frozen slice, the rolling set, cohort rebuilds, judging
-without an API, the control API, the schedule the service fires itself, a
-measurement readable back by the launch that made it, and the settings and the
-sealed secrets in the database rather than in a file on somebody's host — all
-in the code. 481 tests pass, `mypy --strict` is clean, `ruff` is clean over `src` and `tests`.
+Commands that take `[space]...` run over every registered Space when none is
+given. Publishing is a separate command: an interrupted run must not publish
+half its results. With the service up, leave scheduling to it and use `cycle`
+only for a single pass.
 
 ---
 
@@ -149,14 +119,8 @@ in the code. 481 tests pass, `mypy --strict` is clean, `ruff` is clean over `src
 uv run pytest
 ```
 
-The tests choose their own database and cannot be handed a live one. Several of
-them clear the settings row and every stored credential — that is what they are
-for — so `tests/conftest.py` redirects `BENCH_DATABASE_URL` to a sibling
-database named after it with `_tests` on the end, creating and migrating it if
-it is not there. Pointed at a running installation, those tests would unseal the
-provider key, drop the methodology row and leave the service calling a local
-Ollama for models named at a gateway.
-
-`BENCH_TEST_DATABASE_URL` overrides the derivation for a CI that makes its own
-database. With no server at all the tests that need one skip themselves, with a
-warning saying so.
+`tests/conftest.py` never uses the configured database: it redirects
+`BENCH_DATABASE_URL` to a sibling database with `_tests` appended, creating and
+migrating it if missing (some tests clear the settings row and every stored
+credential). `BENCH_TEST_DATABASE_URL` overrides it. Without a database server
+the tests that need one skip with a warning.

@@ -111,7 +111,7 @@ def compare(
         mode: The measurement arm
         block: The test block
         model: The answerer; None — all of them
-        judge: The judge; None — every verdict alike
+        judge: The judge; None — the counted verdict (primary judge)
         expected: Which half of the set
 
     Returns:

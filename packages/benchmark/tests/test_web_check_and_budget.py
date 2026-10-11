@@ -361,7 +361,8 @@ def _stub_generation(
     def fake_chat(system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
         read.append(user)
         # A tag per unit keeps questions distinct when units run in parallel.
-        item = f'{{"unit": "{uuid.uuid4().hex}"}}'
+        # Digits only: hex letters read as words to the language check.
+        item = f'{{"unit": "{uuid.uuid4().int}"}}'
         # tiered answers with an object, the rest with an array.
         return (item if "Generate 1." in user else f"[{item}]"), {}
 

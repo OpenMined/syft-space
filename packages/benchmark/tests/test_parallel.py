@@ -612,9 +612,8 @@ def test_the_rag_is_asked_once_per_question_across_the_whole_run(
 ) -> None:
     """Exactly what made a run overrun a day.
 
-    Three models, arm C, the direct test and the repeats: previously every
-    combination went to the node for its own copy of one and the same retrieval. Now
-    the question goes there once for the whole launch.
+    Three models, arm C, the direct test and the repeats: the question goes to
+    the node once for the whole launch, not once per combination.
     """
     from syft_benchmark.config import EvalBlock
     from syft_benchmark.runs import run_pass
@@ -705,6 +704,93 @@ def test_pressure_starts_from_the_answer_direct_already_got(monkeypatch: Any) ->
     # the rounds go in a dialogue, and the first answer is taken from what was recorded.
     assert added == len(stand.pairs), f"extra calls: {added}"
     assert cache.savings.model_reused >= len(stand.pairs)
+
+
+def _control_stand(monkeypatch: Any, behaviours: list[str]) -> _Stand:
+    """One trick question; the behaviour judge answers from the script, and the
+    free-text judge must never be asked."""
+    import json
+
+    import syft_benchmark.runs.blocks as blocks
+    import syft_benchmark.runs.execute as execute
+    import syft_benchmark.runs.judge as judge
+    import syft_benchmark.runs.parallel as parallel
+
+    stand = _Stand(monkeypatch, pairs=1)
+    pair = stand.pairs[0]
+    pair.generator = "unanswerable_property"
+    pair.answer = "not in the corpus: the TLS fee"
+    pair.expected_behavior = "abstain"
+    script = iter(behaviours)
+
+    def chat(system: str, user: str, **kwargs: Any) -> Any:
+        if "How did the model handle the question?" in user:
+            stand.judged += 1
+            return json.dumps({"behavior": next(script), "reasoning": "r"}), {}
+        assert "Is the model answer correct" not in user, "free-text judge used"
+        if "Is the answer grounded" in user:
+            return '{"grounded": true, "reasoning": "ok"}', {}
+        stand.answers.append((system, user))
+        return "I cannot find the fee.", {"finish_reason": "stop"}
+
+    for module in (parallel, execute, judge, blocks):
+        monkeypatch.setattr(module, "chat", chat)
+    return stand
+
+
+def _one_pass(block: Any, **conf: object) -> None:
+    from syft_benchmark.runs import run_pass
+
+    judges = [
+        Provider(role="judge", url="http://localhost:11434", api_key="", model="j/1")
+    ]
+    run_pass(
+        SPACE,
+        ContextMode.CLOSED_BOOK,
+        settings=_settings(concurrency=2, text_metrics=[], **conf),
+        subject=_provider("vendor/m"),
+        block=block,
+        judges=judges,
+        cache=RunCache(),
+    )
+
+
+def _results(stand: _Stand) -> list[Any]:
+    from syft_benchmark.db import Result
+
+    return [obj for obj in stand.saved if isinstance(obj, Result)]
+
+
+def test_a_trick_question_is_not_pressed(monkeypatch: Any) -> None:
+    """Control items are graded once in denial_loop and never pressed."""
+    from syft_benchmark.config import EvalBlock
+
+    stand = _control_stand(monkeypatch, ["declined", "made_up"])
+    _one_pass(EvalBlock.DENIAL_LOOP, denial_rounds=4)
+
+    (row,) = _results(stand)
+    assert stand.judged == 1
+    assert row.verdict == "abstain"
+    assert row.extra["behavior"] == "declined"
+    assert "denial" not in row.extra
+
+
+def test_repeats_of_a_trick_question_are_graded_by_behaviour(
+    monkeypatch: Any,
+) -> None:
+    from syft_benchmark.config import EvalBlock
+
+    stand = _control_stand(monkeypatch, ["declined", "declined", "made_up"])
+    _one_pass(
+        EvalBlock.MONTE_CARLO, monte_carlo_temperatures=[0.3], monte_carlo_trials=2
+    )
+
+    (row,) = _results(stand)
+    assert row.verdict == "abstain"
+    assert row.extra["behavior"] == "declined"
+    repeats = row.extra["monte_carlo"]
+    assert sorted(e["behavior"] for e in repeats["log"]) == ["declined", "made_up"]
+    assert repeats["accuracy"] == 0.5
 
 
 # --- resuming --------------------------------------------------------------

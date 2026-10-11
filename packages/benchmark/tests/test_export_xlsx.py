@@ -464,7 +464,7 @@ def test_the_workbook_holds_every_part_in_order(client: TestClient, clean: Any) 
     assert w1["Searches"] == 2
     assert w1["Cost (USD)"] == pytest.approx(0.011)
     assert w1["Time (s)"] == pytest.approx(2.5)
-    assert c1["Control gate reply"] == "NOT FOUND"
+    assert c1["Archive check reply"] == "NOT FOUND"
     assert c1["Cost (USD)"] == pytest.approx(0.003)
 
     answers = _sheet(wb, "Answers")

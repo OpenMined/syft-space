@@ -21,17 +21,11 @@ one, the metrics diverged — so it is the questions.
 Recomputing what takes part in the measurement lives in ``rotation.py``, the
 notion of a cohort in ``cohort.py``.
 
-There are three paths of construction, and the choice between them is
-automatic:
+There are two kinds of model call:
 
-  * **spaCy** — the extractive categories, if there is a model for the
-    document's language. Not a single call to an LLM, and the reference answer
-    is cut out of the text rather than invented.
-  * **a combined LLM call** — the same three categories when there is no model.
-    One call for all three: there is no point calling the model three times
-    over one chunk.
-  * **an ordinary LLM call** — the remaining generators, each with its own
-    prompt.
+  * **a combined call** — the three masking categories. One call for all
+    three: there is no point calling the model three times over one chunk.
+  * **an ordinary call** — the remaining generators, each with its own prompt.
 """
 
 from __future__ import annotations
@@ -63,8 +57,6 @@ from syft_benchmark.generation.control import Retriever
 from syft_benchmark.generation.extractive import (
     COMBINED_SYSTEM,
     Masked,
-    labelled_categories,
-    mask_with_spacy,
     parse_combined,
 )
 from syft_benchmark.generation.filter_stage import (
@@ -82,7 +74,7 @@ from syft_benchmark.generation.generators import (
     reasons,
     user_prompt,
 )
-from syft_benchmark.generation.language import LLM_MODE, choose_spacy_model
+from syft_benchmark.generation.language import detect_language
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.recorded import new_call, writer_meta
@@ -121,8 +113,6 @@ REASONING_HEADROOM = 800
 # How often the build's progress line is rewritten, at most.
 _PROGRESS_SECONDS = 0.5
 
-_SPACY_LOCK = threading.Lock()
-
 # Why a kind stopped writing.
 BUDGET_REACHED = "budget reached"
 OUT_OF_MATERIAL = "ran out of material"
@@ -133,6 +123,7 @@ CANCELLED = "cancelled"
 DUPLICATE = "duplicate"
 OVER_BUDGET = "over budget"
 OVER_UNIT_LIMIT = "over the per-passage limit"
+WRONG_LANGUAGE = "wrong language"
 
 
 @dataclass(slots=True)
@@ -151,18 +142,10 @@ class KindStats:
     failed_units: int = 0
     dropped: dict[str, int] = field(default_factory=dict)
     stopped: str = ""
-    # Masking kinds: questions cut by spaCy / written by the LLM, and the
-    # units sent to the LLM by reason (``meta.llm_why``).
-    spacy: int = 0
-    llm: int = 0
-    llm_why: dict[str, int] = field(default_factory=dict)
 
     def drop(self, reason: str, count: int = 1) -> None:
         if count > 0:
             self.dropped[reason] = self.dropped.get(reason, 0) + count
-
-    def sent_to_llm(self, why: str) -> None:
-        self.llm_why[why] = self.llm_why.get(why, 0) + 1
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -175,11 +158,6 @@ class KindStats:
             "failed_units": self.failed_units,
             "dropped": dict(self.dropped),
             "stopped": self.stopped,
-            **(
-                {"spacy": self.spacy, "llm": self.llm, "llm_why": dict(self.llm_why)}
-                if self.kind in EXTRACTIVE_KEYS
-                else {"spacy": None, "llm": None, "llm_why": None}
-            ),
         }
 
 
@@ -400,10 +378,6 @@ def _store(
         stats = report.kinds.get(generator.key)
         if stats is not None:
             stats.written += 1
-            if pair.meta.get("mode") == "spacy":
-                stats.spacy += 1
-            elif pair.meta.get("mode") == "llm":
-                stats.llm += 1
     return written
 
 
@@ -429,17 +403,40 @@ def _masked_to_pairs(
     return good, rejected
 
 
+def _drop_wrong_language(
+    pairs: list[Pair], document: str
+) -> tuple[list[Pair], list[str]]:
+    """Reject the items written in a language other than the document's.
+
+    Every writer prompt asks for the document's language, and still a French or
+    Italian question now and then comes out of an English article. Detection is
+    unreliable on short texts: when either side gives no verdict (None), the
+    item stays.
+
+    Args:
+        pairs: Items that passed their generator's own screening
+        document: The whole document they were built from
+    """
+    expected = detect_language(document[:MAX_DOCUMENT_CHARS])
+    if expected is None:
+        return pairs, []
+    good: list[Pair] = []
+    rejected: list[str] = []
+    for pair in pairs:
+        text = " ".join([pair.question, pair.answer, *pair.distractors])
+        found = detect_language(text)
+        if found is not None and found != expected:
+            rejected.append(WRONG_LANGUAGE)
+            continue
+        good.append(pair)
+    return good, rejected
+
+
 @dataclass(slots=True)
 class _Extracted:
-    """Masked items of one chunk, per kind, and how each kind was made."""
+    """Masked items of one chunk, per kind, or the error."""
 
     by_key: dict[str, list[Masked]] = field(default_factory=dict)
-    # Kind -> "spacy:<spaCy model>" or "llm:<writer model>".
-    model_by_key: dict[str, str] = field(default_factory=dict)
-    # Kind -> why the LLM wrote it (``language.LLM_MODE`` and the like).
-    llm_why: dict[str, str] = field(default_factory=dict)
-    # Kinds whose LLM call failed while spaCy's kinds stand.
-    failed: set[str] = field(default_factory=set)
     error: str | None = None
 
 
@@ -452,10 +449,8 @@ def _extractive_for_chunk(
     hold: Callable[[], AbstractContextManager[None]] = nullcontext,
     record: dict[str, Any] | None = None,
 ) -> _Extracted:
-    """Build masked items from a chunk.
+    """Build masked items from a chunk with one model call.
 
-    spaCy cuts the categories its model has labels for; in "auto" the LLM
-    writes the rest (no model for the language, or no such labels).
     ``record``, when given, gets the model call (``recorded.new_call``).
     """
     categories = tuple(
@@ -464,36 +459,6 @@ def _extractive_for_chunk(
     out = _Extracted()
     if not categories:
         return out
-
-    left = categories
-    why = LLM_MODE
-    if conf.extractive_mode != "llm":
-        # One thread at a time: a spaCy pipeline is not made for sharing.
-        with _SPACY_LOCK:
-            choice = choose_spacy_model(chunk.text, conf.spacy_models)
-            cut = (
-                labelled_categories(choice.nlp, categories)
-                if choice.nlp is not None
-                else ()
-            )
-            by_category = mask_with_spacy(chunk.text, choice.nlp, cut) if cut else {}
-        if choice.nlp is None and conf.extractive_mode == "spacy":
-            # The mode was chosen explicitly: falling back to the LLM silently
-            # is not allowed, otherwise the reproducibility it was chosen for
-            # is lost.
-            out.error = "there is no spaCy model for the document's language"
-            return out
-        for category in cut:
-            key = EXTRACTIVE_CATEGORIES[category]
-            items = by_category.get(category, [])
-            for item in items:
-                item.meta.update(spacy_model=choice.model, language=choice.language)
-            out.by_key[key] = items
-            out.model_by_key[key] = f"spacy:{choice.model}"
-        left = tuple(c for c in categories if c not in cut)
-        if conf.extractive_mode == "spacy" or not left:
-            return out
-        why = choice.why or f"no {'/'.join(left)} labels in {choice.model}"
 
     searching, engine = web_search_for(conf, "generator", generator.model)
     system = COMBINED_SYSTEM.format(n=conf.pairs_per_chunk)
@@ -504,7 +469,7 @@ def _extractive_for_chunk(
                 system,
                 user,
                 provider=generator,
-                max_tokens=90 * conf.pairs_per_chunk * len(left) + 200,
+                max_tokens=90 * conf.pairs_per_chunk * len(categories) + 200,
                 settings=conf,
                 web_search=searching,
                 web_search_engine=engine or "auto",
@@ -523,21 +488,11 @@ def _extractive_for_chunk(
             )
         data = parse_json_object(raw)
     except LLMError as exc:
-        if out.by_key:
-            # spaCy's part stands; the LLM's kinds count the unit as failed.
-            out.failed = {EXTRACTIVE_CATEGORIES[c] for c in left}
-            logger.warning(f"{chunk.chunk_id}: the LLM part failed: {exc}")
-            return out
         out.error = str(exc)
         return out
 
-    for category, items in parse_combined(data, left).items():
-        key = EXTRACTIVE_CATEGORIES[category]
-        for item in items:
-            item.meta["llm_why"] = why
-        out.by_key[key] = items
-        out.model_by_key[key] = f"llm:{conf.generator_model}"
-        out.llm_why[key] = why
+    for category, items in parse_combined(data, categories).items():
+        out.by_key[EXTRACTIVE_CATEGORIES[category]] = items
     return out
 
 
@@ -642,13 +597,8 @@ class _Outcome:
     model: str = ""
     parsed: int = 0
     error: str | None = None
-    # The writer call (``recorded.new_call``); empty — no model call (spaCy).
+    # The writer call (``recorded.new_call``).
     call: dict[str, Any] = field(default_factory=dict)
-    # Masking kinds: kind -> "spacy:<model>" | "llm:<model>" (else ``model``),
-    # why the LLM wrote a kind, kinds whose LLM call failed.
-    model_by_key: dict[str, str] = field(default_factory=dict)
-    llm_why: dict[str, str] = field(default_factory=dict)
-    failed: set[str] = field(default_factory=set)
 
 
 def _queues(
@@ -875,8 +825,8 @@ def generate_for_space(
         report.notes.append(
             "control generators ("
             + ", ".join(spec.key for spec in control)
-            + ") were built as pending — whether retrieval in fact answers "
-            "one of them is for filtering to decide, not this pass"
+            + ") were built as pending — the check against live retrieval "
+            "is for filtering to decide, not this pass"
         )
 
     client = ChromaClient(space, conf)
@@ -982,8 +932,10 @@ def generate_for_space(
             made: dict[str, tuple[list[Pair], list[str]]] = {}
             for key, masked in extracted.by_key.items():
                 good, bad = _masked_to_pairs(masked, whole)
-                # pairs_per_chunk on both paths: spaCy masks every entity it
-                # finds, and one dense passage would spend a kind's budget.
+                good, foreign = _drop_wrong_language(good, whole)
+                bad += foreign
+                # The model may return more than asked, and one dense passage
+                # would spend a kind's budget.
                 surplus = max(0, len(good) - conf.pairs_per_chunk)
                 made[key] = (
                     good[: conf.pairs_per_chunk],
@@ -991,11 +943,9 @@ def generate_for_space(
                 )
             return _Outcome(
                 pairs=made,
+                model=conf.generator_model,
                 parsed=sum(len(v) for v in extracted.by_key.values()),
                 call=call,
-                model_by_key=extracted.model_by_key,
-                llm_why=extracted.llm_why,
-                failed=extracted.failed,
             )
         with slots.hold():
             items, error = _run_llm_generator(
@@ -1004,6 +954,8 @@ def generate_for_space(
         if error:
             return _Outcome(error=error)
         good, bad = queue.spec.clean(items, conf.pairs_per_chunk, whole)
+        good, foreign = _drop_wrong_language(good, whole)
+        bad += foreign
         return _Outcome(
             pairs={queue.spec.key: (good, bad)},
             model=conf.generator_model,
@@ -1023,9 +975,7 @@ def generate_for_space(
             if key in report.kinds:
                 stats = report.kinds[key]
                 stats.units_read += 1
-                stats.failed_units += bool(outcome.error) or key in outcome.failed
-                if key in outcome.llm_why:
-                    stats.sent_to_llm(outcome.llm_why[key])
+                stats.failed_units += bool(outcome.error)
         if outcome.error:
             report.failures += 1
             queue.streak += 1
@@ -1053,19 +1003,14 @@ def generate_for_space(
                 fragment,
                 good,
                 GENERATORS[key],
-                outcome.model_by_key.get(key, outcome.model),
+                outcome.model,
                 name,
                 report,
                 conf=conf,
                 cohort=cohort,
                 job=job,
                 cap=cap,
-                # spaCy's kinds made no model call.
-                writer=(
-                    None
-                    if outcome.model_by_key.get(key, "").startswith("spacy:")
-                    else outcome.call or None
-                ),
+                writer=outcome.call or None,
             )
             if screening is not None and check_pool is not None:
                 checks.extend(check_pool.submit(_checked, screening, r) for r in rows)
@@ -1184,7 +1129,7 @@ def filter_and_rotate(
     its own, without ever reading the corpus (invariant 1). What it cannot
     decide the same way is whether a pair it just turned active belongs in
     THIS measurement: that needs the document dates, and reading them is this
-    module's business, the same as it always has been for ``generate_for_space``.
+    module's business, as for ``generate_for_space``.
     Without this second step a rebuild's new cohort and the one it supersedes
     would sit active side by side until the next generation happened to run.
 

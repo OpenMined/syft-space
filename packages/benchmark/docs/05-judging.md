@@ -1,242 +1,209 @@
 # Stage 5. Judging
 
-The answer has been obtained — next it has to be reduced to an outcome.
-Normally that happens inside `evaluate`, as each answer comes back. Judging can
-also run on its own, over answers a deferred pass left pending: live, by
-calling the configured judge model(s), or without a judge API at all, by
-pasting the questions into an external chat and importing the verdicts back.
+Answers are normally graded inside `evaluate` as they come back. Judging can
+also run on its own over answers a deferred pass left `pending`, or whose
+judge call failed: live with the configured judge, or by hand through an
+external chat.
 
 ```bash
-uv run syft-benchmark evaluate docs --defer-judging       # answers only
-uv run syft-benchmark judge docs                          # grade what is pending, live
+uv run syft-benchmark evaluate docs --defer-judging       # answers only (direct block)
+uv run syft-benchmark judge docs                          # grade pending and judge-failed answers
 uv run syft-benchmark export-judging docs --judge claude-console --only-pending
 uv run syft-benchmark import-judging docs --judge claude-console --verdicts v.json
 ```
 
-The live pass is also reachable over HTTP: `POST /targets/{key}/judge` for
-services, the console's Judging block for a person. Both call the same
-`judge_pending()` and insert one new `Result` row per verdict — a verdict is
-never overwritten, only superseded by a fresher row.
+`POST /targets/{key}/judge` and the console's Judging block run the same pass
+as `judge` ([control-api.md](control-api.md)).
+
+A verdict is never overwritten: every grading inserts a new `Result` row (under
+a new `Run`), and readers take the counted verdict per answer (below).
 
 ---
 
-## Three outcomes, not a score
+## Outcomes
 
-The judge reduces any answer to one of three:
+| Verdict | Meaning |
+| --- | --- |
+| `correct` | states the facts of the gold answer; on a false-premise question, corrects the premise |
+| `abstain` | said it does not know, or answered incompletely with nothing false in it |
+| `hallucinate` | states something that contradicts the gold answer, or makes up specifics on a control question |
+| `web_sourced` | control question only: specifics supported by the web sources the answer cited |
 
-* `correct` — answered to the substance of the gold answer;
-* `abstain` — honestly said it did not know;
-* `hallucinate` — answered confidently and wide of the mark.
+Two more states are not outcomes and never enter a share:
 
-**Abstention is separated from a miss deliberately.** A model that says "I
-don't know" about a corpus it does not know is behaving correctly; a model that
-confidently invents about the same corpus is dangerous. Their average score
-might coincide — which is why there is no score, but three shares.
+* `technical` — nothing was measured: the call failed (`ERROR:` answer), the
+  context was empty, the judge did not answer or returned nothing readable.
+  Any row with an `ERROR:` answer counts as `technical` whatever its verdict;
+* `pending` — answer recorded, not yet judged.
 
-**A verdict is stored as BEHAVIOUR, not as an assessment of correctness.** On a
-question whose answer is not in the corpus, an abstention is recorded as
-`abstain` — and it is the report that knows this is the correct behaviour here.
-The difference is not formal: this way a change of methodology does not require
-a re-run, and the interpretation lives in the report rather than being stamped
-into the stored verdict.
-
-Alongside the three outcomes there are two states that are not outcomes:
-
-* **`failed`** — a call that did not go through. It speaks about the rig, not
-  about the quality of the answers, and does not go into the metrics'
-  denominator;
-* **`pending`** — there is an answer, the judge has not seen it. It does not
-  enter the shares, is shown on a separate line in the report, and in `status`
-  as a separate state with its own remedy. An answer without a verdict can
-  neither be thrown away silently nor recorded as an outcome nobody issued.
+The verdict records behaviour; whether it was the right behaviour for that
+question is decided by the report ([06-report.md](06-report.md)).
 
 ---
 
-## What an answer is judged by
+## How an answer is graded
 
-The judging method is set by the generator, and this saves both calls and
-accuracy.
+The method comes from the item:
 
 ```mermaid
 flowchart TB
-    ANS["the answerer's answer"] --> ERR{"does it begin<br/>with ERROR:?"}
-    ERR -- "yes" --> F["failed<br/><i>outside the denominator</i>"]
-    ERR -- "no" --> AB{"the abstention regexes<br/>fired, and there are no signs<br/>of an answer?"}
+    ANS["answer"] --> ERR{"ERROR:?"}
+    ERR -- "yes" --> T["technical"]
+    ERR -- "no" --> CTL{"control item?"}
+    CTL -- "yes" --> BH["behaviour judge"]
+    CTL -- "no" --> AB{"abstention regexes match<br/>and no answer signals?"}
     AB -- "yes" --> ABST["abstain"]
-    AB -- "no" --> GR{"the generator's<br/>grading"}
-
-    GR -- "letter" --> L{"exactly one letter<br/>named?"}
-    L -- "yes" --> LC["correct / hallucinate<br/><i>without a model at all</i>"]
-    L -- "no" --> JD
-
-    GR -- "key_facts" --> KF["judge: how many of the<br/>listed facts are covered"]
-    KF --> KFT{"≥ 70%?"}
+    AB -- "no" --> KIND{"grading"}
+    KIND -- "key_facts" --> KF["judge: which facts are covered"]
+    KF --> KFT{"share ≥ key_facts_threshold?"}
     KFT -- "yes" --> KC["correct"]
-    KFT -- "no" --> KH["hallucinate"]
-
-    GR -- "judge" --> JD["judge: compare<br/>against the gold answer"]
-    JD --> JV["correct / hallucinate"]
-
-    GR -- "behavior" --> BH["there is no answer in the corpus:<br/>any non-abstention is an invention"]
-    BH --> BV["hallucinate<br/><i>without a model at all</i>"]
+    KFT -- "no" --> KA["abstain"]
+    KIND -- "choice item" --> L{"one letter named?"}
+    L -- "yes" --> LC["correct / hallucinate<br/>(no model)"]
+    L -- "no" --> JD
+    KIND -- "other" --> JD["free-text judge"]
 ```
 
-**By the letter** (`mcq`, `two_truths_one_lie`) — a judge model is not needed
-and would only add noise. The endpoint answers in prose ("The correct answer is
-C) Three"), so we look for the letter across the whole text; if several
-different letters are named, they cannot be decided on — the question goes to
-the judge.
+**Abstention** is detected before any judge call, by English regexes ("I don't
+know", "the context does not contain…"). A hedge followed by an answer ("I'm
+not sure, but the answer is C") is a guess and is graded as an answer. An empty
+answer is an abstention.
 
-**By the facts** (`tiered_explanation`) — because an explanation for a
-five-year-old is **obliged** to use words that are not in the source: that is
-the point of it. Comparing such prose against a reference would mean punishing
-the wording. The threshold `key_facts_threshold` is 0.7, not 1.0: the
-`eli5` level legitimately drops the particulars it exists to drop.
+**Choice items** (`mcq`, `two_truths_one_lie`): the option letter is searched
+across the whole answer. Exactly one letter named decides correct or
+hallucinate; no letter but the option's text present counts as correct;
+several letters go to the free-text judge.
 
-**By behaviour** (`unanswerable_property`) — no correct answer exists, there is
-nothing to compare against. The triple of outcomes collapses to a pair:
-abstention is the correct behaviour, any answer is an invention. The judge is
-not called at all, and this part of the control half turns out to be almost
-free.
+**Key facts** (`tiered_explanation`): the judge marks each listed fact as
+covered or not (paraphrase counts, a contradicted fact does not). At or above
+`key_facts_threshold` (0.7) — `correct`; below — `abstain` (a fact left out is
+not a false one). No facts on the item, or an unreadable reply — `technical`.
 
-The exception is `false_premise`: there the correct behaviour is not abstention
-but **correction** ("there was no such move, in fact it is like this"), and
-regexes do not catch it. So it has a real gold answer and an ordinary judge.
+**Free-text judge** (everything else). It gets the question, the gold answer
+and the answer, and returns `correct`, `false_claims` and a reason. The rules:
+same facts as expected (paraphrase and extra correct detail are fine); missing
+a key fact asked for, or refusing, is not correct; for multiple choice the same
+option. `false_claims` is whether the answer states anything that contradicts
+the expected answer (a different name, number, date or option); leaving facts
+out or saying "I don't know" is not a false claim.
 
-**An abstention is recognised before any call to a judge**, by regexes in two
-languages. Hedging is caught separately: "I'm not sure, but the answer is C" is
-a guess, not an abstention, and is assessed as an answer.
+| Judge reply | Verdict |
+| --- | --- |
+| `correct: true` | `correct` |
+| not correct, `false_claims: true` | `hallucinate` |
+| not correct, `false_claims: false` | `abstain` (noted as "did not know") |
+| not correct, `false_claims` missing or unreadable | `hallucinate` (noted) |
 
-The ceiling on the judge's answer is generous on purpose: reasoning models
-spend output tokens on reasoning **before** they print the JSON, and at a short
-ceiling the answer breaks off in the middle of the object. This adds nothing to
-the bill — `max_tokens` limits, it does not order.
+**Control items** (`unanswerable_property`, `false_premise`, or `grading:
+behavior`) go to a behaviour judge, told the kind, what the archive does not
+state or the false premise and its correction, and the web sources the answer
+cited:
+
+| Behaviour | Verdict |
+| --- | --- |
+| `declined` | `abstain` |
+| `corrected` | `correct` on a false premise, `abstain` on a missing detail |
+| `web_sourced` | `web_sourced`; with no cited sources it becomes `made_up` |
+| `made_up` | `hallucinate` |
+
+The behaviour is stored in `results.extra.behavior`.
+
+The answering prompts tell the model to correct a false premise rather than
+answer it ([04-evaluation.md](04-evaluation.md)).
+
+**Blocks.** Rounds of `denial_loop` and trials of `monte_carlo` go through the
+same dispatch as `direct`: control items to the behaviour judge (with the
+round's or trial's web citations), key-facts items to the facts check, the
+rest to the letter match and the free-text judge.
+
+**Grounding.** In arm C the judge also checks whether the answer is supported
+by the retrieved chunks; stored in `results.grounded` and `grounded_note`, not
+part of the verdict.
+
+**Judge calls** use `answer_max_tokens` (8192); a reply cut at the ceiling is
+retried with a doubled budget. `judge_temperature` and `judge_reasoning_effort`
+apply to every judge that accepts them; `web_search_judge` lets judges search.
 
 ---
 
-## The judge's independence
+## Judge independence
 
-A judge and a model under test from the same provider is a conflict of
-interest: a model more readily approves an answer in its own style, and a match
-of providers makes the verdict an interested one.
-
-The provider comes from the model catalogue, and from the namespace in the
-identifier for anything the catalogue does not hold: `anthropic/claude-sonnet-5`
-→ `anthropic`. A local model judging itself is the same conflict without
-providers, and it is caught too by comparing names. It cannot be ruled out
-entirely — a local model has no provider at all — so the policy is
-configurable.
+A judge from the same company as the model under test (from the model
+catalogue), or a local model judging itself, is a conflict of interest.
 
 | `judge_policy` | What it does |
 | --- | --- |
-| `off` | do not check |
-| `warn` (default) | warn in the log and carry on |
-| `recuse` | the judge recuses itself on models from its own provider, the rest carry on working |
-| `strict` | refuse the run |
+| `warn` (default) | log the clash and carry on |
+| `strict` | refuse to save such settings (422), to launch, or to run |
+| `recuse` | the judge skips models from its own company; the rest of the panel grades them |
+| `off` | no check |
 
-In practice: if you are testing three models from three providers, the judge is
-best taken from a fourth. Under `strict` a run against a model from the same
-provider simply will not start, and that is noticed at once rather than while
-puzzling over strange numbers. `recuse` is the working policy for a panel;
-`strict` is appropriate with a single judge, when there is nothing to carry on
-with.
+The console offers `warn` and `strict`; `recuse` and `off` are accepted from
+stored settings.
 
 ---
 
-## The panel of judges
+## The panel
 
-The assessment is made by a model, and models differ in their opinions — and
-that divergence is itself measurable. `judge_models` turns a single judge
-into a panel.
+`judge_models` turns one judge into a panel (empty — `judge_model` alone).
 
 ```bash
-uv run syft-benchmark settings set judge_models   '["anthropic/claude-sonnet-4","openai/gpt-4o"]'
-uv run syft-benchmark settings set judge_policy recuse
+uv run syft-benchmark settings set judge_models '["anthropic/claude-sonnet-4","openai/gpt-4o"]'
 ```
 
-```mermaid
-flowchart LR
-    Q["question"] --> R["the answerer<br/><b>asked ONCE</b>"]
-    R --> ANS["answer"]
-    ANS --> J1["judge 1"] & J2["judge 2"] & J3["judge 3"]
-    J1 --> RUN1[("Run<br/>judge=1")]
-    J2 --> RUN2[("Run<br/>judge=2")]
-    J3 --> RUN3[("Run<br/>judge=3")]
-    RUN1 & RUN2 & RUN3 --> REP["report:<br/>a row per judge"]
-    RUN1 --> PUB["to the storefront —<br/>the first judge"]
-```
-
-Three rules without which a panel is meaningless:
-
-1. **The answerer is asked once.** Otherwise each judge would see its own
-   answer, the divergence between judges would blend with the spread of the
-   answers themselves — and there would be nothing to compare, while the model
-   under test would be counted as many times as there are judges.
-2. **The expensive blocks are computed by the first judge.** `denial_loop` and
-   `monte_carlo` measure the answerer's behaviour, not the spread of
-   assessments; running them for every judge means paying a multiple for
-   nothing.
-3. **Metrics are cut by judge.** Otherwise the verdicts merge, the "latest" for
-   a question turns out to be the opinion of whoever finished last, and instead
-   of a comparison of judges you get an assessment by one of them. The first
-   judge goes to the storefront: there is room for one number on the card, and
-   a blend of opinions means nothing.
-
-**Judge agreement is computed as a number.** Three columns with different
-verdicts show that the judges diverged but not by how much; how the agreement
-share is computed and why the threshold is 70% — [06-report.md](06-report.md).
+* The answerer is asked once; every judge grades the same answer, each into
+  its own run.
+* `denial_loop` and `monte_carlo` are graded by the first judge only.
+* **The counted verdict** of an answer is the owner override, else the
+  primary judge's freshest verdict, else the next judge's in panel order. The
+  primary is the launch's first panel judge that graded it (outside a launch,
+  the first configured one). Every headline and published figure counts it;
+  the card names the primary in `instrument.judge`.
+* The other judges' verdicts feed judge agreement and the per-judge report
+  ([06-report.md](06-report.md)); an owner override is not a judge there.
 
 ---
 
-## Judging without an API
+## Deferred and standalone judging
 
-```bash
-uv run syft-benchmark evaluate docs --defer-judging
-uv run syft-benchmark export-judging docs --judge claude-console --only-pending
-# paste the text into the chat, put the answer into a file
-uv run syft-benchmark import-judging docs --judge claude-console --verdicts v.json
-```
+`--defer-judging` records `direct` answers as `pending` without calling a
+judge; the other blocks are skipped. Free paths still run at once: a failed
+call, a recognised abstention, a matched option letter. Grading what is
+pending:
 
-A console **judge** has not a single one of a console model's limitations, and
-that is no coincidence but a consequence of the design: the judge holds no
-dialogue and needs no temperature — it reads the question, the gold answer and
-the answer once and says whether it is right. Nobody re-asks the answerer: what
-is judged is what was recorded.
+* **live** — `judge` (or the route) grades `direct` answers that are pending
+  or whose judge call failed (`technical` on a real answer) with the first
+  configured judge, by the rules above, without re-asking the model, in a new
+  run per (arm, source, block, model) attached to the original launch;
+* **console** — `export-judging` / `import-judging`, below.
 
-The gain is direct — the judge's line drops out of the bill entirely, and a
-subscription takes its place. Across nine models and three judges that is a
-noticeable share of the whole measurement.
+### Console judging
 
-**Deferred judging** (`--defer-judging`) is the second half of the same thing:
-answers are recorded with the verdict `pending` and the judge is not called.
-The same `pending` rows are also what the live `judge` pass grades — pick
-whichever fits: live for the configured judge model(s), console for paying
-nothing per call.
+A person or a chat grades recorded answers; nobody re-asks the answerer, so a
+console judge needs neither temperature nor dialogue, and costs no API calls.
 
-Four things worth knowing:
+* Only the `direct` block. Each answer is exported once, however many judges
+  already graded it, and never to a judge that already graded it; failed
+  calls are left out. `--only-pending` exports only `pending` answers.
+* The export carries the free-text judge's rules and asks for
+  `{"id", "correct", "false_claims", "reasoning"}`. Verdicts are read exactly
+  like the API judge's reply (table above). The line form `<id>: correct|incorrect
+  — reason` has no `false_claims`, so an incorrect line is `hallucinate`.
+* `tiered_explanation` items show the fact list instead of the gold answer;
+  the answer is binary.
+* Control items are exported with their gold answer and graded by the
+  free-text rules, not by behaviour.
+* Verdicts are recorded under the given judge name, in a new run per (arm,
+  source, block, model) with the original run's profile, settings snapshot and
+  endpoint, and enter judge agreement. The audit record is marked
+  `judged_by_console`.
 
-* **only what costs a call is deferred.** A failed call, a recognised
-  abstention and a letter match on an option all run as usual: they do not call
-  a judge, and deferring what is free means doing the work twice;
-* **the `direct` block only.** Pressure and repeats issue their verdicts AS
-  THEY GO: `denial_loop` judges every round in order to work out at which one
-  the model surrendered, `monte_carlo` every trial. A console judge sees one
-  recorded answer and knows nothing of the rounds; its verdict, placed into
-  such a block's row, would carry off someone else's decision about the
-  surrender and pass it off as its own. It is built the same way in LiveTruth,
-  and for the same reason;
-* **one answer is exported once**, even if there have already been three
-  judges: the answerer's answer is shared by the whole panel;
-* **for `tiered_explanation` the judging is coarsened.** A machine judge
-  computes the share of facts covered; a human is shown the same list, but the
-  answer comes out binary. This is recorded in the verdict.
+### Owner override
 
-The verdicts go into the report on a par with the machine ones and take part in
-judge agreement: the point of a second judge is that the first can be compared
-against it. The settings snapshot, the profile and the endpoint mode are copied
-from the original run — what is judged is a recorded answer obtained under the
-settings of that time, and substituting today's would mean ascribing to the
-verdict conditions under which it was not issued.
+On the console the owner can set a verdict by hand
+(`POST /console/results/{id}/verdict`): a new row under the judge name
+`owner override`, counted over every judge's verdict. `DELETE` on the same
+route removes it, and the judges' verdicts stand again.
 
 ---
 
@@ -244,13 +211,15 @@ verdict conditions under which it was not issued.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `judge_model` | `gemma3-4b-gpu` | Judges the answers |
-| `judge_models` | empty | The panel: assessment is done once per judge |
-| `judge_url` / `_KEY` | empty | A separate provider for the judge role |
-| `judge_policy` | `warn` | Whether to require the judge's independence |
-| `key_facts_threshold` | `0.7` | The share of facts covered for "correct" |
+| `judge_model` | `gemma3-4b-gpu` | The judge when there is no panel |
+| `judge_models` | empty | The panel |
+| `judge_url` / `judge_key` | empty | A separate provider for the judge role |
+| `judge_policy` | `warn` | Independence check |
+| `judge_temperature` | `0.0` | Judges' temperature; `None` — the model's default |
+| `judge_reasoning_effort` | `low` | `none`…`high`, or `default` (send nothing) |
+| `web_search_judge` | `false` | Judges search the web |
+| `key_facts_threshold` | `0.7` | Share of facts covered for `correct` |
 
-The judge is the same across all arms — otherwise the numbers are not
-comparable, and the comparison is the whole measurement.
+The judge is the same across all arms.
 
 Next — [stage 6: the report](06-report.md).

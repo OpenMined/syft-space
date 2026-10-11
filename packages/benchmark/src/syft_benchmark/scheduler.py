@@ -684,8 +684,7 @@ def run_cycle(
 
     # The direct test is what gets published: the block figures are the owner
     # internal analytics. The arm is chosen by the card itself, by the kind of
-    # product: a retrieval node has no arm B, and a setting would leave it with
-    # nothing.
+    # product.
     for node_conf, space in nodes:
         card = build_card(
             space.key,

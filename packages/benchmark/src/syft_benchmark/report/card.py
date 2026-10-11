@@ -14,8 +14,8 @@ the owner and takes its data from the database directly: invariant 3 limits what
 leaves the perimeter, and the owner is not limited in their own data at all.
 
 **The kind of product decides which numbers are meaningful at all.** An endpoint
-in ``raw`` mode does not formulate an answer — it searches; arm B is not run
-against it at all, and there is nothing to measure its "accuracy" from. Its
+in ``raw`` mode does not formulate an answer — it searches, and there is
+nothing to measure its "accuracy" from. Its
 product is the retrieval hit, and its responsibility is whether the material it
 returns nudges someone else model into invention. An endpoint in ``summary`` or
 ``both`` mode answers itself, and is judged by its answer. Two different products,
@@ -56,8 +56,7 @@ from syft_benchmark.report.slices import (
 )
 
 # The card format version. The receiving side is obliged to know what it is
-# reading: in the first version six flat numbers left the perimeter, of which the
-# headline one was computed over one half of the set and did not say whose it was.
+# reading.
 #
 # Kept in lockstep with CARD_VERSION in
 # packages/spaces/backend/syft_space/components/endpoints/schemas.py by hand:
@@ -509,10 +508,9 @@ def build(
 ) -> Card | None:
     """Assemble the node card: the badge and the public page.
 
-    The arm is chosen by the kind of product rather than by a setting: a ``raw``
-    endpoint has no arm B at all — it refuses to run, because there is nothing to
-    assess there — and a global publishing setting would leave such a node without
-    a single number despite excellent retrieval.
+    The arm is chosen by the kind of product rather than by a setting: a
+    retrieval node is shown through arm C, an answering node through its stored
+    ``open_book`` results.
 
     Args:
         space: The Space key

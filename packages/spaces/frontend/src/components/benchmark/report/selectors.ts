@@ -7,18 +7,9 @@ import type {
 } from '@/api/types'
 import { count, DASH, daySpan } from './figures'
 import { customerCost, runDuration, tookText } from './timeCost'
-import { KIND_LABEL, modelName, type Behavior } from './labels'
+import { KIND_LABEL, modelName, REMOVED_REASON_LABEL, type Behavior } from './labels'
 import { sortKinds } from '../questionOrder'
 import { TRICK_GENERATOR, type Held, type SettingRow } from './types'
-
-export function isOutcome(verdict: string | null | undefined): boolean {
-  return (
-    verdict === 'correct' ||
-    verdict === 'abstain' ||
-    verdict === 'hallucinate' ||
-    verdict === 'web_sourced'
-  )
-}
 
 export function isTrick(generator: string | null | undefined): boolean {
   return generator === TRICK_GENERATOR
@@ -103,6 +94,21 @@ export function hasWebSourced(report: BenchmarkRunReport): boolean {
 /** Questions removed by the web check; null until the check reports them. */
 export function webRemoved(report: BenchmarkRunReport): number | null {
   return report.funnel.removed.web_answerable ?? null
+}
+
+/** This run's questions not asked for reasons other than the web check; null — none. */
+export function otherNotAsked(report: BenchmarkRunReport): { total: number; tip: string } | null {
+  const reasons = Object.entries(report.funnel.removed)
+    .filter(([reason, n]) => reason !== 'web_answerable' && n > 0)
+    .map(([reason, n]): [string, number] => [REMOVED_REASON_LABEL[reason] ?? reason, n])
+  const unchecked = report.funnel.unchecked ?? 0
+  if (unchecked > 0) reasons.push(['Web check not finished', unchecked])
+  if (!reasons.length) return null
+  reasons.sort((a, b) => b[1] - a[1])
+  return {
+    total: reasons.reduce((sum, [, n]) => sum + n, 0),
+    tip: reasons.map(([label, n]) => `${label}: ${n}`).join(' · '),
+  }
 }
 
 /** The run's kinds, trick questions included, in the canonical order. */

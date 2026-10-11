@@ -1,5 +1,5 @@
-"""Fill-in-the-blank: spaCy cuts what its model can label; the LLM writes the
-rest, and the path is visible per question and per kind."""
+"""Fill-in-the-blank: the LLM writes the items, and older spaCy-made ones
+still name their path."""
 
 from __future__ import annotations
 
@@ -15,33 +15,16 @@ from syft_benchmark.config import Settings, SpaceConfig
 from syft_benchmark.db import ProcessedUnit, QaPair, session_scope
 from syft_benchmark.generation import pipeline
 from syft_benchmark.generation.article_dates import article_stamp, backfill
-from syft_benchmark.generation.extractive import mask_with_spacy
-from syft_benchmark.generation.language import (
-    LANGUAGE_UNKNOWN,
-    choose_spacy_model,
-    load_model,
-    no_model_for,
-)
+from syft_benchmark.generation.extractive import parse_combined
 from syft_benchmark.report.export_xlsx import _masked_by
 from syft_benchmark.sources import Chunk, Document
 
 SPACE = "pytest-extractive-path"
 KINDS = ("named_entity_masking", "numeric_masking", "temporal_masking")
-ENGLISH = (
-    "Apple opened a new office in Berlin on 5 October 2026, the company said. "
-    "The building cost 120 million euros and will employ about 400 people from "
-    "across Germany. Tim Cook visited the site with the mayor of the city on "
-    "Monday and spoke to the staff there."
-)
 GERMAN = (
     "Die Stadt Hamburg hat am Montag das neue Rathaus eröffnet, und der "
     "Bürgermeister war sehr stolz auf das Gebäude. Es wurde in nur zwei Jahren "
     "gebaut und kostet die Stadt mehr als zehn Millionen Euro."
-)
-MODELS = {"en": "en_core_web_sm", "de": "de_core_news_sm"}
-
-needs_english = pytest.mark.skipif(
-    load_model("en_core_web_sm") is None, reason="en_core_web_sm is not installed"
 )
 
 
@@ -87,26 +70,38 @@ def _doc(doc_id: str, text: str, **dates: Any) -> Document:
     )
 
 
-@needs_english
-def test_spacy_masks_an_english_passage() -> None:
-    choice = choose_spacy_model(ENGLISH, Settings().spacy_models)
-    assert (choice.model, choice.language, choice.why) == ("en_core_web_sm", "en", "")
-    masked = mask_with_spacy(
-        ENGLISH, choice.nlp, ("named_entity", "numeric", "temporal")
-    )
-    answers = {c: {m.answer for m in items} for c, items in masked.items()}
-    assert {"Apple", "Berlin", "Tim Cook"} <= answers["named_entity"]
-    assert "120 million" in answers["numeric"]
-    assert "5 October 2026" in answers["temporal"]
-    assert all("______" in m.question for items in masked.values() for m in items)
+def test_one_item_per_sentence() -> None:
+    """A second blank in the same sentence tests the same passage again."""
+    sentence = "Apple opened a new office in ______ on 5 October 2026."
+    data = {
+        "named_entity": [{"question": sentence, "answer": "Berlin"}],
+        "temporal": [
+            {
+                "question": "Apple opened a new office in Berlin on ______.",
+                "answer": "5 October 2026",
+            }
+        ],
+    }
+    masked = parse_combined(data, ("named_entity", "temporal"))
+    assert [m.answer for m in masked["named_entity"]] == ["Berlin"]
+    assert masked["temporal"] == []
 
 
-@needs_english
-def test_why_the_llm_takes_a_passage() -> None:
-    assert choose_spacy_model("Hub stores", MODELS).why == LANGUAGE_UNKNOWN
-    if load_model("de_core_news_sm") is None:
-        choice = choose_spacy_model(GERMAN, MODELS)
-        assert choice.nlp is None and choice.why == no_model_for("de")
+def test_relative_dates_are_not_blanked() -> None:
+    """ "This year" is given away by the date of the story, not learnt from it."""
+    data = {
+        "temporal": [
+            {
+                "question": "______ the company opened three new offices in Europe.",
+                "answer": "This year",
+            },
+            {
+                "question": "The plant closed ______ after the floods in the valley.",
+                "answer": "two years ago",
+            },
+        ]
+    }
+    assert parse_combined(data, ("temporal",))["temporal"] == []
 
 
 def test_article_stamp_follows_the_article_date_rule() -> None:
@@ -153,10 +148,11 @@ def test_older_questions_get_their_article_date(clean: None) -> None:
 
 
 def test_masked_by_names_the_path() -> None:
+    assert _masked_by({"mode": "llm"}) == "LLM"
+    # Older rows: cut by spaCy, or written by the LLM with a reason.
     spacy = {"mode": "spacy", "spacy_model": "en_core_web_sm"}
     assert _masked_by(spacy) == "spaCy en_core_web_sm"
-    llm = {"mode": "llm", "llm_why": "no spaCy model for 'de'"}
-    assert _masked_by(llm) == "LLM: no spaCy model for 'de'"
+    assert _masked_by({"mode": "llm", "llm_why": "llm mode"}) == "LLM"
     assert _masked_by({}) == ""
 
 
@@ -181,15 +177,11 @@ def _llm_reply(system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
     return json.dumps(data), {}
 
 
-@needs_english
 @pytest.mark.skipif(not _db_ready(), reason="the benchmark database is unavailable")
-def test_the_path_is_kept_per_question_and_per_kind(
+def test_the_llm_writes_every_masking_kind(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    documents = [
-        _doc("en", ENGLISH, published_at=datetime(2026, 10, 5, tzinfo=UTC)),
-        _doc("de", GERMAN, added_at=datetime(2026, 10, 7, 9, tzinfo=UTC)),
-    ]
+    documents = [_doc("de", GERMAN, added_at=datetime(2026, 10, 7, 9, tzinfo=UTC))]
 
     class _Chroma:
         def __init__(self, *_: Any) -> None: ...
@@ -209,7 +201,6 @@ def test_the_path_is_kept_per_question_and_per_kind(
         pairs_per_chunk=3,
         chunks_per_run=5,
         concurrency=1,
-        spacy_models=MODELS,
     )
 
     report = pipeline.generate_for_space(
@@ -220,25 +211,15 @@ def test_the_path_is_kept_per_question_and_per_kind(
 
     with session_scope() as session:
         rows = session.scalars(select(QaPair).where(QaPair.space == SPACE)).all()
-        pairs = [(r.doc_id, r.generator, r.model, dict(r.meta)) for r in rows]
-    english = [p for p in pairs if p[0] == "en"]
-    german = [p for p in pairs if p[0] == "de"]
-    assert english and german
-    for _, _, model, meta in english:
-        assert model == "spacy:en_core_web_sm"
-        assert meta["mode"] == "spacy" and meta["spacy_model"] == "en_core_web_sm"
-        assert meta["language"] == "en" and "writer" not in meta
-        assert meta["article_date"] == "2026-10-05"
-    why = no_model_for("de")
-    for _, _, model, meta in german:
-        assert model.startswith("llm:")
-        assert meta["mode"] == "llm" and meta["llm_why"] == why
+        pairs = [(r.generator, r.model, dict(r.meta)) for r in rows]
+    assert sorted(p[0] for p in pairs) == ["named_entity_masking", "numeric_masking"]
+    for _, model, meta in pairs:
+        assert model == conf.generator_model
+        assert meta["mode"] == "llm" and "llm_why" not in meta
         assert meta["article_date"] == "2026-10-07"
         assert meta["article_dated_by"] == "added"
+    assert sum("system" in meta.get("writer", {}) for *_, meta in pairs) == 1
 
     names = report.kinds["named_entity_masking"].as_dict()
-    spacy_names = sum(1 for p in english if p[1] == "named_entity_masking")
-    assert names["spacy"] == spacy_names > 0
-    assert names["llm"] == 1 and names["llm_why"] == {why: 1}
-    temporal = report.kinds["temporal_masking"].as_dict()
-    assert temporal["llm"] == 0 and temporal["llm_why"] == {why: 1}
+    assert names["written"] == 1 and "spacy" not in names
+    assert report.kinds["temporal_masking"].as_dict()["written"] == 0

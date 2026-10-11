@@ -18,8 +18,8 @@ from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.report.slices import by_generator
 from syft_benchmark.runs.judge import (
     ERROR_PREFIX,
+    Grade,
     grade,
-    grade_behavior,
     grade_key_facts,
     is_technical,
 )
@@ -61,7 +61,6 @@ def test_a_call_that_did_not_happen_is_not_a_hallucination() -> None:
     conf = Settings()
 
     assert grade("q", "a", broken, settings=conf).verdict is Verdict.TECHNICAL
-    assert grade_behavior(broken).verdict is Verdict.TECHNICAL
     assert (
         grade_key_facts(broken, ["a fact"], settings=conf).verdict is Verdict.TECHNICAL
     )
@@ -72,8 +71,8 @@ def test_a_call_that_did_not_happen_is_not_a_hallucination() -> None:
 
 def test_failed_is_derived_from_the_verdict() -> None:
     """One source of truth, and it is the one the database keeps."""
-    assert grade_behavior(f"{ERROR_PREFIX} nope").failed is True
-    assert grade_behavior("I do not know").failed is False
+    assert Grade(Verdict.TECHNICAL, "").failed is True
+    assert Grade(Verdict.ABSTAIN, "").failed is False
 
 
 def test_the_old_rows_count_exactly_as_they_did() -> None:

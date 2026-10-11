@@ -335,8 +335,8 @@ def rotate(
     Called after generation: it adds items from new material, and here it is decided
     what of what has accumulated takes part in the measurement today.
 
-    Works only in rolling mode. In incremental mode the set accumulates and there is
-    nothing to take out of it — the call returns the state without changing anything.
+    The freshness window takes items out only in rolling and rebuild modes, or on
+    a rebuild; the cohort and the cap apply in every mode.
 
     Args:
         space: The Space key
@@ -367,10 +367,6 @@ def rotate(
             "an empty corpus is no reason to take items out of the measurement"
         )
         report.active = _count_active(space, conf)
-        # The freshness window takes items out of the measurement where the set moves
-        # with time, and on every rebuild. In incremental mode without a rebuild it
-        # limits what to BUILD from, while what has been built stays: an accumulating
-        # set accumulates for a reason.
         return report
 
     # The freshness window takes items out of the measurement where the set moves with

@@ -112,7 +112,7 @@ def corpus_exposure(
     Args:
         space: The Space key
         model: The model under test; None — all
-        judge: The judge; None — every verdict alike
+        judge: The judge; None — the counted verdict (primary judge)
 
     Returns:
         An Exposure; ``None`` in a share means there were no such items
@@ -206,7 +206,7 @@ def by_generator(
         mode: The measurement arm
         block: The test block
         model: The answerer; None — all
-        judge: The judge; None — every verdict alike
+        judge: The judge; None — the counted verdict (primary judge)
         expected: Which half of the set; None — both (rarely meaningful)
         job: Narrow it to one launch; None — whatever is graded now
 

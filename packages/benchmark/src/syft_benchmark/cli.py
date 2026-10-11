@@ -40,7 +40,6 @@ from syft_benchmark.generation import (
     enabled_generators,
     filter_and_rotate,
     generate_for_space,
-    spacy_available,
 )
 from syft_benchmark.generation import cohort as cohort_store
 from syft_benchmark.generation.rotation import BadPeriod, parse_period
@@ -515,25 +514,19 @@ def generators() -> None:
         + f"  x{settings.monte_carlo_trials}"
     )
     typer.echo("")
-    typer.echo(f"extractive mode       {settings.extractive_mode}")
-    typer.echo(
-        "spaCy                 "
-        + ("installed" if spacy_available() else "not installed — the LLM path")
-    )
     active = enabled_generators(settings.disabled_generators)
     typer.echo(f"generators enabled    {len(active)} of {len(GENERATORS)}")
     if settings.disabled_generators:
         typer.echo(f"disabled              {', '.join(settings.disabled_generators)}")
     typer.echo("")
-    typer.echo(f"{'key':24}{'class':12}{'scope':10}{'grading':11}{'expected':17}source")
+    typer.echo(f"{'key':24}{'class':12}{'scope':10}{'grading':11}expected")
     for key, spec in GENERATORS.items():
-        source = "spaCy or LLM" if not spec.needs_llm else "LLM"
         # The correct behaviour belongs next to the generator: for control
         # items it is not "answer", and that is the main thing to know about
         # them.
         typer.echo(
             f"{key:24}{spec.task_type:12}{spec.scope:10}{spec.grading:11}"
-            f"{spec.expected.value:17}{source}"
+            f"{spec.expected.value}"
         )
     control = [k for k, s in GENERATORS.items() if s.is_control]
     if control:
@@ -601,7 +594,7 @@ def generate(
 ) -> None:
     """Stage 1: build items from new chunks and documents.
 
-    The set comes in two kinds. **incremental** — it accumulates: new material
+    The set comes in three kinds. **incremental** — it accumulates: new material
     adds items, the earlier ones stay in the measurement. That is how you
     measure a stable corpus, where the right answer does not go stale.
 
@@ -888,9 +881,8 @@ def evaluate(
 
         # One cache for this node's whole launch, and that is the whole point
         # of it. The question to the endpoint depends neither on the model
-        # under test nor on the block: arm B has already gone for the
-        # retrieval, arm C needs the very same one, and so do all nine models
-        # inside it. Were the cache created inside a run, each would start from
+        # under test nor on the block: every model in arm C needs the very
+        # same retrieval. Were the cache created inside a run, each would start from
         # a blank sheet and go to the RAG again for what it already knows.
         #
         # Per node rather than per launch because there is nothing to share
@@ -1027,7 +1019,8 @@ def judge(
     """Stage 4 on its own: grade the answers a deferred pass left pending.
 
     `evaluate --defer-judging` records answers without calling a judge. This
-    is the other half: it grades what is pending, live, the same way
+    is the other half: it grades what is pending, and answers whose judge call
+    failed, live, without re-asking the model, the same way
     `export-judging`/`import-judging` do by hand — a new run per (arm,
     source, block, model), a new result per verdict, nothing overwritten.
     """
@@ -1424,12 +1417,8 @@ def publish(
 ) -> None:
     """Stage 5: hand the card to the Space to publish.
 
-    The arm is chosen by the kind of product, not by a setting. For an endpoint
-    in ``raw`` mode arm B does not exist at all — it retrieves, it does not
-    answer — and a setting would leave such a node without a single number
-    despite excellent retrieval. Its product is measured by how well retrieval
-    hits and by whether the material it hands out pushes someone else's model
-    into fabrication.
+    The arm is chosen by the card from the kind of product, not by a setting
+    (``report.card.build_card``).
     """
     for _, target in _targets(space):
         # What goes to the storefront is the direct check: the numbers of the
@@ -1619,7 +1608,8 @@ def import_judging_cmd(
         typer.echo(note)
     typer.echo(
         f"{target.name}: judged {outcome.matched}, "
-        f"correct {outcome.correct}, incorrect {outcome.hallucinate}"
+        f"correct {outcome.correct}, abstentions {outcome.abstain}, "
+        f"hallucinations {outcome.hallucinate}"
         + (f", not found {outcome.missing}" if outcome.missing else "")
     )
     for run_id in outcome.run_ids:

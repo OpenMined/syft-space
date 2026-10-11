@@ -1,53 +1,64 @@
 # The data schema
 
-Four tables for the measurement and three for the control API. Here: the design,
-and the decisions, each of which is entailed by the construction of the
-measurement rather than chosen out of taste.
+Eleven tables in the benchmark's own Postgres (`db/models.py`, migrations in
+`alembic/versions/`): four for the measurement, the rest for the service.
 
 ```mermaid
 erDiagram
     QA_PAIRS ||--o{ RESULTS : "was assessed"
     RUNS ||--o{ RESULTS : "contains"
+    JOBS ||--o{ RUNS : "opened"
+    JOBS ||--o{ RUN_EXCLUSIONS : "leaves out"
+    QA_PAIRS ||--o{ RUN_EXCLUSIONS : "left out"
+    JOBS ||--o| RUN_AGGREGATES : "cached figures"
+    TARGETS ||--o{ JOBS : "measured by"
     PROCESSED_UNITS
 
     QA_PAIRS {
         string id PK
         string space
+        string collection
+        string cohort "the question pool of one build"
+        string job_id "the launch that built it; NULL from the CLI"
         string generator "ten keys"
         string task_type "extractive-choice-abstractive-negative"
-        string expected_behavior "answer-abstain-correct_premise"
-        string doc_id "provenance: the gold answer"
-        string chunk_id "is checked against it"
+        string doc_id "provenance"
+        string chunk_id "the gold answer is checked against it"
         text question
         text answer "SENSITIVE: quotes the source"
         jsonb distractors
         text context
-        jsonb meta "grading, key_facts, coverage, option_seed, gate"
+        jsonb meta "grading, key_facts, screening, writer call, article date"
+        string expected_behavior "answer-abstain-correct_premise"
         string status "pending-active-rejected-retired"
-        text status_note "why it was screened out"
-        string cohort "the question pool of one build"
-        string question_hash "UNIQUE with space, generator and cohort"
+        text status_note
+        string status_reason "why not active"
+        string model "the generator model"
+        string question_hash "UNIQUE with space, generator, cohort"
     }
     PROCESSED_UNITS {
         string space PK
-        string generator PK "MANDATORY in the key"
+        string generator PK
         string unit_id PK "chunk_id or doc_id"
-        string cohort PK "a rebuild processes it afresh"
+        string cohort PK
         string unit_kind "chunk or document"
+        int pairs_made
     }
     RUNS {
         string id PK
         string space
-        string context_mode "arm: closed_book-open_book-model_with_context"
-        string context_source "what is mixed in in arm C"
-        string profile "the methodology profile's name"
-        jsonb params "threshold, top_k, ceilings — a settings snapshot"
+        string endpoint
+        string job_id "no FK; NULL from the CLI"
+        string context_mode "closed_book-open_book-model_with_context"
+        string context_source "what arm C is given"
+        string profile "methodology profile"
+        jsonb params "settings snapshot"
         string block "direct-denial_loop-monte_carlo"
-        string model "the identifier this service uses"
+        string model "this service's identifier"
         string model_vendor
-        string model_sent_as "the name the provider was actually given"
+        string model_sent_as "the name the provider was given"
         string model_provider "whose API answered"
-        string model_build "the dated build behind the name that day"
+        string model_build "the dated build behind the name"
         string judge_model
     }
     RESULTS {
@@ -56,143 +67,95 @@ erDiagram
         string qa_id FK
         string endpoint_response_type "raw-summary-both"
         text answer
-        string verdict "BEHAVIOUR: correct-abstain-hallucinate"
-        string expected_behavior "a copy of the label at run time"
+        string verdict "correct-abstain-hallucinate-pending-technical-web_sourced"
+        text reasoning
+        string expected_behavior "copy of the label at run time"
         boolean grounded "arms B and C"
-        boolean retrieval_hit "for raw this is the measurement itself"
+        boolean retrieval_hit
         int retrieval_rank
         jsonb retrieved "SENSITIVE: chunks"
-        jsonb extra "the blocks' results"
+        jsonb extra "block results, text metrics"
         jsonb audit "SENSITIVE: whole prompts"
-        string served_by "the upstream that answered, when the provider routes"
+        string model
+        string served_by "the upstream that answered"
         string judge_model
         string judge_served_by "the upstream that graded"
     }
 ```
 
+| Table | What it holds |
+| --- | --- |
+| `qa_pairs` | the question set |
+| `processed_units` | which chunk or document each generator has processed, per cohort |
+| `runs` | one pass: arm × block × model, with its settings snapshot |
+| `results` | one answer and its verdict; judges and hand verdicts add rows, never rewrite |
+| `targets` | nodes under test: address, endpoint, index location, `instrument` and `probe` overrides, `enabled`, `schedule`, `schedule_at`, `next_run_at` |
+| `jobs` | launches: `state`, `phase`, `kind`, `trigger`, progress, `params` (request and timing), `card`, `error` |
+| `run_exclusions` | questions the owner left out of one job's figures |
+| `run_aggregates` | cached figures of one job; no row means recompute |
+| `installation_settings` | the single (`id = 1`) row of installation overrides |
+| `credentials` | sealed secrets: provider keys and Space tokens |
+| `model_catalog` | one provider's model list per row, as a whole document |
+
 ---
 
-## The schema's decisions
+## Decisions in the schema
 
 ### What was asked for, and what answered
 
-`runs.model` holds this service's identifier — `anthropic/claude-sonnet-5`. One
-identifier per model whoever serves it: moving an installation from one provider
-to another neither rewrites the settings nor makes the old measurements
-incomparable with the new.
+* `runs.model` is this service's identifier (`anthropic/claude-sonnet-5`), the
+  same whichever provider serves it.
+* `model_sent_as`, `model_provider`, `model_build` record what was actually
+  reached: the provider's name for the model and the dated build behind it.
+* `results.served_by` / `judge_served_by` record, per answer, which upstream a
+  router (e.g. OpenRouter) used — hosts differ in quantisation and context
+  window. Recorded, not pinned. `syft-benchmark upstreams` reads them.
 
-That alone does not reproduce a run. The provider is told its own name for the
-model (`claude-sonnet-5` at Anthropic's own API), and behind that name stands a
-dated build the vendor replaces without renaming anything. So `model_sent_as`,
-`model_provider` and `model_build` record what was actually reached; without
-them two rows under one model name can be two different sets of weights and say
-nothing of it.
+These are columns, not keys in `params`: `params` is compared for exact
+equality to decide whether earlier answers count as done
+([04-evaluation.md](04-evaluation.md)), and a build changing must not break
+resuming.
 
-One layer deeper, a provider is not always the model's owner. OpenRouter is a
-router: behind `qwen/qwen3.8-27b` stand sixteen upstreams — the same weights at
-fp4 and at bf16, context windows from 64k to a million, output ceilings from 32k
-to 236k — chosen per request by price and availability. All three differences
-change what a model answers.
+### Other columns
 
-`results.served_by` records which host answered and `judge_served_by` which one
-graded. Per answer, because that is the grain the choice is made at: one run can
-be served by four hosts, and an aggregate would say it was mixed without saying
-which answers came from where. The judge keeps a column of its own — the number
-is a judge's verdict, so "answerer or grader" is the first question when it
-moves. `syft-benchmark upstreams` reads them both.
-
-Recorded, not pinned: a pinned host that is down takes a run with it, and that
-price is not worth paying before the records say it matters.
-
-All five are columns and **not** keys in `params`. That snapshot is compared for
-exact equality to decide whether yesterday's answers may be counted as done, and
-a build moves on its own — inside it, every measurement would become unresumable
-the day a vendor refreshed a model. Evidence about one run does not belong among
-the conditions for comparing two.
-
-* **`runs.context_mode`** — without it the arms are indistinguishable in the
-  database, and everything rests on comparing them. The column is a string
-  rather than an enum, so adding an arm needs no migration of the rows already
-  written.
-* **`runs.context_source`** — arm C is uninterpretable without it: "a model on
-  raw chunks" and "a model handed someone else's finished conclusion" measure
-  different things and give different numbers.
-* **`runs.profile` and `runs.params`** — the thresholds, prompts and retrieval
-  parameters are configurable, so the report has to know how each row was
-  obtained. Without the snapshot it would silently add runs measured under
-  different similarity thresholds into one share.
-* **`qa_pairs.expected_behavior`** — what counts as the correct behaviour. The
-  field sits on the pair, not on the run: there is one set and three arms, and
-  the correct behaviour is determined by the question, not by who is answering.
-  It is duplicated in `results`, because the control set's labelling gets
-  refined and an old verdict relates to the previous labelling.
-* **`results.audit`** — the prompts beside the answer. They cannot be assembled
-  after the fact: a prompt depends on the settings of the moment.
-* **`qa_pairs.status`** — the result of screening and of rotation at once.
-  `rejected` is a verdict on the gold answer, irreversible; `retired` is what
-  has left the freshness window or a previous cohort: out of the measurement,
-  not out of the database. Screened-out items are not deleted: they are
-  material for tuning prompts, not rubbish.
-* **`qa_pairs.cohort` in the uniqueness key** — a question repeating between
-  cohorts is legitimate and meaningful: it means the generator produced the
-  same question from the same material, that is, it is stable. Forbidding such
-  a repeat would make rebuilds impossible.
-* **`processed_units` with the generator and the cohort in the key** — there
-  are ten generators, they see one text differently, and a chunk processed by
-  masking is obliged to reach MCQ as well. Without the generator in the key the
-  second generator would silently skip everything the first had got through;
-  without the cohort a rebuild would not start at all.
-* **`results.endpoint_response_type` beside the answer**, rather than read from
-  the card at parsing time: the mode can be switched, and an old verdict
-  relates to the previous one.
-* **`results.extra` as jsonb**, not as columns: each block has its own results,
-  and separate columns would produce a table where every row has a different
-  third of it filled in.
+* **`runs.context_mode`** — tells the arms apart; a string, so a new arm needs
+  no migration.
+* **`runs.context_source`** — arm C on raw chunks and arm C on the endpoint's
+  finished answer measure different things.
+* **`runs.profile`, `runs.params`** — how each row was obtained, so the report
+  does not mix runs measured under different settings.
+* **`qa_pairs.expected_behavior`** — on the pair: correct behaviour depends on
+  the question, not the arm. Copied into `results`, since labelling can change.
+* **`qa_pairs.status`** — `pending` (built, not screened), `active`,
+  `rejected` (screened out), `retired` (left the window or a previous cohort).
+  `status_reason`: `grounding`, `retrieval_gate`, `not_answerable`,
+  `duplicate`, `owner`, `rotation`, `web_answerable`, `other`. Screened-out pairs are kept.
+* **`qa_pairs.cohort` in the unique key** — the same question may repeat
+  across cohorts (a rebuild over the same material).
+* **`processed_units` keyed by generator and cohort** — each generator
+  processes every chunk; a rebuild processes it afresh.
+* **`results.endpoint_response_type`** — the endpoint mode at answer time.
+* **`results.extra`** — per-block results (`denial`, `repeats`) and text
+  metrics.
 * **`retrieval_hit` / `retrieval_rank`** — for `raw` mode this is the
-  measurement itself: no model takes part, and "the accuracy of the answer"
-  means whether the gold answer landed in the retrieval and in which position.
-* **`results.qa_id` with a cascade** — a pair with results attached carries off
-  the history of measurements if it is deleted, so deletion is refused once any
-  `Result` references it; `retired` is the way out for such a pair. A `pending`
-  or `rejected` pair with no results behind it has nothing to lose and can be
-  deleted outright.
+  measurement: whether and where the gold chunk was retrieved.
+* **`results.audit`** — the prompts as sent.
+* **Deleting a pair** (`db/pair_guard.py`) — refused once any result
+  references it (`results.qa_id` cascades); retire it instead.
+* **`jobs.card`** — the card built after measuring, in the shape the Space
+  receives, set whether or not it was published; replaced when the job's card
+  is published or recorded. `card_outdated` is measured against it.
+* **`targets.instrument` / `probe`, `installation_settings.values`** — sparse
+  overrides, not snapshots, so a changed default reaches every target.
+* **`model_catalog`** — read and written whole. The shipped
+  `syft_benchmark/data/models.json` is used for any source with no row.
 
----
-
-## The control API's tables
-
-`targets` is the registry of nodes under test, `jobs` is the job queue and the
-jobs' states — both belong to the service (`serve`), not to the measurement
-itself; see [control-api.md](control-api.md).
-
-**`jobs.kind`** distinguishes a full pipeline run from a narrow one scoped to a
-single stage (`filter`, `judge`): a narrow job neither reads nor writes what a
-pipeline run's phase would, so the two cannot be told apart by `phase` alone.
-
-What a target stores is **overrides**, not the full set of settings: a full
-snapshot would freeze the installation's defaults as of the day the target was
-created.
-
-**`jobs.card`** holds the card assembled right after measuring, in the shape
-the Space is handed — set whether or not the job's `publish` was ticked, and
-whether or not the Space accepted it. It is the one place "how did this run go"
-is answered from, independent of whether the card ever left the perimeter.
-
-`model_catalog` holds one provider's model list per row, as a whole document.
-The list is read whole and written whole — a refresh replaces a source's
-catalogue in one go — so rows per model would buy joins nobody performs and cost
-a migration whenever a provider adds a field. The catalogue that ships in
-`syft_benchmark/data/models.json` is underneath this table and is read wherever
-it holds no row, which is what lets an installation with no way out of the
-perimeter draw a settings form full of real model names.
+See [control-api.md](control-api.md) for how the service uses its tables.
 
 ---
 
 ## The database is a third copy of the corpus
 
-`qa_pairs.answer` not infrequently quotes the source verbatim,
-`results.retrieved` stores the retrieved chunks, `results.audit` whole prompts.
-After the Space's files and ChromaDB this is a third copy of the content, and
-it is protected the same way: a separate Postgres on port 5442, reachable only
-from the host and from its own network. The audit export is the same copy
-placed into a file. See [privacy.md](privacy.md).
+`qa_pairs.answer` often quotes the source, `results.retrieved` holds chunks,
+`results.audit` whole prompts. It must be protected like the corpus; see
+[privacy.md](privacy.md).

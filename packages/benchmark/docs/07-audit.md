@@ -3,103 +3,79 @@
 ```bash
 uv run syft-benchmark audit docs --out reports/audit.jsonl
 uv run syft-benchmark audit docs --out reports/audit.md      # for reading by eye
-uv run syft-benchmark audit docs --judge openai/gpt-4.1      # a single judge
-uv run syft-benchmark audit docs --job <id>                  # a single launch
-uv run syft-benchmark audit docs --no-context                # without corpus text
+uv run syft-benchmark audit docs --judge openai/gpt-4.1      # one judge
+uv run syft-benchmark audit docs --job <id>                  # one launch
+uv run syft-benchmark audit docs --no-context                # chunk texts and prompts cut out
 ```
 
-The benchmark's number is a share computed from a judge **model**'s verdicts
-about text that is not in the report. There is no way to check it against the
-report itself other than by taking it on trust. For the corpus owner and for
-the auditor they bring in that is not enough, and hence the log.
-
-The stage stands aside from the daily cycle: it does not affect the numbers and
-is done when someone actually sets out to check them.
+The benchmark's numbers are shares of a judge model's verdicts on text that is
+not in the report. The audit export hands out the raw records so the owner, or
+an auditor they bring in, can recheck them. It is not part of the daily cycle.
 
 ---
 
-## What is in it
+## What is recorded
 
-```mermaid
-flowchart LR
-    Q["question + gold answer<br/>+ provenance"] --> AU
-    A["arm A:<br/>answer, verdict, prompts"] --> AU
-    B["arm B:<br/>answer, verdict, prompts"] --> AU
-    C["arm C:<br/>answer, verdict, prompts,<br/>the material mixed in"] --> AU
-    AU[("results.audit<br/>+ runs.params")] --> EX["audit:<br/>JSONL or Markdown"]
-    EX --> WHO["the corpus owner<br/>or the auditor they brought in"]
-```
+`results.audit` is written beside every answer during the run (with
+`audit_log=true`, the default); it cannot be rebuilt later because prompts
+depend on the settings of the moment.
 
-Beside every answer the following is saved:
+* `responder_system`, `responder_prompt` — the answerer's prompts; in arm C the
+  prompt includes the material verbatim, and `context` repeats it (cut to
+  `audit_max_chars`);
+* `context_source`;
+* `call` — `finish_reason`, `truncated`, `length_retry`, `length_retries`,
+  `attempts`, `reused`, web search fields, `cost_usd`; with web search also
+  `citations` and `web_search_unused`;
+* `judge_system`, `judge_prompt`, `judge_raw` (the reply before parsing),
+  `judge_call` (cost, latency);
+* `judged_without_model: true` when no judge was called (regex abstention,
+  option letter match), `judged_by_console: <name>` for a console verdict,
+  `judged_by_owner` for an owner override.
 
-* **the answerer's system and user prompts** — for arm C together with the
-  material mixed in, verbatim;
-* **the judge's prompt and its raw answer** before the JSON is parsed;
-* **the context source** and the run's settings: the similarity threshold, the
-  number of chunks, the methodology profile;
-* **the circumstances of the call**: `finish_reason`, the marks `truncated`,
-  `reused`, `length_retry` and the number of attempts. A truncation is visible
-  in the record rather than worked out after the fact from strange numbers.
-
-The format follows the extension: `.md` for reading by eye, anything else JSON
-Lines, one record per line.
+`results.extra` keeps the block transcripts: every `denial_loop` round
+(objection, answer, judge prompt and reply) and every `monte_carlo` trial.
 
 ---
 
-## Four decisions that make the log fit for checking
+## The export
 
-**It is written during the run, not assembled afterwards.** A prompt depends on
-the settings of the moment — the retrieval threshold, the number of chunks
-mixed in, the text of the instruction — and those change. Reconstructing after
-the fact what actually went to the model is impossible; so an export of old
-runs honestly says that there are no prompts in them, instead of showing
-today's.
+One record per question, JSON Lines (or Markdown when `--out` ends in `.md`):
 
-**The answers of all the arms lie in one record.** The comparison of A, B and C
-is the very thing being checked; splitting them across three files would mean
-making the auditor stitch the export together themselves.
+* the item: question, gold answer, distractors, generator, expected behaviour;
+* provenance: document, chunk and the source chunk text, status and screening
+  note, the model that built it, its `meta`;
+* `answers` — every arm side by side, the **latest** answer per (arm, block,
+  answerer, judge), as in the metrics: answer, verdict, reasoning, judge,
+  grounding, retrieval hit/rank and the retrieved chunks, block transcripts,
+  the audit record, and the run's id, profile and settings snapshot.
 
-**The latest answer is taken for each combination** of arm, block, answerer and
-judge — by the same rule the metrics are computed with. Otherwise the audit
-would be looking at one set of records and the report at another.
+`--job` limits the export to one launch (its id from the job history), so
+answers obtained under different settings are not mixed. Runs started from
+the CLI belong to no launch.
 
-**A verdict that did not cost a model call is marked as such.** Matching an
-option's letter and recognising an abstention do not call a judge — that too is
-a fact the auditor needs to know: the argument there is not with a model but
-with a regex. A verdict issued by a human through console judging is marked the
-same way.
+Records without prompts (`audit_log=false`) are counted in the command's
+output; such verdicts can only be rechecked by a new run.
 
 ---
 
 ## The log contains corpus text
 
-Arm C's prompt carries the retrieved chunks in full, and gold answers not
-infrequently quote the source verbatim. This is not a side effect but the point
-of the export — there is nothing to check without seeing the original text. So:
+Arm C's prompt carries the retrieved chunks, and gold answers often quote the
+source. So:
 
-* `results.audit` is protected like the database itself
-  ([invariant 4](privacy.md)), and the exported file like the corpus, and it is
-  handed only to someone who has access to the corpus anyway;
-* a test makes sure the log does not end up on the publication path
-  ([invariant 3](privacy.md));
-* `--job` checks one measurement instead of the node's whole history, and that
-  is usually the thing wanted: settings change between launches, and an export
-  that mixed two of them would lay answers obtained at different similarity
-  thresholds side by side under one heading. The id is the one the job history
-  hands out; the job's row carries the settings snapshot beside it, so the
-  records and the configuration that produced them are read together. A run
-  started from the console belongs to no launch and is not swept into one;
-* `--no-context` gives a trimmed export — without the text of the chunks — and
-  it **says right in the record** that the prompt has been cut out: a verdict
-  cannot be rechecked from such an export, and it must not pretend to be
-  complete;
-* `audit_log=false` switches the log off entirely, if the owner has
-  decided they do not need a third copy of the prompts. The export will then
-  say that there are no prompts: they cannot be assembled after the fact.
+* `results.audit` is protected like the database ([invariant 4](privacy.md));
+  handle the exported file like the corpus and give it only to someone with
+  access to the corpus;
+* a test keeps the log off the publication path ([invariant 3](privacy.md));
+* `--no-context` removes the chunk texts (`context`, retrieved chunks, source
+  chunk) and replaces `responder_prompt` and `judge_prompt` with
+  `[cut out: --no-context]`. Questions, gold answers, answers and judge replies
+  stay, and a verdict cannot be rechecked from such an export.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `audit_log` | `true` | Write the prompts beside every answer |
-| `audit_max_chars` | `20000` | The ceiling on a single log record |
+| `audit_log` | `true` | Write prompts and judge replies beside every answer |
+| `audit_max_chars` | `20000` | Ceiling on the stored arm C `context` |
 
 Next — [stage 8: publishing](08-publish.md).

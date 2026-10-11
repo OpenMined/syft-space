@@ -962,7 +962,6 @@ export interface BenchmarkCapabilities {
   subject_models?: string[]
   judge_models?: string[]
   text_metrics?: string[]
-  extractive_modes?: string[]
   external_models?: boolean
   provider?: BenchmarkProvider
 }
@@ -1610,6 +1609,8 @@ export interface BenchmarkRunFunnel {
   written: number | null
   removed: Record<string, number>
   removed_total: number | null
+  /** Kept but not asked: the web check had not passed them. */
+  unchecked?: number | null
   asked: number
   trick: number
 }
@@ -1667,11 +1668,6 @@ export interface BenchmarkKindBuild {
   failed_units: number
   dropped: Record<string, number>
   stopped: string
-  /** Masking kinds only: questions cut by spaCy / written by the LLM. */
-  spacy?: number | null
-  llm?: number | null
-  /** Passages sent to the LLM, by reason. */
-  llm_why?: Record<string, number> | null
 }
 
 export interface BenchmarkGeneratedPage {

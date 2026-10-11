@@ -310,7 +310,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             subject_models=[p.model for p in subject_providers(conf)],
             judge_models=[p.model for p in judge_providers(conf)],
             text_metrics=[m.value for m in TextMetric],
-            extractive_modes=["auto", "spacy", "llm"],
             external_models=conf.allow_external_models,
             provider=_provider(conf),
         )
@@ -1222,8 +1221,8 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
     """What an unset instrument or probe field resolves to, at each layer.
 
     Read by ``/defaults`` (the whole shape, for the connection-wide settings
-    form) and by the console's own ``/console/schema`` (the probe layer
-    only, for one target's own overrides).
+    form) and by ``GET /console/probe`` (the probe layer only, for one
+    target's own overrides).
     """
     dumped = conf.model_dump(mode="json")
     return {
@@ -1261,7 +1260,6 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
             answer_coverage_threshold=conf.answer_coverage_threshold,
             consistency_floor=conf.consistency_floor,
             text_metrics=conf.text_metrics,
-            extractive_mode=conf.extractive_mode,
             methodology_profile=conf.methodology_profile,
             max_consecutive_failures=conf.max_consecutive_failures,
             concurrency=conf.concurrency,

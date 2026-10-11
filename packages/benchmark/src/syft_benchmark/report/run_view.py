@@ -726,8 +726,11 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     lifts = [m["lift"] for m in reports if m["lift"] is not None]
 
     counted_pairs = [p for p in pairs if p[0] in counted_main]
+    # Older masking rows carry "spacy:<model>" (no writer) or "llm:<model>".
     generator_model = Counter(
-        m for *_, m in counted_pairs if m and not m.startswith("spacy:")
+        m.removeprefix("llm:")
+        for *_, m in counted_pairs
+        if m and not m.startswith("spacy:")
     ).most_common(1)
     card = job.card if isinstance(job.card, dict) else {}
     dataset = card.get("dataset") if isinstance(card.get("dataset"), dict) else {}

@@ -29,9 +29,9 @@ from syft_benchmark.runs import (
 )
 from syft_benchmark.runs.endpoint import check_retrieval
 from syft_benchmark.runs.execute import (
-    _CLOSED_BOOK_SYSTEM,
     _NEEDS_ANSWER,
     _WITH_CONTEXT_SYSTEM,
+    CLOSED_BOOK_SYSTEM,
     RETRIEVAL_ONLY_TOKENS,
     _material_for,
 )
@@ -64,7 +64,7 @@ def test_arms_a_and_c_differ_only_by_context() -> None:
     the wording of the prompt, whereas it has to measure exactly the appearance
     of context.
     """
-    for system in (_CLOSED_BOOK_SYSTEM, _WITH_CONTEXT_SYSTEM):
+    for system in (CLOSED_BOOK_SYSTEM, _WITH_CONTEXT_SYSTEM):
         assert "I don't know" in system
         assert "Do not guess" in system or "do not guess" in system
 
@@ -193,7 +193,7 @@ def test_audit_marks_verdicts_that_cost_no_model_call() -> None:
     asked = Asked(
         answer="I don't know",
         latency=0.1,
-        system=_CLOSED_BOOK_SYSTEM,
+        system=CLOSED_BOOK_SYSTEM,
         user="Which port?",
         retrieval={"retrieval_hit": None, "retrieval_rank": None, "retrieved": []},
         context_source=ContextSource.NONE,
@@ -287,7 +287,7 @@ def test_a_generator_with_less_than_the_limit_gives_what_it_has() -> None:
 
 
 def test_a_limit_never_drops_the_control_half() -> None:
-    """The control half survives — and now it does so by itself.
+    """The control half survives by itself.
 
     Every generator produces items of EXACTLY one half, so the generators being
     represented entails the halves being represented. A separate round over the
@@ -375,7 +375,7 @@ def test_the_audit_shows_when_the_model_was_cut_off() -> None:
     asked = Asked(
         answer="The port is",
         latency=0.2,
-        system=_CLOSED_BOOK_SYSTEM,
+        system=CLOSED_BOOK_SYSTEM,
         user="Which port?",
         retrieval={"retrieval_hit": None, "retrieval_rank": None, "retrieved": []},
         context_source=ContextSource.NONE,

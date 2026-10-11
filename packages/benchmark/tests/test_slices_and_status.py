@@ -25,7 +25,17 @@ from syft_benchmark.report.slices import (
     corpus_exposure,
     judge_agreement,
 )
-from syft_benchmark.runs.console import parse_verdicts
+from syft_benchmark.runs.console import (
+    _judging_header,
+    _questions_header,
+    parse_verdicts,
+)
+from syft_benchmark.runs.execute import CLOSED_BOOK_SYSTEM
+from syft_benchmark.runs.judge import (
+    _NO_FALSE_CLAIMS_NOTE,
+    _NOTHING_FALSE_NOTE,
+    JUDGE_RULES,
+)
 from syft_benchmark.runs.status import (
     GeneratorCoverage,
     PassStatus,
@@ -301,26 +311,70 @@ def test_nothing_collected_is_not_a_crash(monkeypatch: Any) -> None:
 def test_a_json_array_of_verdicts_is_read() -> None:
     parsed = parse_verdicts(
         'Here are the verdicts: [{"id": "abc123", "correct": true, '
-        '"reasoning": "matched"},'
-        ' {"id": "def456", "correct": false, "reasoning": "missed"}]'
+        '"false_claims": false, "reasoning": "matched"},'
+        ' {"id": "def456", "correct": false, "false_claims": true, '
+        '"reasoning": "another port"}]'
     )
-    assert parsed["abc123"] == (True, "matched")
-    assert parsed["def456"][0] is False
+    assert parsed["abc123"] == (Verdict.CORRECT, "matched")
+    assert parsed["def456"] == (Verdict.HALLUCINATE, "another port")
+
+
+def test_a_console_miss_with_nothing_false_is_did_not_know() -> None:
+    """Read as the API judge's reply: an incomplete answer is not an invention."""
+    parsed = parse_verdicts(
+        '[{"id": "abc123", "correct": "false", "false_claims": "no", '
+        '"reasoning": "left the port out"}]'
+    )
+    assert parsed["abc123"] == (
+        Verdict.ABSTAIN,
+        f"left the port out {_NOTHING_FALSE_NOTE}",
+    )
+
+
+def test_a_console_miss_without_false_claims_counts_as_hallucinated() -> None:
+    """A verdict pasted in the older form grades as it always did, with the note."""
+    parsed = parse_verdicts(
+        '[{"id": "abc123", "correct": false, "reasoning": "missed"}]'
+    )
+    assert parsed["abc123"] == (
+        Verdict.HALLUCINATE,
+        f"missed {_NO_FALSE_CLAIMS_NOTE}",
+    )
 
 
 def test_a_line_per_verdict_is_read_too() -> None:
-    """The form is set by the chat, not by us: demanding one would break the work."""
+    """The form is set by the chat, not by us: demanding one would break the work.
+
+    A line has no room for "false_claims", so a miss on it counts as hallucinated.
+    """
     parsed = parse_verdicts(
         "abc123: correct — matches the gold answer\ndef456: incorrect — another port"
     )
-    assert parsed["abc123"][0] is True
-    assert parsed["def456"] == (False, "another port")
+    assert parsed["abc123"] == (Verdict.CORRECT, "matches the gold answer")
+    assert parsed["def456"] == (
+        Verdict.HALLUCINATE,
+        f"another port {_NO_FALSE_CLAIMS_NOTE}",
+    )
 
 
 def test_english_verdicts_are_read() -> None:
     parsed = parse_verdicts("abc123: correct - matches\ndef456: wrong - no")
-    assert parsed["abc123"][0] is True
-    assert parsed["def456"][0] is False
+    assert parsed["abc123"][0] is Verdict.CORRECT
+    assert parsed["def456"][0] is Verdict.HALLUCINATE
+
+
+def test_the_console_judge_is_asked_what_the_api_judge_is() -> None:
+    """The same rules, and the same "false_claims" field to fill in."""
+    header = _judging_header(3)
+    assert JUDGE_RULES in header
+    assert '"false_claims": false' in header
+
+
+def test_the_console_answerer_is_asked_what_the_api_answerer_is() -> None:
+    """The closed-book instruction, false-premise line included, is the API one."""
+    header = _questions_header(3)
+    assert CLOSED_BOOK_SYSTEM in header
+    assert "assumes something that isn't true" in header
 
 
 def test_an_empty_file_yields_nothing() -> None:

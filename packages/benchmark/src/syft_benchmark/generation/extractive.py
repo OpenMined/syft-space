@@ -6,17 +6,12 @@ replace one span with "______", and the span itself becomes the gold answer.
 
     Fill in the blank: The Hub stores endpoint metadata in ______.
 
-The value of this shape is that **the gold answer cannot be invented**: it is
-cut out of the text, not composed. Our gold-answer screening passes trivially on
-span pairs, and this is the only class of items where the generator cannot lie.
+The value of this shape is that **the gold answer is a span of the text**:
+the sentence is taken verbatim and the blank is a part of it, not a composed
+answer.
 
-Two paths, as in the original, but the choice is automatic (see `language.py`):
-
-  * **spaCy** — named entity recognition. Deterministic, without calling a
-    model, hundreds of pairs in seconds. Requires an installed language model.
-  * **LLM** — one call for all three categories at once. Any language, but the
-    gold answer is once again produced by a model, and screening becomes
-    mandatory.
+One LLM call writes all three categories for a chunk, in the chunk's language;
+``parse_combined`` keeps only items whose blank and answer fit the sentence.
 """
 
 from __future__ import annotations
@@ -25,28 +20,31 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-_MIN_SENTENCE_CHARS = 40
 _MASK = "______"
 
-# The spaCy labels by category: the original's OntoNotes set (English), plus
-# PER, the person label of the WikiNER models (ru, de, fr, ...).
-NER_LABELS = frozenset({"PERSON", "PER", "ORG", "GPE", "NORP", "FAC", "LOC", "EVENT"})
-NUMERIC_LABELS = frozenset({"CARDINAL", "MONEY", "PERCENT", "QUANTITY", "ORDINAL"})
-TEMPORAL_LABELS = frozenset({"DATE", "TIME"})
-
 # There is no point masking a vague time: "recently" is restored out of thin air
-# and checks nothing. Both languages are listed — the corpus can be in either.
+# and checks nothing.
 _VAGUE_TIME = re.compile(
     r"^(now|today|tomorrow|yesterday|recently|later|soon|currently|then|ago|"
     r"early|late)$",
     re.IGNORECASE,
 )
 
+# A date counted from the day of writing: "this year", "last month", "two years
+# ago". The sentence or the story's own date gives it away; either way it is
+# not a fact of the story.
+_RELATIVE_TIME = re.compile(
+    r"^(?:(?:this|that|last|next|the same|the past|the previous|the following|"
+    r"the coming)\s+(?:day|week|weekend|month|quarter|year|season|decade)"
+    r"|.*\bago)$",
+    re.IGNORECASE,
+)
+
 # Markup that does not make a sentence. LiveTruth worked over news prose, where
 # there is none of this; technical documentation, though, is half made of code
-# blocks, tables and parameter lists, and sentence segmentation cuts straight
-# through them. Masking "Bearer" inside an example request is meaningless: what
-# gets tested is not knowledge of the corpus but the ability to guess the syntax.
+# blocks, tables and parameter lists. Masking "Bearer" inside an example request
+# is meaningless: what gets tested is not knowledge of the corpus but the
+# ability to guess the syntax.
 _MARKUP = (
     "```",
     "|",
@@ -54,8 +52,7 @@ _MARKUP = (
     "<table",
     "</",
     "/>",
-    # The arrows of mermaid diagrams: a code block without a fence, which the
-    # sentence segmenter takes for a phrase.
+    # The arrows of mermaid diagrams: a code block without a fence.
     "->>",
     "-->",
     "->",
@@ -83,12 +80,6 @@ def is_prose(sentence: str) -> bool:
     return bool(sentence) and letters / len(sentence) >= _MIN_LETTER_SHARE
 
 
-CATEGORIES: dict[str, frozenset[str]] = {
-    "named_entity": NER_LABELS,
-    "numeric": NUMERIC_LABELS,
-    "temporal": TEMPORAL_LABELS,
-}
-
 # The gold answer length by category: a name can be long, a number cannot.
 _MAX_ANSWER_CHARS = {"named_entity": 100, "numeric": 50, "temporal": 60}
 
@@ -104,12 +95,8 @@ class Masked:
 
 
 # What a real gold answer looks like: words, numbers, versions, units. Anything
-# with punctuation and operators in it is a shard of markup, not an entity.
-#
-# The check is needed because of the corpus. The entity recogniser was trained on
-# news, and on technical documentation it errs noticeably: "+ vector" arrives
-# labelled DATE, and so does "402/403 +". Such an item measures nothing yet lands
-# confidently in the metrics.
+# with punctuation and operators in it is a shard of markup, not an entity, and
+# such an item measures nothing yet lands confidently in the metrics.
 _ANSWER_SHAPE = re.compile(r"^[\w\s.,'’%$№#-]+$", re.UNICODE)
 
 
@@ -123,74 +110,9 @@ def _acceptable(category: str, answer: str) -> bool:
         return False
     if not any(ch.isalnum() for ch in answer):
         return False
-    return not (category == "temporal" and _VAGUE_TIME.match(answer))
-
-
-def labelled_categories(nlp: Any, categories: tuple[str, ...]) -> tuple[str, ...]:
-    """The categories the model's entity recogniser has labels for.
-
-    The WikiNER models (ru, de, ...) know names only: no dates, no numbers.
-    """
-    try:
-        labels = set(nlp.get_pipe("ner").labels)
-    except (KeyError, AttributeError):
-        return ()
-    return tuple(c for c in categories if CATEGORIES[c] & labels)
-
-
-def mask_with_spacy(
-    text: str, nlp: Any, categories: tuple[str, ...] = ("named_entity",)
-) -> dict[str, list[Masked]]:
-    """Build pairs from a chunk using spaCy.
-
-    Args:
-        text: A chunk of the document
-        nlp: A loaded spaCy model
-        categories: Which categories to build
-
-    Returns:
-        The pairs by category
-    """
-    out: dict[str, list[Masked]] = {name: [] for name in categories}
-    seen: set[tuple[str, str]] = set()
-
-    doc = nlp(text)
-    for sent in doc.sents:
-        sentence = sent.text.strip()
-        if len(sentence) < _MIN_SENTENCE_CHARS or not is_prose(sentence):
-            continue
-
-        # We parse the sentence separately: the entity offsets are needed
-        # relative to it, not to the whole chunk.
-        parsed = nlp(sentence)
-        for ent in parsed.ents:
-            for category in categories:
-                if ent.label_ not in CATEGORIES[category]:
-                    continue
-                answer = ent.text.strip()
-                if not _acceptable(category, answer):
-                    continue
-
-                key = (sentence, answer)
-                if key in seen:
-                    continue
-                seen.add(key)
-
-                masked = sentence[: ent.start_char] + _MASK + sentence[ent.end_char :]
-                out[category].append(
-                    Masked(
-                        question=f"Fill in the blank: {masked}",
-                        answer=answer,
-                        context=sentence,
-                        meta={
-                            "entity_label": ent.label_,
-                            "mode": "spacy",
-                            "category": category,
-                        },
-                    )
-                )
-
-    return out
+    if category != "temporal":
+        return True
+    return not (_VAGUE_TIME.match(answer) or _RELATIVE_TIME.match(answer))
 
 
 COMBINED_SYSTEM = """\
@@ -215,6 +137,15 @@ Rules:
   - Write in the SAME language as the fragment.
   - Generate up to {n} questions per category, fewer if the fragment lacks \
 that type. An empty array is a valid answer.
+  - The sentence must make sense to someone who has not read the rest of the \
+story. No he, she, it, they or this without the subject named in the same \
+sentence.
+  - Use sentences that report a fact. Skip quotes, jokes, opinions and \
+rhetorical lines.
+  - Blank a fact a reader could only know from this story. Never blank a word \
+the rest of the sentence gives away (the country before its own prime \
+minister, "one", "this year") or lets you work out (a unit conversion).
+  - Use each sentence once.
 
 Respond with ONLY a JSON object with three arrays. No markdown, no commentary.
 {{
@@ -245,7 +176,7 @@ def parse_combined(
     repeat a text.
     """
     out: dict[str, list[Masked]] = {name: [] for name in categories}
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
 
     for category in categories:
         for item in data.get(category) or []:
@@ -262,10 +193,12 @@ def parse_combined(
             if answer.lower() in question.replace(_MASK, " ").lower():
                 continue
 
-            key = (question, answer)
-            if key in seen:
+            # One item per sentence: a second blank tests the same passage
+            # again. The prompt asks for it; this holds when the model does not.
+            sentence = question.replace(_MASK, answer)
+            if sentence in seen:
                 continue
-            seen.add(key)
+            seen.add(sentence)
 
             out[category].append(
                 Masked(

@@ -424,18 +424,15 @@ def test_overriding_an_unknown_result_returns_none(clean: None) -> None:
 def test_judging_a_pending_answer_survives_the_session_closing(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression, two bugs at once:
+    """Two properties of `_pending_tasks`.
 
-    `_pending_tasks` used to read `Result`/`Run` columns after the session
-    that loaded them had already committed and closed, which SQLAlchemy only
-    ever catches at attribute-access time — a mock session would not have
-    noticed, so this needs the real database.
+    It reads no `Result`/`Run` columns after the session that loaded them has
+    closed, which SQLAlchemy only catches at attribute-access time — so this
+    needs the real database.
 
-    It also used to treat a bare `judge_model` match as "already graded by
-    this judge" — but a deferred answer's placeholder already carries the
-    judge it is waiting for (`_save_result` stamps it before any verdict
-    exists), so with only one judge configured that match was true for every
-    pending row and the job "succeeded" having graded nothing. Hence
+    A bare `judge_model` match is not "already graded by this judge": a
+    deferred answer's placeholder already carries the judge it is waiting for
+    (`_save_result` stamps it before any verdict exists). Hence
     `judge_model="t"` below, matching the seat doing the (live) judging.
     """
     with session_scope() as session:
@@ -497,10 +494,8 @@ def test_judging_a_pending_answer_survives_the_session_closing(
 def test_judging_reports_progress_as_it_grades(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A live judging run used to report nothing until it finished — a
-    console watching it had only a spinner, not a count. `judge_pending`
-    now tells `watch` how many of how many are done, the same way an
-    evaluate pass already does.
+    """`judge_pending` tells `watch` how many of how many are done, the same
+    way an evaluate pass does, so a console shows a count, not a spinner.
     """
     with session_scope() as session:
         for n in range(2):

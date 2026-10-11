@@ -61,25 +61,29 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.llm import judge_provider
+from syft_benchmark.runs.execute import CLOSED_BOOK_SYSTEM
 from syft_benchmark.runs.gate import evaluable
 from syft_benchmark.runs.judge import (
+    JUDGE_RULES,
     control_case,
+    free_text_grade,
     grade,
     grade_control,
     is_control,
     is_technical,
 )
 
-_HEADER = """\
-Below are {count} questions. Answer each one from your own knowledge.
 
-If you are not sure, respond with ONLY: I don't know
-Do not guess. An honest "I don't know" is better than a confident answer that
-might be wrong.
+def _questions_header(count: int) -> str:
+    """The closed-book instruction of an API run, put to a list of questions."""
+    return (
+        f"Below are {count} questions. Follow these instructions for each one.\n\n"
+        f"{CLOSED_BOOK_SYSTEM}\n"
+        "Return your answers as a JSON array, one object per question, "
+        "nothing else:\n"
+        '[{"id": "<the id given below>", "answer": "..."}]\n'
+    )
 
-Return your answers as a JSON array, one object per question, nothing else:
-[{{"id": "<the id given below>", "answer": "..."}}]
-"""
 
 # The answer is pasted by a human and a chat, and they format it however they
 # please: now an array of objects, now a numbered list. We parse both forms.
@@ -137,7 +141,7 @@ def export_questions(
         # Only questions that passed the web check are put to a model.
         pairs = [(r.id, r.question) for r in evaluable(rows, conf)][:limit]
 
-    lines = [_HEADER.format(count=len(pairs)), ""]
+    lines = [_questions_header(len(pairs)), ""]
     for pair_id, question in pairs:
         lines.append(f"--- {pair_id}")
         lines.append(question)
@@ -300,23 +304,24 @@ def import_answers(
 # The console judge
 # ---------------------------------------------------------------------------
 
-_JUDGING_HEADER = """\
-Below are {count} graded items. For each one you are given a question, the
-expected answer, and the answer a model produced. Decide whether the model
-answer is correct.
 
-Correct means: it states what the expected answer states. Different wording is
-fine. Extra detail is fine as long as nothing contradicts the expected answer.
-Missing the point, contradicting it, or answering a different question is not
-correct.
+def _judging_header(count: int) -> str:
+    """The API judge's rules, put to a list of items."""
+    return (
+        f"Below are {count} graded items. For each one you are given a question, "
+        "the expected answer (or the facts an explanation must cover), and the "
+        "answer a model produced. Decide whether the model answer is correct.\n\n"
+        f"{JUDGE_RULES}\n"
+        "Return your verdicts as a JSON array, one object per item, nothing else:\n"
+        '[{"id": "<the id given below>", "correct": true, "false_claims": false, '
+        '"reasoning": "one short sentence"}]\n'
+    )
 
-Return your verdicts as a JSON array, one object per item, nothing else:
-[{{"id": "<the id given below>", "correct": true, "reasoning": "one short sentence"}}]
-"""
 
 # The judge answer is one object per line or the whole array. The form is set by
 # the chat, not by us, and demanding a single one would mean breaking the work
-# over formatting.
+# over formatting. A line carries no "false_claims", so an incorrect one counts
+# as hallucinated, as with an API judge that leaves the field out.
 _VERDICT_RE = re.compile(
     r"^\s*([0-9a-f]{6,32})\s*[:.\)]\s*(correct|incorrect|wrong|yes|no|true|false)"
     r"\s*[—\-:]?\s*(.*)$",
@@ -348,6 +353,7 @@ class JudgingReport:
     matched: int = 0
     missing: int = 0
     correct: int = 0
+    abstain: int = 0
     hallucinate: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -498,7 +504,7 @@ def export_judging(
         )
         return report
 
-    lines = [_JUDGING_HEADER.format(count=len(tasks)), ""]
+    lines = [_judging_header(len(tasks)), ""]
     for task in tasks:
         lines.append(f"--- {task.result_id}")
         lines.append(f"Question:\n{task.question}")
@@ -520,14 +526,15 @@ def export_judging(
     return report
 
 
-def parse_verdicts(text: str) -> dict[str, tuple[bool, str]]:
+def parse_verdicts(text: str) -> dict[str, tuple[Verdict, str]]:
     """Pull the verdicts out of what the human pasted.
 
     We accept both a JSON array and the line-by-line form ``<id>: correct —
     reasoning``: the parsing is tolerant for the same reason as for the answers —
-    the form is set by the chat.
+    the form is set by the chat. Each item is read as the API judge's reply is
+    (``free_text_grade``), so "false_claims" splits a miss the same way.
     """
-    verdicts: dict[str, tuple[bool, str]] = {}
+    verdicts: dict[str, tuple[Verdict, str]] = {}
 
     start = text.find("[")
     if start >= 0:
@@ -542,19 +549,18 @@ def parse_verdicts(text: str) -> dict[str, tuple[bool, str]]:
                 key = str(item.get("id") or "").strip()
                 if not key or "correct" not in item:
                     continue
-                verdicts[key] = (
-                    bool(item.get("correct")),
-                    str(item.get("reasoning") or "")[:400],
-                )
+                verdicts[key] = free_text_grade(item)
             if verdicts:
                 return verdicts
 
     for line in text.splitlines():
         match = _VERDICT_RE.match(line)
         if match:
-            verdicts[match.group(1)] = (
-                match.group(2).lower() in _POSITIVE,
-                match.group(3).strip()[:400],
+            verdicts[match.group(1)] = free_text_grade(
+                {
+                    "correct": match.group(2).lower() in _POSITIVE,
+                    "reasoning": match.group(3).strip(),
+                }
             )
     return verdicts
 
@@ -655,8 +661,7 @@ def import_judging(
                     )
                 )
 
-        correct, reasoning = verdicts[str(result_row["id"])]
-        verdict = Verdict.CORRECT if correct else Verdict.HALLUCINATE
+        verdict, reasoning = verdicts[str(result_row["id"])]
         audit = dict(result_row["audit"] or {})
         # An auditor needs to see that the verdict was issued by a human in a chat
         # rather than by a model: it cannot be checked the way a machine one can.
@@ -697,6 +702,8 @@ def import_judging(
         report.matched += 1
         if verdict is Verdict.CORRECT:
             report.correct += 1
+        elif verdict is Verdict.ABSTAIN:
+            report.abstain += 1
         else:
             report.hallucinate += 1
 

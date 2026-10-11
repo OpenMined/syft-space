@@ -22,7 +22,6 @@ that is visible directly in the design of the measurement:
     retrieval — once per model under test. Nine models mean nine identical trips
     to RAG, and `denial_loop` and `monte_carlo` multiply them again, because each
     block starts from a question of its own;
-  * arm B has already been to the endpoint with the same question before them;
   * a model first answer at zero temperature is the same in every block:
     `denial_loop` starts its pressure from exactly the answer the direct test has
     already obtained.
@@ -191,10 +190,8 @@ class RunCache:
         generation is asked for a single token: the response mode is set by the
         owner, and on a ``both`` endpoint it cannot be cancelled by the request.
 
-        A recorded retrieval is reused even by someone who does NOT need the prose:
-        the arm B answer contains both, so after it arm C has no reason to go to the
-        endpoint. The converse is not true — for the prose after a truncated call one
-        has to go again.
+        A recorded retrieval with prose serves a caller that does not need the
+        prose; the converse is not true — for the prose one has to go again.
         """
         key = (space.key, question)
         cached = self._endpoint.get(key) if self.enabled else None

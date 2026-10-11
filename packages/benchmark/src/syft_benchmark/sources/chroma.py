@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -71,6 +71,10 @@ class Chunk:
     # Dates the Space wrote into the chunk metadata (ISO strings, "" when absent).
     published: str = ""
     added_at: str = ""
+    # The document header the Space lifted into the chunk metadata: its
+    # `doc_<key>` entries, keyed without the prefix. Empty for collections
+    # indexed with the header left in the text of chunk 0.
+    doc_meta: dict[str, str] = field(default_factory=dict, hash=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +249,7 @@ class ChromaClient:
                     headings=str(meta.get("headings") or ""),
                     published=str(meta.get("published") or ""),
                     added_at=_added_at(meta),
+                    doc_meta=_doc_meta(meta),
                 )
             if len(ids) < _PAGE:
                 return
@@ -255,9 +260,11 @@ class ChromaClient:
 # Parsing the chunks
 # ---------------------------------------------------------------------------
 
-# The YAML header the ETL puts on every file. In the index it usually ends up as
-# the beginning of the first chunk: useless as a source of questions, and the
-# opposite as a source of metadata.
+# The YAML header the ETL puts on every file. The Space strips it before
+# indexing and writes its fields into every chunk's metadata as `doc_<key>`
+# (see _doc_meta). Collections indexed earlier keep it as the beginning of
+# chunk 0, where strip_header reads it: useless as a source of questions, and
+# the opposite as a source of metadata.
 _HEADER_KEYS = frozenset(
     {
         "title",
@@ -366,6 +373,23 @@ def _added_at(meta: dict[str, Any]) -> str:
     return ""
 
 
+_DOC_PREFIX = "doc_"
+# The Space's own chunk key that shares the header prefix.
+_NOT_HEADER = frozenset({"doc_id"})
+
+
+def _doc_meta(meta: dict[str, Any]) -> dict[str, str]:
+    """The header fields the Space put into the chunk metadata as `doc_<key>`."""
+    return {
+        key[len(_DOC_PREFIX) :]: str(value).strip()
+        for key, value in meta.items()
+        if key.startswith(_DOC_PREFIX)
+        and key not in _NOT_HEADER
+        and value is not None
+        and str(value).strip()
+    }
+
+
 def strip_header(text: str) -> tuple[str, dict[str, str]]:
     """Cut off lines of the form `key: "value"` and return them separately."""
     header: dict[str, str] = {}
@@ -398,7 +422,10 @@ def load_documents(
 ) -> list[Document]:
     """Assemble a collection into documents.
 
-    The metadata comes from the header, the body from the chunks.
+    The metadata comes from the header, the body from the chunks. The header
+    is the chunks' `doc_*` metadata when the Space wrote it; then chunk 0 is
+    body text and is taken as is. Otherwise the header is cut off the start of
+    chunk 0 by strip_header.
 
     A rig corpus is dozens of documents and hundreds of chunks, so the collection
     fits into memory whole; for a corpus orders of magnitude larger, page-by-page
@@ -413,7 +440,11 @@ def load_documents(
     documents: list[Document] = []
     for doc_id, chunks in by_doc.items():
         chunks.sort(key=lambda c: c.chunk_index)
-        first_body, header = strip_header(chunks[0].text)
+        lifted = next((c.doc_meta for c in chunks if c.doc_meta), None)
+        if lifted is not None:
+            first_body, header = chunks[0].text, lifted
+        else:
+            first_body, header = strip_header(chunks[0].text)
 
         useful: list[Chunk] = []
         for position, chunk in enumerate(chunks):

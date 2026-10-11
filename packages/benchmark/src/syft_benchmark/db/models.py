@@ -388,15 +388,13 @@ class Result(Base):
 class Target(Base):
     """A node under test: where to go and with what settings to measure.
 
-    Before the UI existed the list of nodes lived in ``config/spaces.json``, and that
-    was enough while it was edited by the same person who launched the run. As soon
-    as targets are created by an owner from a UI, the file stops being fit: there is
-    nobody to re-read it in a running process, it has no history, and two
-    simultaneous saves wipe each other out.
+    Targets are edited from the UI, so they live in a table: a file has nobody
+    to re-read it in a running process, no history, and two simultaneous saves
+    wipe each other out.
 
-    The file has not gone anywhere and remains a seed: a target that is not in the
-    table is taken from it. That way an installation configured by the file keeps
-    working, knowing nothing about any UI.
+    ``config/spaces.json`` remains a seed: a target that is not in the table is
+    taken from it, so an installation configured by the file works knowing
+    nothing about any UI.
 
     ``instrument`` and ``probe`` are **overrides**, not a full set of settings: only
     what the owner actually set. The defaults stay with the installation, and an
@@ -613,7 +611,7 @@ class InstallationSettings(Base):
     going to that host.
 
     **A sparse set of overrides, exactly like ``instrument`` and ``probe``**,
-    rather than sixty-five columns. An unset field means "take the built-in
+    rather than a column per field. An unset field means "take the built-in
     default", and for several fields the empty value is itself a decision —
     ``disabled_generators: []`` means "disable none", which nullable columns
     cannot tell from never having been touched. And ``/schema`` exists so that

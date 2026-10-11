@@ -89,21 +89,8 @@ export function shortStamp(value: string | null | undefined): string | null {
   return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${clock(d)}` : null
 }
 
-/** The reader's calendar day of a stamp, `YYYY-MM-DD`, as a date input holds it. */
-export function localDay(iso: string | null | undefined): string | null {
-  const d = parse(iso)
-  return d ? `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}` : null
-}
-
 function windowWords(days: number): string {
   return days === 1 ? '24 hours' : `${days} days`
-}
-
-/** `articles from the previous 24 hours`; null for a whole-corpus or unknown window. */
-export function windowText(days: number | null | undefined): string | null {
-  return typeof days === 'number' && days > 0
-    ? `articles from the previous ${windowWords(days)}`
-    : null
 }
 
 function cadence(target: BenchmarkTarget): string | null {

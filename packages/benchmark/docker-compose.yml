@@ -23,7 +23,7 @@ services:
       POSTGRES_PASSWORD: "${BENCH_DB_PASSWORD:-benchmark}"
       POSTGRES_DB: "${BENCH_DB_NAME:-benchmark}"
     ports:
-      - "${BENCH_DB_PORT:-5442}:5432"
+      - "127.0.0.1:${BENCH_DB_PORT:-5442}:5432"
     volumes:
       - benchmark-db-data:/var/lib/postgresql/data
     healthcheck:

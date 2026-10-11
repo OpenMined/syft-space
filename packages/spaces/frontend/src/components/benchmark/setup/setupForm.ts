@@ -67,12 +67,6 @@ export const DATASET_MODES: Choice[] = [
   { value: 'rebuild', label: 'Rebuild: ask the same articles again' },
 ]
 
-export const EXTRACTIVE_MODES: Choice[] = [
-  { value: 'auto', label: 'Automatic' },
-  { value: 'spacy', label: 'Language rules' },
-  { value: 'llm', label: 'AI model' },
-]
-
 export const JUDGE_POLICIES: Choice[] = [
   { value: 'strict', label: 'Don’t run until it’s fixed' },
   { value: 'warn', label: 'Run anyway and flag the results' },
@@ -326,7 +320,6 @@ export interface SetupForm {
   disabledKinds: string[]
   pairsPerChunk: number
   minChunkChars: number
-  extractiveMode: string
   answerCoverage: number
   webWriter: boolean
   // step 3
@@ -379,7 +372,6 @@ const FALLBACK = {
   chunks_per_run: 0,
   pairs_per_chunk: 2,
   min_chunk_chars: 400,
-  extractive_mode: 'auto',
   answer_coverage_threshold: 0.6,
   dataset_max_pairs: 100,
   retrieval_top_k: 5,
@@ -507,7 +499,6 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
     disabledKinds: disabled,
     pairsPerChunk,
     minChunkChars: num(probe, 'min_chunk_chars'),
-    extractiveMode: str(instrument, 'extractive_mode', FALLBACK.extractive_mode),
     answerCoverage: toPercent(num(instrument, 'answer_coverage_threshold')),
     webWriter: bool(instrument, 'web_search_generator'),
 
@@ -640,7 +631,6 @@ export function buildRequest(
   p('endpoint_concurrency', finite(form.endpointConcurrency, num(effProbe, 'endpoint_concurrency')))
 
   i('generator_model', form.writer)
-  i('extractive_mode', form.extractiveMode)
   i(
     'answer_coverage_threshold',
     fromPercent(finite(form.answerCoverage, toPercent(num(effInstr, 'answer_coverage_threshold')))),

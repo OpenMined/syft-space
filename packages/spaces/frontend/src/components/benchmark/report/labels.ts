@@ -120,11 +120,6 @@ export const GROUP_LABEL: Record<Group, string> = {
   worse: 'Worse with your data',
 }
 
-export const ARM_LABEL = {
-  closed: 'On its own',
-  ctx: 'With your data',
-} as const
-
 const MODEL_NAME: Record<string, string> = {
   'google/gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
 }
@@ -182,6 +177,7 @@ export function vendorName(id: string): string | null {
 export const REMOVED_REASON_LABEL: Record<string, string> = {
   grounding: 'Not supported by the article',
   retrieval_gate: 'Search could not find its passage',
+  not_answerable: 'Not answerable from the archive',
   duplicate: 'Duplicate',
   owner: 'Removed by you',
   rotation: 'Rotated out',

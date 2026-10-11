@@ -187,7 +187,7 @@ def test_the_token_never_comes_back_out() -> None:
     """The Space access token is not handed outwards — only the flag that it exists.
 
     The flag is passed in rather than read off the row: the token does not live
-    on the row any more, and a view that went to the database for it would make
+    on the row, and a view that went to the database for it would make
     a list of twenty targets twenty queries.
     """
     row = Target(key="k", url="http://space", endpoint="ep")
@@ -749,10 +749,9 @@ def test_the_cancellation_is_read_even_when_the_progress_write_is_held_back(
 ) -> None:
     """Holding back an UPDATE is thrift; holding back the flag is spending.
 
-    Progress is written no more often than once every BEAT_SECONDS, and the
-    flag used to ride along with it. A run that reported twice in a second
-    therefore went on asking paid questions for the rest of the interval after
-    the owner had pressed stop.
+    Progress is written no more often than once every BEAT_SECONDS; the
+    cancellation flag is read on every report, or a run goes on asking paid
+    questions for the rest of the interval after the owner has pressed stop.
     """
     with session_scope() as session:
         session.add(

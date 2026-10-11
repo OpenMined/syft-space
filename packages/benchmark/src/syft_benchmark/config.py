@@ -41,7 +41,7 @@ class ContextMode(StrEnum):
         the model interaction with RAG: A and C differ by exactly the presence of
         context, so their difference is interpretable.
 
-    Arm B (``open_book``) is no longer measured. The value stays so that results
+    Arm B (``open_book``) is not measured. The value stays so that results
     already collected under it still read; ``measured_arms`` drops it from any
     setting that still lists it.
     """
@@ -287,6 +287,9 @@ class StatusReason(StrEnum):
 
     GROUNDING = "grounding"
     RETRIEVAL_GATE = "retrieval_gate"
+    # Live retrieval did not find the answer to an ordinary question
+    # (generation/filter_stage.py, the archive check).
+    NOT_ANSWERABLE = "not_answerable"
     # No row is stored for a duplicate (the unique index refuses it); the code
     # exists for the report's funnel.
     DUPLICATE = "duplicate"
@@ -767,7 +770,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- The generators. All eight are on by default.
+    # --- The generators. All ten are on by default.
     disabled_generators: list[str] = Field(
         default_factory=list,
         description="Generators not to run, even when all are asked for",
@@ -934,40 +937,7 @@ class Settings(BaseSettings):
         description=(
             "The ceiling on active items in the set. Zero — no ceiling. The surplus "
             "is taken out of the measurement rather than deleted: the selection goes "
-            "by the same round-robin over halves and generators as the run limit"
-        ),
-    )
-
-    # --- The extractive generators: what to cut the span with
-    #
-    # The decision is made automatically and per document: a corpus can be mixed,
-    # and making the user choose a language for every file means offloading an
-    # implementation detail onto them.
-    #
-    #   auto  — if there is a spaCy model for the document language we go through
-    #           it; otherwise the same chunk is processed by an LLM. Nothing to set.
-    #   spacy — spaCy only. Documents in languages without a model are skipped.
-    #           Meaningful when reproducibility matters: the span is cut out of the
-    #           text and the gold answer cannot be invented.
-    #   llm   — LLM only. One path for any language, spaCy not needed at all.
-    extractive_mode: str = Field(
-        default="auto",
-        description="What to build fill-in-the-blank with: auto, spacy or llm",
-    )
-    spacy_models: dict[str, str] = Field(
-        default_factory=lambda: {
-            "en": "en_core_web_sm",
-            "ru": "ru_core_news_sm",
-            "de": "de_core_news_sm",
-            "fr": "fr_core_news_sm",
-            "es": "es_core_news_sm",
-            "it": "it_core_news_sm",
-            "pt": "pt_core_news_sm",
-            "nl": "nl_core_news_sm",
-        },
-        description=(
-            "Language code -> spaCy model name. Only the installed ones are taken; "
-            "the rest silently go down the LLM path"
+            "round-robin over the generators"
         ),
     )
 
@@ -1020,13 +990,8 @@ class Settings(BaseSettings):
     # --- Publishing
     #
     # The published arm is deliberately not here. It is a property of the NODE, not
-    # of the installation: an endpoint in raw mode does not formulate an answer, arm
-    # B is not run against it at all, and a setting would leave such a node without
-    # a single number despite excellent retrieval. It is chosen by the card, by the
-    # kind of product — see report.card.
-    #
-    # For a multi-Space installation this was broken twice over: one Space is
-    # summary, another raw, and the setting is one for both.
+    # of the installation: one Space may be summary, another raw. It is chosen by
+    # the card, by the kind of product — see report.card.
 
     @field_validator("judge_temperature", mode="before")
     @classmethod
@@ -1118,14 +1083,6 @@ class Settings(BaseSettings):
             "judge_temperature": self.judge_temperature,
             "judge_reasoning_effort": self.judge_reasoning_effort.value,
         }
-
-    def space_by_key(self, key: str) -> SpaceConfig:
-        spaces = self.load_spaces()
-        for space in spaces:
-            if space.key == key:
-                return space
-        known = ", ".join(s.key for s in spaces)
-        raise KeyError(f"unknown Space: {key} (available: {known})")
 
 
 class ExternalCallBlocked(RuntimeError):

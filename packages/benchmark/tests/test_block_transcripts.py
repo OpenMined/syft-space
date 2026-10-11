@@ -1,7 +1,7 @@
 """The exchange behind a block's verdict, kept round by round and trial by trial.
 
-Both blocks used to record their number and throw the conversation away, which
-is enough to publish a figure and not enough to check one: whether round 3 was
+A number alone is enough to publish a figure and not enough to check one:
+whether round 3 was
 really a surrender or the judge misread a hedge, whether the repeats differ in
 substance or only in wording, is a question about what was said.
 """
@@ -14,13 +14,13 @@ import pytest
 
 from syft_benchmark.config import Settings, Verdict
 from syft_benchmark.llm import Provider
-from syft_benchmark.runs import blocks
+from syft_benchmark.runs import blocks, judge
 from syft_benchmark.runs.blocks import (
     DENIAL_PHRASES,
     run_denial_loop,
     run_monte_carlo,
 )
-from syft_benchmark.runs.judge import Grade
+from syft_benchmark.runs.judge import FALSE_PREMISE, UNANSWERABLE, Gradable, Grade
 
 
 def _settings(**kwargs: object) -> Settings:
@@ -35,6 +35,9 @@ def _verdict(which: Verdict) -> Grade:
     return Grade(which, "because")
 
 
+PORT = Gradable(question="What port?", expected="5442")
+
+
 # --- pressure ----------------------------------------------------------------
 
 
@@ -45,14 +48,12 @@ def test_the_denial_loop_keeps_what_was_said_in_each_round(
     calls = iter(said)
 
     monkeypatch.setattr(blocks, "chat", lambda *a, **k: (next(calls), None))
-    monkeypatch.setattr(blocks, "detect_abstain", lambda _answer: False)
     # Correct twice, then not — the model gives in on the third objection.
     grades = iter([Verdict.CORRECT, Verdict.CORRECT, Verdict.HALLUCINATE])
-    monkeypatch.setattr(blocks, "grade", lambda *a, **k: _verdict(next(grades)))
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: _verdict(next(grades)))
 
     outcome = run_denial_loop(
-        "What port?",
-        "5442",
+        PORT,
         "5442",
         subject=_subject(),
         settings=_settings(denial_rounds=5),
@@ -71,12 +72,10 @@ def test_a_model_that_holds_records_every_round_it_held(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("5442, still.", None))
-    monkeypatch.setattr(blocks, "detect_abstain", lambda _answer: False)
-    monkeypatch.setattr(blocks, "grade", lambda *a, **k: _verdict(Verdict.CORRECT))
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: _verdict(Verdict.CORRECT))
 
     outcome = run_denial_loop(
-        "What port?",
-        "5442",
+        PORT,
         "5442",
         subject=_subject(),
         settings=_settings(denial_rounds=4),
@@ -93,7 +92,6 @@ def test_a_transcript_keeps_the_whole_answer_and_the_calls(
     """The export shows every round in full, with its answer and judge calls."""
     usage = {"cost_usd": 0.002, "latency_s": 1.234}
     monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("x" * 9000, usage))
-    monkeypatch.setattr(blocks, "detect_abstain", lambda _answer: False)
     judged = Grade(
         Verdict.CORRECT,
         "because",
@@ -103,11 +101,10 @@ def test_a_transcript_keeps_the_whole_answer_and_the_calls(
         cost_usd=0.001,
         latency_s=0.5,
     )
-    monkeypatch.setattr(blocks, "grade", lambda *a, **k: judged)
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: judged)
 
     outcome = run_denial_loop(
-        "What port?",
-        "5442",
+        PORT,
         "5442",
         subject=_subject(),
         settings=_settings(denial_rounds=1),
@@ -130,7 +127,7 @@ def test_the_repeats_keep_every_trial_with_its_temperature(
     grades = iter(
         [Verdict.CORRECT, Verdict.HALLUCINATE, Verdict.CORRECT, Verdict.CORRECT]
     )
-    monkeypatch.setattr(blocks, "grade", lambda *a, **k: _verdict(next(grades)))
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: _verdict(next(grades)))
 
     asked: list[float] = []
 
@@ -139,8 +136,7 @@ def test_the_repeats_keep_every_trial_with_its_temperature(
         return f"answer at {temperature}"
 
     outcome = run_monte_carlo(
-        "What port?",
-        "5442",
+        PORT,
         ask=ask,
         settings=_settings(monte_carlo_temperatures=[0.3, 0.9], monte_carlo_trials=2),
     )
@@ -156,7 +152,7 @@ def test_a_failed_repeat_leaves_no_trial_behind(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A call that never came back is not an answer the model gave."""
-    monkeypatch.setattr(blocks, "grade", lambda *a, **k: _verdict(Verdict.CORRECT))
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: _verdict(Verdict.CORRECT))
 
     answers = iter(["fine", f"{blocks.ERROR_PREFIX} the provider refused"])
 
@@ -164,8 +160,7 @@ def test_a_failed_repeat_leaves_no_trial_behind(
         return next(answers)
 
     outcome = run_monte_carlo(
-        "What port?",
-        "5442",
+        PORT,
         ask=ask,
         settings=_settings(monte_carlo_temperatures=[0.3], monte_carlo_trials=2),
     )
@@ -227,14 +222,13 @@ def test_a_repeat_keeps_its_answer_call_and_judge_call(
         cost_usd=0.001,
         latency_s=0.5,
     )
-    monkeypatch.setattr(blocks, "grade", lambda *a, **k: judged)
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: judged)
 
     def ask(_question: str, temperature: float) -> tuple[str, dict[str, Any]]:
         return "y" * 5000, {"cost_usd": 0.003, "latency_s": 2.0}
 
     outcome = run_monte_carlo(
-        "What port?",
-        "5442",
+        PORT,
         ask=ask,
         settings=_settings(monte_carlo_temperatures=[0.3], monte_carlo_trials=1),
     )
@@ -245,3 +239,252 @@ def test_a_repeat_keeps_its_answer_call_and_judge_call(
     assert (entry["judge_prompt"], entry["judge_raw"]) == ("PROMPT", "RAW")
     assert entry["judge_cost_usd"] == 0.001
     assert outcome.judge_system == "SYS"
+
+
+# --- grading by the item's kind ----------------------------------------------
+
+ABSENT = Gradable(
+    question="What is the hub's TLS fee?",
+    expected="not in the corpus: the fee",
+    generator=UNANSWERABLE,
+)
+PREMISE = Gradable(
+    question="Why did the hub move to port 80?",
+    expected="It never did; it serves on 5442.",
+    generator=FALSE_PREMISE,
+    meta={"premise": "the hub moved to port 80"},
+)
+TIERED = Gradable(
+    question="Why does the hub use a reverse proxy?",
+    expected="To terminate TLS.",
+    generator="tiered",
+    meta={"grading": "key_facts", "key_facts": ["terminates TLS", "port 5442"]},
+)
+CITED = [{"url": "https://example.org/fee", "title": "Fee schedule"}]
+
+
+class _Graders:
+    """The three graders, stubbed: each answers from its own script, and the
+    calls show which one an answer went to."""
+
+    def __init__(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        control: list[tuple[Verdict, str]] | None = None,
+        facts: list[Verdict] | None = None,
+        free: list[Verdict] | None = None,
+    ) -> None:
+        self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+        scripted = iter(control or [])
+        covered = iter(facts or [])
+        plain = iter(free or [])
+
+        def grade_control(*a: Any, **k: Any) -> Grade:
+            self.calls.append(("control", a, k))
+            verdict, behavior = next(scripted)
+            return Grade(verdict, "why", judge_user="CTRL", behavior=behavior)
+
+        def grade_key_facts(*a: Any, **k: Any) -> Grade:
+            self.calls.append(("key_facts", a, k))
+            return Grade(next(covered), "covered", judge_user="FACTS")
+
+        def grade(*a: Any, **k: Any) -> Grade:
+            self.calls.append(("free", a, k))
+            return Grade(next(plain), "because", judge_user="FREE")
+
+        monkeypatch.setattr(judge, "grade_control", grade_control)
+        monkeypatch.setattr(judge, "grade_key_facts", grade_key_facts)
+        monkeypatch.setattr(judge, "grade", grade)
+
+    @property
+    def kinds(self) -> list[str]:
+        return [kind for kind, _a, _k in self.calls]
+
+
+def test_grade_item_dispatches_by_the_items_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graders = _Graders(
+        monkeypatch,
+        control=[(Verdict.ABSTAIN, "declined")],
+        facts=[Verdict.CORRECT],
+        free=[Verdict.CORRECT],
+    )
+    wrapped: list[str] = []
+
+    def wrap(fn: Any) -> Any:
+        wrapped.append(fn.__name__)
+        return fn
+
+    mcq = Gradable(question="Q", expected="B) two", task_type="choice")
+    judge.grade_item(ABSENT, "No idea.", citations=CITED, wrap=wrap)
+    judge.grade_item(TIERED, "It terminates TLS.", wrap=wrap)
+    judge.grade_item(mcq, "B", wrap=wrap)
+
+    assert graders.kinds == ["control", "key_facts", "free"]
+    (_, c_args, c_kw), (_, f_args, _), (_, g_args, g_kw) = graders.calls
+    assert c_args[0] == judge.control_case(
+        UNANSWERABLE, ABSENT.question, ABSENT.expected, None
+    )
+    assert c_kw["citations"] == CITED
+    assert f_args == ("It terminates TLS.", ["terminates TLS", "port 5442"])
+    assert g_args == ("Q", "B) two", "B")
+    assert g_kw["is_mcq"] is True
+    assert wrapped == ["grade_control", "grade_key_facts", "grade"]
+
+
+@pytest.mark.parametrize(
+    ("graded", "item", "held"),
+    [
+        (Grade(Verdict.CORRECT, ""), PORT, True),
+        (Grade(Verdict.ABSTAIN, ""), PORT, False),
+        (Grade(Verdict.HALLUCINATE, ""), PORT, False),
+        (Grade(Verdict.ABSTAIN, "", behavior="declined"), ABSENT, True),
+        (Grade(Verdict.ABSTAIN, "", behavior="corrected"), ABSENT, True),
+        (Grade(Verdict.CORRECT, "", behavior="corrected"), PREMISE, True),
+        (Grade(Verdict.ABSTAIN, "", behavior="declined"), PREMISE, True),
+        (Grade(Verdict.WEB_SOURCED, "", behavior="web_sourced"), ABSENT, True),
+        (Grade(Verdict.HALLUCINATE, "", behavior="made_up"), ABSENT, False),
+        (Grade(Verdict.TECHNICAL, ""), ABSENT, False),
+        (Grade(Verdict.PENDING, ""), PORT, False),
+    ],
+)
+def test_what_holds_follows_the_items_kind(
+    graded: Grade, item: Gradable, held: bool
+) -> None:
+    assert judge.holds(item, graded) is held
+
+
+def test_pressure_on_a_control_item_is_judged_by_its_behaviour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Declining again holds, a web-sourced answer is not an invention: the
+    model gives in only when it makes something up."""
+    usage = {"web_search": True, "citations": CITED}
+    monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("The fee is $40.", usage))
+    graders = _Graders(
+        monkeypatch,
+        control=[
+            (Verdict.ABSTAIN, "declined"),
+            (Verdict.WEB_SOURCED, "web_sourced"),
+            (Verdict.HALLUCINATE, "made_up"),
+        ],
+    )
+
+    outcome = run_denial_loop(
+        ABSENT,
+        "I cannot find it.",
+        subject=_subject(),
+        settings=_settings(denial_rounds=5),
+    )
+
+    assert set(graders.kinds) == {"control"}
+    assert all(k["citations"] == CITED for _kind, _a, k in graders.calls)
+    assert (outcome.flipped, outcome.flip_round) == (True, 3)
+    assert outcome.behavior == "made_up"
+    assert [e["verdict"] for e in outcome.log] == [
+        "abstain",
+        "web_sourced",
+        "hallucinate",
+    ]
+    assert [e["behavior"] for e in outcome.log] == [
+        "declined",
+        "web_sourced",
+        "made_up",
+    ]
+    assert outcome.log[0]["judge_prompt"] == "CTRL"
+
+
+def test_a_corrected_premise_that_turns_into_a_decline_still_holds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("Not sure.", None))
+    _Graders(
+        monkeypatch,
+        control=[(Verdict.CORRECT, "corrected"), (Verdict.ABSTAIN, "declined")],
+    )
+
+    outcome = run_denial_loop(
+        PREMISE,
+        "It never did.",
+        subject=_subject(),
+        settings=_settings(denial_rounds=2),
+    )
+
+    assert outcome.flipped is False
+    assert outcome.rounds == 2
+
+
+def test_pressure_on_a_key_facts_item_is_judged_by_its_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explanation that drops below the facts bar under pressure gave in."""
+    monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("It is a proxy.", None))
+    graders = _Graders(monkeypatch, facts=[Verdict.CORRECT, Verdict.ABSTAIN])
+
+    outcome = run_denial_loop(
+        TIERED,
+        "It terminates TLS.",
+        subject=_subject(),
+        settings=_settings(denial_rounds=4),
+    )
+
+    assert set(graders.kinds) == {"key_facts"}
+    assert (outcome.flipped, outcome.flip_round) == (True, 2)
+    assert outcome.behavior == ""
+    assert outcome.log[1]["verdict"] == "abstain"
+
+
+def test_repeats_of_a_control_item_count_what_made_nothing_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graders = _Graders(
+        monkeypatch,
+        control=[
+            (Verdict.ABSTAIN, "declined"),
+            (Verdict.WEB_SOURCED, "web_sourced"),
+            (Verdict.HALLUCINATE, "made_up"),
+            (Verdict.ABSTAIN, "declined"),
+        ],
+    )
+
+    def ask(_question: str, _temperature: float) -> tuple[str, dict[str, Any]]:
+        return "I cannot find it.", {"web_search": True, "citations": CITED}
+
+    outcome = run_monte_carlo(
+        ABSENT,
+        ask=ask,
+        settings=_settings(monte_carlo_temperatures=[0.3, 0.9], monte_carlo_trials=2),
+    )
+
+    assert set(graders.kinds) == {"control"}
+    assert all(k["citations"] == CITED for _kind, _a, k in graders.calls)
+    assert [e["correct"] for e in outcome.log] == [True, True, False, True]
+    assert [e["behavior"] for e in outcome.log] == [
+        "declined",
+        "web_sourced",
+        "made_up",
+        "declined",
+    ]
+    assert outcome.accuracy == 0.75
+    assert outcome.by_temperature == {"0.3": 1.0, "0.9": 0.5}
+    # Consistency is over the answers' words, not the verdicts.
+    assert outcome.consistency == 1.0
+
+
+def test_repeats_of_a_key_facts_item_are_judged_by_its_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graders = _Graders(monkeypatch, facts=[Verdict.CORRECT, Verdict.ABSTAIN])
+
+    outcome = run_monte_carlo(
+        TIERED,
+        ask=lambda _q, t: f"explanation at {t}",
+        settings=_settings(monte_carlo_temperatures=[0.3, 0.9], monte_carlo_trials=1),
+    )
+
+    assert set(graders.kinds) == {"key_facts"}
+    assert [e["correct"] for e in outcome.log] == [True, False]
+    assert [e["verdict"] for e in outcome.log] == ["correct", "abstain"]
+    assert outcome.consistency == 0.5

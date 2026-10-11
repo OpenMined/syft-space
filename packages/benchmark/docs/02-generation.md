@@ -4,75 +4,55 @@
 uv run syft-benchmark generators                   # the line-up and the settings
 uv run syft-benchmark generate docs                # all but the disabled ones
 uv run syft-benchmark generate docs -g qa -g mcq   # by name
-uv run syft-benchmark generate docs --limit 2      # 2 units per EACH generator
+uv run syft-benchmark generate docs --all          # all, ignoring disabled_generators
+uv run syft-benchmark generate docs --limit 2      # budget: 2 x pairs_per_chunk per generator
 uv run syft-benchmark filter docs                  # screen what generate left pending
 ```
 
-The dataset is built by ten generators over chunks and documents from the
-Space's index. Here: what they build, how the unfit is screened out, and what
-configures it.
-
-Which part of what is built goes into the measurement and stays in it is a
-separate stage, [03-dataset.md](03-dataset.md).
+Ten generators build items from chunks and documents of the Space's index.
+Every item is written `pending`; filtering decides `active` or `rejected`.
+Which part of the set is measured is [stage 3](03-dataset.md).
 
 ---
 
-## The two halves of the set
+## The generators
 
-**Eight answerable ones.** Seven are carried over from the LiveTruth project
-(`honest-agi-live`, phase 2); the eighth is an addition of ours. Each asks a
-question in its own way, and together they test different properties of the
-endpoint: one measures the accuracy of extracting a fact, another the ability
-to connect two facts, a third resistance to plausible falsehood. The answer to
-such a question is in the corpus by construction — the item was made out of a
-chunk, after all.
+Eight build **answerable** items (the answer is in the corpus by
+construction). Two build **control** items, with NO answer in the corpus: at a
+similarity threshold of `0.0` retrieval returns topical context for any
+question, and the typical failure is an invention assembled from real quotes.
 
-**Two control ones.** There is NO answer to them in the corpus. Without them
-the dataset measures half of the behaviour: what the pair does when there is no
-answer is not measured at all — and that is the most frequent question a live
-user asks and the most dangerous trap in RAG. At a similarity threshold of
-`0.0` retrieval is obliged to return top-k for ANY question, which means the
-endpoint's model receives an authoritative, topically relevant context that
-contains no answer. Hence the typical failure: **an invention assembled out of
-real quotations and looking as if it were backed by references**.
-
-| Generator | Class | Scope | Judging | What builds it |
+| Generator | Class | Scope | Judging | Expected behaviour |
 | --- | --- | --- | --- | --- |
-| `named_entity_masking` | extractive | chunk | judge | spaCy or LLM |
-| `numeric_masking` | extractive | chunk | judge | spaCy or LLM |
-| `temporal_masking` | extractive | chunk | judge | spaCy or LLM |
-| `mcq` | choice | chunk | by the letter | LLM |
-| `two_truths_one_lie` | choice | chunk | by the letter | LLM |
-| `multihop_synthesis` | abstractive | document | judge | LLM |
-| `tiered_explanation` | abstractive | document | by the facts | LLM |
-| `qa` | abstractive | chunk | judge | LLM |
-| `unanswerable_property` | negative | chunk | by behaviour | LLM + gate |
-| `false_premise` | negative | chunk | judge | LLM + gate |
+| `named_entity_masking` | extractive | chunk | judge | answer |
+| `numeric_masking` | extractive | chunk | judge | answer |
+| `temporal_masking` | extractive | chunk | judge | answer |
+| `mcq` | choice | chunk | by the letter | answer |
+| `two_truths_one_lie` | choice | chunk | by the letter | answer |
+| `multihop_synthesis` | abstractive | document | judge | answer |
+| `tiered_explanation` | abstractive | document | by key facts | answer |
+| `qa` | abstractive | chunk | judge | answer |
+| `unanswerable_property` | negative | chunk | by behaviour | abstain |
+| `false_premise` | negative | chunk | judge | correct the premise |
 
-**Scope** is what is fed in. This is not a performance setting: you cannot
-connect two facts or lay out the core of a topic from a single paragraph — such
-items degenerate into paraphrase at chunk scope.
+- **Scope** is what the model is fed: one chunk (first 6000 chars) or the
+  whole document (first 12000 chars).
+- **Judging** — see [05-judging.md](05-judging.md). By the letter and by
+  behaviour need no judge model.
+- All ten are on by default; turn generators off with `disabled_generators`.
 
-**Judging** is what the answer is measured by; in detail in
-[05-judging.md](05-judging.md). `by the letter` needs no model at all; `by the
-facts` checks a list of claims rather than a text match; `by behaviour` also
-does without a model — where no correct answer exists, there is nothing to
-judge.
+Every prompt is in English and asks for output in the fragment's language.
+The answerable prompts share these rules: answerable from the fragment alone;
+standalone (no "the text", "according to…", no "this/that" pointing); exactly
+one correct answer; concrete facts; built on facts **only this story reports**
+(its own figures, sources, quotes, inside details — not general background);
+invent nothing.
 
-**Why all ten are on by default.** A dataset of items of a single shape
-measures a single property, while the endpoint's card carries a single number:
-that number has to be computed over different shapes, otherwise it describes
-not the endpoint but the way of asking. Choosing on the owner's behalf which
-property of their endpoint is uninteresting is the wrong default. The two
-control ones are not "one more shape" but the second half of the behaviour, and
-switching them off means deliberately not measuring it.
+### Extractive: fill in the blank
 
----
-
-## Extractive: span masking
-
-Three generators of one shape. A sentence is taken, one span is replaced with
-`______`, and the span itself becomes the gold answer.
+One LLM call per chunk writes all three categories. Each item is a sentence
+copied verbatim with one span replaced by `______`; the span is the gold
+answer.
 
 ```
 Fill in the blank: In-cluster it authenticates as the chart's ______.
@@ -82,119 +62,55 @@ Answer: ServiceAccount
 | Generator | What it masks |
 | --- | --- |
 | `named_entity_masking` | people, organisations, products, components, places, events |
-| `numeric_masking` | amounts, percentages, counters, sizes, port numbers, versions |
-| `temporal_masking` | dates, years, durations, deadlines |
+| `numeric_masking` | amounts, percentages, counts, measurements, ports, versions, rankings |
+| `temporal_masking` | dates, years, durations, deadlines, intervals |
 
-**Why this class is valuable.** The gold answer cannot be invented: it is cut
-out of the text, not composed. These are the only items where the generator
-cannot lie, and gold-answer screening passes trivially on them.
+The prompt asks for factual sentences (no quotes, jokes, opinions), a subject
+named in the same sentence, a blank the rest of the sentence does not give
+away, and each sentence used once. Parsing keeps an item only if:
 
-**Two construction paths**, chosen automatically and per document:
+- the blank is present and the answer is not left elsewhere in the sentence;
+- the sentence is prose, not markup (code fences, tables, `|`, mermaid
+  arrows, list/heading prefixes, letter share below 55%);
+- the answer has an entity shape (words, numbers, versions — no operators),
+  fits the category length limit, and a temporal answer is not vague
+  ("recently") or relative ("last year", "two years ago");
+- the sentence was not already used (one item per sentence).
 
-* **spaCy** — named entity recognition. Deterministic, without a single call to
-  a model, dozens of items in seconds. Requires an installed model for the
-  document's language.
-* **LLM** — one call for all three categories at once. Any language, but the
-  gold answer is once again produced by a model.
+### Choice
 
-| `extractive_mode` | What it does |
-| --- | --- |
-| `auto` (default) | if there is a spaCy model for the document's language we go through it, otherwise through the LLM. **Nothing needs configuring**, the corpus may be mixed by language |
-| `spacy` | spaCy only; documents in languages without a model are skipped. Makes sense when reproducibility matters |
-| `llm` | LLM only; one path for any language, spaCy not needed at all |
+**`mcq`** — four options, one correct; the three wrong ones must sound right to
+someone who has not read the story and be contradicted by it.
 
-The language is determined from the function words spaCy carries around for
-each language. A separate detector is not required: the question asked is not
-"what language is this at all" but "does the text look like one of those we
-have a model for".
+**`two_truths_one_lie`** — three statements, one a plausible lie that changes
+a specific detail only this story reports.
 
-**Filters that are not in the original.** LiveTruth worked over news prose; our
-corpus is technical documentation. Two differences had to be accounted for:
+Options are shuffled deterministically from the question text; the seed is in
+`meta.option_seed`, so the correct letter is not the generator's favourite.
 
-1. **Markup is not masked.** Code blocks, tables and the arrows of mermaid
-   diagrams are taken for sentences by the sentence segmenter. Masking `Bearer`
-   inside an example request is meaningless: what gets tested is not knowledge
-   of the corpus but the ability to guess the syntax.
-2. **The shape of the gold answer is checked.** The entity recogniser was
-   trained on news and makes mistakes on technical texts: `+ vector` arrives
-   labelled `DATE`. A span containing punctuation and operators is screened
-   out.
+### Abstractive
 
----
+**`multihop_synthesis`** — a question that needs at least two facts from
+different parts of the document. Dropped if the generator listed fewer than
+two facts (`hop_facts`).
 
-## Choice: the answer is picked from options
+**`tiered_explanation`** — one topic explained at `eli5`, `eli10`, `eli18`,
+each with its list of key facts. Judged by coverage of those facts, not by
+wording. One topic per document.
 
-These are judged by matching the letter — a judge model is not needed and would
-only add noise.
+**`qa`** — a free-form question with a short (1–3 sentence) answer.
 
-**`mcq`** — four options, one correct, three plausibly incorrect.
+### Control
 
-**`two_truths_one_lie`** — three statements about a subject, one of which is
-false: a specific detail in it has been altered — a number, a name, a setting,
-an outcome. The item answers a question ordinary QA does not ask: **does the
-endpoint tell truth from plausible falsehood**. The self-sufficiency
-requirement is applied to statements just as it is to questions: "this
-solution" inside a statement is unreadable out of context.
+**`unanswerable_property`** — about a subject the chunk names, asking for a
+property it does not state ("what port does X use" where no port is given).
+The prompt requires exactly one missing detail, no hinted value, and nothing
+that is public knowledge. The stored answer is `not in the corpus: <missing>`.
+Abstaining is correct; any answer, including a hedged guess, is an invention.
 
-**The layout of the options is shuffled** deterministically from the question's
-text, and the seed is written into `meta`. Otherwise the lie in "two truths"
-would always sit in the position the generator chose, and a correct answer in
-arm A would mean not that the corpus is public but that it coincided with the
-generator's favourite letter.
-
----
-
-## Abstractive: they demand understanding
-
-**`multihop_synthesis`** — a question that cannot be answered knowing a single
-paragraph: it takes connecting at least two facts from different places in the
-document. For a RAG endpoint this is the harshest test — retrieval has to
-return **two different** chunks, not one suitable chunk. The item is screened
-out if the generator listed fewer than two facts in the link: then it is an
-ordinary question, and it has no place in multihop.
-
-**`tiered_explanation`** — one topic, three explanations of differing
-difficulty: `eli5`, `eli10`, `eli18`. It is judged **by key facts**, not by
-text match, and that is a departure from the original: an explanation for a
-five-year-old is obliged to use words that are not in the source — that is the
-point of it. Comparing such prose against a reference would mean punishing the
-wording. So the generator lists the facts the explanation rests on, and the
-judge checks how many of them are covered. In LiveTruth, BLEU, ROUGE and
-BERTScore were added for open-ended items; we do not carry those into judging —
-checking the facts is fairer and drags in no dependencies.
-
-**`qa`** — a free-form question with a short answer. **Our addition, not in
-LiveTruth**: there, knowledge of paid content was being tested, whereas we also
-need the ordinary shape in which a real storefront user comes to the endpoint.
-
----
-
-## The control set: there is NO answer in the corpus
-
-**`unanswerable_property`** — a question about a subject that is named in the
-chunk, but about a property that is not there: "what port does X use", where X
-is described but the port is nowhere stated.
-
-The negative is deliberately **near**, not unrelated. A question about the
-capital of France would only catch an outright crude failure; a question about
-a neighbouring property of a real component catches exactly the case the set
-was created for.
-
-It is judged **by behaviour**, and the judge is not called at all: no correct
-answer exists, so abstaining is the right behaviour and any answer is an
-invention. A hedge of "I don't know, but most likely X" counts as an answer: it
-is a guess.
-
-**`false_premise`** — a question whose premise contradicts the source: "why did
-the hub move to SQLite" when it is on PostgreSQL. The right behaviour here is
-**not abstention but correction**: "there was no such move, the metadata is in
-PostgreSQL". So the item has a real gold answer and an ordinary judge — an
-abstention is catchable with regexes, a correction is not. What is checked
-against the chunk is not the gold answer itself (it is reworded) but the
-grounds that make the premise false — as with "two truths and a lie".
-
-The two halves of the control set **ask for opposite things** — stay silent
-versus refute — and the report counts them separately.
+**`false_premise`** — a question built on a premise the chunk plainly
+contradicts ("why did the hub move to SQLite" when it is on PostgreSQL). The
+gold answer is the correction; an abstention does not count as correct.
 
 ---
 
@@ -203,223 +119,214 @@ versus refute — and the report counts them separately.
 ```mermaid
 flowchart TB
     CH[("the Space's ChromaDB")] --> LOAD["load_documents:<br/>chunks → documents"]
-    LOAD --> PICK["pick_chunks:<br/>round-robin over documents"]
+    LOAD --> WIN["freshness window<br/>(document_window_days)"]
+    WIN --> PICK["per-generator queue of unparsed units,<br/>round-robin over documents"]
     PICK --> SPLIT{"generator<br/>class"}
 
-    SPLIT -- "extractive" --> LANG{"is there a spaCy model<br/>for the document's language?"}
-    LANG -- "yes" --> SPACY["spaCy NER:<br/>span masking"]
-    LANG -- "no" --> LLMX["LLM: one call<br/>for three categories"]
-    SPLIT -- "choice / abstractive" --> LLMG["LLM with the generator's<br/>own prompt"]
-    SPLIT -- "negative" --> LLMN["LLM: a question with no<br/>answer in the chunk"]
+    SPLIT -- "extractive" --> LLMX["LLM: one call<br/>for three categories"]
+    SPLIT -- "choice / abstractive / negative" --> LLMG["LLM with the generator's<br/>own prompt"]
 
-    SPACY --> R1
     LLMX --> R1
     LLMG --> R1
-    LLMN --> R1
 
-    R1{"screening of the QUESTION<br/><i>quality.py</i>"} -- "reference to the source,<br/>a demonstrative without an antecedent,<br/>several correct answers" --> DROP["dropped — never becomes a row"]
-    R1 -- "fit" --> PEND[("pending<br/>awaits filtering")]
+    R1{"question screening<br/><i>quality.py</i> + language check"} -- "fails" --> DROP["dropped — never stored"]
+    R1 -- "fit" --> PEND[("pending")]
 
     MARK["processed_units:<br/>space + generator + unit_id + cohort"]
     PICK -.-> MARK
 ```
 
-Every pair that survives question screening becomes a row, `pending`.
-Whether it is grounded, and whether a control question genuinely has no
-answer, is decided afterwards, over the stored row rather than the fresh
-candidate — see [Filtering](#filtering-deciding-which-pending-pairs-are-fit)
-below.
+- **Each generator has its own queue.** `processed_units` marks a unit per
+  generator and cohort (the three masking generators share one mark), so each
+  generator sees every chunk.
+- **Budget per generator, in questions written:** `chunks_per_run ×
+  pairs_per_chunk` (`--limit` replaces `chunks_per_run`). A generator walks
+  every unparsed unit in the window, round-robin across documents, until its
+  budget is spent or the material runs out. Each unit gives at most
+  `pairs_per_chunk` items per generator (`tiered_explanation`: one).
+- A generator stops early after `max_consecutive_failures` units in a row
+  that wrote nothing.
+- Units run `concurrency` at a time across generators.
+- Duplicates within a cohort are rejected by a unique index on the question
+  hash.
+- A stopped build leaves the set as it was; stored items stay in the cohort.
+- From the console and the scheduled cycle each question is screened as soon
+  as it is written; from the CLI, run `filter` afterwards.
 
-### Screening the questions: can this be asked apart from the source
+The per-generator report gives budget, units read, written, drop reasons and
+why it stopped (`budget reached`, `ran out of material`, `failure streak`,
+`cancelled`).
 
-During testing the answerer sees only the question — without the chunk — and a
-question of the form "according to the text..." or "this statement" is useless.
-Every rule in `quality.py` appeared after analysing a specific pair that was
-spoiling the metrics: the endpoint answered correctly and the benchmark scored
-it a miss. So in the code an explanation stands beside every rule — without it
-the next reader will take the rule for over-caution and remove it.
+### Question screening
 
-The rules depend on the item's class, and that is a condition of the thing
-working, not a convenience: a masked sentence is a phrase from the document, in
-which pronouns legitimately appear because the antecedent is right next to the
-mask. Running it through the rules for a free-form question would mean killing
-off almost all masking.
+The answerer sees only the question, so a question must stand without its
+source. Checks in `quality.py` (English patterns; other languages pass
+unscreened), by class:
 
-| Class | What is checked |
+| Class | Checks |
 | --- | --- |
-| `extractive` | the mask is in place, the sentence is not a stub |
-| `abstractive` | self-sufficiency **and** unambiguity |
-| `choice` / `statement` | self-sufficiency only: the options are unambiguous on their own |
-| `negative` | as for abstractive: a control question is asked the same way |
+| `extractive` | mask present; item text ≥ 45 chars; no unanchored pronoun or demonstrative; not a quote |
+| `abstractive`, `negative` | no reference to the source; no unanchored pronoun or demonstrative; one correct answer |
+| `choice`, `statement` | no reference to the source; no unanchored pronoun or demonstrative |
 
-## Filtering: deciding which pending pairs are fit
+- **Reference to the source** — "according to the text", "the document says".
+- **Demonstrative without an antecedent** — "this statement", "that decision"
+  (demonstrative + a referring noun; "this year" passes).
+- **Pronoun without an antecedent** — `it/he/they/this…` with no proper name,
+  number or quoted phrase to anchor it. In a masked sentence the blank is not
+  an anchor.
+- **Quote** (masked sentences) — an unpaired quote mark, a quoted span of 4+
+  words, or a quoted span next to a speech verb. A short quoted term passes.
+- **Several correct answers** — open wordings ("one of the", "name a") or
+  "what did X say" when the document has more than one quote by X.
+
+**Wrong language.** The document's language and each item's language
+(question, answer, options) are detected by the share of function words from
+built-in lists for en, ru, de, fr, es, it, pt, nl. An item in a different
+language is dropped as `wrong language`. Text too short (under 12 words) or
+matching none of the lists gets no verdict, and the item stays.
+
+---
+
+## Filtering
 
 ```mermaid
 flowchart TB
-    PEND[("pending")] --> CTRL{"generator's expected<br/>behaviour"}
-    CTRL -- "ordinary: an answer<br/>is expected" --> R2{"grounding of the GOLD ANSWER<br/><i>validate.py</i>"}
-    CTRL -- "control: no answer<br/>should exist" --> R3{"THE GATE via live retrieval<br/><i>control.py</i>"}
-    R2 -- "rests on something<br/>not in the chunk" --> REJ2["rejected"]
-    R2 -- "grounded" --> ACT[("active<br/>goes into the arms")]
-    R3 -- "retrieval DOES answer it" --> REJ3["rejected:<br/>not a negative"]
-    R3 -- "retrieval does not answer" --> ACT
+    PEND[("pending")] --> CTRL{"expected<br/>behaviour"}
+    CTRL -- "answer" --> R2{"grounding of the gold answer<br/><i>validate.py</i>"}
+    CTRL -- "abstain / correct premise" --> R3{"retrieval gate<br/><i>control.py</i>"}
+    R2 -- "not grounded" --> REJ2["rejected"]
+    R2 -- "grounded" --> AR{"archive check<br/><i>control.py</i><br/>(when retrieval is available)"}
+    AR -- "answer not found" --> REJA["rejected: not_answerable"]
+    AR -- "check failed" --> PEND
+    AR -- "answer found" --> W{"web check<br/><i>web_check.py</i><br/>(when filter_model is set)"}
+    W -- "answered correctly" --> REJW["rejected: web_answerable"]
+    W -- "not answered" --> ACT[("active")]
+    R3 -- "missing detail answered,<br/>or correction not found" --> REJ3["rejected: retrieval_gate"]
+    R3 -- "missing detail not answered,<br/>or correction found" --> ACT
 ```
 
-`syft-benchmark filter`, `POST /targets/{key}/filter`, and the console's
-Filtering block all run this pass — over pairs already stored as `pending`,
-not over the fresh candidate a generator just produced. It only ever touches
-`pending` pairs: an `active` or `rejected` verdict, once made, stands until a
-person overturns it by hand (`PATCH /console/pairs/{id}`, or `filter set` on
-the CLI) — automatic filtering never re-decides what a person, or an earlier
-pass, already decided.
+`syft-benchmark filter` (`-g`, `--cohort`, `--limit`), `POST
+/targets/{key}/filter` and the console's Filtering block run this pass over
+stored `pending` pairs, `concurrency` at a time, then recompute the set (see
+[03-dataset.md](03-dataset.md)). Only `pending` pairs are touched; an `active`
+or `rejected` verdict changes only by hand (`PATCH /console/pairs/{id}`). In
+`rebuild` mode, pending pairs of older cohorts are skipped.
 
-### Grounding the gold answer: does the answer rest on the source
+Rejected pairs are kept, not deleted, and can be reinstated by hand. A pair
+nothing has measured yet can be deleted — see
+[the console](control-api.md#the-console). `retired` is different: set by
+the window, cohort or cap, and reversible — [03-dataset.md](03-dataset.md).
 
-The generator writes the gold answer with the chunk in front of it, and usually
-copies it from there — but sometimes fills in from memory: adds a year, a job
-title, the name of a DBMS. Such a gold answer understates a good endpoint's
-score **silently**: the metrics are simply lower than they should be, and there
-is nothing to point at.
+### Grounding the gold answer
 
-The check is lexical rather than model-based, and that is deliberate: it is
-cheap (there are thousands of gold answers), deterministic, and measures
-exactly what is needed. The coverage threshold for content words is
-`answer_coverage_threshold`, 0.6 by default; short gold answers ("47",
-"Alembic", "2026-09-08") are not measured by coverage at all — the word is
-either there or invented.
+Lexical: the share of the gold answer's content words found in the stored
+chunk must reach `answer_coverage_threshold` (0.6). In a gold answer of up to
+3 content words every word must be in the chunk. The stopword list is English.
 
-Where the gold answer is **obliged** to differ from the text — the reworded
-explanation of `tiered_explanation`, the false statement in
-`two_truths_one_lie` — what is checked is not the answer but the facts the
-generator listed (`review_claims`), read back off the stored pair's `meta`.
+Where the gold answer must differ from the text, the listed claims in
+`meta.claims` are checked instead: the two true statements of
+`two_truths_one_lie`, the hop facts of `multihop_synthesis`, the key facts of
+`tiered_explanation`.
 
-It has already paid for itself on a live corpus: it caught the gold answer "the
-FastAPI backend runs on SQLite" (the hub is on PostgreSQL) and an entirely
-invented explanation in which a 4B model decided that OMSyft was a medical
-device with an ECG.
+### The archive check
 
-Rejected items are **not deleted**: they are material for tuning prompts, not
-rubbish, and a person reviewing the run may reinstate one that turns out fine
-after all. A pair nothing has measured yet can also be deleted outright
-instead — see [the console](control-api.md#the-console). Compare `retired`,
-which leaves and returns on its own as the corpus moves — [03-dataset.md](03-dataset.md).
+Each grounded non-control pair is sent to the live retrieval of the same
+endpoint, and a judge (Judge 1) reads the returned chunks: does any chunk state
+the gold answer (`gate_answerable`, with `meta.claims`, or `meta.hop_facts`,
+as the facts it rests on). For `two_truths_one_lie` the lie goes in as a false
+premise and a chunk must state the true fact it alters.
 
-### The gate for control questions: without it the set is more dangerous than its absence
+- Found → on to the web check. A question that makes no sense finds nothing.
+- Not found, or nothing returned → rejected (`not_answerable`, note "not
+  answerable from the archive"); the web check is not asked.
+- Retrieval unreachable or the judge call failed → stays `pending` with a
+  note, retried next pass (as for the web check).
+- No retriever handed to the pass → skipped, `meta.gate` says so; grounding
+  and the web check still apply.
 
-For control items grounding is **replaced by its opposite**: they have no
-gold answer by construction, and running them through grounding would mean
-cutting out the whole set.
+The judge call is charged to the `web_check` cost role, like the control gate,
+and kept on the pair's filter decision (Filter list, xlsx "Archive check"
+columns). Archive-check decisions are shown under the Search stage.
 
-A generated negative is only the model's **conjecture** about what is not in
-the corpus. A conjecture can be wrong: **the generator sees ONE chunk, while
-retrieval searches the whole collection**, and the answer may well lie in a
-neighbouring document. Letting such a question into the measurement means
-recording a correct answer as a hallucination.
+### The retrieval gate (control items)
 
-So a candidate goes through a check: the question is put to **the live
-retrieval of that very endpoint**, and a judge decides whether among what was
-found there is a chunk that answers it — at filtering time, not at
-generation time, so a re-run checks the index as it stands right now rather
-than replaying the day the pair was written.
+Both control generators skip grounding. The question is sent to the live
+retrieval of the same endpoint, at filtering time, and a judge reads the
+returned chunks. What it looks for depends on the generator's expected
+behaviour (`control.py`):
 
-Three decisions, each of which changes the meaning of the check:
+- `unanswerable_property` (`gate_unanswerable`): does any chunk state the
+  answer. Retrieval returns nothing or no chunk answers → fit; a chunk answers
+  it → rejected (`retrieval_gate`).
+- `false_premise` (`gate_answerable`): does any chunk state the true fact
+  that contradicts the premise. The judge gets the question, the premise, the
+  correction (gold answer) and `meta.claims`, and quotes the chunk. Found →
+  fit; not found or nothing returned → rejected (`retrieval_gate`, note
+  "correction not found in the archive").
+- Retrieval unreachable or the judge call failed → rejected, `gate_checked:
+  false`. Filtering control items therefore needs a reachable endpoint.
 
-* **It is the live retrieval of that very endpoint that is asked.** The label
-  "there is no answer" is only meaningful relative to a specific endpoint, not
-  to an abstract corpus. This is a definition, not a simplification: that same
-  retrieval is exactly what is measured afterwards.
-* **A judge decides, not the generator.** There is no reason for the generator
-  to judge its own work.
-* **Unknown is not fit.** If retrieval is unreachable or the gate did not run,
-  the candidate is rejected with an explicit note: a question about which one
-  cannot say whether it is answerable does not go into the measurement.
+### The web check
 
-Hence the corollary: **filtering control questions requires a reachable
-endpoint**. Without one, every pending control pair is rejected outright, and
-this is said out loud.
+On when `filter_model` is set. Each pair that passed the archive check is put
+to that model as a bare question (no passage), with web search where its
+provider supports it, otherwise from its own training. The answer is graded the
+way the main run grades that kind of item (letter, key facts or judge —
+`filter_judge_model`, default the first judge).
+
+- Answered correctly → rejected as `web_answerable`.
+- Not answered → active.
+- Call or grading failed → stays `pending` with a note, retried next pass.
+- Control items are exempt; a key-facts item without key facts is rejected.
+- Pairs of the current cohort already in the set (active or held back by the
+  cap) without a verdict from the current `filter_model` are checked in the
+  same pass; one it answers is rejected.
+
+Only these pairs are ever asked: control items, pairs that passed the web
+check by the current `filter_model`, and hand-set pairs when
+`manual_status_priority` is `manual` (default `filter`: the web check may
+reject a hand-reinstated pair again). Without `filter_model` nothing else can
+be asked: an API launch that evaluates refuses with "Choose a web check
+model", and `evaluate`/`freeze` report that no question passed.
 
 ---
 
-## Generation settings
-
-### Choosing the generators
+## Settings
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `disabled_generators` | `[]` | Which generators not to run |
-| `answer_coverage_threshold` | `0.6` | The share of the gold answer's content words that is looked for in the chunk |
+| `disabled_generators` | `[]` | Generators not to run |
+| `chunks_per_run` | `8` | Per-generator budget in units: writes at most `chunks_per_run × pairs_per_chunk` |
+| `pairs_per_chunk` | `2` | Items asked for per unit |
+| `min_chunk_chars` | `400` | Shorter chunks are not used |
+| `answer_coverage_threshold` | `0.6` | Content-word coverage for grounding |
+| `filter_model` | empty | Web check model; empty — no web check, nothing answerable can be asked |
+| `filter_judge_model` | empty | Judge of the web check; empty — the first judge |
+| `manual_status_priority` | `filter` | Whether the web check can override a hand-set status |
+| `web_search_generator` | `false` | The generator searches the web (OpenRouter models) |
 
 ```bash
-uv run syft-benchmark settings set disabled_generators   '["multihop_synthesis","tiered_explanation"]'
+uv run syft-benchmark settings set disabled_generators '["multihop_synthesis","tiered_explanation"]'
 ```
 
-A single run's line-up can also be set on the spot, on top of the setting:
+If every generator is disabled, `generate` refuses to start. Disabling the two
+control generators means not measuring the no-answer half.
 
-```bash
-uv run syft-benchmark generate docs                    # all but the disabled ones
-uv run syft-benchmark generate docs -g mcq -g qa       # by name
-uv run syft-benchmark generate docs --all              # all, bypassing the setting
-```
-
-If the setting has disabled everything, `generate` does not start the run and
-says so: an empty run that finished silently is worse than an error.
-
-Switching off the two control generators should be understood as a decision not
-to measure half of the behaviour:
-
-```bash
-uv run syft-benchmark settings set disabled_generators   '["unanswerable_property","false_premise"]'
-```
-
-### The volume of generation
-
-| Setting | Default | What it does |
-| --- | --- | --- |
-| `chunks_per_run` | `8` | How many units to take per EACH generator per run |
-| `pairs_per_chunk` | `2` | How many items to ask for per unit |
-| `min_chunk_chars` | `400` | Shorter than this and a chunk is not taken into work |
-
-**Each generator has its own queue.** What has been processed is marked in
-`processed_units` together with the generator and the cohort, so one and the
-same chunk is handed to each generator separately. A shared batch would mean
-that a generator connected second skips what the first processed and spends
-model calls on certain duplicates.
-
-Hence the arithmetic of a run: eight units across ten generators at two items
-each — up to 160 items, not 8 and not 16. That is an upper bound: screening
-carries part of it away.
-
-`--limit` does not cancel the setting but replaces it with the same meaning:
-
-```bash
-uv run syft-benchmark generate docs --limit 3   # 3 units per generator
-```
-
-These are **units, not items and not percentages**: how many items come out of
-a unit is decided by `pairs_per_chunk` and by screening. The same flag at
-the evaluation stage counts differently — there it is about items, and also per
-generator; the arithmetic is in [03-dataset.md](03-dataset.md).
+At the defaults a run writes up to 16 items per generator, 160 for all ten,
+before filtering.
 
 ---
 
-## What is worth knowing before the first run
+## Before the first run
 
-**Start with `--limit 2`.** That is about forty candidates at generation and
-twenty questions at run time — enough to see a working pipeline across every
-kind of item, and cheap if it does not work.
-
-**The extractive ones are almost free.** With spaCy they do not call a model at
-all: dozens of items in seconds, and all of them pass screening. It is
-reasonable to start with those.
-
-**The document-level generators are heavy for a small model.**
-`multihop_synthesis` and `tiered_explanation` receive the whole document, and a
-4B model breaks down into invention at that volume. Screening catches it, but
-the time has been spent. A larger model makes sense for them — set with the
-same `generator_model`.
-
-**The price of completeness is time.** If time is dearer than completeness, the
-most sensible things to switch off are precisely those two document-level ones.
-The extractive ones with spaCy cost almost nothing and stay on in any case.
+- **Start with `--limit 2`**: about forty items at generation and twenty
+  questions at run time.
+- **Extractive generators are the cheapest**: one call per chunk for three
+  categories.
+- **Document-level generators are heavy for a small model**: a 4B model
+  tends to invent over a whole document. Use a larger `generator_model`, or
+  disable `multihop_synthesis` and `tiered_explanation` if time matters more
+  than completeness.
 
 Next — [stage 3: which set goes into the measurement](03-dataset.md).

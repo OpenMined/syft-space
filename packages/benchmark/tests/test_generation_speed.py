@@ -144,7 +144,8 @@ class _Generation:
         with self._lock:
             self.in_flight -= 1
             self.ended.append(time.monotonic())
-        item = f'{{"unit": "{uuid.uuid4().hex}"}}'
+        # Digits only: hex letters read as words to the language check.
+        item = f'{{"unit": "{uuid.uuid4().int}"}}'
         return (item if "Generate 1." in user else f"[{item}]"), {}
 
     def clean(self, items: Any, n: int, whole: str) -> tuple[list[Pair], list[str]]:
@@ -617,9 +618,6 @@ def test_a_kind_that_spends_its_budget_says_so(
         "failed_units": 0,
         "dropped": {pipeline.OVER_BUDGET: 2},
         "stopped": pipeline.BUDGET_REACHED,
-        "spacy": None,
-        "llm": None,
-        "llm_why": None,
     }
 
 

@@ -4,7 +4,12 @@ Stage 2, deciding which of what stage 1 built is fit to measure with, is
 ``filter_stage`` — a separate pass, not a step of this one.
 """
 
-from syft_benchmark.generation.control import Gate, Retriever, gate_unanswerable
+from syft_benchmark.generation.control import (
+    Gate,
+    Retriever,
+    gate_answerable,
+    gate_unanswerable,
+)
 from syft_benchmark.generation.filter_stage import (
     FilterSummary,
     filter_pending,
@@ -18,7 +23,7 @@ from syft_benchmark.generation.generators import (
     Generator,
     enabled_generators,
 )
-from syft_benchmark.generation.language import detect_language, spacy_available
+from syft_benchmark.generation.language import detect_language
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.pairs import PairView, delete_pair, get_pair, list_pairs
 from syft_benchmark.generation.pipeline import (
@@ -49,6 +54,7 @@ __all__ = [
     "enabled_generators",
     "filter_and_rotate",
     "filter_pending",
+    "gate_answerable",
     "gate_unanswerable",
     "generate_for_space",
     "get_pair",
@@ -59,5 +65,4 @@ __all__ = [
     "reject_reason",
     "review_answer",
     "review_claims",
-    "spacy_available",
 ]

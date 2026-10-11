@@ -26,9 +26,6 @@ pending with a note and is checked again on the next pass.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -423,46 +420,3 @@ class WebChecker:
                 else:
                     self.summary.kept += 1
         return verdict
-
-
-def run_web_check(
-    rows: Sequence[QaPair],
-    *,
-    settings: Settings,
-    record: Callable[[QaPair, WebVerdict], None],
-    judge: Provider | None = None,
-    should_stop: Callable[[], bool] | None = None,
-    checker: WebChecker | None = None,
-    hold: Callable[[], AbstractContextManager[None]] | None = None,
-) -> WebCheckSummary:
-    """Check the pairs, ``concurrency`` at a time, and hand each verdict to ``record``.
-
-    ``record`` gets failures too (``answerable`` None): the pair stays pending
-    with the note. Stops on the owner's word, on a provider refusal, and after
-    ``max_consecutive_failures`` failed checks in a row; pairs not reached are
-    left as they are. ``judge`` None — ``filter_judge``. ``hold``, when given,
-    is taken around each check (a shared model limit).
-    """
-    conf = settings
-    web = checker or WebChecker(conf, judge)
-    if not web.ready or not rows:
-        return web.summary
-    record_lock = threading.Lock()
-
-    def one(row: QaPair) -> None:
-        if web.stopped:
-            return
-        if should_stop is not None and should_stop():
-            web.stop("the web check was stopped at the owner's request")
-            return
-        with hold() if hold is not None else nullcontext():
-            verdict = web.check(row)
-        if verdict is not None:
-            with record_lock:
-                record(row, verdict)
-
-    width = max(1, conf.concurrency)
-    with ThreadPoolExecutor(max_workers=width, thread_name_prefix="webcheck") as pool:
-        for future in [pool.submit(one, row) for row in rows]:
-            future.result()
-    return web.summary

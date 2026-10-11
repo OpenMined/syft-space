@@ -79,6 +79,29 @@ _PRONOUNS_RE = re.compile(
 )
 _ANCHOR_RE = re.compile(r"[A-Z][\w’'-]|\d|[«\"“]")
 
+# --- direct speech in a masked sentence --------------------------------------
+# A quote is someone's wording, not a fact: "THE ENEMY," I'll yell, ... cannot
+# be restored from any corpus, and an attribution beyond the sentence leaves the
+# speaker unknown. A quoted term ("auto", “Live Text”) is a name, not speech, and
+# passes. Straight and typographic double quotes, German „“ and guillemets; the
+# single ’ is left out, as it is first of all an apostrophe.
+_QUOTE_MARKS_RE = re.compile(r"[\"“”„«»]")
+_QUOTED_SPAN_RE = re.compile(r"\"[^\"]*\"|„[^„“”]*[“”]|“[^“”]*”|«[^«»]*»|»[^«»]*«")
+
+# A quoted span this long is wording rather than a term.
+_QUOTE_MIN_WORDS = 4
+
+# A speech verb this many words from a quoted span attributes it to a speaker.
+_SPEECH_WINDOW_WORDS = 4
+_SPEECH_RE = re.compile(
+    r"\b(?:says?|said|tells?|told|asks?|asked|adds?|added|writes?|wrote|"
+    r"yells?|yelled|shouts?|shouted|replie[sd]|reply|insists?|insisted|"
+    r"declares?|declared|according\s+to)\b",
+    re.IGNORECASE,
+)
+
+_FILL_IN_PREFIX = "Fill in the blank:"
+
 # --- a question with several correct answers --------------------------------
 # "What did coach Dan Hurley say about the victory?" — the document has several
 # of his quotes, and any of them is correct. The judge, though, compares against
@@ -164,6 +187,40 @@ def count_attributed_quotes(document: str, name: str) -> int:
     )
 
 
+def _unanchored_reason(text: str) -> str | None:
+    """Why the text leans on something outside itself. None — it stands alone."""
+    if _DEICTIC_RE.search(text):
+        return "a demonstrative without an antecedent"
+    if _PRONOUNS_RE.search(text):
+        # The first word is skipped: it is capitalised anyway.
+        tail = text.split(None, 1)[1] if " " in text else ""
+        # The pronoun itself does not count as an anchor: "What did He say about
+        # it?" would otherwise pass the check thanks to the capital in "He".
+        tail = _PRONOUNS_RE.sub(" ", tail)
+        if not _ANCHOR_RE.search(tail):
+            return "a pronoun without an antecedent"
+    return None
+
+
+def _is_quotation(sentence: str) -> bool:
+    """Whether the sentence carries someone's wording rather than a quoted term.
+
+    A mark left without its pair means the sentence was cut from inside a quote.
+    A quoted span is wording when it is long or stands beside a speech verb; the
+    blank counts as one word.
+    """
+    if _QUOTE_MARKS_RE.search(_QUOTED_SPAN_RE.sub(" ", sentence)):
+        return True
+    for match in _QUOTED_SPAN_RE.finditer(sentence):
+        if len(match.group().split()) >= _QUOTE_MIN_WORDS:
+            return True
+        before = sentence[: match.start()].split()[-_SPEECH_WINDOW_WORDS:]
+        after = sentence[match.end() :].split()[:_SPEECH_WINDOW_WORDS]
+        if _SPEECH_RE.search(" ".join(before + after)):
+            return True
+    return False
+
+
 def reject_reason(
     question: str,
     document: str,
@@ -172,11 +229,10 @@ def reject_reason(
 ) -> str | None:
     """Why an item should not be taken into the dataset. None — it is fit.
 
-    The set of checks depends on the item type, and that is not a convenience but
-    a condition of the thing working. An extractive item is a sentence from the
-    document with a span cut out; pronouns and "this" legitimately stand in it,
-    because the antecedent is nearby, in the same sentence. Running it through
-    the rules for a free-form question means screening out almost all masking.
+    The set of checks depends on the item type. An extractive item is a sentence
+    from the document with a span cut out: it is read without the rest of the
+    story, so "he" or "this" must have their subject named in the same sentence,
+    and someone's quoted wording is not a fact to restore.
 
     Args:
         question: The item text — a question or a statement
@@ -186,9 +242,10 @@ def reject_reason(
             neighbouring one does
         task_type: What kind of item —
 
-            * ``extractive`` — a masked sentence. The context is right there, and
-              only the length is checked: a short stub is restored by guesswork
-              and measures nothing.
+            * ``extractive`` — a masked sentence. The length (a short stub is
+              restored by guesswork and measures nothing), self-sufficiency and
+              no direct speech; the unambiguity rules are for free-form
+              questions.
             * ``abstractive`` — a free-form question. The full set: both
               self-sufficiency and unambiguity.
             * ``choice`` — a multiple-choice question. Unambiguity is provided by
@@ -200,26 +257,27 @@ def reject_reason(
         The reason for screening out, or None
     """
     if task_type == "extractive":
-        # The mask is in place and the sentence is not a stub — nothing more is
-        # required of it: the answer context stands around the mask itself.
         if "______" not in question:
             return "no mask"
         if len(question) < 45:
             return "the sentence is too short for masking"
+        # The checks run on the sentence itself, so the first word they skip is
+        # the sentence's own rather than the "Fill" of the prefix. The blank is
+        # no anchor: a hidden name does not tell the reader who "he" is.
+        sentence = question.removeprefix(_FILL_IN_PREFIX).strip()
+        reason = _unanchored_reason(sentence)
+        if reason:
+            return reason
+        if _is_quotation(sentence):
+            return "a quote"
         return None
 
     lowered = question.lower()
     if _REFERRING_RE.search(question):
         return "a reference to the source"
-    if _DEICTIC_RE.search(question):
-        return "a demonstrative without an antecedent"
-    if _PRONOUNS_RE.search(question):
-        tail = question.split(None, 1)[1] if " " in question else ""
-        # The pronoun itself does not count as an anchor: "What did He say about
-        # it?" would otherwise pass the check thanks to the capital in "He".
-        tail = _PRONOUNS_RE.sub(" ", tail)
-        if not _ANCHOR_RE.search(tail):
-            return "a pronoun without an antecedent"
+    reason = _unanchored_reason(question)
+    if reason:
+        return reason
 
     if task_type in ("choice", "statement"):
         return None  # options and statements are unambiguous on their own

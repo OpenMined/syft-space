@@ -81,7 +81,6 @@ GROUPS: dict[str, str] = {
     "answer_coverage_threshold": JUDGING,
     "consistency_floor": JUDGING,
     "text_metrics": JUDGING,
-    "extractive_mode": DATASET,
     "methodology_profile": RUN,
     "max_consecutive_failures": RUN,
     "reuse_answers": RUN,
@@ -124,7 +123,6 @@ GROUPS: dict[str, str] = {
     "question_set": RUN,
     "strict_question_set": RUN,
     "audit_max_chars": RUN,
-    "spacy_models": DATASET,
 }
 
 
@@ -135,7 +133,7 @@ GROUPS: dict[str, str] = {
 # other side instead is the coupling ``/schema`` exists to prevent.
 CATALOGUES: dict[str, str] = dict.fromkeys(MODEL_FIELDS, "models")
 
-# Values a field still accepts but the form no longer offers: a stored row may
+# Values a field still accepts but the form does not offer: a stored row may
 # carry them, a new choice may not.
 OFFERED: dict[str, list[str]] = {
     "arms": [arm.value for arm in MEASURED_ARMS],

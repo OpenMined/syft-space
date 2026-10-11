@@ -9,12 +9,15 @@ It is computed by the same rule the report uses: the latest verdict for each
 question. Otherwise "collected" and "in the report" would diverge — and diverge
 silently.
 
-Four states are distinguished, and they must not be conflated:
+Five states are distinguished, and they must not be conflated:
 
   * **assessed** — there is a verdict;
   * **failed** — there is no answer, the call did not get through. This is a
     hole: the report filters such a row out of the denominator, and ``--resume``
     re-asks it;
+  * **judge failed** — the answer was received, the judge call failed
+    (``technical`` verdict). Cured by judging again (``judge``), without
+    re-asking; ``--resume`` of a judging run re-asks it too;
   * **awaiting a verdict** — the answer was received, the judge has not seen it
     yet. Happens with deferred judging, and is cured not by rerunning but by
     judging;
@@ -47,7 +50,7 @@ from syft_benchmark.config import (
     get_settings,
 )
 from syft_benchmark.db import Result, Run, session_scope
-from syft_benchmark.runs.judge import ERROR_PREFIX
+from syft_benchmark.runs.judge import is_error, is_technical
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +68,7 @@ class PassStatus:
     failed: int
     pending: int
     last_at: datetime | None
+    unjudged: int = 0
 
     @property
     def arm(self) -> str:
@@ -73,17 +77,26 @@ class PassStatus:
     @property
     def missing(self) -> int:
         """The questions this judge was never asked at all."""
-        return max(0, self.total - self.graded - self.failed - self.pending)
+        return max(
+            0, self.total - self.graded - self.failed - self.unjudged - self.pending
+        )
 
     @property
     def done(self) -> bool:
-        return self.missing == 0 and self.failed == 0 and self.pending == 0
+        return (
+            self.missing == 0
+            and self.failed == 0
+            and self.unjudged == 0
+            and self.pending == 0
+        )
 
     def line(self) -> str:
         """One line for the console."""
         parts = [f"assessed {self.graded}"]
         if self.failed:
             parts.append(f"failed {self.failed}")
+        if self.unjudged:
+            parts.append(f"judge failed {self.unjudged}")
         if self.pending:
             parts.append(f"awaiting a verdict {self.pending}")
         if self.missing:
@@ -126,6 +139,10 @@ class SpaceStatus:
         return sum(p.failed for p in self.passes)
 
     @property
+    def unjudged(self) -> int:
+        return sum(p.unjudged for p in self.passes)
+
+    @property
     def pending(self) -> int:
         return sum(p.pending for p in self.passes)
 
@@ -162,6 +179,11 @@ class SpaceStatus:
             steps.append(
                 f"not asked and failed — ask again:\n"
                 f"      uv run syft-benchmark evaluate {self.space} --resume"
+            )
+        if self.unjudged:
+            steps.append(
+                f"the judge failed on recorded answers — judge them again:\n"
+                f"      uv run syft-benchmark judge {self.space}"
             )
         if self.pending:
             steps.append(
@@ -264,7 +286,9 @@ def collect(
     last: dict[tuple[object, ...], datetime] = {}
     for full_key, (state, at) in freshest.items():
         key = full_key[:-1]
-        counts = tally.setdefault(key, {"graded": 0, "failed": 0, "pending": 0})
+        counts = tally.setdefault(
+            key, {"graded": 0, "failed": 0, "unjudged": 0, "pending": 0}
+        )
         counts[state] += 1
         if at is not None and (key not in last or at > last[key]):
             last[key] = at
@@ -282,6 +306,7 @@ def collect(
             failed=counts["failed"],
             pending=counts["pending"],
             last_at=last.get(key),
+            unjudged=counts["unjudged"],
         )
         for key, counts in tally.items()
     ]
@@ -334,9 +359,11 @@ def _coverage(
 
 
 def _state(answer: str, verdict: str) -> str:
-    """Which of the three states a recorded row belongs to."""
-    if answer.startswith(ERROR_PREFIX):
+    """Which of the four recorded states a row belongs to."""
+    if is_error(answer):
         return "failed"
+    if is_technical(verdict, answer):
+        return "unjudged"
     if verdict == Verdict.PENDING.value:
         return "pending"
     return "graded"

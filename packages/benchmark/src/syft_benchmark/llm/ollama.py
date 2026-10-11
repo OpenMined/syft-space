@@ -443,9 +443,7 @@ def chat(
     started = time.monotonic()
 
     # The role sets the address, the key and the model; without a role it is the
-    # shared settings. That way calls from the old code keep working, while new
-    # ones can go to their own provider without dragging the settings through
-    # half a dozen layers.
+    # shared settings.
     base_url = provider.url if provider is not None else conf.ollama_url
     api_key = provider.api_key if provider is not None else conf.llm_api_key
     chosen = model or (provider.model if provider is not None else conf.generator_model)
@@ -576,13 +574,9 @@ def chat(
                 # burned 4096. No pause is needed here: the provider answered,
                 # just briefly.
                 #
-                # The doubling REPEATS up to the ceiling rather than happening
-                # once. A single doubling was a number in disguise: whichever
-                # cap the caller starts from, one doubling of it is just as
-                # arbitrary, and the next reasoning model overruns that too —
-                # tiered_explanation did, at 1400 per item and again at twice
-                # that. Now the budget climbs until it either fits or reaches
-                # the ceiling every other call in the service already uses.
+                # The doubling repeats until the answer fits or the budget
+                # reaches the ceiling every other call in the service uses: a
+                # single doubling of any starting cap is just as arbitrary.
                 doublings += 1
                 # The floor of 1 is what keeps this loop finite: a caller that
                 # asked for no tokens at all would otherwise double nothing

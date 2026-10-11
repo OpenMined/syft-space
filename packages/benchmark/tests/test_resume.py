@@ -164,6 +164,33 @@ def test_a_later_success_closes_an_earlier_failure(monkeypatch: Any) -> None:
     assert done == {"judge/a": {"p1"}}
 
 
+def test_a_failed_judge_call_is_not_done(monkeypatch: Any) -> None:
+    """A real answer with a ``technical`` verdict: the judge call failed.
+
+    A run that produces verdicts has none for it, so it asks again. A run with
+    deferred judging has its answer, and the ``judge`` command grades it.
+    """
+    rows = [
+        _Row("judge/a", "p1", "Port 5442.", _NOW),
+        _Row("judge/a", "p2", "Port 5442.", _NOW, verdict="technical"),
+    ]
+    assert _done(monkeypatch, [_Run("r1", PARAMS)], rows) == {"judge/a": {"p1"}}
+
+    _install(monkeypatch, [_Run("r1", PARAMS)], rows)
+    deferred = done_units(
+        "docs",
+        ContextMode.MODEL_WITH_CONTEXT,
+        source=ContextSource.ENDPOINT_FRAGMENTS,
+        block=EvalBlock.DIRECT,
+        model="vendor/m",
+        settings=_settings(),
+        params=PARAMS,
+        since=None,
+        need_verdict=False,
+    )
+    assert deferred == {"judge/a": {"p1", "p2"}}
+
+
 def test_each_judge_is_counted_separately(monkeypatch: Any) -> None:
     """A run gets cut off in the middle of a panel.
 

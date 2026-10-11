@@ -1,11 +1,8 @@
 """Stopping a measurement the owner has called off.
 
-Pressing stop used to end the pass in flight and nothing else. The next pass
-started fresh, knew nothing, and dispatched its whole batch of questions before
-it found out — so a measurement stopped at pass 39 of 54 went on to pay for
-fifteen more batches. What is checked here is that a cancellation is read where
-the decision to carry on is actually taken: between passes, and between the
-units of a build.
+A cancellation is read where the decision to carry on is actually taken:
+between passes, and between the units of a build — not only in the pass in
+flight, or a measurement stopped at pass 39 of 54 pays for fifteen more batches.
 
 None of it needs a database or a model: the cancellation has to work by the
 shape of the loops, and a check that stubbed the loops would be checking

@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { daySpan } from '@/components/benchmark/report/figures'
 import {
   articlesText,
+  otherNotAsked,
   runHeaderText,
   runStateLabel,
   stoppedLabel,
 } from '@/components/benchmark/report/selectors'
-import { maskedBy, maskedCounts } from '@/components/benchmark/filter'
+import { maskedBy } from '@/components/benchmark/filter'
 import { runReport, runSummary } from './reportFixtures'
 
 describe('article day span', () => {
@@ -68,27 +69,12 @@ describe('run articles', () => {
 })
 
 describe('extractive path', () => {
-  it('counts spaCy and LLM questions per masking kind', () => {
-    expect(
-      maskedCounts({
-        spacy: 12,
-        llm: 3,
-        llm_why: { 'language not recognised': 1, "no spaCy model for 'de'": 2 },
-      }),
-    ).toEqual({ text: '12 / 3', tip: "no spaCy model for 'de': 2\nlanguage not recognised: 1" })
-    expect(maskedCounts({ spacy: null, llm: null, llm_why: null })).toBeNull()
-    expect(maskedCounts({})).toBeNull()
-  })
-
-  it('names the path of one question', () => {
+  it('marks an older question cut by spaCy', () => {
     expect(maskedBy({ mode: 'spacy', spacy_model: 'en_core_web_sm' })).toEqual({
       label: 'spaCy',
       tip: 'Cut by spaCy (en_core_web_sm).',
     })
-    expect(maskedBy({ mode: 'llm', llm_why: 'spaCy not installed' })).toEqual({
-      label: 'LLM',
-      tip: 'Written by the LLM: spaCy not installed.',
-    })
+    expect(maskedBy({ mode: 'llm', llm_why: 'spaCy not installed' })).toBeNull()
     expect(maskedBy({ options: [] })).toBeNull()
     expect(maskedBy(null)).toBeNull()
   })
@@ -106,5 +92,40 @@ describe('stopped runs', () => {
     const run = { build_only: true, state: 'cancelled', stopped: 'spending_cap' } as const
     expect(runStateLabel(run)).toBe('Stopped: spending cap')
     expect(runStateLabel({ build_only: true, state: 'cancelled' })).toBe('Cancelled')
+  })
+})
+
+describe('the funnel', () => {
+  it('counts every question of the run that was not asked, with the reasons', () => {
+    const report = runReport({
+      funnel: {
+        written: 120,
+        removed: { web_answerable: 100, rotation: 4, grounding: 1 },
+        removed_total: 105,
+        unchecked: 1,
+        asked: 14,
+        trick: 2,
+      },
+    })
+    const other = otherNotAsked(report)
+    expect(other?.total).toBe(6)
+    expect(other?.tip).toBe(
+      'Rotated out: 4 · Not supported by the article: 1 · Web check not finished: 1',
+    )
+    // written = web check + other reasons + asked
+    expect(100 + other!.total + report.funnel.asked).toBe(report.funnel.written)
+  })
+
+  it('has nothing to add when only the web check removed questions', () => {
+    const report = runReport({
+      funnel: {
+        written: 70,
+        removed: { web_answerable: 57 },
+        removed_total: 57,
+        asked: 13,
+        trick: 1,
+      },
+    })
+    expect(otherNotAsked(report)).toBeNull()
   })
 })

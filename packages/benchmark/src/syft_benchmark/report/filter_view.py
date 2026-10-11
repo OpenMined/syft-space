@@ -69,6 +69,12 @@ def _rows(session: Session, target: str, job_ids: Sequence[str]) -> list[QaPair]
     return rows
 
 
+# Reasons decided by a live retrieval search (the ``control`` stage).
+_SEARCH_REASONS = frozenset(
+    {StatusReason.RETRIEVAL_GATE.value, StatusReason.NOT_ANSWERABLE.value}
+)
+
+
 def _is_control(row: QaPair) -> bool:
     return exclusion(row) == CONTROL_NOTE
 
@@ -95,7 +101,7 @@ def _inferred(row: QaPair) -> dict[str, Any] | None:
         not _is_control(row) and web.get("verdict")
     ):
         stage = decisions.WEB_CHECK
-    elif _is_control(row) or reason == StatusReason.RETRIEVAL_GATE.value:
+    elif _is_control(row) or reason in _SEARCH_REASONS:
         stage = decisions.CONTROL
     else:
         stage = decisions.GROUNDING

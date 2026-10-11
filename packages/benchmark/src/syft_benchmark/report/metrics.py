@@ -1,7 +1,9 @@
 """Stage 5: folding the verdicts into metrics.
 
-Computed over the LATEST verdict for each question in each mode: a question can
-be rechecked as many times as you like, and the last result goes into the metrics.
+Computed over the COUNTED verdict for each question in each cut: the owner's
+override, else the freshest verdict of the primary judge, else that of the next
+judge in panel order (``run_view.pick``). A cut named by judge takes that
+judge's freshest verdict instead.
 
 The denominator is the assessed answers. A failed call speaks about the rig, not
 about the quality of the answers, and has no business in the denominator; it is
@@ -17,6 +19,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from syft_benchmark.config import (
     ARM_LETTER,
@@ -28,8 +31,9 @@ from syft_benchmark.config import (
     Verdict,
     get_settings,
 )
-from syft_benchmark.db import QaPair, Result, Run, session_scope
+from syft_benchmark.db import Job, QaPair, Result, Run, session_scope
 from syft_benchmark.runs.judge import is_technical
+from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,16 +214,15 @@ def _latest_results(
     cohort: str | None = None,
     job: str | None = None,
 ) -> list[Result]:
-    """The latest verdict per question in this mode, block, model and judge.
+    """One verdict per question in this mode, block and model.
 
     The cut by block and model is mandatory: a monte_carlo "accuracy" is an
     average over the repeats, not the same number as the direct test, and adding
     them into one share means getting a quantity that means nothing.
 
-    The cut by judge is mandatory for exactly the same reason, but it shows up
-    differently: without it the panel verdicts merge into a heap, the "latest" for
-    each question turns out to be the opinion of whichever judge finished last,
-    and instead of a comparison of judges you get an assessment by one of them.
+    With ``judge`` named, that judge's freshest verdict. Without it, the counted
+    verdict by ``run_view.pick``: the owner's override, else the primary judge's
+    freshest verdict, else the next judge's in panel order (``_counted_panel``).
 
     Only verdicts on items that are IN THE MEASUREMENT now are counted. With a
     rolling set this matters: yesterday items have not gone anywhere from the
@@ -271,31 +274,85 @@ def _latest_results(
         where.append(Result.expected_behavior == expected.value)
 
     with session_scope() as session:
-        newest = (
-            select(
-                Result.qa_id,
-                func.max(Result.created_at).label("at"),
+        if judge:
+            newest = (
+                select(
+                    Result.qa_id,
+                    func.max(Result.created_at).label("at"),
+                )
+                .join(Run, Run.id == Result.run_id)
+                .join(QaPair, QaPair.id == Result.qa_id)
+                .where(*where)
+                .group_by(Result.qa_id)
+                .subquery()
             )
-            .join(Run, Run.id == Result.run_id)
-            .join(QaPair, QaPair.id == Result.qa_id)
-            .where(*where)
-            .group_by(Result.qa_id)
-            .subquery()
-        )
-        stmt = (
-            select(Result)
-            .join(Run, Run.id == Result.run_id)
-            .join(QaPair, QaPair.id == Result.qa_id)
-            .join(
-                newest,
-                (Result.qa_id == newest.c.qa_id) & (Result.created_at == newest.c.at),
+            stmt = (
+                select(Result)
+                .join(Run, Run.id == Result.run_id)
+                .join(QaPair, QaPair.id == Result.qa_id)
+                .join(
+                    newest,
+                    (Result.qa_id == newest.c.qa_id)
+                    & (Result.created_at == newest.c.at),
+                )
+                .where(*where)
             )
-            .where(*where)
-        )
-        rows = list(session.execute(stmt).scalars())
+            rows = list(session.execute(stmt).scalars())
+        else:
+            rows = _counted(session, where, job)
         for row in rows:
             session.expunge(row)
         return rows
+
+
+def _counted(session: Session, where: list[Any], job: str | None) -> list[Result]:
+    """The counted verdict per question among the rows ``where`` selects."""
+    from syft_benchmark.report.run_view import pick
+
+    stmt = (
+        select(Result)
+        .join(Run, Run.id == Result.run_id)
+        .join(QaPair, QaPair.id == Result.qa_id)
+        .where(*where)
+        .order_by(Result.created_at, Result.id)
+    )
+    by_question: dict[str, list[Result]] = {}
+    for row in session.execute(stmt).scalars():
+        by_question.setdefault(row.qa_id, []).append(row)
+    panel = _counted_panel(
+        session, (r.judge_model for rows in by_question.values() for r in rows), job
+    )
+    counted = (pick(rows, panel).counted for rows in by_question.values())
+    return [row for row in counted if row is not None]
+
+
+def _counted_panel(session: Session, seen: Iterable[str], job: str | None) -> list[str]:
+    """The judges in precedence order, primary first.
+
+    For one launch, ``run_view``'s order: its primary judge, then its own
+    panel. Otherwise the configured panel. Judges outside it follow by first
+    verdict; the unjudged (empty name) come last.
+    """
+    from syft_benchmark.report import run_view
+
+    configured = run_view.configured_panel(get_settings())
+    primary: str | None = None
+    panel: list[str] = configured
+    launch = session.get(Job, job) if job else None
+    if launch is not None:
+        primary = run_view.primary_judge(session, launch, configured=configured)
+        panel = run_view.job_panel(launch) or configured
+    return [*run_view.judge_order(seen, primary, panel), ""]
+
+
+def counted_judge(judges: Iterable[str], job: str | None = None) -> str:
+    """The first of ``judges`` in precedence order: the judge the counted
+    verdicts belong to; empty without one."""
+    names = [j for j in dict.fromkeys(judges) if j and j != OWNER_OVERRIDE]
+    if not names:
+        return ""
+    with session_scope() as session:
+        return _counted_panel(session, names, job)[0]
 
 
 def _context_sources(
@@ -383,7 +440,8 @@ def judges_seen(
 
     Asked of the data for the same reason as the models: the composition of the
     panel changes between runs, and the report has to show those who actually
-    judged rather than those listed in the settings today.
+    judged rather than those listed in the settings today. An owner override
+    is not a judge.
     """
     where = [
         Result.space == space,
@@ -399,7 +457,7 @@ def judges_seen(
             .where(*where)
             .distinct()
         ).scalars()
-        return sorted(j for j in rows if j)
+        return sorted(j for j in rows if j and j != OWNER_OVERRIDE)
 
 
 def summarize(
@@ -414,17 +472,17 @@ def summarize(
 ) -> Metrics | None:
     """The metrics of one Space in one arm, block and judge.
 
-    An empty ``judge`` means "every verdict alike": that is right while there is
-    one judge, and gives a blend of opinions when there are several.
+    An empty ``judge`` takes the counted verdict per question: the owner's
+    override, else the primary judge's, else the next judge's in panel order.
+    Every published figure is counted this way. A named ``judge`` counts that
+    judge alone (the per-judge view).
 
-    ``expected`` defaults to the answerable half of the set: that is how everyone
-    counted before the control half existed, and that is how accuracy and
-    everything published must be counted. ``None`` mixes the halves and is
+    ``expected`` defaults to the answerable half of the set, the half accuracy
+    and everything published is counted over. ``None`` mixes the halves and is
     meaningful only when that is explicitly wanted.
 
-    ``cohort`` computes over the named pool of questions instead of the one in the
-    measurement now. Needed by the comparison of cohorts: the same material,
-    different questions.
+    ``cohort`` computes over the named pool of questions. Needed by the
+    comparison of cohorts: the same material, different questions.
 
     ``job`` computes over one launch instead of over the node as of now. That is
     what makes a measurement from a month ago readable as it was — and what makes
@@ -432,9 +490,8 @@ def summarize(
 
     In arms A and C ``model`` is mandatory as soon as there is more than one
     model. An empty one there would mean not "an average over nine" but "whose
-    model answered last": the latest verdict per question is chosen by time, and
-    without a cut by model the choice goes to whoever finished later. This is the
-    same refusal as with the judges, and for the same reason.
+    model answered last": the verdict per question is chosen by time, and
+    without a cut by model the choice goes to whoever finished later.
 
     Raises:
         ValueError: If an arm with a model under test names none of the several
@@ -471,7 +528,6 @@ def summarize(
 
     checked = [r for r in graded_rows if r.retrieval_hit is not None]
     endpoints = {r.endpoint for r in rows if r.endpoint}
-    judges = sorted({r.judge_model for r in rows if r.judge_model})
     models = sorted({r.model for r in rows if r.model})
 
     # The share of those that gave in is counted against those that were pressured
@@ -527,7 +583,7 @@ def summarize(
         retrieval_hits=len(hit),
         retrieval_checked=len(checked),
         checked_at=max((r.created_at for r in rows), default=None),
-        judge=", ".join(judges)[:100],
+        judge=judge or counted_judge((r.judge_model for r in rows), job),
         expected=expected or ExpectedBehavior.ANSWER,
         context_source=_context_sources(space, mode, block, model, job),
         flip_rate=flip_rate,

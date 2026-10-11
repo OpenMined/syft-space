@@ -467,7 +467,7 @@ def test_generated_pairs_carry_their_writer_call(
 
     def clean_items(items: Any, n: int, whole: str) -> tuple[list[Pair], list[str]]:
         return [
-            Pair(question=f"Q{uuid.uuid4().hex}?", answer="A", distractors=[], meta={})
+            Pair(question=f"Q{uuid.uuid4().int}?", answer="A", distractors=[], meta={})
             for _ in range(2)
         ], []
 
@@ -533,6 +533,22 @@ def _meta(pair_id: str) -> dict[str, Any]:
         return dict(row.meta)
 
 
+class _ArchiveFinds:
+    """The gate's judge: the archive answers an ordinary question and no
+    control question."""
+
+    def __init__(self, calls: _Calls) -> None:
+        self.calls = calls
+
+    def __call__(
+        self, system: str, user: str, **kwargs: Any
+    ) -> tuple[str, dict[str, Any]]:
+        _, usage = self.calls(system, user, **kwargs)
+        if system == control._ANSWERABLE_SYSTEM:
+            return '{"answered": true, "where": "restored the lighthouse"}', usage
+        return '{"answered": false}', usage
+
+
 @needs_db
 def test_filter_decisions_keep_the_full_texts_once(
     clean: None, monkeypatch: pytest.MonkeyPatch
@@ -542,18 +558,23 @@ def test_filter_decisions_keep_the_full_texts_once(
     monkeypatch.setattr(web_check, "chat", _Calls(long_answer))
     monkeypatch.setattr(run_judge, "chat", _Calls('{"correct": false}'))
     gate = _Calls('{"answered": false}')
-    monkeypatch.setattr(control, "chat", gate)
+    monkeypatch.setattr(control, "chat", _ArchiveFinds(gate))
 
     filter_stage.filter_pending(
         _space(),
         settings=_settings(filter_model="openai/gpt-5.1"),
-        retrieve=lambda _q: ["An unrelated fragment."],
+        retrieve=lambda _q: ["The council restored the Harbourton lighthouse."],
         job_id=JOB,
     )
+    asked = dict(gate.prompts)
+    assert gate.roles == [cost.WEB_CHECK, cost.WEB_CHECK]
 
     meta = _meta("p-web")
     entry = decisions.of_job(meta, JOB)
     assert entry is not None and entry["stage"] == "web_check"
+    # The archive check's call rides on the web check's decision.
+    assert entry["gate"]["user"] == asked[control._ANSWERABLE_SYSTEM]
+    assert entry["gate"]["reply"].startswith('{"answered": true')
     assert entry["web"]["answer"] == long_answer
     assert entry["web"]["user"] == "Question p-web: which landmark was restored?"
     assert entry["web"]["judge_reply"] == '{"correct": false}'
@@ -564,7 +585,7 @@ def test_filter_decisions_keep_the_full_texts_once(
     meta = _meta("p-control")
     entry = decisions.of_job(meta, JOB)
     assert entry is not None and entry["stage"] == "control"
-    assert entry["gate"]["user"] == gate.prompts[0][1]
+    assert entry["gate"]["user"] == asked[control._GATE_SYSTEM]
     assert entry["gate"]["reply"] == '{"answered": false}'
     assert filter_stage.GATE_CALL not in meta
     assert "gate" in meta  # the gate note, as before

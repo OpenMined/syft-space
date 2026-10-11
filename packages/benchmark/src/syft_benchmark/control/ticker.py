@@ -1,12 +1,7 @@
 """The schedule, executed.
 
-A target has carried ``schedule`` and ``schedule_at`` since the settings form
-had them, and nothing read the fields: the owner set a nightly measurement and
-nothing ever happened. The only thing that ran on a schedule was
-``syft-benchmark cycle`` on the host — a second process, outside the service,
-that a container leaves behind.
-
-So the schedule moves in here, beside the queue. This thread decides *when*, the
+A target's ``schedule`` and ``schedule_at`` are fired from here, beside the
+queue, inside the service. This thread decides *when*, the
 worker decides *what next*, and both go through the same table, so a scheduled
 measurement differs from a pressed button only by ``trigger``.
 

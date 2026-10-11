@@ -21,6 +21,10 @@ Three conditions, without which resumption turns into forgery.
 written so that the run is visible in full, but there is no verdict in it: the
 metrics filter it out of the denominator. Counting it as done means fixing a
 failure of the rig in place forever — it is exactly what has to be re-asked.
+A ``technical`` verdict on a real answer (the judge call failed) is a hole in
+the verdict, not in the answer: a run that needs a verdict re-asks it; a run
+with deferred judging keeps the answer, and the ``judge`` command grades it
+again.
 
 **What counts as done depends on what this run produces.** An ordinary run
 produces a verdict, and for it an answer without a verdict is a hole. A run
@@ -64,12 +68,7 @@ from syft_benchmark.config import (
     Verdict,
 )
 from syft_benchmark.db import Result, Run, session_scope
-
-# The mark of a row that has no verdict. The same one by which the report
-# filters failed calls out of the denominator: two different definitions of
-# "not assessed" would drift apart, and resumption would start skipping what
-# the report counts as a hole.
-_FAILED = "ERROR:"
+from syft_benchmark.runs.judge import is_error, is_technical
 
 
 def window_start(settings: Settings) -> datetime | None:
@@ -180,10 +179,16 @@ def done_units(
     # walk goes in ascending time order, so each next one overrides the
     # previous — by the same rule the report picks the latest verdict with.
     freshest: dict[tuple[str, str], bool] = {}
+    # The same tests the report counts failed calls with: two definitions of
+    # "not assessed" would drift apart.
     for row in rows:
-        usable = not str(row.answer or "").startswith(_FAILED)
-        if need_verdict and str(row.verdict or "") == Verdict.PENDING.value:
-            usable = False
+        answer = str(row.answer or "")
+        verdict = str(row.verdict or "")
+        if need_verdict:
+            usable = not is_technical(verdict, answer)
+            usable = usable and verdict != Verdict.PENDING.value
+        else:
+            usable = not is_error(answer)
         freshest[(row.judge_model, row.qa_id)] = usable
 
     done: dict[str, set[str]] = {}

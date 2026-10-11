@@ -298,10 +298,12 @@ class ChromaDBLocalVectorStore:
             self._generate_embeddings, [chunk["embedding_text"] for chunk in chunks]
         )
 
-        # Source metadata first: the structural keys below must win a clash.
+        # Document header fields, then source metadata, then the structural
+        # keys: a later group wins a clash, so existing keys never change.
         extra = _chroma_scalars(source_metadata or {})
         metadatas = [
             {
+                **_chroma_scalars(chunk.get("doc_metadata") or {}),
                 **extra,
                 "doc_id": doc_id,
                 "chunk_index": i,

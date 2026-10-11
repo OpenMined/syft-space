@@ -56,6 +56,9 @@ describe('filter decisions', () => {
     expect(reasonText({ reason: 'date not in text', reason_code: 'grounding' })).toBe(
       'Not supported by the article: date not in text',
     )
+    expect(
+      reasonText({ reason: 'not answerable from the archive', reason_code: 'not_answerable' }),
+    ).toBe('Not answerable from the archive')
     expect(reasonText({ reason: 'timeout', reason_code: 'other' })).toBe('timeout')
     expect(reasonText({ reason: '', reason_code: null })).toBe('')
   })

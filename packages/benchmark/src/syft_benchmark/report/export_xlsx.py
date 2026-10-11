@@ -295,11 +295,11 @@ def _details(row: QaPair) -> str:
 
 
 def _masked_by(meta: dict[str, Any]) -> str:
-    """Masking kinds: "spaCy <model>" or "LLM: <why>"; empty for other kinds."""
+    """Masking kinds: "LLM", or "spaCy <model>" on older rows; else empty."""
     if meta.get("mode") == "spacy":
         return " ".join(["spaCy", str(meta.get("spacy_model") or "")]).strip()
     if meta.get("mode") == "llm":
-        return f"LLM: {meta['llm_why']}" if meta.get("llm_why") else "LLM"
+        return "LLM"
     return ""
 
 
@@ -379,10 +379,10 @@ FILTER_COLS = (
     Col("Written by job", 34),
     Col("Written earlier", 9),
     Col("Status now", 10),
-    Col("Control gate model", 26),
-    Col("Control gate prompt (system)", 60, long=True),
-    Col("Control gate prompt (user)", 60, long=True),
-    Col("Control gate reply", 60, long=True),
+    Col("Archive check model", 26),
+    Col("Archive check prompt (system)", 60, long=True),
+    Col("Archive check prompt (user)", 60, long=True),
+    Col("Archive check reply", 60, long=True),
     Col("Web check model", 26),
     Col("Web check prompt (system)", 60, long=True),
     Col("Web check prompt (user)", 50, long=True),
@@ -671,7 +671,9 @@ def _judging_rows(a: _Answer, primary: str | None, counted: bool) -> list[list[A
             row[_J["Judge prompt (system)"]] = block.get("judge_system")
             row[_J["Judge prompt (user)"]] = entry.get("judge_prompt")
             row[_J["Judge reply"]] = entry.get("judge_raw")
-            if "correct" in entry:
+            if entry.get("verdict"):
+                row[_J["Verdict"]] = entry["verdict"]
+            elif "correct" in entry:
                 row[_J["Verdict"]] = "correct" if entry["correct"] else "not correct"
             row[_J["Latency (s)"]] = entry.get("judge_latency_s")
             row[_J["Cost (USD)"]] = entry.get("judge_cost_usd")

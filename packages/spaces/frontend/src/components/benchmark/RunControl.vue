@@ -233,17 +233,6 @@
             <NumberInput id="bm-min-chunk" v-model="form.minChunkChars" :min="0" :step="50" />
           </SettingRow>
           <SettingRow
-            label="How blanks are cut"
-            help="For fill-in-the-blank questions."
-            for-id="bm-extractive"
-          >
-            <ChoiceSelect
-              id="bm-extractive"
-              v-model="form.extractiveMode"
-              :choices="EXTRACTIVE_MODES"
-            />
-          </SettingRow>
-          <SettingRow
             label="Answer words found in the passage"
             help="A question is dropped if less of its answer appears in the passage."
             unit="%"
@@ -876,7 +865,6 @@ import SettingRow from '@/components/benchmark/setup/SettingRow.vue'
 import SetupStep from '@/components/benchmark/setup/SetupStep.vue'
 import {
   DATASET_MODES,
-  EXTRACTIVE_MODES,
   JUDGE_POLICIES,
   JUDGE_REASONING,
   KINDS,

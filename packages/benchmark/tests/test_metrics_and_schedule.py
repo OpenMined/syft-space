@@ -212,9 +212,8 @@ def test_a_refused_name_is_not_asked_in_the_passes_still_to_come(
 ) -> None:
     """The whole point of noticing a refusal at all.
 
-    A run stopped from within is followed by the next one, which is fresh and
-    knows nothing — so a wrong model name used to be paid for once per pass,
-    six passes deep, at a whole set of questions each. The models that were not
+    A run stopped from within is followed by the next one, which is fresh; a
+    refused model name is not paid for again in every pass. The models that were not
     refused go on being measured: a panel with one bad name in it is still a
     measurement of the other two.
     """

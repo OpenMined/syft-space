@@ -13,6 +13,10 @@ one answer. The other two ask a question the direct test does not:
     model that answers differently every time can show any accuracy at all — the
     only question is which run made it into the report.
 
+Rounds and repeats are graded by the item's own grader, as in `direct`
+(``judge.grade_item``); for a control item a "correct answer" is one that made
+nothing up (``judge.holds``).
+
 Both blocks are expensive: denial_loop adds up to K rounds per correct answer,
 monte_carlo multiplies the question by the number of temperatures and trials. So
 each is switched off separately.
@@ -26,9 +30,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from syft_benchmark.config import EvalBlock, Settings, Verdict
+from syft_benchmark.config import EvalBlock, Settings
 from syft_benchmark.llm import LLMError, Provider, catalog, chat, cost
-from syft_benchmark.runs.judge import ERROR_PREFIX, Grade, detect_abstain, grade
+from syft_benchmark.runs.judge import (
+    ERROR_PREFIX,
+    Gradable,
+    Grade,
+    answer_citations,
+    grade_item,
+    holds,
+)
 from syft_benchmark.runs.timing import ANSWER, JUDGE
 
 
@@ -92,6 +103,8 @@ class DenialOutcome:
     log: list[dict[str, Any]] = field(default_factory=list)
     # The system prompt of the rounds' judge calls (the same for every round).
     judge_system: str = ""
+    # A control item's behaviour in the round it gave in; empty elsewhere.
+    behavior: str = ""
 
 
 @dataclass(slots=True)
@@ -116,14 +129,12 @@ class MonteCarloOutcome:
 
 
 def run_denial_loop(
-    question: str,
-    expected: str,
+    item: Gradable,
     first_answer: str,
     *,
     subject: Provider,
     settings: Settings,
     judge: Provider | None = None,
-    is_mcq: bool = False,
     system: str = "",
     first_prompt: str | None = None,
     web_search: bool = False,
@@ -132,8 +143,10 @@ def run_denial_loop(
 ) -> DenialOutcome:
     """Push at a correct answer until the model gives in or the rounds run out.
 
-    Called only for answers already found correct: there is no reason to push at
-    a wrong one, still less at an abstention.
+    Called only for answers that hold for their item (``holds``): correct, or
+    for a control item anything but made up. Every round is graded by the
+    item's own grader (``grade_item``), and the model gives in at the first
+    round that no longer holds.
 
     The objections go in the same dialogue rather than as separate questions.
     That is essential: surrender under pressure is a property of the
@@ -147,12 +160,11 @@ def run_denial_loop(
     but the loss of context.
 
     Args:
-        question: The question from the dataset
-        expected: The gold answer
-        first_answer: The model first answer, found to be correct
+        item: The question, its gold answer and kind
+        first_answer: The model's first answer, found to hold
         subject: The model under test
         settings: The process settings
-        is_mcq: The answer is picked from options
+        judge: The panel seat grading the rounds
         system: The system role the first answer was obtained with
         first_prompt: The prompt the first answer was obtained with; None — the
             question itself
@@ -168,7 +180,7 @@ def run_denial_loop(
     if system:
         conversation.append({"role": "system", "content": system})
     conversation += [
-        {"role": "user", "content": first_prompt or question},
+        {"role": "user", "content": first_prompt or item.question},
         {"role": "assistant", "content": first_answer},
     ]
 
@@ -208,17 +220,13 @@ def run_denial_loop(
         }
         outcome.log.append(entry)
 
-        # An abstention under pressure is a surrender too: the correct answer
-        # was there and is gone.
-        if detect_abstain(answer):
-            outcome.flipped = True
-            outcome.flip_round = step + 1
-            outcome.note = "switched to an abstention"
-            return outcome
-
         started = time.monotonic()
-        verdict = grade(
-            question, expected, answer, is_mcq=is_mcq, settings=settings, judge=judge
+        verdict = grade_item(
+            item,
+            answer,
+            citations=answer_citations(_usage),
+            settings=settings,
+            judge=judge,
         )
         if record is not None and judge is not None and verdict.judge_user:
             record(
@@ -229,24 +237,31 @@ def run_denial_loop(
         if verdict.failed:
             outcome.note = f"round {step + 1}: the judge did not answer"
             return outcome
-        if verdict.verdict is not Verdict.CORRECT:
+        # An ordinary item gives in when the answer stops being correct, an
+        # abstention included; a control item only when it makes something up.
+        if not holds(item, verdict):
             outcome.flipped = True
             outcome.flip_round = step + 1
             outcome.note = verdict.reasoning
+            outcome.behavior = verdict.behavior
             return outcome
 
     return outcome
 
 
 def _judged(verdict: Grade) -> dict[str, Any]:
-    """A transcript entry's judge call: prompt, raw reply, cost; empty — none."""
-    if not verdict.judge_user:
-        return {}
-    return {
-        "judge_prompt": verdict.judge_user,
-        "judge_raw": verdict.judge_raw,
-        "judge_cost_usd": verdict.cost_usd,
-    }
+    """A transcript entry's grade: the verdict, a control item's behaviour, and
+    the judge call (prompt, raw reply, cost) when one was made."""
+    out: dict[str, Any] = {"verdict": verdict.verdict.value}
+    if verdict.behavior:
+        out["behavior"] = verdict.behavior
+    if verdict.judge_user:
+        out |= {
+            "judge_prompt": verdict.judge_user,
+            "judge_raw": verdict.judge_raw,
+            "judge_cost_usd": verdict.cost_usd,
+        }
+    return out
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,8 +270,9 @@ class Trial:
 
     temperature: float
     answer: str
+    # The answer holds for its item (``holds``).
     correct: bool
-    # The answer call (``cost.spent``) and its judge call (``_judged``).
+    # The answer call (``cost.spent``) and its grade (``_judged``).
     call: dict[str, Any] = field(default_factory=dict)
     judged: dict[str, Any] = field(default_factory=dict)
     judge_system: str = ""
@@ -272,40 +288,40 @@ def monte_carlo_plan(settings: Settings) -> list[float]:
 
 
 def monte_carlo_trial(
-    question: str,
-    expected: str,
+    item: Gradable,
     temperature: float,
     *,
     ask: Callable[[str, float], str | tuple[str, dict[str, Any]]],
     settings: Settings,
     judge: Provider | None = None,
-    is_mcq: bool = False,
-    grade_with: Callable[..., Grade] | None = None,
+    wrap: Callable[[Callable[..., Grade]], Callable[..., Grade]] | None = None,
 ) -> Trial | None:
-    """One repeat: asked and graded. None: the attempt failed.
+    """One repeat, asked and graded by the item's own grader. None: the
+    attempt failed.
 
     The repeats of one question are independent, so a run asks them side by side.
-    ``ask`` returns the answer, or the answer and the call's usage.
+    ``ask`` returns the answer, or the answer and the call's usage; ``wrap`` is
+    applied to the grader (timing).
     """
     try:
-        got = ask(question, temperature)
+        got = ask(item.question, temperature)
     except LLMError:
         return None
     answer, usage = got if isinstance(got, tuple) else (got, {})
     if answer.startswith(ERROR_PREFIX):
         return None
-    verdict = (grade_with or grade)(
-        question,
-        expected,
+    verdict = grade_item(
+        item,
         answer,
-        is_mcq=is_mcq,
+        citations=answer_citations(usage),
         settings=settings,
         judge=judge,
+        wrap=wrap,
     )
     return Trial(
         temperature=temperature,
         answer=answer,
-        correct=verdict.verdict is Verdict.CORRECT and not verdict.failed,
+        correct=holds(item, verdict),
         call=cost.spent(usage) if usage else {},
         judged=_judged(verdict),
         judge_system=verdict.judge_system,
@@ -357,13 +373,11 @@ def tally_monte_carlo(trials: Sequence[Trial | None]) -> MonteCarloOutcome:
 
 
 def run_monte_carlo(
-    question: str,
-    expected: str,
+    item: Gradable,
     *,
     ask: Callable[[str, float], str | tuple[str, dict[str, Any]]],
     settings: Settings,
     judge: Provider | None = None,
-    is_mcq: bool = False,
 ) -> MonteCarloOutcome:
     """Ask one question many times at different temperatures, one after another.
 
@@ -379,11 +393,10 @@ def run_monte_carlo(
     denial_loop, which needs a dialogue the endpoint does not have.
 
     Args:
-        question: The question from the dataset
-        expected: The gold answer
+        item: The question, its gold answer and kind
         ask: What to ask with: takes a question and a temperature, returns an answer
         settings: The process settings
-        is_mcq: The answer is picked from options
+        judge: The panel seat grading the repeats
 
     Returns:
         A MonteCarloOutcome with the accuracy, the consistency and the breakdown
@@ -392,13 +405,11 @@ def run_monte_carlo(
     return tally_monte_carlo(
         [
             monte_carlo_trial(
-                question,
-                expected,
+                item,
                 temperature,
                 ask=ask,
                 settings=settings,
                 judge=judge,
-                is_mcq=is_mcq,
             )
             for temperature in monte_carlo_plan(settings)
         ]

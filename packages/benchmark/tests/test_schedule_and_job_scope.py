@@ -1,8 +1,8 @@
 """The schedule the service runs itself, and reading one measurement back.
 
-Two halves of the same change. The service now decides when to measure, and a
-measurement is now findable afterwards — a launch, its verdicts and its raw
-records, as against the node's numbers as of today.
+The service decides when to measure, and a measurement is findable afterwards —
+a launch, its verdicts and its raw records, as against the node's numbers as of
+today.
 
 The schedule half is checked mostly without a database: what to fire and when is
 a function of a target and a moment, and it is worth being able to say so. The

@@ -62,6 +62,13 @@
         >
         removed because a model with web search could already answer them
       </span>
+      <template v-if="other">
+        <span class="text-muted-foreground" aria-hidden="true">→</span>
+        <span :title="other.tip" class="cursor-help" data-testid="funnel-other">
+          <b class="font-semibold text-amber-700 dark:text-amber-400">{{ count(other.total) }}</b>
+          not asked for other reasons
+        </span>
+      </template>
       <span class="text-muted-foreground" aria-hidden="true">→</span>
       <span>
         <b class="font-semibold text-primary">{{ count(data.funnel.asked) }}</b> asked to each model
@@ -232,7 +239,15 @@ import { useReport, useRun } from './context'
 import { count, DASH, dayTime, points } from './figures'
 import { modelName, vendorName } from './labels'
 import { methodLocation, modelLocation } from './routing'
-import { runHeaderText, stoppedLabel, stoppedTip, usdText, utcStamp, webRemoved } from './selectors'
+import {
+  otherNotAsked,
+  runHeaderText,
+  stoppedLabel,
+  stoppedTip,
+  usdText,
+  utcStamp,
+  webRemoved,
+} from './selectors'
 import {
   costLabel,
   costParts,
@@ -260,6 +275,7 @@ const startFinish = computed(() => (data.value ? startFinishText(data.value.run)
 const cost = computed(() => (data.value ? customerCost(data.value.method) : null))
 const parts = computed(() => (data.value ? costParts(data.value.method) : null))
 const removed = computed(() => (data.value ? webRemoved(data.value) : null))
+const other = computed(() => (data.value ? otherNotAsked(data.value) : null))
 
 /** Unsigned whole points: 47 → `47`, −5 → `−5`. */
 function bare(x: number): string {

@@ -64,10 +64,8 @@ class Check:
     endpoint: bool = False
     response_type: str = ""
     # An arm that is not measurable on this node, and why — as a code. Not a
-    # settings error: on a retrieval node arm B does not exist by the design of
-    # the product, and the owner should see this as a property of the node, not
-    # as a breakage. A code, not a sentence: a foreign UI displays it, in its
-    # own language.
+    # settings error but a property of the node. A code, not a sentence: a
+    # foreign UI displays it, in its own language.
     blocked_arms: dict[str, str] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
 

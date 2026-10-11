@@ -79,7 +79,6 @@ function makeTarget(over: Partial<BenchmarkTarget> = {}): BenchmarkTarget {
         answer_coverage_threshold: 0.6,
         consistency_floor: 0.5,
         text_metrics: [],
-        extractive_mode: 'auto',
         methodology_profile: 'demosyft',
         max_consecutive_failures: 5,
         reuse_answers: true,

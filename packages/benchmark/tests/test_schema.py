@@ -37,10 +37,9 @@ def test_the_schema_is_measurement_plus_control_plus_configuration() -> None:
 def test_no_secret_has_a_column_of_its_own_anywhere() -> None:
     """A secret is sealed in ``credentials`` or it is not stored.
 
-    The Space tokens used to be a plain text column on ``targets``, which meant
-    they were in every dump, backup and replica of this database. Nothing is to
-    quietly grow such a column again — and a column called ``token`` or ``key``
-    on any other table would be exactly that.
+    A plain text column would put the Space tokens in every dump, backup and
+    replica of this database; a column called ``token`` or ``key`` on any table
+    other than ``credentials`` would be exactly that.
     """
     offenders = [
         f"{table}.{column.name}"

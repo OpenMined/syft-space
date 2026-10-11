@@ -1,9 +1,9 @@
 """Item types: a prompt plus the parsing of the model answer.
 
-A port from `OMSyft/scripts/generate_qa.py`. Two generators: a free-form answer
-and a choice of four options. The prompts are in English deliberately — a 4B
-model follows an instruction noticeably more precisely in it, while the language
-of the pair is set by rule 7 and taken from the language of the chunk.
+The registry ``GENERATORS``: masking, free-form, choice and control kinds. The
+prompts are in English deliberately — a 4B model follows an instruction
+noticeably more precisely in it, while the language of the pair is set by the
+last rule and taken from the language of the chunk.
 """
 
 from __future__ import annotations
@@ -50,8 +50,11 @@ alone, with no earlier question to point back to. Name the thing instead.
 say about Y" when X is quoted more than once, and do not ask for "one of the" \
 several things: pin the question to a detail that identifies the answer.
 5. Prefer concrete facts: numbers, names, dates, settings, causes, steps.
-6. Use only what the fragment states. Invent nothing.
-7. Write the question and the answer in the SAME language as the fragment.
+6. Build each question on a fact that only this story reports: its own \
+figures, named sources, quotes or inside details. Avoid facts that other \
+outlets also covered or that are general background.
+7. Use only what the fragment states. Invent nothing.
+8. Write the question and the answer in the SAME language as the fragment.
 """
 
 _QA_SYSTEM = f"""\
@@ -59,7 +62,7 @@ You build a question-answer benchmark for a private knowledge base. \
 You are given ONE fragment of ONE document and must produce exactly {{n}} \
 question-answer pairs.
 
-{_RULES}8. The answer is short: one to three sentences.
+{_RULES}9. The answer is short: one to three sentences.
 
 Return ONLY a JSON array of {{n}} objects:
 [{{{{"question": "...", "answer": "...", "difficulty": "easy|medium|hard"}}}}]
@@ -71,8 +74,10 @@ You build a multiple-choice benchmark for a private knowledge base. \
 You are given ONE fragment of ONE document and must produce exactly {{n}} \
 questions with four options each.
 
-{_RULES}8. Exactly one option is correct; the other three are plausible but wrong \
+{_RULES}9. Exactly one option is correct; the other three are plausible but wrong \
 according to the fragment.
+10. The wrong options must sound right to someone who hasn't read the story, \
+and each must be contradicted by it.
 
 Return ONLY a JSON array of {{n}} objects:
 [{{{{"question": "...", "options": {{{{"A": "...", "B": "...", "C": "...", \
@@ -102,7 +107,6 @@ class Generator:
         system: The system prompt; ``{n}`` is substituted with the item count
         clean: Parsing and screening of the model answer
         tokens_per_pair: The answer ceiling, reckoned per item
-        needs_llm: False only on the spaCy path of the extractive generators
         expected: What counts as the correct behaviour for such an item. For all
             the ordinary generators it is to answer: the item was built OUT OF a
             chunk and is therefore answerable. For the control ones it is to
@@ -117,7 +121,6 @@ class Generator:
     system: str
     clean: Cleaner
     tokens_per_pair: int
-    needs_llm: bool = True
     expected: ExpectedBehavior = ExpectedBehavior.ANSWER
 
     @property
@@ -234,9 +237,9 @@ def reasons(rejected: Iterable[str]) -> str:
 
 GENERATORS: dict[str, Generator] = {
     # --- extractive: span masking ----------------------------------------
-    # The only class where the gold answer cannot be invented: it is cut out of
-    # the text. The three categories are built by one call (or one spaCy pass)
-    # but live separately in the database — their numbers are about different things.
+    # The only class where the gold answer is a span of the text. The three
+    # categories are built by one call but live separately in the database —
+    # their numbers are about different things.
     "named_entity_masking": Generator(
         key="named_entity_masking",
         task_type="extractive",
@@ -245,7 +248,6 @@ GENERATORS: dict[str, Generator] = {
         system="",  # the prompt is shared, see extractive.COMBINED_SYSTEM
         clean=_clean_qa,
         tokens_per_pair=90,
-        needs_llm=False,
     ),
     "numeric_masking": Generator(
         key="numeric_masking",
@@ -255,7 +257,6 @@ GENERATORS: dict[str, Generator] = {
         system="",
         clean=_clean_qa,
         tokens_per_pair=90,
-        needs_llm=False,
     ),
     "temporal_masking": Generator(
         key="temporal_masking",
@@ -265,7 +266,6 @@ GENERATORS: dict[str, Generator] = {
         system="",
         clean=_clean_qa,
         tokens_per_pair=90,
-        needs_llm=False,
     ),
     # --- abstractive ------------------------------------------------------
     "mcq": Generator(
@@ -355,9 +355,8 @@ GENERATORS: dict[str, Generator] = {
 # gate instead of gold-answer screening, and their own correct behaviour.
 CONTROL_KEYS = tuple(key for key, spec in GENERATORS.items() if spec.is_control)
 
-# The extractive ones are built together: one spaCy pass or one LLM call gives
-# all three categories at once, and there is no reason to call the model three
-# times over one chunk.
+# The extractive ones are built together: one call gives all three categories
+# at once, and there is no reason to call the model three times over one chunk.
 EXTRACTIVE_KEYS = ("named_entity_masking", "numeric_masking", "temporal_masking")
 
 # The mapping "category in the model answer -> generator key".

@@ -195,10 +195,6 @@ class PublishEndpointHandler:
         if not endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")
 
-        # A benchmark may measure an endpoint in a mode it no longer serves -
-        # the owner is free to switch response_type between runs. Say so rather
-        # than refusing: the card describes what was measured, and a stale kind
-        # is information, not a fault.
         # Local first. A marketplace may be down, and the run that produced
         # these figures may have taken hours - losing them to a network blip
         # would be the expensive kind of mistake.

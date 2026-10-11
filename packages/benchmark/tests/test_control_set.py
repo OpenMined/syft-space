@@ -1,16 +1,21 @@
 """The control set: questions with no answer, and checking their labelling.
 
 What is checked is what this set is more dangerous without than without the set
-at all: an unchecked negative does not enter the measurement, behaviour is
-judged without a model, and an abstention is told apart from a hedged guess.
+at all: an unchecked negative does not enter the measurement.
 """
 
 from __future__ import annotations
 
-from syft_benchmark.config import Verdict
-from syft_benchmark.generation import gate_unanswerable
+from typing import Any
+
+import pytest
+
+from syft_benchmark.config import PairStatus, Settings, StatusReason
+from syft_benchmark.db import QaPair
+from syft_benchmark.generation import control, filter_stage, gate_unanswerable
+from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.generation.negative import clean_false_premise, clean_unanswerable
-from syft_benchmark.runs import grade_behavior
+from syft_benchmark.llm import LLMError
 
 DOC = (
     "Space registers with the Hub. The Hub stores endpoint metadata in "
@@ -112,32 +117,143 @@ def test_a_broken_search_never_admits_a_candidate() -> None:
     assert not gate.checked
 
 
-# --- grading by behaviour ---------------------------------------------------
+# --- the false-premise gate --------------------------------------------------
+
+CORRECTION_HIT = "The Hub stores endpoint metadata in PostgreSQL."
 
 
-def test_refusal_is_the_right_behaviour() -> None:
-    """Abstaining on a question with no answer is the right behaviour, not a miss."""
-    assert grade_behavior("I don't know").verdict is Verdict.ABSTAIN
+class _Judge:
+    """A fake chat(): one reply, the prompts it was given."""
+
+    def __init__(self, reply: str) -> None:
+        self.reply = reply
+        self.prompts: list[tuple[str, str]] = []
+
+    def __call__(self, system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        self.prompts.append((system, user))
+        return self.reply, {}
 
 
-def test_answering_a_question_without_an_answer_is_a_fabrication() -> None:
-    """No correct answer exists: any answer is a fabrication."""
-    assert grade_behavior("The Hub requires TLS 1.3.").verdict is Verdict.HALLUCINATE
+def _settings() -> Settings:
+    return Settings(judge_model="judge/model", judge_models=["judge/model"])
 
 
-def test_a_hedged_guess_is_still_a_guess() -> None:
-    """ "I don't know, but most likely X" is a guess, not an abstention."""
-    hedged = "The material does not say, but it is most likely TLS 1.2."
-    assert grade_behavior(hedged).verdict is Verdict.HALLUCINATE
+def _premise_row() -> QaPair:
+    return QaPair(
+        id="fp-1",
+        space="pytest-control-set",
+        generator="false_premise",
+        task_type="negative",
+        doc_id="doc-1",
+        question="Why did the Hub move its endpoint metadata to SQLite?",
+        answer="The Hub stores endpoint metadata in PostgreSQL, not SQLite.",
+        context=DOC,
+        status=PairStatus.PENDING.value,
+        model="gen/model",
+        question_hash="fp-1",
+        meta={
+            "premise": "the Hub moved its metadata to SQLite",
+            "claims": ["The Hub stores endpoint metadata in PostgreSQL."],
+            "grading": "judge",
+        },
+    )
 
 
-def test_a_failed_call_is_not_a_verdict() -> None:
-    """A failed call speaks about the rig and does not enter the denominator."""
-    outcome = grade_behavior("ERROR: HTTP 502")
-    assert outcome.failed
+def _screen(row: QaPair, retrieve: Any) -> tuple[Any, ...]:
+    return filter_stage._screen_pair(
+        row, GENERATORS[row.generator], retrieve, _settings(), None
+    )
 
 
-def test_behaviour_grading_costs_no_model_call() -> None:
-    """The judge is not called at all — the control set is almost free."""
-    outcome = grade_behavior("I don't know")
-    assert outcome.judge_user == ""
+def test_a_false_premise_with_its_correction_found_is_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    judge = _Judge(
+        '{"answered": true, "where": "stores endpoint metadata in PostgreSQL"}'
+    )
+    monkeypatch.setattr(control, "chat", judge)
+
+    status, reason, note, meta = _screen(_premise_row(), lambda _q: [CORRECTION_HIT])
+
+    assert status is PairStatus.ACTIVE
+    assert reason is None
+    assert note.startswith("correction found in the archive")
+    assert meta["gate_checked"] is True
+    system, user = judge.prompts[0]
+    assert system == control._ANSWERABLE_SYSTEM
+    assert "the Hub moved its metadata to SQLite" in user
+    assert "not SQLite" in user  # the correction
+    assert "- The Hub stores endpoint metadata in PostgreSQL." in user  # claims
+    assert CORRECTION_HIT in user
+    assert meta[filter_stage.GATE_CALL]["user"] == user
+
+
+def test_a_false_premise_without_its_correction_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(control, "chat", _Judge('{"answered": false, "where": ""}'))
+
+    status, reason, note, meta = _screen(
+        _premise_row(), lambda _q: ["The Hub has a web interface."]
+    )
+
+    assert status is PairStatus.REJECTED
+    assert reason is StatusReason.RETRIEVAL_GATE
+    assert note.startswith("correction not found in the archive")
+    assert meta["gate_checked"] is True
+
+
+def test_a_false_premise_with_nothing_retrieved_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    judge = _Judge('{"answered": true}')
+    monkeypatch.setattr(control, "chat", judge)
+
+    status, reason, note, _ = _screen(_premise_row(), _no_hits)
+
+    assert status is PairStatus.REJECTED
+    assert reason is StatusReason.RETRIEVAL_GATE
+    assert note.startswith("correction not found in the archive")
+    assert judge.prompts == []
+
+
+def test_a_false_premise_whose_search_fails_is_not_checked() -> None:
+    status, reason, note, meta = _screen(_premise_row(), _broken)
+
+    assert status is PairStatus.REJECTED
+    assert reason is StatusReason.RETRIEVAL_GATE
+    assert note.startswith("retrieval unreachable")
+    assert meta["gate_checked"] is False
+
+
+def test_a_false_premise_whose_judge_fails_is_not_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing(*_a: Any, **_k: Any) -> tuple[str, dict[str, Any]]:
+        raise LLMError("the judge is down")
+
+    monkeypatch.setattr(control, "chat", failing)
+
+    status, _, note, meta = _screen(_premise_row(), lambda _q: [CORRECTION_HIT])
+
+    assert status is PairStatus.REJECTED
+    assert note.startswith("the gate did not run")
+    assert meta["gate_checked"] is False
+
+
+def test_a_trick_question_still_goes_through_the_unanswerable_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    judge = _Judge('{"answered": true, "where": "port 5442"}')
+    monkeypatch.setattr(control, "chat", judge)
+    row = _premise_row()
+    row.generator = "unanswerable_property"
+    row.question = "What port does the benchmark database listen on?"
+    row.meta = {"missing": "the port", "grading": "behavior"}
+
+    status, reason, note, _ = _screen(row, lambda _q: [DOC])
+
+    assert status is PairStatus.REJECTED
+    assert reason is StatusReason.RETRIEVAL_GATE
+    assert note.startswith("retrieval answers the question")
+    assert judge.prompts[0][0] == control._GATE_SYSTEM

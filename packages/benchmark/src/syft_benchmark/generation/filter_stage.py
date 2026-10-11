@@ -6,18 +6,24 @@ its own pass over what is already in the database, so the owner can see the
 raw output of generation before anything is screened, and can re-run screening
 on its own schedule.
 
-Three checks, all reading the persisted row rather than a fresh candidate:
+Four checks, all reading the persisted row rather than a fresh candidate:
 
   * **grounding** (``validate.py``) — does the gold answer rest on the chunk.
     Lexical, deterministic, needs nothing but the row itself (``context`` is
     the chunk, truncated the same way it always was; ``meta["claims"]``, where
     present, is what a reworded item's answer must follow from instead).
+  * **the archive check** (``control.gate_answerable``) — for a grounded
+    ordinary pair, does live retrieval find a fragment stating its answer. A
+    question that makes no sense finds nothing and is rejected as
+    ``not_answerable`` before the web check is paid for. A failed check
+    leaves the pair pending; without a retriever the check is skipped.
   * **the control gate** (``control.py``) — for a question built with no
-    answer in the corpus, does live retrieval in fact answer it anyway. This
-    one is NOT a replay of a stored verdict: it queries retrieval again, right
-    now, because "there is no answer" is only ever true relative to an index
-    at a moment, and the index may have grown since generation ran.
-  * **the web check** (``web_check.py``) — for a grounded answerable pair,
+    answer in the corpus, does live retrieval in fact answer it anyway; for a
+    false premise, does live retrieval find the correction. This one is NOT a
+    replay of a stored verdict: it queries retrieval again, right now, because
+    what the archive holds is only ever true relative to an index at a moment,
+    and the index may have grown since generation ran.
+  * **the web check** (``web_check.py``) — for a pair that passed the above,
     when ``filter_model`` is set: does a model with web search and its own
     training, and none of the publisher's data, answer it correctly. If so it
     is rejected as ``web_answerable``. A failed check leaves the pair pending
@@ -27,25 +33,28 @@ Only ``pending`` pairs are ever touched automatically — an ``active`` or
 ``rejected`` verdict, once made, stands until a person overturns it through
 ``override_status``. Re-running this on the same pending pairs twice gives the
 same answer for grounding and, because retrieval may have changed, not
-necessarily the same answer for the gate; neither run ever moves a pair that
-already has a verdict.
+necessarily the same answer for the archive check or the gate; neither run
+ever moves a pair that already has a verdict.
 
 This module never reads the corpus (invariant 1: only ``sources`` and the
 handful of modules listed in ``test_invariants.py`` may). It decides
-grounding purely off what is already stored, and the control gate through an
-injected ``retrieve`` callable — the same seam ``generation/control.py`` uses.
-What it does NOT do is reconcile the freshness window, the cohort or the set
-cap for pairs it just turned active: that needs the document dates, which
-means reading the corpus, which means it belongs to ``pipeline.py``'s
-``filter_and_rotate`` instead of here. A pair filtered on its own settles
-into the window at the next generation pass, the same as it always has.
+grounding purely off what is already stored, and the archive check and the
+control gate through an injected ``retrieve`` callable — the same seam
+``generation/control.py`` uses. What it does NOT do is reconcile the
+freshness window, the cohort or the set cap for pairs it just turned active:
+that needs the document dates, which means reading the corpus, which means
+it belongs to ``pipeline.py``'s ``filter_and_rotate`` instead of here. A
+pair filtered on its own settles into the window at the next generation
+pass.
 """
 
 from __future__ import annotations
 
+import re
 import threading
 from collections.abc import Callable, Collection
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -57,6 +66,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from syft_benchmark.config import (
     DatasetMode,
+    ExpectedBehavior,
     PairStatus,
     Settings,
     SpaceConfig,
@@ -67,7 +77,12 @@ from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
 from syft_benchmark.generation import cohort as cohorts
 from syft_benchmark.generation import decisions
-from syft_benchmark.generation.control import Retriever, gate_unanswerable
+from syft_benchmark.generation.control import (
+    Gate,
+    Retriever,
+    gate_answerable,
+    gate_unanswerable,
+)
 from syft_benchmark.generation.generators import GENERATORS, Generator
 from syft_benchmark.generation.rotation import OVER_CAP_NOTE, RotationReport
 from syft_benchmark.generation.slots import (
@@ -92,8 +107,20 @@ from syft_benchmark.generation.web_check import (
 )
 from syft_benchmark.llm import Provider, judge_providers
 
-# The control gate's call, carried from the check to the decision record.
+# The control gate's or the archive check's call, carried from the check to
+# the decision record.
 GATE_CALL = "_gate_call"
+
+# The note on an ordinary pair whose answer live retrieval does not find.
+NOT_ANSWERABLE_NOTE = "not answerable from the archive"
+# ``meta.gate`` on an ordinary pair screened without a retriever.
+ARCHIVE_UNCHECKED = "archive check skipped: retrieval is unavailable"
+# The status note of a pair whose archive check failed; the gate's note follows.
+ARCHIVE_RETRY = "archive check failed, will retry"
+
+# The generator whose gold answer is the lie, not a fact the archive states.
+_LIE = "two_truths_one_lie"
+_OPTION_LETTER = re.compile(r"^[A-Z]\)\s*")
 
 # Statuses that carry no status_reason.
 _IN_PLAY = frozenset({PairStatus.PENDING, PairStatus.ACTIVE})
@@ -115,6 +142,8 @@ class FilterSummary:
     rejected: int = 0
     # Of the rejected: answered correctly by the web check model.
     web_answerable: int = 0
+    # Left pending: the archive check failed (retrieval or its judge).
+    archive_failed: int = 0
     notes: list[str] = field(default_factory=list)
     rotation: RotationReport | None = None
     # None — the web check is off or had nothing to check.
@@ -126,6 +155,7 @@ class FilterSummary:
         self.active += other.active
         self.rejected += other.rejected
         self.web_answerable += other.web_answerable
+        self.archive_failed += other.archive_failed
         self.notes += [note for note in other.notes if note not in self.notes]
         if other.web is None:
             return
@@ -142,6 +172,8 @@ class FilterSummary:
             f"checked {self.checked} — {self.active} active, "
             f"{self.rejected} rejected"
         )
+        if self.archive_failed:
+            line += f", archive check failed for {self.archive_failed} (left pending)"
         if self.web is not None:
             line += f"; {self.web.line()}"
         return line
@@ -157,7 +189,8 @@ def _screen_pair(
     """The verdict on one pending pair, why, and what to fold into its ``meta``.
 
     Reads the persisted ``context``/``meta`` rather than a fresh candidate's
-    fragment and claims — see the module docstring for why.
+    fragment and claims — see the module docstring for why. ``PENDING`` means
+    the archive check failed and the pair waits for the next pass.
     """
     if not generator.is_control:
         claims = row.meta.get("claims")
@@ -166,9 +199,24 @@ def _screen_pair(
             if claims
             else review_answer(row.answer, row.context, conf)
         )
-        if verdict.grounded:
-            return PairStatus.ACTIVE, None, verdict.note, {}
-        return PairStatus.REJECTED, StatusReason.GROUNDING, verdict.note, {}
+        if not verdict.grounded:
+            return PairStatus.REJECTED, StatusReason.GROUNDING, verdict.note, {}
+        if gate is None:
+            # Without retrieval there is nothing to search; grounding and the
+            # web check still screen the pair.
+            return PairStatus.ACTIVE, None, verdict.note, {"gate": ARCHIVE_UNCHECKED}
+        outcome = _archive_check(row, gate, conf, judge)
+        meta = _gate_meta(outcome)
+        if not outcome.checked:
+            return PairStatus.PENDING, None, f"{ARCHIVE_RETRY}: {outcome.note}", meta
+        if outcome.clear:
+            return PairStatus.ACTIVE, None, verdict.note, meta
+        return (
+            PairStatus.REJECTED,
+            StatusReason.NOT_ANSWERABLE,
+            NOT_ANSWERABLE_NOTE,
+            meta,
+        )
 
     if gate is None:
         # An unchecked negative is an unfounded accusation of fabrication, same
@@ -181,7 +229,60 @@ def _screen_pair(
             {"gate": "not checked"},
         )
 
-    outcome = gate_unanswerable(row.question, gate, settings=conf, judge=judge)
+    if generator.expected is ExpectedBehavior.CORRECT_PREMISE:
+        # Refuting the premise needs the archive to state the true fact.
+        claims = row.meta.get("claims") or []
+        outcome = gate_answerable(
+            row.question,
+            row.answer,
+            gate,
+            facts=[str(c) for c in claims],
+            premise=str(row.meta.get("premise") or "(not recorded)"),
+            settings=conf,
+            judge=judge,
+        )
+    else:
+        outcome = gate_unanswerable(row.question, gate, settings=conf, judge=judge)
+    return (
+        PairStatus.ACTIVE if outcome.clear else PairStatus.REJECTED,
+        None if outcome.clear else StatusReason.RETRIEVAL_GATE,
+        outcome.note,
+        _gate_meta(outcome),
+    )
+
+
+def _archive_check(
+    row: QaPair, gate: Retriever, conf: Settings, judge: Provider | None
+) -> Gate:
+    """Whether live retrieval finds the answer to an ordinary pair.
+
+    The facts are ``meta.claims`` (``meta.hop_facts`` where there are none).
+    For two truths and one lie the gold answer is the lie, which the archive
+    must contradict: it goes in as the false premise.
+    """
+    facts = row.meta.get("claims") or row.meta.get("hop_facts") or []
+    if row.generator == _LIE:
+        return gate_answerable(
+            row.question,
+            str(row.meta.get("source_detail") or "(not recorded)"),
+            gate,
+            facts=[str(f) for f in facts],
+            premise=_OPTION_LETTER.sub("", row.answer),
+            settings=conf,
+            judge=judge,
+        )
+    return gate_answerable(
+        row.question,
+        row.answer,
+        gate,
+        facts=[str(f) for f in facts],
+        settings=conf,
+        judge=judge,
+    )
+
+
+def _gate_meta(outcome: Gate) -> dict[str, Any]:
+    """What a retrieval check folds into the pair's ``meta``."""
     meta: dict[str, Any] = {
         "gate": outcome.note,
         "gate_checked": outcome.checked,
@@ -190,27 +291,24 @@ def _screen_pair(
     if outcome.call:
         # Taken off before the pair's meta is written: the job's decision keeps it.
         meta[GATE_CALL] = outcome.call
-    return (
-        PairStatus.ACTIVE if outcome.clear else PairStatus.REJECTED,
-        None if outcome.clear else StatusReason.RETRIEVAL_GATE,
-        outcome.note,
-        meta,
-    )
+    return meta
 
 
 class Screening:
     """Screens pairs one at a time, from any number of threads.
 
     The unit of work for both the filter pass and the streaming checks during
-    a build: ``screen`` takes one pending pair from grounding (or the control
-    gate) through the web check to its verdict; ``recheck`` puts one pair
-    already in the set to the web check. Model calls take a slot from
+    a build: ``screen`` takes one pending pair from grounding and the archive
+    check (or the control gate) through the web check to its verdict;
+    ``recheck`` puts one pair already in the set to the web check. Model
+    calls take a slot from
     ``slots`` (urgent: checks go before waiting generator calls); retrieval
-    for the control gate is limited by ``endpoint_concurrency``.
+    for the archive check and the control gate is limited by
+    ``endpoint_concurrency``.
 
     A pair stays pending when the owner stops the pass before it is checked,
-    when its web check fails, or when the web check has stopped: the next pass
-    checks it.
+    when its archive check or web check fails, or when the web check has
+    stopped: the next pass checks it.
     """
 
     def __init__(
@@ -229,7 +327,8 @@ class Screening:
         self.job_id = job_id
         self.on_verdict = on_verdict
         self.report = FilterSummary(space=space)
-        # The control gate's judge (Judge 1). The web check picks its own.
+        # The archive check's and the control gate's judge (Judge 1). The web
+        # check picks its own.
         judges = judge_providers(conf)
         self.judge = judges[0] if judges else None
         self.retrieve = limited(retrieve, endpoint_limit(conf))
@@ -326,25 +425,52 @@ class Screening:
             self.on_verdict()
 
     def _web_note(
-        self, row: QaPair, verdict: WebVerdict, outcome: str
+        self,
+        row: QaPair,
+        verdict: WebVerdict,
+        outcome: str,
+        screened: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """The pair's meta with the web check record and its stamp."""
+        """The pair's meta with the web check record and its stamp;
+        ``screened`` — what the earlier checks folded in, its gate call kept
+        on the decision."""
+        screened = dict(screened or {})
+        gate = screened.pop(GATE_CALL, None)
         stamp = self._decision(
             row,
             decisions.WEB_CHECK,
             outcome,
             verdict.note,
             web=self._web_record(verdict),
+            gate=gate,
         )
-        return {**row.meta, **self._web_meta(verdict), **stamp}
+        return {**row.meta, **screened, **self._web_meta(verdict), **stamp}
 
-    def _note_pending(self, row: QaPair, verdict: WebVerdict) -> None:
-        meta = self._web_note(row, verdict, decisions.FAILED)
+    def _note_pending(
+        self, row: QaPair, verdict: WebVerdict, screened: dict[str, Any]
+    ) -> None:
+        meta = self._web_note(row, verdict, decisions.FAILED, screened)
+        self._keep_pending(row, verdict.note, meta)
+
+    def _note_archive_failed(
+        self, row: QaPair, note: str, screened: dict[str, Any]
+    ) -> None:
+        """The archive check failed: the pair stays pending for the next pass."""
+        screened = dict(screened)
+        gate = screened.pop(GATE_CALL, None)
+        stamp = self._decision(
+            row, decisions.CONTROL, decisions.FAILED, note, gate=gate
+        )
+        self._keep_pending(row, note, {**row.meta, **screened, **stamp})
+        with self._lock:
+            self.report.archive_failed += 1
+
+    def _keep_pending(self, row: QaPair, note: str, meta: dict[str, Any]) -> None:
         with session_scope(self.conf) as session:
             session.execute(
                 update(QaPair)
                 .where(QaPair.id == row.id, QaPair.status == PairStatus.PENDING.value)
-                .values(status_note=verdict.note, meta=meta)
+                .values(status_note=note, meta=meta)
             )
 
     def _note_in_set(self, row: QaPair, verdict: WebVerdict) -> None:
@@ -405,11 +531,22 @@ class Screening:
             self._write(row, status, reason, note, meta, decisions.CONTROL)
             return
 
-        status, reason, note, meta = _screen_pair(
-            row, spec, self.retrieve, self.conf, self.judge
+        # Grounding, then the archive check (a judge call: it takes a slot);
+        # only a pair that passes both reaches the web check.
+        held: AbstractContextManager[Any] = (
+            self.slots.hold(urgent=True) if self.retrieve else nullcontext()
         )
+        with held:
+            status, reason, note, meta = _screen_pair(
+                row, spec, self.retrieve, self.conf, self.judge
+            )
+        if status is PairStatus.PENDING:
+            self._note_archive_failed(row, note, meta)
+            return
+        # A pair the archive check ran on is decided at the search stage.
+        stage = decisions.CONTROL if "gate_checked" in meta else decisions.GROUNDING
         if not self.web_on or status is not PairStatus.ACTIVE:
-            self._write(row, status, reason, note, meta)
+            self._write(row, status, reason, note, meta, stage)
             return
         excluded = exclusion(row)
         if excluded:
@@ -424,14 +561,14 @@ class Screening:
             )
             return
         if skips_manual(row, self.conf):
-            self._write(row, PairStatus.ACTIVE, None, note, meta)
+            self._write(row, PairStatus.ACTIVE, None, note, meta, stage)
             return
 
         verdict = self._web_verdict(row)
         if verdict is None:
             return
         if verdict.answerable is None:
-            self._note_pending(row, verdict)
+            self._note_pending(row, verdict, meta)
         elif verdict.answerable:
             self._write(
                 row,
@@ -540,8 +677,9 @@ def filter_pending(
         cohort: Screen only this cohort; None — every cohort
         limit: How many pending pairs to screen; None — all of them
         settings: The process settings
-        retrieve: What to check control questions with; None — the control
-            set is rejected outright, same as at generation time without one
+        retrieve: What to search the archive with; None — the control set is
+            rejected outright, same as at generation time without one, and
+            ordinary pairs skip the archive check
         should_stop: Asked before every pair whether the owner has called the
             pass off
         recheck_cohort: With the web check on, also check this cohort's pairs
@@ -555,10 +693,11 @@ def filter_pending(
         A summary of what was screened and how it came out
 
     Pairs are screened ``concurrency`` at a time. A grounded non-control pair
-    goes through the web check (``web_check.py``) before it is made active,
-    when ``filter_model`` is set. A pair whose web check failed stays pending
-    with a note; one not reached stays pending as it was. Both are checked on
-    the next pass. A pair already in the set that the web model answers is
+    goes through the archive check, then through the web check
+    (``web_check.py``) before it is made active, when ``filter_model`` is set.
+    A pair whose archive check or web check failed stays pending with a note;
+    one not reached stays pending as it was. Both are checked on the next
+    pass. A pair already in the set that the web model answers is
     rejected the same way; one it does not keeps its status, and the set cap
     decides.
     """

@@ -65,24 +65,6 @@ export function pctBarOptions(legend = false) {
 }
 
 /** A share over time: the same full axis, so a run cannot look better by being drawn alone. */
-export function pctLineOptions() {
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: true, labels: { color: AXIS_COLOR, boxWidth: 10, font: { size: 11 } } },
-      tooltip: {
-        callbacks: {
-          label: (ctx: TooltipItem<'line'>) => `${ctx.dataset.label}: ${ctx.parsed.y}%`,
-        },
-      },
-    },
-    scales: {
-      x: { ticks: LABEL_TICKS, grid: { display: false }, border: { display: false } },
-      y: { min: 0, max: 100, ticks: PCT_TICKS, grid: GRID, border: { display: false } },
-    },
-  }
-}
 
 /**
  * Chart.js takes a horizontal bar chart's height from its container, not from

@@ -226,9 +226,6 @@ class Instrument(Layer):
             "Mechanical similarity measures. They do not enter the report's shares"
         ),
     )
-    extractive_mode: str | None = Field(
-        default=None, description="What cuts the span out: auto, spacy or llm"
-    )
     methodology_profile: str | None = Field(
         default=None,
         description=(
@@ -957,7 +954,6 @@ class Capabilities(BaseModel):
     subject_models: list[str]
     judge_models: list[str]
     text_metrics: list[str]
-    extractive_modes: list[str]
     external_models: bool = Field(
         description="Whether calls to models outside the perimeter are allowed"
     )

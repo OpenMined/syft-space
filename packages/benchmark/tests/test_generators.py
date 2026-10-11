@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from syft_benchmark.config import ExpectedBehavior
@@ -17,15 +19,10 @@ from syft_benchmark.generation.abstractive import (
     clean_ttil,
 )
 from syft_benchmark.generation.extractive import is_prose, parse_combined
-from syft_benchmark.generation.language import detect_language, spacy_available
+from syft_benchmark.generation.language import detect_language
+from syft_benchmark.generation.pair import Pair
 
 DOC = "Space registers with the Hub. The Hub stores endpoint metadata."
-
-# spaCy is an optional extra, and its absence is a working mode rather than a
-# broken install: without it the extractive generators go through an LLM. So a
-# check of what spaCy does has nothing to say when spaCy is not there, and
-# failing would report a fault that is not one.
-needs_spacy = pytest.mark.skipif(not spacy_available(), reason="spaCy is not installed")
 
 
 # --- the line-up -----------------------------------------------------------
@@ -78,17 +75,99 @@ def test_choice_tasks_need_no_judge() -> None:
 # --- rejection by item type ------------------------------------------------
 
 
-def test_masked_sentence_survives_its_own_pronouns() -> None:
-    """The main reason the rules are split by item type.
-
-    In a masked sentence a pronoun stands legitimately: its antecedent is right
-    there, in the same sentence. The rules for a free-form question would have
-    cut it down.
-    """
-    masked = "Fill in the blank: It listens on port ______ inside the container."
-
+def test_masked_sentence_keeps_a_pronoun_with_its_subject() -> None:
+    """A pronoun passes when the sentence names who it is."""
+    masked = "Fill in the blank: The Hub restarts when its port ______ is busy."
     assert reject_reason(masked, DOC, task_type="extractive") is None
-    assert reject_reason(masked, DOC, task_type="abstractive") is not None
+
+
+@pytest.mark.parametrize(
+    ("sentence", "reason"),
+    [
+        # Bloomberg, 10 Oct: who "he" is, the reader never learns.
+        (
+            "I mean, he’s still worth ______, which is a lot.",
+            "a pronoun without an antecedent",
+        ),
+        (
+            "It’s time to break out the world’s smallest violin for ______.",
+            "a pronoun without an antecedent",
+        ),
+        (
+            "The engineers said this decision cost them ______ of the budget.",
+            "a demonstrative without an antecedent",
+        ),
+        (
+            "“THE ENEMY,” I’ll yell, and earn me a lifetime ban on ______.",
+            "a quote",
+        ),
+        (
+            '______ called the release "a turning point for the Hub".',
+            "a quote",
+        ),
+    ],
+)
+def test_masked_sentence_must_stand_alone(sentence: str, reason: str) -> None:
+    question = f"Fill in the blank: {sentence}"
+    assert reject_reason(question, DOC, task_type="extractive") == reason
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # Bloomberg, 10 Oct: cut from inside a quote, its opening mark is gone.
+        "______ so far has been the best ever… $845 billion.”",
+        'The release notes end with ______ and the line "see you soon.',
+        "Директор компании добавил: «Мы откроем офис в ______.",
+        # Wording, by its length; the blank is one of the words.
+        'The Hub docs say "restart the ______ after every config change" twice.',
+        "«Мы запустим новую версию в ______ году», — сообщил директор.",
+        "„Wir starten die neue Version im ______“, sagte der Chef der Firma.",
+        # A short span beside a speech verb.
+        "The CEO said “absolutely not” about the merger with ______ last week.",
+        "The Hub maintainer wrote «никогда» about storing ______ in the cache.",
+    ],
+)
+def test_masked_quotation_is_rejected(sentence: str) -> None:
+    question = f"Fill in the blank: {sentence}"
+    assert reject_reason(question, DOC, task_type="extractive") == "a quote"
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        'Set the mode to "auto" before ______ restarts the Space container.',
+        "Apple calls the feature “Live Text”, launched in ______.",
+        'The setting labelled "______ mode" controls the Hub cache size.',
+        "Компания назвала функцию «Живой текст» в ______ году.",
+        "Apple nennt die Funktion „Live Text“ seit dem Jahr ______.",
+        "Apple nennt die Funktion »Live Text« seit dem Jahr ______.",
+    ],
+)
+def test_masked_quoted_term_is_kept(sentence: str) -> None:
+    """A short quoted name is a term, not someone's wording."""
+    question = f"Fill in the blank: {sentence}"
+    assert reject_reason(question, DOC, task_type="extractive") is None
+
+
+def test_masked_blank_is_no_anchor() -> None:
+    """A hidden name does not tell the reader who "it" is."""
+    masked = "Fill in the blank: It listens on port ______ inside the container."
+    assert reject_reason(masked, DOC, task_type="extractive") is not None
+
+
+def test_llm_masking_uses_each_sentence_once() -> None:
+    sentence = "The Hub stores endpoint metadata in {} for {} Space."
+    data = {
+        "named_entity": [
+            {"question": sentence.format("______", "every"), "answer": "Postgres"}
+        ],
+        "numeric": [
+            {"question": sentence.format("Postgres", "______"), "answer": "every"}
+        ],
+    }
+    out = parse_combined(data, ("named_entity", "numeric"))
+    assert len(out["named_entity"]) == 1 and out["numeric"] == []
 
 
 def test_masked_stub_is_rejected() -> None:
@@ -126,7 +205,7 @@ def test_ordinary_sentence_is_prose() -> None:
 
 
 def test_answer_shape_rejects_markup_spans() -> None:
-    """On technical texts spaCy marks "+ vector" as a date."""
+    """A shard of markup such as "+ vector" is not a gold answer."""
     data = {
         "temporal": [
             {"question": "Datasets and ______ stores are shown.", "answer": "+ vector"},
@@ -273,8 +352,7 @@ def test_no_claims_is_not_grounded() -> None:
 # only be checked with text in the language being detected.
 
 
-@needs_spacy
-def test_language_detection_separates_the_installed_ones() -> None:
+def test_language_detection_separates_the_candidates() -> None:
     english = (
         "The Hub stores endpoint metadata but it never stores the documents "
         "themselves, and that is the whole point of the design."
@@ -291,14 +369,68 @@ def test_too_short_to_judge() -> None:
     assert detect_language("Hub stores", ("en", "ru")) is None
 
 
+_ENGLISH_ARTICLE = (
+    "Acme raised forty million dollars in a Series B round that was led by "
+    "Sequoia in March, and the company said it will spend most of the money on "
+    "hiring engineers for its new office in Lisbon over the next two years."
+)
+
+
+def _pair(question: str, answer: str) -> Pair:
+    return Pair(question=question, answer=answer, distractors=[], meta={})
+
+
+def test_a_question_in_another_language_is_dropped() -> None:
+    """An Italian question out of an English article is rejected."""
+    from syft_benchmark.generation.pipeline import (
+        WRONG_LANGUAGE,
+        _drop_wrong_language,
+    )
+
+    english = _pair(
+        "How much did Acme raise in the Series B round that was led by Sequoia?",
+        "Forty million dollars, most of it for hiring engineers.",
+    )
+    italian = _pair(
+        "Quanto ha raccolto Acme nel suo round di Serie B guidato da Sequoia?",
+        "Quaranta milioni di dollari, per la maggior parte per assumere ingegneri.",
+    )
+    good, bad = _drop_wrong_language([english, italian], _ENGLISH_ARTICLE)
+    assert good == [english]
+    assert bad == [WRONG_LANGUAGE]
+
+
+def test_too_short_to_tell_the_language_is_kept() -> None:
+    """Detection gives no verdict on a short pair, and no verdict is no reject."""
+    from syft_benchmark.generation.pipeline import _drop_wrong_language
+
+    short = _pair("Chi guida Acme?", "Mario Rossi.")
+    good, bad = _drop_wrong_language([short], _ENGLISH_ARTICLE)
+    assert good == [short]
+    assert bad == []
+
+
+def test_rules_are_numbered_without_gaps() -> None:
+    """Prompts that continue a shared rule list keep its numbering."""
+    from syft_benchmark.generation.generators import _MCQ_SYSTEM, _QA_SYSTEM
+    from syft_benchmark.generation.negative import (
+        FALSE_PREMISE_SYSTEM,
+        UNANSWERABLE_SYSTEM,
+    )
+
+    for system in (_QA_SYSTEM, _MCQ_SYSTEM, FALSE_PREMISE_SYSTEM, UNANSWERABLE_SYSTEM):
+        numbers = [int(n) for n in re.findall(r"^(\d+)\. ", system, re.MULTILINE)]
+        assert numbers == list(range(1, len(numbers) + 1))
+    assert "exactly ONE missing detail" in UNANSWERABLE_SYSTEM
+
+
 def test_generation_calls_the_generator_role_not_the_common_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The generator goes to ITS OWN provider.
 
-    The call used to go to the shared address, and a separately configured
-    generator provider silently did not apply: it could be set but could not
-    take effect. What we check is exactly that the role reaches chat.
+    A separately configured generator provider takes effect: the role reaches
+    chat, not the shared address.
     """
     from syft_benchmark.config import Settings
     from syft_benchmark.generation import pipeline

@@ -9,11 +9,12 @@ them, paste the verdicts back in with ``import-judging``. This module is that
 second half done live instead of on paper — the same judge model a live
 evaluate pass would have called, called now, over what is already recorded.
 
-The selection is ``console.py``'s: only the direct test (pressure and repeats
-issue their verdicts as they go, over their own rounds — a grader outside the
-loop has nothing sound to say about them), the freshest recorded answer per
-(arm, source, block, model, question), never a failed call, never a question
-this judge has already graded.
+The selection: only the direct test (pressure and repeats issue their
+verdicts as they go, over their own rounds — a grader outside the loop has
+nothing sound to say about them), the freshest recorded answer per (arm,
+source, block, model, question), never a failed call, never a question this
+judge has already graded. An answer is graded when it is pending, or when a
+judge call on it failed (``technical`` verdict on a real answer).
 
 Grading never mutates a ``Result`` row — nothing in this codebase does. A
 verdict is **added**: a new ``Run`` per (arm, source, block, model)
@@ -53,6 +54,7 @@ from syft_benchmark.runs.judge import (
     grade_control,
     grade_key_facts,
     is_control,
+    is_error,
     is_technical,
 )
 from syft_benchmark.runs.parallel import Progress
@@ -105,12 +107,12 @@ class _Task:
 def _pending_tasks(
     target: str, *, judge_name: str, limit: int | None, settings: Settings
 ) -> list[_Task]:
-    """The pending direct-test answers this judge has not graded yet.
+    """The direct-test answers awaiting this judge's verdict.
 
-    Same key and the same three exclusions as ``console._judging_tasks``:
-    keyed by (arm, source, block, model, question) rather than by run or by
-    judge, because the answer is shared by the whole panel; a failed call is
-    dropped, as is anything this judge already graded.
+    Keyed by (arm, source, block, model, question) rather than by run or by
+    judge, because the answer is shared by the whole panel. Wanted: the
+    freshest answer is real, this judge has no verdict on it, and it is
+    pending, or a judge call on it failed (this judge's or the freshest row's).
     """
     # Everything that touches a fetched row's attributes has to happen before
     # this session closes: `session_scope` expires every instance on commit,
@@ -130,7 +132,9 @@ def _pending_tasks(
         ).all()
 
         freshest: dict[tuple[str, ...], tuple[Result, Run]] = {}
-        judged: set[tuple[str, ...]] = set()
+        # This judge's latest outcome per key: True — a verdict, False — its
+        # call failed on a real answer.
+        mine: dict[tuple[str, ...], bool] = {}
         for result, run in rows:
             key = (
                 run.context_mode,
@@ -139,6 +143,7 @@ def _pending_tasks(
                 run.model,
                 result.qa_id,
             )
+            answer = str(result.answer or "")
             # A deferred answer already carries the judge it is waiting for —
             # `_save_result` stamps `judge_model` at write time, before any
             # verdict exists — so a bare name match here would count every
@@ -147,19 +152,26 @@ def _pending_tasks(
             if (
                 result.judge_model == judge_name
                 and result.verdict != Verdict.PENDING.value
+                and not is_error(answer)
             ):
-                judged.add(key)
-                continue
+                graded = not is_technical(result.verdict, answer)
+                mine[key] = graded
+                if graded:
+                    continue
             freshest[key] = (result, run)
 
-        wanted = [
-            pair
-            for key, pair in freshest.items()
-            if key not in judged
-            # Nothing to grade: the call did not happen.
-            and not is_technical(pair[0].verdict, str(pair[0].answer or ""))
-            and pair[0].verdict == Verdict.PENDING.value
-        ]
+        def _awaits(key: tuple[str, ...], result: Result) -> bool:
+            answer = str(result.answer or "")
+            if mine.get(key) or is_error(answer):
+                # Graded already, or nothing to grade: the call did not happen.
+                return False
+            return (
+                result.verdict == Verdict.PENDING.value
+                or is_technical(result.verdict, answer)
+                or mine.get(key) is False
+            )
+
+        wanted = [pair for key, pair in freshest.items() if _awaits(key, pair[0])]
         wanted.sort(
             key=lambda pair: (
                 pair[1].context_mode,
@@ -223,7 +235,7 @@ def judge_pending(
     should_stop: Callable[[], bool] | None = None,
     watch: Callable[[Progress], None] | None = None,
 ) -> JudgeSummary:
-    """Grade this target's pending direct-test answers.
+    """Grade this target's pending and judge-failed direct-test answers.
 
     Args:
         space: The node under test

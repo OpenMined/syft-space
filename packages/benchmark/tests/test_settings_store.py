@@ -570,15 +570,12 @@ def test_naming_an_external_provider_does_not_kill_the_settings_page(
 ) -> None:
     """Describing a configuration must never raise.
 
-    The perimeter check used to run while working out where a role points, and
-    that is also how /defaults and /capabilities report the models each role is
-    set to. So typing an external provider's address into the form answered
-    with a 500 on the page the owner was standing on — with no way to undo the
-    thing that caused it.
+    /defaults and /capabilities report the models each role is set to; an
+    external provider's address typed into the form must not answer with a 500.
 
     Egress is still barred: the guard that matters is in the client, before
-    every call, and a measurement refuses to start. What changed is that saying
-    what is configured is no longer an attempt to act on it.
+    every call, and a measurement refuses to start. Saying what is configured
+    is not an attempt to act on it.
     """
     assert (
         client.put(
