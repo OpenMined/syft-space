@@ -187,6 +187,8 @@ class _Models:
         self.judged: list[str] = []
         self.judges: set[str] = set()
         self.judge_down_for: set[str] = set()
+        # The behaviour judge's reading of a trick question's web answer.
+        self.trick_behavior = "declined"
         monkeypatch.setattr(web_check, "chat", self.web_chat)
         monkeypatch.setattr(run_judge, "chat", self.judge_chat)
         # The archive check finds every answer, the control gate the false
@@ -226,6 +228,9 @@ class _Models:
         if "Facts:" in user:
             self.judged.append("tiered_explanation")
             return '{"covered": [true, true]}', {}
+        if "How did the model handle the question?" in user:
+            self.judged.append("unanswerable_property")
+            return f'{{"behavior": "{self.trick_behavior}", "reasoning": "stub"}}', {}
         kind = next(k for k in KINDS if f"web answer for {k}" in user)
         self.judged.append(kind)
         if kind in self.judge_down_for:
@@ -249,7 +254,7 @@ def test_every_kind_goes_through_the_web_check(
     # The bare question, nothing of the publisher's, search on.
     asked = {call["user"] for call in models.web}
     controls = {"unanswerable_property", "false_premise"}
-    assert asked == {q for k, (q, _, _) in KINDS.items() if k not in controls}
+    assert asked == {q for k, (q, _, _) in KINDS.items() if k != "false_premise"}
     for call in models.web:
         assert SECRET not in call["user"] and SECRET not in call["system"]
         assert call["web_search"] is True
@@ -280,8 +285,11 @@ def test_every_kind_goes_through_the_web_check(
     mcq = rows["mcq"].meta["web_check"]
     assert mcq["citations"] == [{"url": "https://example.org/mcq", "title": "mcq"}]
     assert "web_search_unused" not in mcq
-    for kind in controls:
-        assert rows[kind].meta["web_check"] == {"skipped": web_check.CONTROL_NOTE}
+    assert rows["false_premise"].meta["web_check"] == {
+        "skipped": web_check.CONTROL_NOTE
+    }
+    trick = rows["unanswerable_property"].meta["web_check"]
+    assert (trick["behavior"], trick["verdict"]) == ("declined", "abstain")
 
     # A judge failure decides nothing: pending, with a note, retried next pass.
     multihop = rows["multihop_synthesis"]
@@ -290,9 +298,9 @@ def test_every_kind_goes_through_the_web_check(
     assert multihop.meta["web_check"]["attempts"] == 1
 
     assert report.web is not None
-    assert (report.web.checked, report.web.removed) == (8, 4)
-    assert (report.web.kept, report.web.failed) == (3, 1)
-    assert "web check: checked 8, removed 4, kept 3, failed 1" in report.line()
+    assert (report.web.checked, report.web.removed) == (9, 4)
+    assert (report.web.kept, report.web.failed) == (4, 1)
+    assert "web check: checked 9, removed 4, kept 4, failed 1" in report.line()
 
     models.judge_down_for = set()
     again = filter_stage.filter_pending(_space(), settings=conf, retrieve=_archive)
@@ -599,3 +607,60 @@ def test_the_job_message_carries_the_stage_summaries(
     )
 
     assert done.notes[:2] == ["wrote 20 questions", f"filter: {filtered.line()}"]
+
+
+def test_a_trick_question_the_web_answers_is_public_knowledge(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The web model answers the missing detail from its search: the question
+    asks nothing only the archive could hold."""
+    with session_scope() as session:
+        session.add_all(
+            [r for r in _pairs() if r.generator in ("unanswerable_property", "qa")]
+        )
+    models = _Models(monkeypatch)
+    models.trick_behavior = "web_sourced"
+    conf = _settings(filter_judge_model="google/gemini-3.1-pro-preview")
+
+    report = filter_stage.filter_pending(
+        _space(), settings=conf, retrieve=_archive, job_id="job-public"
+    )
+    trick = _rows()["unanswerable_property"]
+
+    assert trick.status == PairStatus.REJECTED.value
+    assert trick.status_reason == StatusReason.PUBLIC_KNOWLEDGE.value
+    assert trick.status_note == web_check.PUBLIC_KNOWLEDGE
+    record = trick.meta["web_check"]
+    assert record["behavior"] == "web_sourced"
+    assert record["citations"] == [
+        {
+            "url": "https://example.org/unanswerable_property",
+            "title": "unanswerable_property",
+        }
+    ]
+    decision = trick.meta["screening"][-1]
+    assert decision["stage"] == "web_check"
+    assert decision["reason"] == StatusReason.PUBLIC_KNOWLEDGE.value
+    assert decision["web"]["model"] == "openai/gpt-5.1"
+    assert report.public_knowledge == 1 and report.web_answerable == 1
+    assert report.web is not None and report.web.removed == 2
+
+
+def test_a_trick_answer_without_citations_is_kept(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Specifics with no search behind them are a guess, not public knowledge."""
+    with session_scope() as session:
+        session.add_all([r for r in _pairs() if r.generator == "unanswerable_property"])
+    models = _Models(monkeypatch)
+    models.trick_behavior = "web_sourced"
+    conf = _settings(
+        filter_judge_model="google/gemini-3.1-pro-preview",
+        subject_url="http://ollama:11434/v1",
+    )
+
+    filter_stage.filter_pending(_space(), settings=conf, retrieve=_archive)
+    trick = _rows()["unanswerable_property"]
+
+    assert trick.status == PairStatus.ACTIVE.value
+    assert trick.meta["web_check"]["behavior"] == "made_up"

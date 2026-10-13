@@ -297,6 +297,112 @@ def test_the_plugin_has_nothing_to_step_down_to(
     assert len(provider.bodies) == 1
 
 
+# The body anthropic/claude-sonnet-5.5 returned for tool_choice "required".
+_WRAPPED_REFUSAL = {
+    "error": {
+        "message": "Model call failed: invalid request (400)",
+        "code": 400,
+        "metadata": {
+            "provider_name": None,
+            "previous_errors": [
+                {
+                    "code": 400,
+                    "message": "Provider returned error",
+                    "provider_name": "Claude Platform on AWS",
+                    "raw": (
+                        '{"type":"error","error":{"type":"invalid_request_error",'
+                        '"message":"tool_choice: type \\"tool\\" and \\"any\\" are '
+                        'not supported for this model."},'
+                        '"request_id":"req_0123456789abcdefghijklmn"}'
+                    ),
+                }
+            ],
+        },
+    }
+}
+_PROVIDER_SAYS = 'tool_choice: type "tool" and "any" are not supported for this model.'
+
+
+class _Wrapped:
+    """Refuses every forced tool_choice with the wrapped body, answers otherwise."""
+
+    def __init__(self, status: int = 400) -> None:
+        self.bodies: list[dict[str, Any]] = []
+        self.status = status
+
+    def __call__(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.bodies.append(dict(kwargs["json"]))
+        request = httpx.Request("POST", url)
+        if "tool_choice" in kwargs["json"]:
+            return httpx.Response(self.status, json=_WRAPPED_REFUSAL, request=request)
+        message = {"content": "Paris"}
+        payload = {"choices": [{"message": message, "finish_reason": "stop"}]}
+        return httpx.Response(200, json=payload, request=request)
+
+
+@pytest.mark.parametrize("status", [400, 200])
+def test_a_wrapped_provider_refusal_steps_down(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    provider = _Wrapped(status)
+    monkeypatch.setattr(httpx, "post", provider)
+
+    answer, usage = _search()
+
+    assert answer == "Paris"
+    assert [b.get("tool_choice") for b in provider.bodies] == ["required", NAMED, None]
+    assert usage["web_search_via"] == "tool"
+    assert usage["web_search_forced"] is False
+
+
+def test_a_refusal_names_the_providers_own_message() -> None:
+    detail = ollama._error_detail(_WRAPPED_REFUSAL, "{}")
+
+    assert detail == (
+        "Model call failed: invalid request (400) | "
+        f"Claude Platform on AWS: {_PROVIDER_SAYS}"
+    )
+
+
+def _replying(status: int, **reply: Any) -> Any:
+    def post(url: str, **_kwargs: Any) -> httpx.Response:
+        return httpx.Response(status, request=httpx.Request("POST", url), **reply)
+
+    return post
+
+
+def test_a_refusal_with_http_200_reads_the_nested_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = '{"error":{"message":"prompt is too long: 9000 tokens > 8192 maximum"}}'
+    error = {
+        "code": 400,
+        "message": "Provider returned error",
+        "metadata": {"provider_name": "Some Host", "raw": raw},
+    }
+    monkeypatch.setattr(httpx, "post", _replying(200, json={"error": error}))
+
+    with pytest.raises(LLMFatalError) as caught:
+        chat("s", "u", model=NATIVE, settings=_external())
+
+    assert str(caught.value) == (
+        f"{NATIVE}: Provider returned error | "
+        "prompt is too long: 9000 tokens > 8192 maximum"
+    )
+
+
+def test_a_refusal_that_is_not_json_keeps_its_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", _replying(400, text="x" * 2000))
+
+    with pytest.raises(LLMFatalError) as caught:
+        chat("s", "u", model=NATIVE, settings=_external())
+
+    detail = str(caught.value).removeprefix(f"{NATIVE} -> 400: ")
+    assert detail == "x" * (ollama._DETAIL_CAP - 3) + "..."
+
+
 def test_max_results_comes_from_the_call_or_the_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

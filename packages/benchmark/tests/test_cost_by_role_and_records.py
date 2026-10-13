@@ -584,9 +584,12 @@ def test_filter_decisions_keep_the_full_texts_once(
     assert len(meta["web_check"]["answer"]) == 2000
     assert "judge_prompt" not in meta["web_check"]
 
+    # The trick question goes on to the web check, whose behaviour judge
+    # (stubbed with no behaviour) fails: the gate's call rides on that decision.
     meta = _meta("p-control")
     entry = decisions.of_job(meta, JOB)
-    assert entry is not None and entry["stage"] == "control"
+    assert entry is not None and entry["stage"] == "web_check"
+    assert entry["outcome"] == decisions.FAILED
     assert entry["gate"]["user"] == asked[control._GATE_SYSTEM]
     assert entry["gate"]["reply"] == '{"answered": false}'
     assert filter_stage.GATE_CALL not in meta

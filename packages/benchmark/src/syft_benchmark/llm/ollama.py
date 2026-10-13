@@ -99,6 +99,60 @@ def _classify(status: int, detail: str, retry_after: float | None = None) -> LLM
     return LLMError(detail)
 
 
+# The longest refusal kept in an error: room for the provider's own message.
+_DETAIL_CAP = 800
+
+
+def _raw_messages(raw: Any) -> list[str]:
+    """The messages in a provider's raw reply, parsed when it is JSON."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return [raw]
+    if not isinstance(raw, dict):
+        return []
+    inner = raw.get("error")
+    if isinstance(inner, dict):
+        return _error_messages(inner)
+    message = inner if isinstance(inner, str) else raw.get("message")
+    return [str(message)] if message else []
+
+
+def _error_messages(error: dict[str, Any]) -> list[str]:
+    """An error's message, then those of the provider errors nested in it.
+
+    OpenRouter wraps the provider's refusal: the top message is generic, the
+    reason sits in ``metadata.previous_errors[].raw`` or ``metadata.raw``.
+    """
+    found = [str(error["message"])] if error.get("message") else []
+    metadata = error.get("metadata")
+    if not isinstance(metadata, dict):
+        return found
+    for previous in metadata.get("previous_errors") or []:
+        if not isinstance(previous, dict):
+            continue
+        inner = _raw_messages(previous.get("raw")) or _error_messages(previous)
+        name = previous.get("provider_name")
+        found.extend(f"{name}: {text}" if name else text for text in inner)
+    found.extend(_raw_messages(metadata.get("raw")))
+    return found
+
+
+def _error_detail(body: Any, fallback: str) -> str:
+    """A refusal's text: the provider's messages, or ``fallback`` without any."""
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        messages = _error_messages(error)
+    else:
+        messages = [error] if isinstance(error, str) else []
+    unique = dict.fromkeys(text.strip() for text in messages if text.strip())
+    detail = " | ".join(unique) or fallback.strip()
+    if len(detail) > _DETAIL_CAP:
+        detail = detail[: _DETAIL_CAP - 3] + "..."
+    return detail
+
+
 def retry_after_of(headers: httpx.Headers | dict[str, str] | None) -> float | None:
     """The Retry-After header in seconds (a number or an HTTP date); None — absent."""
     if not headers:
@@ -509,9 +563,14 @@ def chat(
                 timeout=conf.llm_timeout,
             )
             if resp.status_code >= 400:
+                try:
+                    refusal = resp.json()
+                except ValueError:
+                    refusal = None
                 raise _classify(
                     resp.status_code,
-                    f"{named} -> {resp.status_code}: {resp.text[:300]}",
+                    f"{named} -> {resp.status_code}: "
+                    f"{_error_detail(refusal, resp.text)}",
                     retry_after_of(resp.headers),
                 )
             data = resp.json()
@@ -522,7 +581,7 @@ def chat(
                 failure = data["error"]
                 raise _classify(
                     int(failure.get("code") or 0),
-                    f"{named}: {str(failure.get('message'))[:300]}",
+                    f"{named}: {_error_detail(data, str(failure.get('message')))}",
                 )
 
             priced = cost.cost_of(data.get("usage") or {})

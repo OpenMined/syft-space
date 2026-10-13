@@ -165,7 +165,10 @@ def test_key_facts_check_the_article(
         settings=Settings(key_facts_threshold=0.75),
     )
     assert graded.verdict is verdict
-    assert systems == [judge_module._KEY_FACTS_SYSTEM, judge_module._GROUNDED_SYSTEM]
+    assert systems == [
+        judge_module.dated(judge_module._KEY_FACTS_SYSTEM),
+        judge_module.dated(judge_module._GROUNDED_SYSTEM),
+    ]
     # Both calls are in the audit trail and the cost.
     assert judge_module._GROUNDED_SYSTEM in graded.judge_system
     assert "Jane Doe" in graded.judge_user

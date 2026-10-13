@@ -622,3 +622,160 @@ def test_generation_calls_the_generator_role_not_the_common_provider(
     )
 
     assert seen.get("provider") is role
+
+
+# --- the document header and the writer rules -------------------------------
+
+
+def test_every_writer_prompt_carries_outlet_author_and_date() -> None:
+    from datetime import UTC, datetime
+
+    from syft_benchmark.generation.generators import user_prompt
+    from syft_benchmark.sources import Chunk, Document
+
+    chunk = Chunk(
+        chunk_id="c1",
+        doc_id="d1",
+        chunk_index=0,
+        text="I did find the new Kindle opened books much faster.",
+        file_name="kindle.md",
+        headings="",
+    )
+    doc = Document(
+        doc_id="d1",
+        title="I'm in Love With My Kindle Aluminum",
+        url="",
+        source="WIRED",
+        file_name="kindle.md",
+        chunks=[chunk],
+        published_at=datetime(2026, 10, 12, tzinfo=UTC),
+        published_whole_day=True,
+        author="Nena Farrell",
+    )
+    head = user_prompt(doc, chunk, 2).split("\n\n")[0].splitlines()
+    assert head == [
+        "Document: I'm in Love With My Kindle Aluminum",
+        "Outlet: WIRED",
+        "Author: Nena Farrell",
+        "Published: 2026-10-12",
+    ]
+
+
+def test_every_writer_anchors_time_and_authorship() -> None:
+    from syft_benchmark.generation.extractive import COMBINED_SYSTEM
+    from syft_benchmark.generation.wording import ANCHOR_RULE, FILL_IN_TIME_RULE
+
+    for key, spec in GENERATORS.items():
+        if spec.system:
+            prompt = spec.system.format(n=2)
+            assert ANCHOR_RULE in prompt, key
+            assert "{" not in prompt.split("Respond with")[0].split("Return")[0], key
+    assert FILL_IN_TIME_RULE in COMBINED_SYSTEM.format(n=2)
+
+
+def test_multihop_never_states_a_hop_fact() -> None:
+    from syft_benchmark.generation.abstractive import MULTIHOP_SYSTEM
+
+    prompt = " ".join(MULTIHOP_SYSTEM.format(n=2).split())
+    assert "Given [fact A]" not in prompt
+    assert "Never state a hop fact in the question" in prompt
+
+
+# --- grounding of short answers ----------------------------------------------
+
+
+def test_a_hedge_before_a_figure_is_not_a_missing_word() -> None:
+    from syft_benchmark.generation.validate import review_answer
+
+    chunk = (
+        "Foreign investors made roughly $1.5 trillion in net purchases of US "
+        "equities alone since the beginning of 2024 through the end of July."
+    )
+    for hedge in ("About", "Around", "Roughly", "Approximately", "Nearly", "Some"):
+        assert review_answer(f"D) {hedge} $1.5 trillion", chunk).grounded, hedge
+    assert not review_answer("About $3 trillion", chunk).grounded
+
+
+def test_a_percentage_is_content() -> None:
+    from syft_benchmark.generation.validate import review_answer
+
+    chunk = "It ended up appreciating 8% in the first half of the year."
+    assert review_answer("C) 8%", chunk).grounded
+    missing = review_answer("16%", chunk)
+    assert not missing.grounded
+    assert missing.note == "the short gold answer is not in the chunk: 16"
+
+
+# --- several utterances by one speaker ----------------------------------------
+
+INGBER = (
+    "“When you are a bystander, it is fairly obvious that a privacy violation is "
+    "occurring. At the same time, discomfort has not stopped the behavior,” says "
+    "Alexis Ingber, an assistant professor at Syracuse University whose research "
+    "focuses on privacy and emerging tech. “Dating-profile dunking reflects a "
+    "broader sense of entitlement to others’ data.”\n"
+    "But Franklin doesn’t believe dating apps have a duty to protect users. “If "
+    "you enter the dragon’s den, you may get bit by the dragon,” he tells me.\n\n"
+    "Before ending our Zoom call, Franklin says there is one way to sidestep it. "
+    "“If you don’t want to be potentially doxed, just don’t get on a dating app.”"
+)
+
+# Plain reporting between quotes: keeps one quote out of the attribution
+# window of the next.
+FILLER = (
+    "Analysts expect the central bank to hold rates through the end of the "
+    "year, while lenders report steady deposit growth and lower funding costs "
+    "across the region, and regulators have so far seen no reason to step in "
+    "with new capital requirements for the sector.\n"
+)
+
+BAER = (
+    "“The only thing certain is that October is traditionally turbulent,” said "
+    "Jen-Ai Chua, Asia equity research analyst at Julius Baer.\n"
+    + FILLER
+    + "Julius Baer cut its forecasts. “Bear markets for banks come with rising "
+    "bad loans, and we see none of that yet,” the bank's strategist Mark "
+    "Matthews said."
+)
+
+HUNGARY = (
+    "“The government has all the tools to succeed,” said Malin Rosengren, a "
+    "portfolio manager.\n"
+    + FILLER
+    + "“The most important thing is that people are not afraid any more,” said "
+    "Gabor Schmidt-Hajdo, a Hungarian telecommunications manager.\n"
+    + FILLER
+    + "“Hungarian bonds are no longer cheap,” said Eric Fine of VanEck."
+)
+
+
+@pytest.mark.parametrize(
+    ("question", "document"),
+    [
+        (
+            "What did Jen-Ai Chua, Asia equity research analyst at Julius Baer, "
+            "say was the only thing certain for Singapore bank stocks?",
+            BAER,
+        ),
+        (
+            "What does Syracuse University assistant professor Alexis Ingber say "
+            "dating-profile dunking reflects?",
+            INGBER,
+        ),
+        (
+            "What does Gabor Schmidt-Hajdo, a Hungarian telecommunications "
+            "manager, say is the most important aspect of the change in Hungary?",
+            HUNGARY,
+        ),
+        ("What did the Hungarian government say about joining the euro?", HUNGARY),
+    ],
+)
+def test_one_utterance_by_a_person_is_kept(question: str, document: str) -> None:
+    """The employer, a nationality and an attribution between two quoted
+    pieces of one utterance are not a second utterance."""
+    assert reject_reason(question, document) is None
+
+
+def test_a_speaker_quoted_twice_is_still_caught() -> None:
+    reason = reject_reason("What did Franklin say about dating apps?", INGBER)
+    assert reason == "the document has more than one utterance by: Franklin"

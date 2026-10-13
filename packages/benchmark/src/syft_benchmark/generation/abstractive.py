@@ -20,11 +20,12 @@ from typing import Any
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.shuffle import seed_of, shuffle_options
+from syft_benchmark.generation.wording import ANCHOR_RULE
 
 # ---------------------------------------------------------------------------
 # two_truths_one_lie
 # ---------------------------------------------------------------------------
-TTIL_SYSTEM = """\
+TTIL_SYSTEM = f"""\
 You design benchmark questions that measure whether a system has access to a \
 specific body of documents.
 
@@ -51,21 +52,22 @@ seen the fragment.
   - Build each question on a fact that only this story reports: its own \
 figures, named sources, quotes or inside details. Avoid facts that other \
 outlets also covered or that are general background.
+  - {ANCHOR_RULE}
   - Write in the SAME language as the fragment.
 
 Respond with ONLY a JSON array of 3 objects. No markdown, no commentary.
-[{{"statement": "the standalone claim", "label": "truth|lie", \
-"source_detail": "the exact phrase that supports or is contradicted"}}]
+[{{{{"statement": "the standalone claim", "label": "truth|lie", \
+"source_detail": "the exact phrase that supports or is contradicted"}}}}]
 """
 
 # ---------------------------------------------------------------------------
 # multihop_synthesis
 # ---------------------------------------------------------------------------
-MULTIHOP_SYSTEM = """\
+MULTIHOP_SYSTEM = f"""\
 You design benchmark questions that measure whether a system has access to a \
 specific body of documents.
 
-Given a document, generate {n} "multi-hop" questions. Each question requires \
+Given a document, generate {{n}} "multi-hop" questions. Each question requires \
 combining AT LEAST 2 specific facts from DIFFERENT parts of the document.
 
 CRITICAL RULES:
@@ -77,20 +79,23 @@ maker. Never make a first name, a pseudonym or an anonymous source the \
 subject of a question.
   - The answer must only be derivable by someone who knows both underlying \
 facts. Someone who read a single paragraph should fail.
+  - Never state a hop fact in the question: name the subjects and ask for \
+what connects them, so that only someone who knows both facts can answer.
   - Multi-hop patterns:
-      * "Given [fact A], what does [fact B] imply about ...?"
       * "How does [thing described in one place] relate to [outcome described \
 elsewhere]?"
-      * Bridge reasoning: cause -> intermediate step -> effect
+      * Bridge reasoning: cause -> intermediate step -> effect, asking for \
+the step or the effect
   - Build each question on a fact that only this story reports: its own \
 figures, named sources, quotes or inside details. Avoid facts that other \
 outlets also covered or that are general background.
   - Answers: 1-3 sentences, fully grounded in the document.
+  - {ANCHOR_RULE}
   - Write in the SAME language as the document.
 
 Respond with ONLY a JSON array. No markdown, no commentary.
-[{{"question": "standalone multi-hop question", "answer": "1-3 sentences", \
-"hop_facts": ["fact 1 needed", "fact 2 needed"]}}]
+[{{{{"question": "standalone multi-hop question", "answer": "1-3 sentences", \
+"hop_facts": ["fact 1 needed", "fact 2 needed"]}}}}]
 """
 
 # ---------------------------------------------------------------------------
@@ -118,7 +123,7 @@ TIERS: dict[str, dict[str, str]] = {
     },
 }
 
-TIERED_SYSTEM = """\
+TIERED_SYSTEM = f"""\
 You design benchmark questions that measure whether a system has access to a \
 specific body of documents.
 
@@ -145,12 +150,13 @@ source.
 - List 3 to 5 key facts: the central ones, and ones only this story reports. \
 Leave out background a reader could know from elsewhere.
 - Use the same key facts for every audience level.
+- {ANCHOR_RULE}
 
 Write in the SAME language as the document.
 
 Respond with ONLY a JSON object. No markdown, no commentary.
-{{"topic": "a short neutral subject", "key_facts": ["fact 1", "fact 2", \
-"fact 3"], "tiers": [{{"tier": "eli5", "explanation": "..."}}]}}
+{{{{"topic": "a short neutral subject", "key_facts": ["fact 1", "fact 2", \
+"fact 3"], "tiers": [{{{{"tier": "eli5", "explanation": "..."}}}}]}}}}
 """
 
 # The most key facts an item keeps.

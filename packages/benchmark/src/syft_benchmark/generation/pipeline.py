@@ -74,6 +74,7 @@ from syft_benchmark.generation.generators import (
     MAX_DOCUMENT_CHARS,
     MAX_FRAGMENT_CHARS,
     Generator,
+    document_header,
     reasons,
     user_prompt,
 )
@@ -720,9 +721,8 @@ def _run_llm_generator(
     tasks = 1 if generator.key == "tiered_explanation" else conf.pairs_per_chunk
     if generator.scope == "document":
         text = document_text(doc)[:MAX_DOCUMENT_CHARS]
-        prompt = (
-            f'Document: {doc.title}\n\nText:\n"""\n{text}\n"""\n\nGenerate {tasks}.'
-        )
+        header = "\n".join(document_header(doc))
+        prompt = f'{header}\n\nText:\n"""\n{text}\n"""\n\nGenerate {tasks}.'
     else:
         assert chunk is not None
         text = chunk.text[:MAX_FRAGMENT_CHARS]

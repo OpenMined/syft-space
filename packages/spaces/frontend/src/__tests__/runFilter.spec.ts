@@ -76,6 +76,9 @@ describe('filter decisions', () => {
     expect(reasonTip(unclear)).toMatch(/identify/)
     expect(reasonText({ reason: '', reason_code: 'wrong_language' })).toBe('Wrong language')
     expect(reasonTip({ reason_code: 'grounding' })).toBeUndefined()
+    const trick = { reason: 'public knowledge', reason_code: 'public_knowledge' }
+    expect(reasonText(trick)).toBe('Public knowledge')
+    expect(reasonTip(trick)).toMatch(/found on the web/)
   })
 
   it('names the earlier run a question came from', () => {

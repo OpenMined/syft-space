@@ -302,6 +302,9 @@ class StatusReason(StrEnum):
     # The web check model answered it correctly with web search
     # (generation/web_check.py).
     WEB_ANSWERABLE = "web_answerable"
+    # A trick question the web check model answered with specifics its search
+    # supports (generation/web_check.py).
+    PUBLIC_KNOWLEDGE = "public_knowledge"
     # Rejected as written (generation/pipeline.py): the item is in another
     # language than its article, or names a subject the question alone does
     # not identify.

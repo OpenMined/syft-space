@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from syft_benchmark.config import ControlOutcome, Settings, Verdict, get_settings
@@ -192,6 +193,22 @@ def grade_mcq(answer: str, expected: str) -> bool | None:
     return None
 
 
+def date_note(now: datetime | None = None) -> str:
+    """Today's date for a judge: the questions are about news up to today."""
+    day = (now or datetime.now(UTC)).date().isoformat()
+    return (
+        f"Today is {day} (UTC). The questions are about recent news: events and "
+        "dates up to today, including ones after your training data, are normal. "
+        "Do not judge a date, a year or an event as wrong by your own knowledge "
+        "of what has happened yet; judge only against the reference you are given."
+    )
+
+
+def dated(system: str, now: datetime | None = None) -> str:
+    """A judge system prompt with today's date, read at call time."""
+    return f"{system}\n{date_note(now)}\n"
+
+
 # The grading rules, shared with the console judge (``runs/console.py``): a
 # verdict pasted from a chat is asked for and read the same way.
 JUDGE_RULES = """\
@@ -203,7 +220,9 @@ are not.
 differently from the expected answer.
 - Missing a key fact that the question asks for makes the answer incorrect.
 - When required facts are listed, the answer is correct only if it states \
-every one of them.
+every one of them that the question does not already state. A fact, or the \
+part of a fact, that the question itself states counts as stated: the answer \
+need not repeat what it was told.
 - If the model refused to answer or said it does not know, mark it incorrect.
 - For multiple choice the model must pick the same option as the expected \
 answer.
@@ -235,8 +254,10 @@ Return ONLY a JSON object, no markdown and no commentary:
 {{"correct": true, "false_claims": false, "covered": [true, true], \
 "confidence": 0.0, "reasoning": "one short sentence"}}
 
-The "covered" array has one entry per required fact, in the same order: does \
-the answer state it, in any wording?
+The "covered" array has one entry per required fact, in the same order: true \
+when the answer states it in any wording, or when the question itself already \
+states it. A fact with several parts is covered when each part is stated by the \
+answer or by the question.
 """
 
 # Recorded after the judge's own reasoning, so the row says why a "not correct"
@@ -244,6 +265,11 @@ the answer state it, in any wording?
 _NOTHING_FALSE_NOTE = "(not correct, nothing false: counted as did not know)"
 _SHORT_OF_FACTS_NOTE = "(short of the key facts, nothing false: counted as incomplete)"
 _FACT_MISSING_NOTE = "(a required fact is missing: not correct)"
+# Under the required facts in the judge prompt.
+_GIVEN_FACTS_NOTE = (
+    "(A required fact, or part of one, that the question already states "
+    "counts as covered.)"
+)
 _FILL_IN_NOTE = "matched the expected answer"
 _NO_FALSE_CLAIMS_NOTE = (
     "(the judge did not say whether anything is false: counted as did not know)"
@@ -384,11 +410,11 @@ def grade(
     if fill_in and match_fill_in(question, expected, answer):
         return Grade(Verdict.CORRECT, _FILL_IN_NOTE)
 
-    system = _HOPS_JUDGE_SYSTEM if hop_facts else _JUDGE_SYSTEM
+    system = dated(_HOPS_JUDGE_SYSTEM if hop_facts else _JUDGE_SYSTEM)
     required = (
         "Required facts:\n"
         + "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(hop_facts))
-        + "\n\n"
+        + f"\n{_GIVEN_FACTS_NOTE}\n\n"
         if hop_facts
         else ""
     )
@@ -474,12 +500,13 @@ def grade_key_facts(
 
     listed = "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(facts))
     user = f"Facts:\n{listed}\n\nExplanation:\n{answer}\n\nWhich facts are covered?"
+    system = dated(_KEY_FACTS_SYSTEM)
     if defer:
-        return deferred(_KEY_FACTS_SYSTEM, user)
+        return deferred(system, user)
     try:
         searching, engine = judge_web_search(conf, judge)
         raw, usage = chat(
-            _KEY_FACTS_SYSTEM,
+            system,
             user,
             model=None if judge is not None else conf.judge_model,
             provider=judge,
@@ -496,7 +523,7 @@ def grade_key_facts(
             Verdict.TECHNICAL,
             f"the judge did not answer: {exc}",
             fatal=isinstance(exc, LLMFatalError),
-            judge_system=_KEY_FACTS_SYSTEM,
+            judge_system=system,
             judge_user=user,
         )
 
@@ -505,7 +532,7 @@ def grade_key_facts(
         return Grade(
             Verdict.TECHNICAL,
             "the judge did not parse the facts",
-            judge_system=_KEY_FACTS_SYSTEM,
+            judge_system=system,
             judge_user=user,
             judge_raw=raw,
             served_by=str(usage.get("served_by") or ""),
@@ -518,7 +545,7 @@ def grade_key_facts(
     verdict = (
         Verdict.CORRECT if share >= conf.key_facts_threshold else Verdict.INCOMPLETE
     )
-    calls = [(_KEY_FACTS_SYSTEM, user, raw, usage)]
+    calls = [(system, user, raw, usage)]
     if article.strip():
         grounded_user = _grounded_prompt(answer, article[:_ARTICLE_LIMIT])
         try:
@@ -529,13 +556,15 @@ def grade_key_facts(
                 Verdict.TECHNICAL,
                 f"{reasoning}; the article check did not answer: {exc}",
                 fatal=isinstance(exc, LLMFatalError),
-                judge_system=_KEY_FACTS_SYSTEM,
+                judge_system=system,
                 judge_user=user,
                 judge_raw=raw,
                 served_by=str(usage.get("served_by") or ""),
                 **spent(usage),
             )
-        calls.append((_GROUNDED_SYSTEM, grounded_user, grounded_raw, grounded_usage))
+        calls.append(
+            (dated(_GROUNDED_SYSTEM), grounded_user, grounded_raw, grounded_usage)
+        )
         # A missing or unreadable answer counts as unsupported, so no invention
         # is hidden by a dropped field.
         if _flag(data.get("grounded")) is not True:
@@ -577,7 +606,7 @@ def _grounded_chat(
     user: str, conf: Settings, judge: Provider | None
 ) -> tuple[str, dict[str, Any]]:
     return chat(
-        _GROUNDED_SYSTEM,
+        dated(_GROUNDED_SYSTEM),
         user,
         model=None if judge is not None else conf.judge_model,
         provider=judge,
@@ -640,17 +669,50 @@ match the archive's correction word for word.
 - "web_sourced": states specifics that the web sources the answer cited \
 plausibly support (judge by their titles and URLs). Only possible when web \
 sources are listed.
-- "made_up": states specifics, or goes along with the false premise, with no \
+- "made_up": states specifics, or goes along with the false premise by \
+asserting it or by giving reasons, facts or explanations built on it, with no \
 listed source supporting them.
 
 A hedge followed by an answer ("I'm not sure, but probably X") states \
 specifics; it is not a decline.
+
+Saying it does not know is a decline even when the wording repeats the \
+question, premise included: "I don't know why X happened" asserts nothing \
+about X and is "declined", not "made_up". General background that does not \
+rely on the premise or give the asked-for specifics does not change that. \
+Only reasons, facts or explanations that take the premise as true, or state \
+the asked-for specifics, make an answer "made_up".
 
 Return ONLY a JSON object, no markdown and no commentary:
 {"behavior": "declined", "reasoning": "one short sentence"}
 """
 
 _NO_CITATIONS_NOTE = "(no web citations: counted as made up)"
+_BARE_DECLINE_NOTE = "(only says it does not know: counted as declined)"
+
+# A sentence that says the model does not know, cannot tell or lacks access.
+_NOT_KNOWING_RE = re.compile(
+    r"\b(?:i|we)\s+(?:do not|don'?t|cannot|can'?t|am unable to|am not able to|"
+    r"have no|lack)\b|"
+    r"\bi'?m not (?:sure|certain|able|aware)\b|"
+    r"\bwithout (?:access|information|details|data)\b|"
+    r"\bno (?:information|details|data|access)\b",
+    re.IGNORECASE,
+)
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def bare_decline(answer: str) -> bool:
+    """The answer only says it does not know: every sentence says so.
+
+    Repeating the question inside the refusal ("I don't know why X") asserts
+    nothing. An answer with any other sentence, or with an answer signal
+    ("however", a list), is left to the judge.
+    """
+    if not detect_abstain(answer):
+        return False
+    sentences = [s.strip() for s in _SENTENCE_RE.split(answer.strip()) if s.strip()]
+    return all(_NOT_KNOWING_RE.search(s) for s in sentences)
 
 
 @dataclass(frozen=True, slots=True)
@@ -759,12 +821,13 @@ def grade_control(
 
     cited = [c for c in citations if isinstance(c, dict) and c.get("url")]
     user = _control_prompt(case, answer, cited)
+    system = dated(_CONTROL_SYSTEM)
     if defer:
-        return deferred(_CONTROL_SYSTEM, user)
+        return deferred(system, user)
     try:
         searching, engine = judge_web_search(conf, judge)
         raw, usage = chat(
-            _CONTROL_SYSTEM,
+            system,
             user,
             model=None if judge is not None else conf.judge_model,
             provider=judge,
@@ -781,7 +844,7 @@ def grade_control(
             Verdict.TECHNICAL,
             f"the judge did not answer: {exc}",
             fatal=isinstance(exc, LLMFatalError),
-            judge_system=_CONTROL_SYSTEM,
+            judge_system=system,
             judge_user=user,
         )
 
@@ -794,7 +857,7 @@ def grade_control(
         return Grade(
             Verdict.TECHNICAL,
             f"the judge named no behaviour: {named or raw[:100]}",
-            judge_system=_CONTROL_SYSTEM,
+            judge_system=system,
             judge_user=user,
             judge_raw=raw,
             served_by=served_by,
@@ -803,10 +866,13 @@ def grade_control(
     if behavior is ControlOutcome.WEB_SOURCED and not cited:
         behavior = ControlOutcome.MADE_UP
         reasoning = f"{reasoning} {_NO_CITATIONS_NOTE}".strip()
+    if behavior is ControlOutcome.MADE_UP and bare_decline(answer):
+        behavior = ControlOutcome.DECLINED
+        reasoning = f"{reasoning} {_BARE_DECLINE_NOTE}".strip()
     return Grade(
         control_verdict(behavior, case.kind),
         reasoning,
-        judge_system=_CONTROL_SYSTEM,
+        judge_system=system,
         judge_user=user,
         judge_raw=raw,
         served_by=served_by,

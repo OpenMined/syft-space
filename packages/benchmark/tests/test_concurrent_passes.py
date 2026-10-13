@@ -383,6 +383,22 @@ def test_a_shared_streak_stops_every_member_and_resets_on_success() -> None:
     assert one.stopped and two.stopped
 
 
+def test_a_refusal_stops_every_member_under_its_own_reason() -> None:
+    # Closed-book refused in flight while the with-context pass waits for a
+    # slot: the refused calls also fill the shared streak.
+    streak = Streak()
+    closed = Progress(total=10, give_up_after=5, shared=streak)
+    waiting = Progress(total=10, give_up_after=5, shared=streak)
+    streak.members += [closed, waiting]
+
+    for _ in range(10):
+        closed.step(failed=True, refused="bad/name")
+
+    reason = "the provider refused bad/name outright"
+    assert closed.fatal == waiting.fatal == reason
+    assert waiting.refused == "bad/name" and waiting.done == 0
+
+
 def test_a_cancel_stops_the_passes_in_flight(monkeypatch: pytest.MonkeyPatch) -> None:
     stand = _Stand(monkeypatch, pairs=40, delay=0.01, subjects=("a/m1", "b/m2"))
     monkeypatch.setattr(parallel.Launch, "HALT_EVERY", 0.01)

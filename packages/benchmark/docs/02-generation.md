@@ -42,11 +42,20 @@ question, and the typical failure is an invention assembled from real quotes.
 - All ten are on by default; turn generators off with `disabled_generators`.
 
 Every prompt is in English and asks for output in the fragment's language.
-The answerable prompts share these rules: answerable from the fragment alone;
-standalone (no "the text", "according to…", no "this/that" pointing); exactly
-one correct answer; concrete facts; built on facts **only this story reports**
-(its own figures, sources, quotes, inside details — not general background);
-invent nothing.
+The user message opens with the document header: title, section (chunk
+scope), and, when the front matter has them, outlet (`source`), author and
+publish date (`published_date`). The answerable prompts share these rules:
+answerable from the fragment alone; standalone (no "the text", "according
+to…", no "this/that" pointing); exactly one correct answer; concrete facts;
+built on facts **only this story reports** (its own figures, sources, quotes,
+inside details — not general background); invent nothing.
+
+Every prompt, control ones included, also says: turn a relative time into an
+absolute one from the publish date ("in July 2026", not "last month" or "end
+of July"); name a reviewer or first-person writer as "<Outlet>'s <Author>"
+("WIRED's Nena Farrell"), never "the reviewer"; never refer to the story by its
+title. Fill-ins copy sentences verbatim, so they skip a sentence placed only by
+a relative time or naming only "the reviewer".
 
 ### Extractive: fill in the blank
 
@@ -91,8 +100,8 @@ Options are shuffled deterministically from the question text; the seed is in
 ### Abstractive
 
 **`multihop_synthesis`** — a question that needs at least two facts from
-different parts of the document. Dropped if the generator listed fewer than
-two facts (`hop_facts`).
+different parts of the document; the question states neither fact. Dropped if
+the generator listed fewer than two facts (`hop_facts`).
 
 **`tiered_explanation`** — one topic per document, given as a short neutral
 subject, with 3–5 key facts (the central ones and ones only this story
@@ -193,7 +202,12 @@ unscreened), by class:
 - **Quote** (masked sentences) — an unpaired quote mark, a quoted span of 4+
   words, or a quoted span next to a speech verb. A short quoted term passes.
 - **Several correct answers** — open wordings ("one of the", "name a") or
-  "what did X say" when the document has more than one quote by X.
+  "what did X say" when the document has more than one quote by X. X is the
+  surname of the first person-like name in the question's wording: titles,
+  nationalities ("Hungarian") and organisations ("Syracuse University"; "at
+  Julius Baer" after a comma) are skipped. A quote is attributed to X when X
+  is within 220 chars; quoted pieces joined by an attribution in the same
+  paragraph ("…," says X, a professor at Y. "…") count as one quote.
 
 **Wrong language.** The document's language and each item's language
 (the text its writer wrote: question, answer, options, without the fixed
@@ -209,9 +223,11 @@ questions (with options; the sentence of a fill-in, the topic of an
 explanation, the statements of a two-truths item). For each question it lists
 the people, organisations, products, places, events and documents named and
 says whether each is identifiable from the question alone: a full name, or a
-name with a role or affiliation, a product with its maker. A first name, a
-pseudonym, "a startup" or "the company" is not. A question that depends on an
-unidentifiable one is rejected (`ambiguous_entity`, note "ambiguous entity:
+name with a role or affiliation, a product with its maker, a writer or piece
+by its outlet ("WIRED's review of Amazon's Kindle Aluminum"), an event with
+its date. A first name, a pseudonym, "a startup", "the company", "the
+reviewer" or an event placed only by "last month" is not. A question that
+depends on an unidentifiable one is rejected (`ambiguous_entity`, note "ambiguous entity:
 Mariam (first name only)"). A failed call or an unreadable reply keeps the
 questions, `meta.entity_check.outcome` `failed` and a failed Writing decision.
 The call is charged to the `writer` cost role and recorded on the unit's
@@ -241,7 +257,10 @@ flowchart TB
     W -- "answered correctly" --> REJW["rejected: web_answerable"]
     W -- "not answered" --> ACT[("active")]
     R3 -- "missing detail answered,<br/>or correction not found" --> REJ3["rejected: retrieval_gate"]
-    R3 -- "missing detail not answered,<br/>or correction found" --> ACT
+    R3 -- "correction found" --> ACT
+    R3 -- "missing detail not answered" --> WT{"web check<br/>(trick questions)"}
+    WT -- "answered from its search" --> REJP["rejected: public_knowledge"]
+    WT -- "declined or unsupported" --> ACT
 ```
 
 `syft-benchmark filter` (`-g`, `--cohort`, `--limit`), `POST
@@ -261,6 +280,9 @@ the window, cohort or cap, and reversible — [03-dataset.md](03-dataset.md).
 Lexical: the share of the gold answer's content words found in the stored
 chunk must reach `answer_coverage_threshold` (0.6). In a gold answer of up to
 3 content words every word must be in the chunk. The stopword list is English.
+Hedges (about, around, roughly, approximately, nearly, almost, some) do not
+count; digits do ("8%" is checked as "8", "$1.5 trillion" as "1", "5",
+"trillion").
 
 Where the gold answer must differ from the text, the listed claims in
 `meta.claims` are checked instead: the two true statements of
@@ -314,12 +336,19 @@ to that model as a bare question (no passage), with web search where its
 provider supports it, otherwise from its own training. The answer is graded the
 way the main run grades that kind of item (letter, span match, key facts
 without the article check, or judge with the hop facts —
-`filter_judge_model`, default the first judge).
+`filter_judge_model`, default the first judge), with today's date in the
+judge prompt ([05-judging.md](05-judging.md)).
 
 - Answered correctly → rejected as `web_answerable`.
 - Not answered → active.
 - Call or grading failed → stays `pending` with a note, retried next pass.
-- Control items are exempt; a key-facts item without key facts is rejected.
+- `unanswerable_property` (trick questions) that passed the retrieval gate are
+  checked too. The behaviour judge ([05-judging.md](05-judging.md)) reads the
+  answer with its citations: specifics its search supports (`web_sourced`) →
+  rejected as `public_knowledge` (note "public knowledge"); a decline, or
+  specifics with no citation behind them → active. The record keeps
+  `behavior`.
+- `false_premise` is exempt; a key-facts item without key facts is rejected.
 - Pairs of the current cohort already in the set (active or held back by the
   cap) without a verdict from the current `filter_model` are checked in the
   same pass; one it answers is rejected.

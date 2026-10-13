@@ -37,6 +37,15 @@ _STOPWORDS = frozenset(
     }
 )  # fmt: skip
 
+# Hedges a writer puts before a figure ("about $1.5 trillion"): the chunk may
+# say "roughly" or nothing, and the figure is what is checked.
+_HEDGES = frozenset(
+    {
+        "about", "around", "roughly", "approximately", "approx", "nearly",
+        "almost", "some", "circa",
+    }
+)  # fmt: skip
+
 _TOKEN_RE = re.compile(r"[\w’'-]+", re.UNICODE)
 
 # Short gold answers — "47", "Alembic", "2026-09-08" — are not measured by
@@ -54,11 +63,17 @@ class Review:
 
 
 def _content_tokens(text: str) -> list[str]:
-    """Content words: no function words and nothing one character long."""
+    """Content words: no function words or hedges, nothing one letter long.
+
+    A digit is content: "8%" is the token "8", "$1.5 trillion" is "1", "5",
+    "trillion".
+    """
     return [
         token
         for token in (m.group(0).lower() for m in _TOKEN_RE.finditer(text))
-        if len(token) > 1 and token not in _STOPWORDS
+        if (len(token) > 1 or token.isdigit())
+        and token not in _STOPWORDS
+        and token not in _HEDGES
     ]
 
 

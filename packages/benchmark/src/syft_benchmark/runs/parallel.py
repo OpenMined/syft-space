@@ -377,7 +377,11 @@ class Progress:
     def step(self, *, failed: bool = False, refused: str = "") -> None:
         self.done += 1
         if refused:
+            # Every pass of the answerer, so the streak this refusal also
+            # feeds does not stop the others under its own reason.
             self.refuse(refused)
+            for member in self.shared.members if self.shared else []:
+                member.refuse(refused)
         if failed:
             self.failures += 1
             if self.shared is not None:

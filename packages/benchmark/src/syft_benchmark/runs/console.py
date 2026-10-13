@@ -66,6 +66,7 @@ from syft_benchmark.runs.gate import evaluable
 from syft_benchmark.runs.judge import (
     JUDGE_RULES,
     Gradable,
+    date_note,
     explanation_grade,
     free_text_grade,
     grade_item,
@@ -317,6 +318,7 @@ def _judging_header(count: int) -> str:
         "the expected answer (or the facts an explanation must cover), and the "
         "answer a model produced. Decide whether the model answer is correct.\n\n"
         f"{JUDGE_RULES}\n"
+        f"{date_note()}\n\n"
         "Return your verdicts as a JSON array, one object per item, nothing else:\n"
         '[{"id": "<the id given below>", "correct": true, "false_claims": false, '
         '"reasoning": "one short sentence"}]\n'

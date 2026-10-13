@@ -191,12 +191,15 @@ export const REMOVED_REASON_LABEL: Record<string, string> = {
   owner: 'Removed by you',
   rotation: 'Rotated out',
   web_answerable: 'Answerable from the web',
+  public_knowledge: 'Public knowledge',
   wrong_language: 'Wrong language',
   ambiguous_entity: 'Unclear subject',
   other: 'Other',
 }
 
 export const REMOVED_REASON_TIP: Record<string, string> = {
+  public_knowledge:
+    'A trick question whose missing detail the web check model found on the web, so it doesn’t test the archive.',
   wrong_language: 'Written in a different language from its article.',
   ambiguous_entity: 'Names someone or something a reader can’t identify from the question alone.',
 }

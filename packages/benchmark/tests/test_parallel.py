@@ -731,7 +731,8 @@ def _control_stand(monkeypatch: Any, behaviours: list[str]) -> _Stand:
         if "Is the answer grounded" in user:
             return '{"grounded": true, "reasoning": "ok"}', {}
         stand.answers.append((system, user))
-        return "I cannot find the fee.", {"finish_reason": "stop"}
+        # A guess after the decline: the judge script, not the guard, decides.
+        return "I cannot find the fee. It is probably $10.", {"finish_reason": "stop"}
 
     for module in (parallel, execute, judge, blocks):
         monkeypatch.setattr(module, "chat", chat)

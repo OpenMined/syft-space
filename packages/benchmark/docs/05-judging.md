@@ -103,7 +103,8 @@ option. `false_claims` is whether the answer states anything that contradicts
 the expected answer (a different name, number, date or option); leaving facts
 out or saying "I don't know" is not a false claim. For `multihop_synthesis`
 the judge also gets `meta.hop_facts` as "Required facts" and returns
-`covered`, one flag per fact: `correct` needs every one.
+`covered`, one flag per fact: `correct` needs every one. A fact, or the part
+of one, that the question already states counts as covered.
 
 | Judge reply | Verdict |
 | --- | --- |
@@ -124,7 +125,18 @@ cited:
 | `web_sourced` | `web_sourced`; with no cited sources it becomes `made_up` |
 | `made_up` | `hallucinate` |
 
-The behaviour is stored in `results.extra.behavior`.
+Saying it does not know is `declined` even when the wording repeats the
+premise ("I don't know why X"); only reasons or facts built on the premise, or
+the asked-for specifics, are `made_up`. A `made_up` reply on an answer whose
+every sentence only says it does not know (and that passes the abstention
+check) is turned into `declined`, noted in the reasoning; `corrected` is never
+changed. The behaviour is stored in `results.extra.behavior`.
+
+**Today's date.** Every judge prompt (free-text, key facts, grounded check,
+behaviour, the web check's grading and the console export) ends with today's
+UTC date, read at call time, and a line that events after the judge's training
+data are normal: dates are judged against the reference, not the judge's sense
+of time. The answering prompts carry no date.
 
 The answering prompts tell the model to correct a false premise rather than
 answer it ([04-evaluation.md](04-evaluation.md)).

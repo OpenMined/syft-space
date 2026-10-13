@@ -126,18 +126,57 @@ _ABOUT_QUOTE_RE = re.compile(
 _NOT_A_NAME = frozenset(
     {
         "president", "coach", "senator", "governor", "secretary", "minister",
+        "prime", "chief", "ceo", "cfo", "cto", "chair", "chairman", "deputy",
         "mr", "mrs", "ms", "dr", "professor", "the", "a", "an", "us", "u.s",
-        "chinese", "american", "russian", "former", "then", "in", "what",
+        "former", "then", "in", "what",
         "did", "does", "do", "has", "have", "had", "was", "were", "is", "are",
     }
 )  # fmt: skip
 
-_NAME_RE = re.compile(r"\b[A-Z][\w’'-]*")
+# Nationality adjectives: "a Hungarian telecommunications manager" names no
+# speaker. A lone capitalised word with one of the suffixes counts too.
+_DEMONYMS = frozenset(
+    {
+        "american", "british", "english", "french", "german", "italian",
+        "spanish", "dutch", "swiss", "swedish", "danish", "norwegian",
+        "finnish", "polish", "czech", "hungarian", "romanian", "greek",
+        "turkish", "russian", "ukrainian", "chinese", "japanese", "korean",
+        "indian", "pakistani", "iranian", "israeli", "palestinian", "saudi",
+        "emirati", "egyptian", "nigerian", "african", "canadian", "mexican",
+        "brazilian", "argentine", "australian", "european", "asian", "arab",
+        "irish", "scottish", "welsh", "austrian", "belgian", "portuguese",
+        "singaporean", "taiwanese", "vietnamese", "thai", "indonesian",
+    }
+)  # fmt: skip
+_DEMONYM_SUFFIXES = ("ian", "ese", "ish")
+
+# Words that make a run of capitalised words an organisation, not a person:
+# "Syracuse University", "RBC BlueBay Asset Management".
+_ORG_WORDS = frozenset(
+    {
+        "university", "college", "school", "institute", "bank", "group",
+        "capital", "management", "partners", "securities", "fund", "funds",
+        "corp", "corporation", "inc", "ltd", "llc", "co", "company",
+        "holdings", "agency", "ministry", "association", "council",
+        "committee", "commission", "foundation", "asset", "assets",
+        "advisors", "advisers", "research", "investments", "markets",
+        "bureau", "department", "office", "party", "government", "court",
+    }
+)  # fmt: skip
+
+# Consecutive capitalised words: one name, title or organisation.
+_NAME_RUN_RE = re.compile(r"\b[A-Z][\w’'.-]*(?:\s+[A-Z][\w’'.-]*)*")
+# What follows the speaker's name describes them: "Jen-Ai Chua, Asia equity
+# research analyst at Julius Baer" — the employer is not the speaker.
+_APPOSITION_RE = re.compile(r",|\(|\s[-–—]\s")
 _QUOTE_RE = re.compile(r"[“\"«]([^”\"»]{15,400})[”\"»]")
 
 # A gap between quoted pieces shorter than this is one utterance broken up by an
 # attribution: "Indisputably a genius," the poet W. H. Auden put it, "but ...".
 _QUOTE_JOIN_CHARS = 60
+# A longer gap within one paragraph that holds a speech verb is still one
+# utterance: "...," says Alexis Ingber, an assistant professor at ... "...".
+_ATTRIBUTED_JOIN_CHARS = 250
 
 # How far from an utterance we look for the speaker surname. An attribution
 # stands both before and after a quote, so the window is two-sided.
@@ -154,11 +193,41 @@ def quoted_spans(document: str) -> list[tuple[int, int]]:
     """The bounds of direct speech; an utterance broken by attribution is joined."""
     spans: list[tuple[int, int]] = []
     for match in _QUOTE_RE.finditer(document):
-        if spans and match.start() - spans[-1][1] < _QUOTE_JOIN_CHARS:
+        if spans and _one_utterance(document[spans[-1][1] : match.start()]):
             spans[-1] = (spans[-1][0], match.end())
         else:
             spans.append((match.start(), match.end()))
     return spans
+
+
+def _one_utterance(gap: str) -> bool:
+    """Whether the text between two quoted pieces only attributes them."""
+    if len(gap) < _QUOTE_JOIN_CHARS:
+        return True
+    return (
+        len(gap) < _ATTRIBUTED_JOIN_CHARS
+        and "\n" not in gap
+        and bool(_SPEECH_RE.search(gap))
+    )
+
+
+def _is_demonym(word: str, alone: bool) -> bool:
+    lowered = word.lower()
+    return lowered in _DEMONYMS or (alone and lowered.endswith(_DEMONYM_SUFFIXES))
+
+
+def _speaker_in(text: str) -> str | None:
+    """The surname of the last person-like name in the text: a run of
+    capitalised words that is not a title, a nationality or an organisation."""
+    found = None
+    for run in _NAME_RUN_RE.findall(text):
+        words = [w for w in run.split() if w.lower().strip(".") not in _NOT_A_NAME]
+        if any(w.lower().strip(".") in _ORG_WORDS for w in words):
+            continue
+        words = [w for w in words if not _is_demonym(w, alone=len(words) == 1)]
+        if words:
+            found = words[-1]
+    return found
 
 
 def quote_subject(question: str) -> str | None:
@@ -167,12 +236,12 @@ def quote_subject(question: str) -> str | None:
     if not match:
         return None
     who = match.group("who") or match.group("who2") or ""
-    names = [
-        name
-        for name in _NAME_RE.findall(who)
-        if name.lower().strip(".") not in _NOT_A_NAME
-    ]
-    return names[-1] if names else None
+    # The speaker is named first; an apposition after the name describes them.
+    for part in _APPOSITION_RE.split(who):
+        name = _speaker_in(part)
+        if name:
+            return name
+    return None
 
 
 def count_attributed_quotes(document: str, name: str) -> int:

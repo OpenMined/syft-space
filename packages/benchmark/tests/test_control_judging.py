@@ -361,7 +361,7 @@ class _Stand:
 
         def judging(system: str, user: str, **kwargs: Any) -> Any:
             seat = kwargs["provider"].model
-            if system != judge._CONTROL_SYSTEM:
+            if not system.startswith(judge._CONTROL_SYSTEM):
                 return '{"grounded": true, "reasoning": "ok"}', {}
             self.judged.append((seat, user))
             if seat == J2:
@@ -468,7 +468,8 @@ def test_a_run_grades_both_kinds_in_both_conditions(
     assert outcome(with_, "p-states") == ("hallucinate", "made_up")
     assert "no web citations" in rows[(with_, "u-states", J1)].reasoning
     assert outcome(with_, "p-corrects") == ("correct", "corrected")
-    assert outcome(alone, "u-declines", J2) == ("hallucinate", "made_up")
+    # A bare "I don't know" judged made up is still a decline.
+    assert outcome(alone, "u-declines", J2) == ("abstain", "declined")
 
     # The transcript carries the judge's exchange; the citations reached it.
     audit = rows[(alone, "u-states", J1)].audit

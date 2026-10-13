@@ -77,6 +77,10 @@ _WRITING_REASONS = frozenset(
 _SEARCH_REASONS = frozenset(
     {StatusReason.RETRIEVAL_GATE.value, StatusReason.NOT_ANSWERABLE.value}
 )
+# Reasons decided by the web check.
+_WEB_REASONS = frozenset(
+    {StatusReason.WEB_ANSWERABLE.value, StatusReason.PUBLIC_KNOWLEDGE.value}
+)
 
 
 def _is_control(row: QaPair) -> bool:
@@ -103,9 +107,7 @@ def _inferred(row: QaPair) -> dict[str, Any] | None:
     removed = status == PairStatus.REJECTED.value
     if reason in _WRITING_REASONS:
         stage = decisions.WRITING
-    elif reason == StatusReason.WEB_ANSWERABLE.value or (
-        not _is_control(row) and web.get("verdict")
-    ):
+    elif reason in _WEB_REASONS or (not _is_control(row) and web.get("verdict")):
         stage = decisions.WEB_CHECK
     elif _is_control(row) or reason in _SEARCH_REASONS:
         stage = decisions.CONTROL

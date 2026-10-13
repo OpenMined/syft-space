@@ -33,11 +33,12 @@ from typing import Any
 
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
+from syft_benchmark.generation.wording import ANCHOR_RULE
 
 # What an unanswerable item's answer field opens with.
 NOT_IN_CORPUS = "not in the corpus:"
 
-_SHARED_RULES = """\
+_SHARED_RULES = f"""\
 Rules:
 1. The question must be standalone. Never write "the text", "the fragment", \
 "the document" or "according to ...". Name the subject explicitly, so that \
@@ -50,7 +51,8 @@ subject of a question.
 4. Ask about something factual and specific — a number, a name, a date, a \
 setting, a limit, a default. Never ask for an opinion or a prediction: those \
 have no right answer at all, and the benchmark would be measuring nothing.
-5. Write the question in the SAME language as the fragment.
+5. {ANCHOR_RULE}
+6. Write the question in the SAME language as the fragment.
 """
 
 UNANSWERABLE_SYSTEM = f"""\
@@ -62,14 +64,14 @@ You are given ONE fragment of ONE document. Produce exactly {{n}} questions \
 that are about subjects the fragment DOES name, but ask for a property the \
 fragment does NOT state.
 
-{_SHARED_RULES}6. Name a subject that actually appears in the fragment. A \
+{_SHARED_RULES}7. Name a subject that actually appears in the fragment. A \
 question about something unrelated is useless here: it must look like a \
 question a real user of these documents would ask.
-7. The property you ask about must be absent from the fragment. Do not ask \
+8. The property you ask about must be absent from the fragment. Do not ask \
 something the fragment answers, even partly.
-8. Do not invent a value and do not hint at one.
-9. Ask for exactly ONE missing detail. Never combine two asks in one question.
-10. The detail must not be public knowledge either: nothing a well-informed \
+9. Do not invent a value and do not hint at one.
+10. Ask for exactly ONE missing detail. Never combine two asks in one question.
+11. The detail must not be public knowledge either: nothing a well-informed \
 person could look up elsewhere, like a famous crew list or a well-known founder.
 
 Return ONLY a JSON array of {{n}} objects:
@@ -86,12 +88,12 @@ premise.
 
 You are given ONE fragment of ONE document. Produce exactly {{n}} questions.
 
-{_SHARED_RULES}6. The false premise must contradict a fact the fragment \
+{_SHARED_RULES}7. The false premise must contradict a fact the fragment \
 states plainly. Do not build it on something the fragment merely omits — \
 that is a different kind of question.
-7. Phrase the question as if the premise were settled fact, the way a \
+8. Phrase the question as if the premise were settled fact, the way a \
 confused user would ask it: "why did X switch to Y", "when was Z removed".
-8. The correction must state what the fragment actually says.
+9. The correction must state what the fragment actually says.
 
 Return ONLY a JSON array of {{n}} objects:
 [{{{{"question": "...", "premise": "the false claim built into the question", \

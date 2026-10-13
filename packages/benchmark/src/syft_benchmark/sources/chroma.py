@@ -95,6 +95,8 @@ class Document:
     added_at: datetime | None = None
     # The ETL header's ingested_at: when the scraper fetched the page.
     ingested_at: datetime | None = None
+    # The ETL header's author ("" when absent).
+    author: str = ""
 
     @property
     def dated_at(self) -> datetime | None:
@@ -468,6 +470,7 @@ def load_documents(
                 published_whole_day=published[1] if published else False,
                 added_at=parse_date(chunks[0].added_at),
                 ingested_at=parse_date(header.get("ingested_at", "")),
+                author=header.get("author", ""),
             )
         )
 

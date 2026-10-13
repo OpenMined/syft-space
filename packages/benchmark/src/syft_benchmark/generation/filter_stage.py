@@ -26,8 +26,9 @@ Four checks, all reading the persisted row rather than a fresh candidate:
   * **the web check** (``web_check.py``) — for a pair that passed the above,
     when ``filter_model`` is set: does a model with web search and its own
     training, and none of the publisher's data, answer it correctly. If so it
-    is rejected as ``web_answerable``. A failed check leaves the pair pending
-    with a note, for the next pass.
+    is rejected as ``web_answerable``; a trick question its search answers is
+    rejected as ``public_knowledge``. A false premise skips it. A failed check
+    leaves the pair pending with a note, for the next pass.
 
 Only ``pending`` pairs are ever touched automatically — an ``active`` or
 ``rejected`` verdict, once made, stands until a person overturns it through
@@ -95,10 +96,12 @@ from syft_benchmark.generation.slots import (
 from syft_benchmark.generation.validate import review_answer, review_claims
 from syft_benchmark.generation.web_check import (
     CONTROL_NOTE,
+    PUBLIC_KNOWLEDGE,
     WEB_ANSWERABLE,
     WebChecker,
     WebCheckSummary,
     WebVerdict,
+    checks_public,
     exclusion,
     filter_model,
     lean,
@@ -142,6 +145,9 @@ class FilterSummary:
     rejected: int = 0
     # Of the rejected: answered correctly by the web check model.
     web_answerable: int = 0
+    # Of the rejected: trick questions the web check model answered from its
+    # search.
+    public_knowledge: int = 0
     # Left pending: the archive check failed (retrieval or its judge).
     archive_failed: int = 0
     notes: list[str] = field(default_factory=list)
@@ -155,6 +161,7 @@ class FilterSummary:
         self.active += other.active
         self.rejected += other.rejected
         self.web_answerable += other.web_answerable
+        self.public_knowledge += other.public_knowledge
         self.archive_failed += other.archive_failed
         self.notes += [note for note in other.notes if note not in self.notes]
         if other.web is None:
@@ -422,6 +429,8 @@ class Screening:
                 self.report.rejected += 1
             if reason is StatusReason.WEB_ANSWERABLE:
                 self.report.web_answerable += 1
+            elif reason is StatusReason.PUBLIC_KNOWLEDGE:
+                self.report.public_knowledge += 1
         if self.on_verdict is not None:
             self.on_verdict()
 
@@ -527,7 +536,14 @@ class Screening:
                 status, reason, note, meta = _screen_pair(
                     row, spec, self.retrieve, self.conf, self.judge
                 )
-            if self.web_on:
+            public = self.web_on and checks_public(row)
+            if public and status is PairStatus.ACTIVE:
+                if skips_manual(row, self.conf):
+                    self._write(row, status, None, note, meta, decisions.CONTROL)
+                else:
+                    self._web_decide(row, note, meta)
+                return
+            if self.web_on and not public:
                 meta = {**meta, "web_check": {"skipped": CONTROL_NOTE}}
             self._write(row, status, reason, note, meta, decisions.CONTROL)
             return
@@ -564,18 +580,26 @@ class Screening:
         if skips_manual(row, self.conf):
             self._write(row, PairStatus.ACTIVE, None, note, meta, stage)
             return
+        self._web_decide(row, note, meta)
 
+    def _web_decide(self, row: QaPair, note: str, meta: dict[str, Any]) -> None:
+        """The web check's verdict on a pair the earlier checks kept: rejected
+        when the web model answers it (a trick question: from its search),
+        active when not, pending when the check failed."""
         verdict = self._web_verdict(row)
         if verdict is None:
             return
         if verdict.answerable is None:
             self._note_pending(row, verdict, meta)
         elif verdict.answerable:
+            public = checks_public(row)
             self._write(
                 row,
                 PairStatus.REJECTED,
-                StatusReason.WEB_ANSWERABLE,
-                WEB_ANSWERABLE,
+                StatusReason.PUBLIC_KNOWLEDGE
+                if public
+                else StatusReason.WEB_ANSWERABLE,
+                PUBLIC_KNOWLEDGE if public else WEB_ANSWERABLE,
                 {**meta, **self._web_meta(verdict)},
                 decisions.WEB_CHECK,
                 self._web_record(verdict),

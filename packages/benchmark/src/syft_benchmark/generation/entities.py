@@ -35,10 +35,14 @@ alone.
 Identifiable: a full name ("Donald Trump"), a name plus a distinguishing role \
 or affiliation ("Sarah Chen, the CFO of Stripe"), a specific organisation \
 ("the European Central Bank"), a specific product with its maker and model \
-("Apple's iPhone 16 Pro").
+("Apple's iPhone 16 Pro"), a writer or piece by its outlet ("WIRED's Nena \
+Farrell", "WIRED's review of Amazon's Kindle Aluminum"), an event with its \
+date ("the selloff in Singapore bank stocks in the week to Oct 10, 2026").
 Not identifiable: a first name only, a pseudonym, an anonymous source, \
 "a startup", "the company", "a researcher", "a local official", "her group" \
-without a named owner, a product with no maker.
+without a named owner, a product with no maker, "the reviewer" or "the \
+author" with no outlet, an event placed only by "last month" or a month \
+without its year.
 
 A blank "______" is the answer to be filled in: do not judge it. Judge the \
 subject the question depends on, not every word: a generic noun that is not \

@@ -31,12 +31,13 @@ from syft_benchmark.generation.negative import (
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.shuffle import LETTERS, shuffle_options
+from syft_benchmark.generation.wording import ANCHOR_RULE
 from syft_benchmark.sources import Chunk, Document
 
 MAX_FRAGMENT_CHARS = 6000
 MAX_DOCUMENT_CHARS = 12000
 
-_RULES = """\
+_RULES = f"""\
 Rules:
 1. Every question must be fully answerable from the fragment alone.
 2. Questions must be standalone. Never write "the text", "the fragment", \
@@ -60,7 +61,8 @@ subject named as rule 3 says: its own \
 figures, named sources, quotes or inside details. Avoid facts that other \
 outlets also covered or that are general background.
 8. Use only what the fragment states. Invent nothing.
-9. Write the question and the answer in the SAME language as the fragment.
+9. {ANCHOR_RULE}
+10. Write the question and the answer in the SAME language as the fragment.
 """
 
 _QA_SYSTEM = f"""\
@@ -68,7 +70,7 @@ You build a question-answer benchmark for a private knowledge base. \
 You are given ONE fragment of ONE document and must produce exactly {{n}} \
 question-answer pairs.
 
-{_RULES}10. The answer is short: one to three sentences.
+{_RULES}11. The answer is short: one to three sentences.
 
 Return ONLY a JSON array of {{n}} objects:
 [{{{{"question": "...", "answer": "...", "difficulty": "easy|medium|hard"}}}}]
@@ -80,9 +82,9 @@ You build a multiple-choice benchmark for a private knowledge base. \
 You are given ONE fragment of ONE document and must produce exactly {{n}} \
 questions with four options each.
 
-{_RULES}10. Exactly one option is correct; the other three are plausible but wrong \
+{_RULES}11. Exactly one option is correct; the other three are plausible but wrong \
 according to the fragment.
-11. The wrong options must sound right to someone who hasn't read the story, \
+12. The wrong options must sound right to someone who hasn't read the story, \
 and each must be contradicted by it.
 
 Return ONLY a JSON array of {{n}} objects:
@@ -135,9 +137,21 @@ class Generator:
         return self.expected is not ExpectedBehavior.ANSWER
 
 
+def document_header(doc: Document) -> list[str]:
+    """The lines every writer prompt opens with: title, outlet, author, date."""
+    lines = [f"Document: {doc.title}"]
+    if doc.source:
+        lines.append(f"Outlet: {doc.source}")
+    if doc.author:
+        lines.append(f"Author: {doc.author}")
+    if doc.published_at is not None:
+        lines.append(f"Published: {doc.published_at.date().isoformat()}")
+    return lines
+
+
 def user_prompt(doc: Document, chunk: Chunk, pairs: int) -> str:
     """The chunk and how many pairs are wanted from it."""
-    lines = [f"Document: {doc.title}"]
+    lines = document_header(doc)
     if chunk.headings:
         lines.append(f"Section: {chunk.headings}")
     lines += [

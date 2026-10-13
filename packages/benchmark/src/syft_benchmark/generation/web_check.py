@@ -9,9 +9,11 @@ question (``runs.judge``: option letter, key facts, judge). A question it
 answers correctly is rejected as ``web_answerable``; the rest stay and go on
 to the set cap.
 
-Control questions (``unanswerable_property``, ``false_premise``) are not
-checked: their right answer is to abstain or to catch a false premise, and a
-model doing so says nothing about what the web knows.
+A trick question (``unanswerable_property``) is checked too: the web model
+answers it bare, the behaviour judge (``runs.judge.grade_control``) reads the
+answer, and a specific answer its search supports (``web_sourced``) rejects it
+as ``public_knowledge``. A false premise is not checked: a model doubting it
+says nothing about what the web knows.
 
 Web search follows ``web_search_for(conf, "filter", model)``: always asked
 for, used when the model's provider offers it. Without it the model answers
@@ -32,11 +34,17 @@ from typing import Any
 
 from loguru import logger
 
-from syft_benchmark.config import Settings, Verdict
+from syft_benchmark.config import ControlOutcome, Settings, Verdict
 from syft_benchmark.db import QaPair
 from syft_benchmark.llm import LLMError, LLMFatalError, Provider, chat, cost, roles
 from syft_benchmark.llm.ollama import search_unused, supports_web_search
-from syft_benchmark.runs.judge import Grade, grade, grade_key_facts
+from syft_benchmark.runs.judge import (
+    Grade,
+    control_case,
+    grade,
+    grade_control,
+    grade_key_facts,
+)
 
 WEB_ANSWERABLE = "web_answerable"
 
@@ -61,6 +69,10 @@ might be wrong.
 
 NO_SEARCH_NOTE = "no web search for this model here: answered from its own training"
 CONTROL_NOTE = "not checked: a control question, its right answer is to abstain"
+# The note on a trick question the web model answers from its search.
+PUBLIC_KNOWLEDGE = "public knowledge"
+# The control kinds the web check asks: their missing detail must not be public.
+_PUBLIC_CHECKED = frozenset({"unanswerable_property"})
 NO_FACTS_NOTE = "not checked: a key-facts question without key facts"
 
 # How much of the web model's answer ``meta.web_check`` keeps; the job's
@@ -177,6 +189,11 @@ def exclusion(row: QaPair) -> str:
     return ""
 
 
+def checks_public(row: QaPair) -> bool:
+    """A trick question the web check asks whether its detail is public."""
+    return row.generator in _PUBLIC_CHECKED
+
+
 def web_checked(row: QaPair, model: str) -> bool:
     """Whether this pair passed, or is exempt from, the web check by ``model``.
 
@@ -225,13 +242,25 @@ def passed_filter(row: QaPair, conf: Settings) -> bool:
     return verdict != Verdict.CORRECT.value
 
 
-def _graded(row: QaPair, answer: str, conf: Settings, judge: Provider | None) -> Grade:
+def _graded(
+    row: QaPair,
+    answer: str,
+    conf: Settings,
+    judge: Provider | None,
+    citations: list[dict[str, str]] | None = None,
+) -> Grade:
     """The main run's grading for this pair's kind (runs.judge.grade_item).
 
     An explanation is checked against its key facts only: a web answer brings
-    in facts the article lacks, and only "correct" matters here.
+    in facts the article lacks, and only "correct" matters here. A trick
+    question gets the behaviour judge, told the answer's citations.
     """
     meta = row.meta or {}
+    if checks_public(row):
+        case = control_case(row.generator, row.question, row.answer, meta)
+        return grade_control(
+            case, answer, citations=citations or [], settings=conf, judge=judge
+        )
     if str(meta.get("grading") or "judge") == "key_facts":
         facts = [str(f) for f in meta.get("key_facts", [])]
         return grade_key_facts(answer, facts, settings=conf, judge=judge)
@@ -318,7 +347,9 @@ def check_pair(
 
     # The judging functions are the run's; the call is the web check's.
     with cost.acting_as(cost.WEB_CHECK):
-        verdict = _graded(row, answer, conf, judge)
+        verdict = _graded(
+            row, answer, conf, judge, citations if record["web_search"] else []
+        )
     record.update(
         judge_system=verdict.judge_system,
         judge_prompt=verdict.judge_user,
@@ -328,12 +359,19 @@ def check_pair(
     )
     record["verdict"] = verdict.verdict.value
     record["reasoning"] = verdict.reasoning
+    if verdict.behavior:
+        record["behavior"] = verdict.behavior
     if verdict.failed or verdict.verdict is Verdict.PENDING:
         return WebVerdict(
             None,
             f"web check not graded, will retry: {verdict.reasoning}",
             {"web_check": {**record, "error": verdict.reasoning}},
             fatal=verdict.fatal,
+        )
+    if checks_public(row):
+        public = verdict.behavior == ControlOutcome.WEB_SOURCED.value
+        return WebVerdict(
+            public, PUBLIC_KNOWLEDGE if public else "", {"web_check": record}
         )
     answerable = verdict.verdict is Verdict.CORRECT
     return WebVerdict(

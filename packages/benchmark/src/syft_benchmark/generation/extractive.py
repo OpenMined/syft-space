@@ -20,6 +20,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from syft_benchmark.generation.wording import FILL_IN_TIME_RULE
+
 _MASK = "______"
 
 # The fixed words a masked sentence is asked with.
@@ -118,7 +120,7 @@ def _acceptable(category: str, answer: str) -> bool:
     return not (_VAGUE_TIME.match(answer) or _RELATIVE_TIME.match(answer))
 
 
-COMBINED_SYSTEM = """\
+COMBINED_SYSTEM = f"""\
 You are a benchmark dataset generator. Given a fragment of a document, \
 generate fill-in-the-blank questions by masking specific spans in sentences.
 
@@ -138,7 +140,7 @@ Rules:
   - Take the sentence from the fragment verbatim; do not rewrite it.
   - The masked span is the answer, exactly as it appears.
   - Write in the SAME language as the fragment.
-  - Generate up to {n} questions per category, fewer if the fragment lacks \
+  - Generate up to {{n}} questions per category, fewer if the fragment lacks \
 that type. An empty array is a valid answer.
   - The sentence must make sense to someone who has not read the rest of the \
 story. No he, she, it, they or this without the subject named in the same \
@@ -152,23 +154,24 @@ minister, "one", "this year") or lets you work out (a unit conversion).
 products so they are identifiable without the story: full name plus role \
 or affiliation, a product with its maker. Skip a sentence whose subject is \
 a first name, a pseudonym or an anonymous source.
+  - {FILL_IN_TIME_RULE}
   - Use each sentence once.
 
 Respond with ONLY a JSON object with three arrays. No markdown, no commentary.
-{{
+{{{{
   "named_entity": [
-    {{"question": "sentence with ______", "answer": "masked span", \
-"entity_type": "PERSON|ORG|PRODUCT|GPE|LOC|EVENT"}}
+    {{{{"question": "sentence with ______", "answer": "masked span", \
+"entity_type": "PERSON|ORG|PRODUCT|GPE|LOC|EVENT"}}}}
   ],
   "numeric": [
-    {{"question": "sentence with ______", "answer": "masked span", \
-"entity_type": "MONEY|PERCENT|COUNT|MEASUREMENT|VERSION|PORT"}}
+    {{{{"question": "sentence with ______", "answer": "masked span", \
+"entity_type": "MONEY|PERCENT|COUNT|MEASUREMENT|VERSION|PORT"}}}}
   ],
   "temporal": [
-    {{"question": "sentence with ______", "answer": "masked span", \
-"entity_type": "DATE|DURATION|YEAR|DEADLINE|TIME"}}
+    {{{{"question": "sentence with ______", "answer": "masked span", \
+"entity_type": "DATE|DURATION|YEAR|DEADLINE|TIME"}}}}
   ]
-}}
+}}}}
 """
 
 

@@ -284,13 +284,20 @@ def test_control_items_keep_their_own_gate(
         )
     )
     models = _Models(monkeypatch)
+    # The behaviour judge reads the web model's "I don't know" as a decline.
+    monkeypatch.setattr(
+        run_judge, "chat", lambda *_a, **_k: ('{"behavior": "declined"}', {})
+    )
 
     filter_stage.filter_pending(_space(), settings=_settings(), retrieve=_archive)
 
     row = _rows()["missing"]
     assert row.status == PairStatus.ACTIVE.value
     assert row.meta["gate"] == "retrieval returned nothing"
-    assert models.web == []
+    # No archive check; the trick question goes on to the web check.
+    assert all(system != control._ANSWERABLE_SYSTEM for system, _ in models.gate)
+    assert models.web == ["What colour is the keeper's car?"]
+    assert row.meta["web_check"]["behavior"] == "declined"
 
 
 # --- what the gate's judge is given -------------------------------------------
