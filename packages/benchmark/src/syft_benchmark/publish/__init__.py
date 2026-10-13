@@ -5,7 +5,15 @@ from syft_benchmark.publish.space import (
     owner_payload_for,
     payload_for,
     publish,
+    published_job,
     retract,
 )
 
-__all__ = ["PublishOutcome", "owner_payload_for", "payload_for", "publish", "retract"]
+__all__ = [
+    "PublishOutcome",
+    "owner_payload_for",
+    "payload_for",
+    "publish",
+    "published_job",
+    "retract",
+]

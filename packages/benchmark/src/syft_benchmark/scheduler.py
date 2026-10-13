@@ -62,8 +62,8 @@ from syft_benchmark.runs.timing import CallClock, PassTime
 
 REPORTS_DIR = Path("reports")
 
-# Temporarily off, whatever the settings say: these blocks are not run.
-PAUSED_BLOCKS = frozenset({EvalBlock.DENIAL_LOOP, EvalBlock.MONTE_CARLO})
+# Blocks not run, whatever the settings say.
+PAUSED_BLOCKS: frozenset[EvalBlock] = frozenset()
 
 
 @dataclass(slots=True)

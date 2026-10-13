@@ -62,7 +62,7 @@
               Lift from your data, in points
             </th>
             <th scope="col" class="px-3 py-2.5 text-left font-medium">Status</th>
-            <th scope="col" class="w-10"><span class="sr-only">Open</span></th>
+            <th scope="col" class="w-20"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -144,7 +144,7 @@
                   <div
                     v-if="run.lift_lo !== null && run.lift_hi !== null"
                     class="absolute inset-y-0 min-w-1.5 rounded-full bg-primary"
-                    :style="rangeStyle(run.lift_lo, run.lift_hi)"
+                    :style="liftStyle(run.lift_hi)"
                   />
                 </div>
                 <span class="w-28 shrink-0 font-semibold text-primary tabular-nums">
@@ -184,7 +184,21 @@
               </Badge>
             </td>
             <td class="pr-3 text-muted-foreground">
-              <ChevronRight class="size-4" aria-hidden="true" />
+              <div class="flex items-center justify-end gap-1">
+                <Button
+                  v-if="deletable(run.job_id)"
+                  variant="ghost"
+                  size="icon"
+                  class="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  title="Delete this run"
+                  aria-label="Delete this run"
+                  data-testid="run-delete"
+                  @click.stop="askDelete(run)"
+                >
+                  <Trash2 class="size-4" />
+                </Button>
+                <ChevronRight class="size-4" aria-hidden="true" />
+              </div>
             </td>
           </tr>
 
@@ -237,13 +251,26 @@
         </Button>
       </div>
     </div>
+
+    <DeleteConfirmationDialog
+      :open="toDelete !== null"
+      item-type="run"
+      :item-name="toDelete ? dayTime(utcStamp(toDelete.created_at)) : ''"
+      :description="DELETE_TEXT"
+      :is-deleting="deleting"
+      @update:open="(open) => !open && !deleting && (toDelete = null)"
+      @confirm="confirmDelete"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronRight } from 'lucide-vue-next'
+import { ChevronRight, Trash2 } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
+import type { BenchmarkRunSummary } from '@/api/types'
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -257,6 +284,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { apiErrorDetail } from '@/lib/errors'
 import { useReport } from './context'
 import { count, DASH, dayTime, pointsRange, scheduleText } from './figures'
 import { modelName } from './labels'
@@ -282,6 +310,9 @@ const STATUS_OPTIONS = [
 ] as const
 
 const BUILD_ONLY_TIP = 'Questions were written and filtered; no model was asked.'
+const DELETE_TEXT =
+  'The run and its answers will be deleted; its questions are kept. ' +
+  'A published run is made private first. This cannot be undone.'
 
 const report = useReport()
 const router = useRouter()
@@ -301,13 +332,39 @@ function share(x: number): string {
   return `${clamp01(x) * 100}%`
 }
 
-/** Lift on a 0–100 point scale; a negative end is drawn from zero. */
-function rangeStyle(lo: number, hi: number): Record<string, string> {
-  const left = clamp01(lo / 100)
-  return { left: share(left), width: share(Math.max(clamp01(hi / 100) - left, 0)) }
+/** Lift on a 0–100 point scale, drawn from zero to the top of the range. */
+function liftStyle(hi: number): Record<string, string> {
+  return { left: '0%', width: share(hi / 100) }
 }
 
 function open(jobId: string): void {
   void router.push(runLocation(jobId))
+}
+
+const toDelete = ref<BenchmarkRunSummary | null>(null)
+const deleting = ref(false)
+
+/** Queued and running runs cannot be deleted. */
+function deletable(jobId: string): boolean {
+  return !running.value.some((p) => p.job_id === jobId)
+}
+
+function askDelete(run: BenchmarkRunSummary): void {
+  toDelete.value = run
+}
+
+async function confirmDelete(): Promise<void> {
+  const run = toDelete.value
+  if (!run || deleting.value) return
+  deleting.value = true
+  try {
+    await report.deleteRun(run.job_id)
+    toDelete.value = null
+    toast.success('Run deleted')
+  } catch (e) {
+    toast.error(apiErrorDetail(e, 'Could not delete the run'))
+  } finally {
+    deleting.value = false
+  }
 }
 </script>

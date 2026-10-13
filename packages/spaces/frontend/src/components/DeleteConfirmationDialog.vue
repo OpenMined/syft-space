@@ -4,7 +4,10 @@
       <DialogHeader>
         <DialogTitle>Delete {{ itemType }}</DialogTitle>
         <DialogDescription>
-          Are you sure you want to delete "{{ itemName }}"? This action cannot be undone.
+          <template v-if="description">{{ description }}</template>
+          <template v-else>
+            Are you sure you want to delete "{{ itemName }}"? This action cannot be undone.
+          </template>
         </DialogDescription>
       </DialogHeader>
 
@@ -69,6 +72,8 @@ interface Props {
   open?: boolean
   itemType: string
   itemName: string
+  /** Replaces the default "Are you sure" sentence. */
+  description?: string
   dependencies?: string[]
   dependencyType?: string
   isDeleting?: boolean

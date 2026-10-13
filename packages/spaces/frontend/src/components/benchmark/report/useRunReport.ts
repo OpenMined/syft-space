@@ -246,6 +246,13 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     return { refused: result?.refused ?? [] }
   }
 
+  /** Delete a finished run, then reload the list. */
+  async function deleteRun(jobId: string): Promise<void> {
+    await benchmarksApi.deleteRun(toValue(slug), jobId)
+    invalidate(jobId)
+    await refresh()
+  }
+
   async function downloadSummary(jobId: string): Promise<void> {
     const { blob, fileName } = await benchmarksApi.downloadRunSummary(toValue(slug), jobId)
     saveBlob(blob, fileName ?? `${toValue(slug)}-${jobId}.docx`)
@@ -271,6 +278,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     loadQuestion,
     loadFragments,
     publish,
+    deleteRun,
     downloadSummary,
   }
 }

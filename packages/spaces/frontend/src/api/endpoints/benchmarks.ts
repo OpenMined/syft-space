@@ -435,6 +435,11 @@ export const benchmarksApi = {
     return response.data
   },
 
+  /** Deletes a finished run and its answers; questions are kept. A published run is made private first. */
+  deleteRun: async (slug: string, jobId: string): Promise<void> => {
+    await apiClient.delete(reportPath(slug, jobId))
+  },
+
   /** 409 when this run is not the published one. */
   unpublishRun: async (slug: string, jobId: string): Promise<BenchmarkRunPublishResponse> => {
     const response = await apiClient.post(`${reportPath(slug, jobId)}/unpublish`)

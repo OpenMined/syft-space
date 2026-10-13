@@ -1,5 +1,5 @@
-"""The console's read API of benchmark results: runs, a run's report, its
-questions, and leaving a question out of a run.
+"""The console's API of benchmark results: runs, a run's report, its
+questions, leaving a question out of a run, and deleting a run.
 
 Everything is scoped to the session's target; a job of another target is a
 404. Figures come from ``report.run_view``.
@@ -20,8 +20,8 @@ from starlette.background import BackgroundTask
 
 from syft_benchmark.config import JobState
 from syft_benchmark.control.app import ConsoleAuth, ConsoleGuard
-from syft_benchmark.control.compose import merge
-from syft_benchmark.control.jobs import OVER_BUDGET, PROGRESS_PLAN
+from syft_benchmark.control.compose import merge, settings_for
+from syft_benchmark.control.jobs import OVER_BUDGET, PROGRESS_PLAN, discard_run
 from syft_benchmark.control.schemas import (
     ExclusionRequest,
     Instrument,
@@ -31,6 +31,8 @@ from syft_benchmark.control.schemas import (
 from syft_benchmark.db import Job, Run, Target, session_scope
 from syft_benchmark.generation import decisions, list_pairs
 from syft_benchmark.generation.pairs import MAX_PAGE as PAIRS_MAX_PAGE
+from syft_benchmark.publish import published_job
+from syft_benchmark.publish import retract as retract_card
 from syft_benchmark.report import (
     exclusions,
     export_xlsx,
@@ -242,6 +244,43 @@ def get_run(job_id: str, auth: ConsoleGuard) -> dict[str, Any]:
         report["timing"] = run_view.timing_of(job)
         report["text_metrics"] = text_view.job_text_metrics(session, job.id)
         return report
+
+
+def _refuse_active(job: Job) -> None:
+    if job.state in run_view.ACTIVE_STATES:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"run {job.id} is still queued or running — stop it first",
+        )
+
+
+@router.delete("/runs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_run(job_id: str, auth: ConsoleGuard) -> None:
+    """Delete a finished run and its answers; its questions stay. A published
+    run is made private first."""
+    with session_scope(auth.settings) as session:
+        target = _target(session, auth)
+        _refuse_active(_job(session, auth, job_id))
+        _, space = settings_for(target, auth.settings)
+
+    checked, standing = published_job(space)
+    if not checked.ok:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"could not check whether the run is published: {checked.detail}",
+        )
+    if standing == job_id:
+        retracted = retract_card(space)
+        if not retracted.ok:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"the published run could not be made private: {retracted.detail}",
+            )
+
+    with session_scope(auth.settings) as session:
+        job = _job(session, auth, job_id)
+        _refuse_active(job)
+        discard_run(session, job)
 
 
 @router.get("/runs/{job_id}/generated")

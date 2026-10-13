@@ -215,6 +215,7 @@ Run reports, under `/console/report`:
 | --- | --- |
 | `GET /runs` | Active jobs and a page of finished runs |
 | `GET /runs/{job}` | One run's report, without per-question rows |
+| `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, exclusions, cached figures and its records on the questions. Questions stay. A published run is made private first; 502 if that fails, 409 while queued or running |
 | `GET /runs/{job}/generated` | The questions the job wrote, and its build per kind (`topped_up`: written by the top-up) |
 | `GET /runs/{job}/filter` | The job's filter decisions |
 | `GET /runs/{job}/questions` | One model's questions in the run, paged |

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { computed, defineComponent, h, nextTick, reactive, ref, shallowRef } from 'vue'
-import { mount, RouterLinkStub } from '@vue/test-utils'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import type { BenchmarkRunProgress, BenchmarkRunSummary, BenchmarkTarget } from '@/api/types'
 import { Select } from '@/components/ui/select'
+import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import RunsList from '@/components/benchmark/report/RunsList.vue'
 import { provideRunReport } from '@/components/benchmark/report/context'
 import type { RunReport, RunsFilters } from '@/components/benchmark/report/useRunReport'
@@ -10,6 +11,8 @@ import { progress, runSummary } from './reportFixtures'
 
 const push = vi.fn()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+vi.mock('vue-sonner', () => ({ toast }))
 
 function fakeReport(
   runs: BenchmarkRunSummary[],
@@ -29,6 +32,7 @@ function fakeReport(
     loaded: ref(true),
     error: ref<string | null>(null),
     refresh: vi.fn(),
+    deleteRun: vi.fn().mockResolvedValue(undefined),
   }
 }
 
@@ -144,6 +148,44 @@ describe('RunsList', () => {
     expect(wrapper.get('[data-testid="runs-empty"]').text()).toBe('No runs yet.')
     await wrapper.get('[data-testid="runs-error"] button').trigger('click')
     expect(report.refresh).toHaveBeenCalled()
+  })
+
+  it('deletes a finished run after confirmation; running runs have no delete', async () => {
+    push.mockClear()
+    const report = fakeReport([runSummary('done')], [progress('live')])
+    const wrapper = mountList(report)
+
+    expect(
+      wrapper.get('[data-testid="run-in-progress"]').find('[data-testid="run-delete"]').exists(),
+    ).toBe(false)
+    const button = wrapper.get('[data-testid="run-row"] [data-testid="run-delete"]')
+    expect(button.attributes('title')).toBe('Delete this run')
+
+    const dialog = wrapper.findComponent(DeleteConfirmationDialog)
+    expect(dialog.props('open')).toBe(false)
+    await button.trigger('click')
+    expect(push).not.toHaveBeenCalled()
+    expect(dialog.props('open')).toBe(true)
+    expect(dialog.props('description')).toContain('its questions are kept')
+    expect(dialog.props('description')).toContain('made private first')
+
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(report.deleteRun).toHaveBeenCalledWith('done')
+    expect(toast.success).toHaveBeenCalledWith('Run deleted')
+    expect(dialog.props('open')).toBe(false)
+  })
+
+  it('keeps the dialog open and says why when a delete fails', async () => {
+    const report = fakeReport([runSummary('done')])
+    report.deleteRun.mockRejectedValue(new Error('the Space did not answer'))
+    const wrapper = mountList(report)
+    await wrapper.get('[data-testid="run-delete"]').trigger('click')
+    const dialog = wrapper.findComponent(DeleteConfirmationDialog)
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(toast.error).toHaveBeenCalled()
+    expect(dialog.props('open')).toBe(true)
   })
 
   it('omits the schedule sentence when nothing runs on a schedule', () => {

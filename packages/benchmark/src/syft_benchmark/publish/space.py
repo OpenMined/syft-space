@@ -275,3 +275,32 @@ def retract(space: SpaceConfig, *, timeout: float = 120.0) -> PublishOutcome:
     except ValueError as exc:
         return PublishOutcome(False, f"unreadable response: {exc}")
     return PublishOutcome(True, f"retracted: {bool(data.get('cleared'))}")
+
+
+def published_job(
+    space: SpaceConfig, *, timeout: float = 30.0
+) -> tuple[PublishOutcome, str | None]:
+    """The job whose card the Space shows now; None — no card stands."""
+    try:
+        resp = httpx.get(
+            f"{space.url}/api/v1/endpoints/{space.endpoint}/quality",
+            headers=_headers(space),
+            timeout=timeout,
+        )
+    except (httpx.TimeoutException, httpx.TransportError) as exc:
+        return PublishOutcome(False, f"{type(exc).__name__}: {exc}"), None
+
+    if resp.status_code == 404:
+        return PublishOutcome(True, "nothing is published", supported=False), None
+    if resp.status_code >= 400:
+        return PublishOutcome(
+            False, f"HTTP {resp.status_code}: {resp.text[:300]}"
+        ), None
+
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        return PublishOutcome(False, f"unreadable response: {exc}"), None
+    report = data.get("report") if data.get("reported") else None
+    job = report.get("job") if isinstance(report, dict) else None
+    return PublishOutcome(True, "read"), (str(job) if job else None)

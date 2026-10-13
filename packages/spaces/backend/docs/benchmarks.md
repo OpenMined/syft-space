@@ -98,6 +98,7 @@ measuring* pauses the target (`enabled: false`) and keeps settings and runs.
 | `/console/pairs`, `/console/results`, `/console/filter`, `/console/judge`, `/console/report`, `/console/publish`, `/console/retract` | The benchmark's console, proxied |
 | `GET /report/runs?status=all\|published\|private&from=&to=` | Runs, each marked `published` with its `card_id` |
 | `GET /report/runs/{job}` and `/questions`, `/generated`, `/filter`, `/questions/{qa}`, `/questions/{qa}/fragments` | One run's report, passed through |
+| `DELETE /report/runs/{job}` | Delete a finished run and its answers; questions stay, a published run is made private first |
 | `PUT/DELETE /report/runs/{job}/questions/{qa}/exclusion` | Leave a question out of the run's figures, or count it again |
 | `GET /report/runs/{job}/summary.docx`, `/export.xlsx` | Downloads |
 | `POST /report/runs/{job}/publish` | Benchmark rebuilds the run's card; the Space stores it and publishes it over newer cards. `refused` lists marketplaces that did not take it |

@@ -457,6 +457,21 @@ def test_excluding_and_restoring_a_question_reach_the_benchmark() -> None:
     )
 
 
+def test_deleting_a_run_reaches_the_benchmark_and_passes_a_refusal_on() -> None:
+    handler, console, _ = _handler()
+    client = _app(handler)
+    path = f"/benchmarks/endpoints/{SLUG}/report/runs/job-old"
+    assert client.delete(path).status_code == 204
+    assert console.calls[-1][:2] == ("DELETE", "/console/report/runs/job-old")
+
+    console.raw = AsyncMock(  # type: ignore[method-assign]
+        return_value=Reply(ok=False, status=409, detail="still running")
+    )
+    refused = client.delete(path)
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "still running"
+
+
 def test_summary_document_arrives_with_the_benchmarks_name_and_type() -> None:
     handler, console, _ = _handler()
     resp = _app(handler).get(

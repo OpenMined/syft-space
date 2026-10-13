@@ -28,17 +28,25 @@ from typing import Any
 
 from loguru import logger
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from syft_benchmark.config import JobKind, JobPhase, JobState, Settings, SpaceConfig
 from syft_benchmark.control.compose import merge, settings_for
 from syft_benchmark.control.schemas import FilterRequest, JudgeRequest, RunRequest
 from syft_benchmark.db import store
-from syft_benchmark.db.models import Job, Run, Target
+from syft_benchmark.db.models import (
+    Job,
+    QaPair,
+    Result,
+    Run,
+    RunAggregate,
+    RunExclusion,
+    Target,
+)
 from syft_benchmark.db.run_cache import invalidate_run
 from syft_benchmark.db.session import session_scope
-from syft_benchmark.generation import filter_and_rotate
+from syft_benchmark.generation import decisions, filter_and_rotate
 from syft_benchmark.llm.cost import CostMeter, cost_meter, meter_for, openrouter_spend
 from syft_benchmark.publish import payload_for, publish
 from syft_benchmark.report import run_view
@@ -372,6 +380,42 @@ def delete(session: Session, job_id: str) -> str:
     session.execute(sa_delete(Run).where(Run.job_id == job_id))
     session.delete(job)
     return "deleted"
+
+
+def discard_run(session: Session, job: Job) -> None:
+    """Delete a finished job and everything only it owns.
+
+    Its runs, answers, verdicts and overrides, exclusions, cached figures, and
+    its build and filter records on the questions. The questions themselves
+    stay: a question once asked is never deleted.
+    """
+    runs = select(Run.id).where(Run.job_id == job.id)
+    session.execute(sa_delete(Result).where(Result.run_id.in_(runs)))
+    session.execute(sa_delete(Run).where(Run.job_id == job.id))
+    session.execute(sa_delete(RunExclusion).where(RunExclusion.job_id == job.id))
+    session.execute(sa_delete(RunAggregate).where(RunAggregate.job_id == job.id))
+    session.execute(
+        update(QaPair)
+        .where(QaPair.space == job.target, QaPair.job_id == job.id)
+        .values(job_id=None)
+    )
+    stamped = QaPair.meta.op("@>")(
+        func.jsonb_build_object(
+            decisions.SCREENING,
+            func.jsonb_build_array(func.jsonb_build_object("job_id", job.id)),
+        )
+    )
+    for pair in session.scalars(
+        select(QaPair).where(QaPair.space == job.target, stamped)
+    ):
+        meta = dict(pair.meta or {})
+        meta[decisions.SCREENING] = [
+            entry
+            for entry in meta.get(decisions.SCREENING) or []
+            if not (isinstance(entry, dict) and entry.get("job_id") == job.id)
+        ]
+        pair.meta = meta
+    session.delete(job)
 
 
 def execute(job_id: str, settings: Settings | None = None) -> None:

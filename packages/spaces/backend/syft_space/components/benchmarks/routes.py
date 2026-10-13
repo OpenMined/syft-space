@@ -532,6 +532,20 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         """One run's report, without per-question rows."""
         return await handler.get_report_run(tenant, slug, job_id)
 
+    @router.delete(
+        "/endpoints/{slug}/report/runs/{job_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def delete_report_run(
+        slug: str,
+        job_id: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> None:
+        """Delete a finished run and its answers; its questions stay. A
+        published run is made private first. 409 while it is queued or running."""
+        await handler.delete_report_run(tenant, slug, job_id)
+
     @router.get("/endpoints/{slug}/report/runs/{job_id}/questions")
     async def list_run_questions(
         slug: str,

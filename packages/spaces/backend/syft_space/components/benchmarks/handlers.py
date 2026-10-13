@@ -838,6 +838,14 @@ class BenchmarkHandler:
         path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}/exclusion"
         _console_empty(await console.raw("DELETE", path))
 
+    async def delete_report_run(self, tenant: Tenant, slug: str, job_id: str) -> None:
+        """Delete a finished run; the benchmark makes a published one private
+        first and keeps its questions."""
+        _, console = await self._report_console(tenant, slug)
+        _console_empty(
+            await console.raw("DELETE", f"/console/report/runs/{_seg(job_id)}")
+        )
+
     async def download_run_summary(
         self, tenant: Tenant, slug: str, job_id: str
     ) -> tuple[bytes, dict[str, str]]:
