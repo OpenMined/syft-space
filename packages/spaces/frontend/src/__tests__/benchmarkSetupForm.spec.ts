@@ -409,6 +409,16 @@ describe('web search settings', () => {
     expect(buildRequest(target, form, KEYS).instrument!.web_search_max_results).toBe(1)
   })
 
+  it('keeps the entity check on unless switched off', () => {
+    const target = makeTarget()
+    const form = formFromTarget(target, KEYS)
+    expect(form.entityCheck).toBe(true)
+    form.entityCheck = false
+    expect(buildRequest(target, form, KEYS).instrument).toMatchObject({ entity_check: false })
+    const off = makeTarget({ instrument: { entity_check: false } })
+    expect(formFromTarget(off, KEYS).entityCheck).toBe(false)
+  })
+
   it('clears the web check judge back to Judge 1', () => {
     const target = makeTarget({ instrument: { filter_judge_model: 'openai/gpt-5.1' } })
     const form = formFromTarget(target, KEYS)

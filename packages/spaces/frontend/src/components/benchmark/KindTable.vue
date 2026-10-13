@@ -3,7 +3,7 @@
 import { ref, watch } from 'vue'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
 import type { BenchmarkKindBuild } from '@/api/types'
-import { droppedLines, droppedTotal, readText, stoppedLabel } from './filter'
+import { droppedLines, droppedTotal, readText, stoppedLabel, writtenText } from './filter'
 import { kindLabel } from './report/labels'
 import { compareKinds } from './questionOrder'
 
@@ -43,7 +43,7 @@ const STOP_TONE: Record<string, string> = {
           <th
             scope="col"
             class="px-3 py-2 text-right font-medium"
-            title="Questions written, of the budget."
+            title="Questions written, of the budget. A top-up writes more of a kind the checks left short."
           >
             Written
           </th>
@@ -72,7 +72,7 @@ const STOP_TONE: Record<string, string> = {
           data-testid="kind-build-row"
         >
           <th scope="row" class="px-3 py-2 text-left font-medium">{{ kindLabel(k.kind) }}</th>
-          <td class="px-3 py-2 text-right tabular-nums">{{ k.written }} / {{ k.budget }}</td>
+          <td class="px-3 py-2 text-right tabular-nums">{{ writtenText(k) }}</td>
           <td class="px-3 py-2 text-right tabular-nums text-muted-foreground">
             {{ readText(k) }}
           </td>

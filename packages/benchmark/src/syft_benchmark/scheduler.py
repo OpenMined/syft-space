@@ -566,6 +566,7 @@ async def _one_pass(
             f"{label}/{outcome.judge}: asked {outcome.asked}, "
             f"correct {outcome.correct}, abstentions {outcome.abstain}, "
             f"hallucinations {outcome.hallucinate}"
+            + (f", incomplete {outcome.incomplete}" if outcome.incomplete else "")
             + (
                 f", from the previous attempt {outcome.resumed}"
                 if outcome.resumed

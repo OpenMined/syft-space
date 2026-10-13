@@ -26,7 +26,7 @@
  * instead of quietly truncating.
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { AlertTriangle, Check, ChevronRight, RotateCcw, UserRound, X } from 'lucide-vue-next'
+import { AlertTriangle, Check, ChevronRight, Minus, RotateCcw, UserRound, X } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
 import { apiErrorDetail } from '@/lib/errors'
@@ -40,7 +40,7 @@ import {
   generatorWords,
   shortModel,
 } from './labels'
-import { BEHAVIOR_LABEL, WEB_SOURCED_TIP, behaviorOf } from './report/labels'
+import { BEHAVIOR_LABEL, behaviorOf, verdictTip } from './report/labels'
 import { metricsLine } from './textMetrics'
 import { sortKinds } from './questionOrder'
 import ClampText from './ClampText.vue'
@@ -123,16 +123,19 @@ const DIRECT = 'direct'
  * was right" is the honest reading, and rounding a disagreement up would make a
  * published number depend on which grader was asked first.
  */
-const WORST_FIRST = ['hallucinate', 'web_sourced', 'abstain', 'correct']
+const WORST_FIRST = ['hallucinate', 'web_sourced', 'abstain', 'incomplete', 'correct']
 
 /** The order the shares are read in. */
-const SHARE_ORDER = ['abstain', 'hallucinate', 'web_sourced', 'correct']
+const SHARE_ORDER = ['abstain', 'incomplete', 'hallucinate', 'web_sourced', 'correct']
 
 /**
  * Nothing was measured: the row is about the rig, not about the model. It
  * takes no part in a share, and it is not a vote in the panel.
  */
 const TECHNICAL = 'technical'
+
+/** The kind graded by key facts, the only one with an incomplete verdict. */
+const KEY_FACTS_KIND = 'tiered_explanation'
 
 interface Cell {
   block: string
@@ -402,6 +405,7 @@ function verdictTone(verdict: string): string {
   if (verdict === 'correct') return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
   if (verdict === 'hallucinate') return 'bg-destructive/10 text-destructive'
   if (verdict === 'web_sourced') return 'bg-sky-500/10 text-sky-700 dark:text-sky-400'
+  if (verdict === 'incomplete') return 'bg-violet-500/10 text-violet-700 dark:text-violet-400'
   // `technical` and `pending` share the grey: neither is an outcome.
   return 'bg-muted text-muted-foreground'
 }
@@ -748,7 +752,7 @@ function goldWhy(question: Question): string {
                   :key="part.verdict"
                   class="rounded px-1.5 py-0.5 text-[11px] whitespace-nowrap"
                   :class="verdictTone(part.verdict)"
-                  :title="part.verdict === 'web_sourced' ? WEB_SOURCED_TIP : undefined"
+                  :title="verdictTip(part.verdict) || undefined"
                 >
                   {{ verdictWords(group.generator, part.verdict) }} {{ share(part.share) }}
                 </span>
@@ -887,9 +891,7 @@ function goldWhy(question: Question): string {
                         :title="
                           tile.verdict === TECHNICAL
                             ? technicalWhy(tile)
-                            : tile.verdict === 'web_sourced'
-                              ? WEB_SOURCED_TIP
-                              : undefined
+                            : verdictTip(tile.verdict) || undefined
                         "
                       >
                         <UserRound v-if="tile.overrideId" class="h-4 w-4" />
@@ -923,6 +925,17 @@ function goldWhy(question: Question): string {
                           @click="override(tile, 'correct')"
                         >
                           <Check class="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          v-if="tile.generator === KEY_FACTS_KIND"
+                          variant="ghost"
+                          size="icon"
+                          class="h-6 w-6 text-muted-foreground hover:text-violet-600"
+                          title="Mark incomplete"
+                          :disabled="busyKey === tile.key"
+                          @click="override(tile, 'incomplete')"
+                        >
+                          <Minus class="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -1186,7 +1199,7 @@ function goldWhy(question: Question): string {
             <p
               v-if="judge.none"
               class="mt-1.5 text-sm text-muted-foreground"
-              title="An option letter matched, or an abstention recognised by its wording."
+              title="An option letter or fill-in answer matched, or an abstention recognised by its wording."
             >
               No judge was asked: the verdict cost no call.
             </p>

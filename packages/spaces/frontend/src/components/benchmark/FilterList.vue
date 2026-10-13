@@ -13,6 +13,7 @@ import {
   outcomeLabel,
   outcomeTone,
   reasonText,
+  reasonTip,
   safeUrl,
   stageLabel,
   writtenInText,
@@ -119,7 +120,11 @@ function toggle(key: string): void {
             {{ outcomeLabel(d.outcome) }}
           </span>
         </div>
-        <p v-if="reasonText(d)" class="pl-5.5 text-xs text-muted-foreground italic break-words">
+        <p
+          v-if="reasonText(d)"
+          class="pl-5.5 text-xs text-muted-foreground italic break-words"
+          :title="reasonTip(d)"
+        >
           {{ reasonText(d) }}
         </p>
 

@@ -346,3 +346,46 @@ def test_hop_facts_are_given_to_the_judge(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert status is PairStatus.ACTIVE
     assert "- Harbourton council restored it." in prompts[0]
+
+
+ORDINARY = sorted(key for key, spec in GENERATORS.items() if not spec.is_control)
+
+
+@pytest.mark.parametrize("kind", ORDINARY)
+def test_every_ordinary_kind_goes_through_the_archive_check(
+    monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    asked: list[str] = []
+
+    def gate(question: str, *_a: Any, **_k: Any) -> control.Gate:
+        asked.append(question)
+        return control.Gate(False, "answer not found in the archive (0 chunks)")
+
+    monkeypatch.setattr(filter_stage, "gate_answerable", gate)
+    row = _pair(kind, NONSENSE, generator=kind)
+
+    status, reason, note, _ = _screen(row, lambda _q: [])
+
+    assert asked == [NONSENSE]
+    assert (status, reason, note) == (
+        PairStatus.REJECTED,
+        StatusReason.NOT_ANSWERABLE,
+        filter_stage.NOT_ANSWERABLE_NOTE,
+    )
+
+
+def test_a_multiple_choice_answer_goes_in_without_its_letter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+
+    def judge(_system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        prompts.append(user)
+        return '{"answered": true}', {}
+
+    monkeypatch.setattr(control, "chat", judge)
+    row = _pair("mcq", ANSWERABLE, answer="B) Harbourton council", generator="mcq")
+
+    _screen(row, _archive)
+
+    assert "Expected answer:\nHarbourton council\n" in prompts[0]

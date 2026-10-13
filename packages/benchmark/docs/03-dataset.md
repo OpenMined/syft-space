@@ -31,6 +31,7 @@ uv run syft-benchmark generate docs --new-cohort -p 1m    # a one-off rebuild
 | `dataset_mode` | `incremental` | How the set behaves over time |
 | `document_window_days` | `0` | Freshness window in days; `0` — the whole corpus |
 | `dataset_max_pairs` | `0` | Cap on active items; `0` — no cap |
+| `top_up_max_usd` | `5.0` | USD a build may spend on the top-up ([02-generation.md](02-generation.md#the-pipeline)); `0` — no top-up |
 
 A rolling set reuses existing items and calls the generator only for new
 material; a rebuild pays for the whole set again.

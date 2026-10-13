@@ -9,7 +9,10 @@ import {
   hasDetails,
   outcomeLabel,
   reasonText,
+  reasonTip,
+  stageLabel,
   writtenInText,
+  writtenText,
 } from '@/components/benchmark/filter'
 import {
   methodSettings,
@@ -61,6 +64,18 @@ describe('filter decisions', () => {
     ).toBe('Not answerable from the archive')
     expect(reasonText({ reason: 'timeout', reason_code: 'other' })).toBe('timeout')
     expect(reasonText({ reason: '', reason_code: null })).toBe('')
+  })
+
+  it('labels the rejects made as a question is written', () => {
+    expect(stageLabel('writing')).toBe('Writing')
+    const unclear = {
+      reason: 'ambiguous entity: Mariam (first name only)',
+      reason_code: 'ambiguous_entity',
+    }
+    expect(reasonText(unclear)).toBe('Unclear subject: Mariam (first name only)')
+    expect(reasonTip(unclear)).toMatch(/identify/)
+    expect(reasonText({ reason: '', reason_code: 'wrong_language' })).toBe('Wrong language')
+    expect(reasonTip({ reason_code: 'grounding' })).toBeUndefined()
   })
 
   it('names the earlier run a question came from', () => {
@@ -192,5 +207,11 @@ describe('generation per kind', () => {
     expect(readText({ ...kind, unit: 'article', failed_units: 2 })).toBe(
       '12 / 40 articles, 2 failed',
     )
+  })
+
+  it('shows what was written of the budget, top-up noted', () => {
+    expect(writtenText({ written: 8, budget: 10 })).toBe('8 / 10')
+    expect(writtenText({ written: 14, budget: 10, topped_up: 4 })).toBe('14 / 10, 4 topped up')
+    expect(stoppedLabel('top-up cost limit')).toBe('Cost limit')
   })
 })

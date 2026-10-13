@@ -59,7 +59,9 @@ You check whether the material found for a question states its expected answer.
 
 You are given a question, its expected answer, sometimes the facts that answer \
 rests on, and the fragments a search returned for the question. Decide whether \
-ANY fragment states the expected answer.
+the fragments, taken together, state the expected answer. When facts are given, \
+it is enough that the fragments state those facts: the expected answer may be \
+an explanation or a synthesis built on them.
 
 When a false premise is given, the question rests on a claim that is not true \
 and the expected answer is its correction. Then decide whether any fragment \
@@ -71,8 +73,8 @@ actually be stated. The wording may differ; the meaning must match.
 Return ONLY a JSON object, no markdown and no commentary:
 {"answered": false, "where": "", "reasoning": "one short sentence"}
 
-Set "answered" to true only if a fragment states it, and put a short quote \
-from that fragment in "where".
+Set "answered" to true only if the fragments state it, and put a short quote \
+from one of them in "where".
 """
 
 # Fragments beyond this many characters are not shown to the judge.

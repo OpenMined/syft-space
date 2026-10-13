@@ -14,7 +14,7 @@ with RAG**:
 
 Half of the set is answerable from the corpus; the control half has no answer,
 and the correct behaviour there is to abstain or refute the premise. Outcomes:
-`correct`, `abstain`, `hallucinate`.
+`correct`, `abstain`, `hallucinate` (an explanation can also be `incomplete`).
 
 **The benchmark measures, the Space publishes, SyftHub displays.** There are no
 hub credentials here.

@@ -994,6 +994,11 @@ def _evaluate_arm(
                     f"abstentions {outcome.abstain}, hallucinations "
                     f"{outcome.hallucinate}, failures {outcome.failed}"
                     + (
+                        f", incomplete {outcome.incomplete}"
+                        if outcome.incomplete
+                        else ""
+                    )
+                    + (
                         f", taken from the earlier attempt {outcome.resumed}"
                         if outcome.resumed
                         else ""
@@ -1530,6 +1535,9 @@ def import_answers_cmd(
     typer.echo(
         f"parsed {outcome.matched}, correct {outcome.correct}, "
         f"abstentions {outcome.abstain}, hallucinations {outcome.hallucinate}"
+        + (f", incomplete {outcome.incomplete}" if outcome.incomplete else "")
+        + (f", from the web {outcome.web_sourced}" if outcome.web_sourced else "")
+        + (f", failures {outcome.technical}" if outcome.technical else "")
     )
     if outcome.missing:
         typer.echo(f"answers with no pair in the dataset: {outcome.missing}")
@@ -1610,6 +1618,7 @@ def import_judging_cmd(
         f"{target.name}: judged {outcome.matched}, "
         f"correct {outcome.correct}, abstentions {outcome.abstain}, "
         f"hallucinations {outcome.hallucinate}"
+        + (f", incomplete {outcome.incomplete}" if outcome.incomplete else "")
         + (f", not found {outcome.missing}" if outcome.missing else "")
     )
     for run_id in outcome.run_ids:

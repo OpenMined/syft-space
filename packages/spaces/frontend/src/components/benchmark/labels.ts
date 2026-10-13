@@ -38,7 +38,7 @@ export const GENERATORS: Record<string, Words> = {
   },
   tiered_explanation: {
     label: 'Tiered explanation',
-    help: 'The same fact explained at a different level of the reader — a child, a professional, an expert. Judged by which facts survive, not by wording.',
+    help: 'A topic explained at one reader level, picked at random — a child, a teenager, an adult. Judged by its key facts, not by wording; anything the article does not support is a hallucination.',
   },
   named_entity_masking: {
     label: 'Named entity',
@@ -64,6 +64,20 @@ export const GENERATORS: Record<string, Words> = {
 
 export function generatorWords(key: string): Words {
   return GENERATORS[key] ?? { label: humanise(key) }
+}
+
+/** What picking an option at random scores: one over the options. */
+export const GUESS_RATE: Record<string, number> = {
+  mcq: 1 / 4,
+  two_truths_one_lie: 1 / 3,
+}
+
+export const GUESS_TIP = 'What picking an option at random would score.'
+
+/** "guess 25%" for a kind answered by picking an option; null otherwise. */
+export function guessText(generator: string): string | null {
+  const rate = GUESS_RATE[generator]
+  return rate === undefined ? null : `guess ${Math.round(rate * 100)}%`
 }
 
 /**

@@ -59,7 +59,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 8
+AGGREGATE_VERSION = 9
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -89,6 +89,7 @@ OUTCOMES = frozenset(
         Verdict.ABSTAIN.value,
         Verdict.HALLUCINATE.value,
         Verdict.WEB_SOURCED.value,
+        Verdict.INCOMPLETE.value,
     }
 )
 TECHNICAL = Verdict.TECHNICAL.value
@@ -97,6 +98,7 @@ ABSTAIN = Verdict.ABSTAIN.value
 HALLUCINATE = Verdict.HALLUCINATE.value
 PENDING = Verdict.PENDING.value
 WEB_SOURCED = Verdict.WEB_SOURCED.value
+INCOMPLETE = Verdict.INCOMPLETE.value
 ACTIVE_STATES = (JobState.QUEUED.value, JobState.RUNNING.value)
 REMOVED_STATUSES = (PairStatus.REJECTED.value, PairStatus.RETIRED.value)
 
@@ -546,6 +548,8 @@ def _tally(verdicts: Iterable[str | None]) -> dict[str, int]:
         "abstain": counts[ABSTAIN],
         "hallucinate": counts[HALLUCINATE],
         "web_sourced": counts[WEB_SOURCED],
+        # Graded, neither right nor hallucinated: in the rates like abstain.
+        "incomplete": counts[INCOMPLETE],
         "pending": counts[PENDING],
         "technical": counts[TECHNICAL],
         "graded": graded,
@@ -939,7 +943,7 @@ def _checks(
         graded = [direct.get((model, arm, qa)) for qa in trick_ids]
         graded = [v for v in graded if v in OUTCOMES]
         web = sum(1 for v in graded if v == WEB_SOURCED)
-        made_up = sum(1 for v in graded if v not in (ABSTAIN, WEB_SOURCED))
+        made_up = sum(1 for v in graded if v not in (ABSTAIN, WEB_SOURCED, INCOMPLETE))
         return len(graded), made_up, web
 
     trick_asked, trick_answered, trick_web = trick(WITH)

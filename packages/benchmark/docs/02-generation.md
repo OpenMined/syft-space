@@ -24,12 +24,12 @@ question, and the typical failure is an invention assembled from real quotes.
 
 | Generator | Class | Scope | Judging | Expected behaviour |
 | --- | --- | --- | --- | --- |
-| `named_entity_masking` | extractive | chunk | judge | answer |
-| `numeric_masking` | extractive | chunk | judge | answer |
-| `temporal_masking` | extractive | chunk | judge | answer |
+| `named_entity_masking` | extractive | chunk | span match, else judge | answer |
+| `numeric_masking` | extractive | chunk | span match, else judge | answer |
+| `temporal_masking` | extractive | chunk | span match, else judge | answer |
 | `mcq` | choice | chunk | by the letter | answer |
 | `two_truths_one_lie` | choice | chunk | by the letter | answer |
-| `multihop_synthesis` | abstractive | document | judge | answer |
+| `multihop_synthesis` | abstractive | document | judge, every hop fact | answer |
 | `tiered_explanation` | abstractive | document | by key facts | answer |
 | `qa` | abstractive | chunk | judge | answer |
 | `unanswerable_property` | negative | chunk | by behaviour | abstain |
@@ -37,8 +37,8 @@ question, and the typical failure is an invention assembled from real quotes.
 
 - **Scope** is what the model is fed: one chunk (first 6000 chars) or the
   whole document (first 12000 chars).
-- **Judging** — see [05-judging.md](05-judging.md). By the letter and by
-  behaviour need no judge model.
+- **Judging** — see [05-judging.md](05-judging.md). By the letter, a span
+  match and by behaviour need no judge model.
 - All ten are on by default; turn generators off with `disabled_generators`.
 
 Every prompt is in English and asks for output in the fragment's language.
@@ -94,9 +94,11 @@ Options are shuffled deterministically from the question text; the seed is in
 different parts of the document. Dropped if the generator listed fewer than
 two facts (`hop_facts`).
 
-**`tiered_explanation`** — one topic explained at `eli5`, `eli10`, `eli18`,
-each with its list of key facts. Judged by coverage of those facts, not by
-wording. One topic per document.
+**`tiered_explanation`** — one topic per document, given as a short neutral
+subject, with 3–5 key facts (the central ones and ones only this story
+reports; at most 5 kept) shared by the `eli5`, `eli10` and `eli18`
+explanations. One level is kept per topic, picked at random, seeded from the
+topic. Judged by coverage of the key facts and by the article, not by wording.
 
 **`qa`** — a free-form question with a short (1–3 sentence) answer.
 
@@ -129,8 +131,10 @@ flowchart TB
     LLMX --> R1
     LLMG --> R1
 
-    R1{"question screening<br/><i>quality.py</i> + language check"} -- "fails" --> DROP["dropped — never stored"]
-    R1 -- "fit" --> PEND[("pending")]
+    R1{"question screening<br/><i>quality.py</i>"} -- "fails" --> DROP["dropped — never stored"]
+    R1 -- "fit" --> R2{"language check,<br/>entity check"}
+    R2 -- "fails" --> REJ[("rejected: wrong_language,<br/>ambiguous_entity")]
+    R2 -- "fit" --> PEND[("pending")]
 
     MARK["processed_units:<br/>space + generator + unit_id + cohort"]
     PICK -.-> MARK
@@ -152,10 +156,21 @@ flowchart TB
 - A stopped build leaves the set as it was; stored items stay in the cohort.
 - From the console and the scheduled cycle each question is screened as soon
   as it is written; from the CLI, run `filter` afterwards.
+- **Top-up** (screened builds only): a kind the checks left below its target
+  gets more written and screened, up to 2 rounds. Target: the kind's budget,
+  at most `ceil(dataset_max_pairs / enabled kinds)` with a cap set (control
+  kinds count). Survivors: this build's questions still `active` or
+  `pending`. A round writes `min(budget, ceil(shortfall / survival rate))` for
+  each short kind with unread material. Survival rate: from the kind's newest
+  200 decided pairs on the target (owner rejections left out),
+  `(kept + 1) / (decided + 2)`, at least 0.1. Spend is capped by
+  `top_up_max_usd` ([03-dataset.md](03-dataset.md)) and by the job's spending
+  cap.
 
-The per-generator report gives budget, units read, written, drop reasons and
-why it stopped (`budget reached`, `ran out of material`, `failure streak`,
-`cancelled`).
+The per-generator report gives budget, units read, written, `topped_up`,
+drop reasons and why it stopped (`budget reached`, `ran out of material`,
+`failure streak`, `cancelled`, `top-up cost limit`). Each top-up round is
+noted, e.g. `top-up round 1: qa +12 (target 10, survival 30%)`.
 
 ### Question screening
 
@@ -181,10 +196,33 @@ unscreened), by class:
   "what did X say" when the document has more than one quote by X.
 
 **Wrong language.** The document's language and each item's language
-(question, answer, options) are detected by the share of function words from
+(the text its writer wrote: question, answer, options, without the fixed
+English wording such as instructions, "Fill in the blank:", "Topic:", "not in
+the corpus:" and option letters) are detected by the share of function words from
 built-in lists for en, ru, de, fr, es, it, pt, nl. An item in a different
-language is dropped as `wrong language`. Text too short (under 12 words) or
+language is rejected (`wrong_language`). Text too short (under 12 words) or
 matching none of the lists gets no verdict, and the item stays.
+
+**Ambiguous entity** (`entity_check`, `entities.py`). One more call to the
+question writer per unit, in a fresh conversation with no article: the unit's
+questions (with options; the sentence of a fill-in, the topic of an
+explanation, the statements of a two-truths item). For each question it lists
+the people, organisations, products, places, events and documents named and
+says whether each is identifiable from the question alone: a full name, or a
+name with a role or affiliation, a product with its maker. A first name, a
+pseudonym, "a startup" or "the company" is not. A question that depends on an
+unidentifiable one is rejected (`ambiguous_entity`, note "ambiguous entity:
+Mariam (first name only)"). A failed call or an unreadable reply keeps the
+questions, `meta.entity_check.outcome` `failed` and a failed Writing decision.
+The call is charged to the `writer` cost role and recorded on the unit's
+first stored pair (`meta.entity_check`; xlsx "Entity check" columns).
+
+Language and entity rejects are stored as `rejected` with a Writing-stage
+filter decision, so they appear in the run's Rejected sheet and Filter list;
+they do not count against a kind's budget. The writer prompts ask for the same
+thing up front: every person, organisation and product named with a full name
+plus role or affiliation, never a first name, pseudonym or anonymous source as
+the subject.
 
 ---
 
@@ -232,10 +270,12 @@ Where the gold answer must differ from the text, the listed claims in
 ### The archive check
 
 Each grounded non-control pair is sent to the live retrieval of the same
-endpoint, and a judge (Judge 1) reads the returned chunks: does any chunk state
-the gold answer (`gate_answerable`, with `meta.claims`, or `meta.hop_facts`,
-as the facts it rests on). For `two_truths_one_lie` the lie goes in as a false
-premise and a chunk must state the true fact it alters.
+endpoint, and a judge (Judge 1) reads the returned chunks together: do they
+state the gold answer (`gate_answerable`). Where facts are listed
+(`meta.claims`, else `meta.hop_facts`), it is enough that the chunks state
+those facts. A multiple-choice answer goes in without its option letter. For
+`two_truths_one_lie` the lie goes in as a false premise and a chunk must state
+the true fact it alters.
 
 - Found → on to the web check. A question that makes no sense finds nothing.
 - Not found, or nothing returned → rejected (`not_answerable`, note "not
@@ -272,7 +312,8 @@ behaviour (`control.py`):
 On when `filter_model` is set. Each pair that passed the archive check is put
 to that model as a bare question (no passage), with web search where its
 provider supports it, otherwise from its own training. The answer is graded the
-way the main run grades that kind of item (letter, key facts or judge —
+way the main run grades that kind of item (letter, span match, key facts
+without the article check, or judge with the hop facts —
 `filter_judge_model`, default the first judge).
 
 - Answered correctly → rejected as `web_answerable`.
@@ -305,6 +346,7 @@ model", and `evaluate`/`freeze` report that no question passed.
 | `filter_judge_model` | empty | Judge of the web check; empty — the first judge |
 | `manual_status_priority` | `filter` | Whether the web check can override a hand-set status |
 | `web_search_generator` | `false` | The generator searches the web (OpenRouter models) |
+| `entity_check` | `true` | Reject questions whose subject the question alone does not identify |
 
 ```bash
 uv run syft-benchmark settings set disabled_generators '["multihop_synthesis","tiered_explanation"]'

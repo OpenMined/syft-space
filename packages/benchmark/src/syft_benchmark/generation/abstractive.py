@@ -14,11 +14,12 @@ both degenerate into paraphrasing a paragraph.
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
-from syft_benchmark.generation.shuffle import shuffle_options
+from syft_benchmark.generation.shuffle import seed_of, shuffle_options
 
 # ---------------------------------------------------------------------------
 # two_truths_one_lie
@@ -36,6 +37,10 @@ relevant, but subtly contradict or alter a specific fact from the fragment.
 CRITICAL RULES:
   - NEVER mention "the document", "the text", "the fragment" or any written \
 source. Write statements as standalone facts.
+  - Name every person, organisation and product so it is identifiable \
+without the story: full name plus role or affiliation, a product with its \
+maker. Never make a first name, a pseudonym or an anonymous source the \
+subject of a statement.
   - The lie must change a SPECIFIC detail — a number, name, setting, outcome \
 or causal relation — so that someone who actually read the source catches it, \
 while someone guessing does not.
@@ -66,6 +71,10 @@ combining AT LEAST 2 specific facts from DIFFERENT parts of the document.
 CRITICAL RULES:
   - NEVER reference "the document", "the text" or any written source. \
 Questions must be standalone queries about the subject itself.
+  - Name every person, organisation and product so it is identifiable \
+without the story: full name plus role or affiliation, a product with its \
+maker. Never make a first name, a pseudonym or an anonymous source the \
+subject of a question.
   - The answer must only be derivable by someone who knows both underlying \
 facts. Someone who read a single paragraph should fail.
   - Multi-hop patterns:
@@ -113,26 +122,43 @@ TIERED_SYSTEM = """\
 You design benchmark questions that measure whether a system has access to a \
 specific body of documents.
 
-Given a document, do two things:
+Given a document, do three things:
 
-1. Identify the CORE TOPIC — express it as a specific, self-contained \
-statement about the subject itself (not "the document discusses ...").
+1. Identify the CORE TOPIC.
 
-2. For each of the 3 audience tiers, write a ground-truth explanation of that \
+2. List the KEY FACTS an explanation of it must cover. Grading checks those \
+facts, not the wording, so make each one a single checkable claim.
+
+3. For each of the 3 audience tiers, write a ground-truth explanation of that \
 topic at the appropriate complexity:
    - eli5: very simple words, an analogy, no jargon
    - eli10: cause and effect, basic context
    - eli18: full nuance, domain terms, broader implications
 
-Alongside each explanation list the KEY FACTS it rests on. Grading checks \
-those facts, not the wording, so make each one a single checkable claim.
+Rules:
+- Give the topic as a short neutral subject ("Goldman Sachs's new technology \
+banking co-head"), not a sentence that states the facts.
+- Name the topic's people, organisations and products so they are \
+identifiable without the story: full name plus role or affiliation, a \
+product with its maker. Never a first name, a pseudonym or an anonymous \
+source.
+- List 3 to 5 key facts: the central ones, and ones only this story reports. \
+Leave out background a reader could know from elsewhere.
+- Use the same key facts for every audience level.
 
 Write in the SAME language as the document.
 
 Respond with ONLY a JSON object. No markdown, no commentary.
-{{"topic": "the core topic as a standalone phrase", "tiers": [\
-{{"tier": "eli5", "explanation": "...", "key_facts": ["fact 1", "fact 2"]}}]}}
+{{"topic": "a short neutral subject", "key_facts": ["fact 1", "fact 2", \
+"fact 3"], "tiers": [{{"tier": "eli5", "explanation": "..."}}]}}
 """
+
+# The most key facts an item keeps.
+MAX_KEY_FACTS = 5
+
+
+# The fixed line a "two truths, one lie" item opens with.
+TTIL_HEAD = "One of the following three statements is FALSE. Identify which one."
 
 
 def _letter(index: int) -> str:
@@ -179,14 +205,13 @@ def clean_ttil(
     # them, and the prompt asks for "two truths and one lie" — the lie settles in
     # last place, and the constant answer "C" gives an accuracy of 1.00 while
     # knowing nothing about the corpus.
-    head = "One of the following three statements is FALSE. Identify which one."
-    texts, lie_index, seed = shuffle_options(texts, lie_index, head + texts[0])
+    texts, lie_index, seed = shuffle_options(texts, lie_index, TTIL_HEAD + texts[0])
 
     listed = "\n".join(f"  {_letter(i)}) {t}" for i, t in enumerate(texts))
     return (
         [
             Pair(
-                question=f"{head}\n{listed}",
+                question=f"{TTIL_HEAD}\n{listed}",
                 answer=f"{_letter(lie_index)}) {texts[lie_index]}",
                 distractors=[t for i, t in enumerate(texts) if i != lie_index],
                 meta={
@@ -247,16 +272,29 @@ def clean_multihop(
     return good[:pairs], rejected
 
 
+def _facts(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(f).strip() for f in value if str(f).strip()]
+
+
 def clean_tiered(
-    items: list[dict[str, Any]], pairs: int, document: str
+    items: list[dict[str, Any]],
+    pairs: int,
+    document: str,
+    *,
+    rng: random.Random | None = None,
 ) -> tuple[list[Pair], list[str]]:
-    """Unfold one model answer into three items of differing levels.
+    """Keep one audience level of the topic, picked at random.
 
     Judged by key facts rather than by a text match: an explanation can be
     correct and unlike the gold answer, and comparing prose with prose would mean
-    punishing the wording.
+    punishing the wording. The levels share one list of key facts.
+
+    Args:
+        rng: Picks the level; None — seeded from the topic, so the same topic
+            always keeps the same level
     """
-    good: list[Pair] = []
     rejected: list[str] = []
 
     payload = items[0] if items else {}
@@ -264,16 +302,16 @@ def clean_tiered(
     tiers = payload.get("tiers") or []
     if not topic or not isinstance(tiers, list):
         return [], ["no topic or tiers"]
+    shared = _facts(payload.get("key_facts"))
 
+    candidates: list[Pair] = []
     for tier_data in tiers:
         if not isinstance(tier_data, dict):
             continue
         tier_id = str(tier_data.get("tier") or "").strip().lower()
         spec = TIERS.get(tier_id)
         explanation = str(tier_data.get("explanation") or "").strip()
-        facts = [
-            str(f).strip() for f in (tier_data.get("key_facts") or []) if str(f).strip()
-        ]
+        facts = (shared or _facts(tier_data.get("key_facts")))[:MAX_KEY_FACTS]
 
         if spec is None or len(explanation) < 20:
             rejected.append(f"tier {tier_id!r} without an explanation")
@@ -284,7 +322,7 @@ def clean_tiered(
             rejected.append(f"tier {tier_id!r} without key facts")
             continue
 
-        good.append(
+        candidates.append(
             Pair(
                 question=f"{spec['instruction']}\n\nTopic: {topic}",
                 answer=explanation,
@@ -293,11 +331,14 @@ def clean_tiered(
                     "tier": tier_id,
                     "tier_label": spec["label"],
                     "topic": topic,
-                    "key_facts": facts[:8],
-                    "claims": facts[:8],
+                    "key_facts": facts,
+                    "claims": facts,
                     "grading": "key_facts",
                 },
             )
         )
 
-    return good, rejected
+    if not candidates:
+        return [], rejected
+    picker = rng or random.Random(seed_of(topic))
+    return [picker.choice(candidates)], rejected

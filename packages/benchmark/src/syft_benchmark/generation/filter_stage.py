@@ -258,7 +258,8 @@ def _archive_check(
 
     The facts are ``meta.claims`` (``meta.hop_facts`` where there are none).
     For two truths and one lie the gold answer is the lie, which the archive
-    must contradict: it goes in as the false premise.
+    must contradict: it goes in as the false premise. A multiple-choice answer
+    goes in without its option letter.
     """
     facts = row.meta.get("claims") or row.meta.get("hop_facts") or []
     if row.generator == _LIE:
@@ -273,7 +274,7 @@ def _archive_check(
         )
     return gate_answerable(
         row.question,
-        row.answer,
+        _OPTION_LETTER.sub("", row.answer),
         gate,
         facts=[str(f) for f in facts],
         settings=conf,

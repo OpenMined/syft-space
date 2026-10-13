@@ -134,8 +134,16 @@ import { Badge } from '@/components/ui/badge'
 import InfoTip from '../InfoTip.vue'
 import { useRun } from './context'
 import { count, DASH, dayTime } from './figures'
-import { WEB_SOURCED_TIP, kindDescription, kindLabel, verdictLabel, verdictTone } from './labels'
 import {
+  INCOMPLETE_TIP,
+  WEB_SOURCED_TIP,
+  kindDescription,
+  kindLabel,
+  verdictLabel,
+  verdictTone,
+} from './labels'
+import {
+  hasIncomplete,
   hasWebSourced,
   kindAsked,
   methodKinds,
@@ -154,11 +162,20 @@ const GRADES = [
 /** Shown only when a run has answers its web search supports. */
 const WEB_GRADE = { verdict: 'web_sourced', text: WEB_SOURCED_TIP }
 
+/** Shown only when a run has incomplete explanations. */
+const INCOMPLETE_GRADE = { verdict: 'incomplete', text: INCOMPLETE_TIP }
+
 const { data } = useRun()
 
-const grades = computed(() =>
-  data.value && hasWebSourced(data.value) ? [...GRADES, WEB_GRADE] : GRADES,
-)
+const grades = computed(() => {
+  const report = data.value
+  if (!report) return GRADES
+  return [
+    ...GRADES,
+    ...(hasIncomplete(report) ? [INCOMPLETE_GRADE] : []),
+    ...(hasWebSourced(report) ? [WEB_GRADE] : []),
+  ]
+})
 
 const day = computed(() => dayTime(utcStamp(data.value?.run.created_at)).split(', ')[0])
 

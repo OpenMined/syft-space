@@ -35,6 +35,7 @@ from syft_benchmark.runs.judge import (
     _NO_FALSE_CLAIMS_NOTE,
     _NOTHING_FALSE_NOTE,
     JUDGE_RULES,
+    explanation_grade,
 )
 from syft_benchmark.runs.status import (
     GeneratorCoverage,
@@ -331,13 +332,35 @@ def test_a_console_miss_with_nothing_false_is_did_not_know() -> None:
     )
 
 
-def test_a_console_miss_without_false_claims_counts_as_hallucinated() -> None:
-    """A verdict pasted in the older form grades as it always did, with the note."""
+@pytest.mark.parametrize(
+    ("item", "answer", "verdict"),
+    [
+        # Short of the facts, nothing false: incomplete, as the API facts check.
+        ('"correct": false, "false_claims": false', "It is a bank.", "incomplete"),
+        ('"correct": false, "false_claims": true', "It is a bank.", "hallucinate"),
+        ('"correct": false', "It is a bank.", "incomplete"),
+        ('"correct": true, "false_claims": false', "It is a bank.", "correct"),
+        # A refusal is did not know, not incomplete.
+        ('"correct": false, "false_claims": false', "I don't know.", "abstain"),
+    ],
+)
+def test_a_console_verdict_on_an_explanation_reads_as_the_facts_check(
+    item: str, answer: str, verdict: str
+) -> None:
+    parsed = parse_verdicts(f'[{{"id": "abc123", {item}, "reasoning": "x"}}]')
+    graded, reasoning = explanation_grade(*parsed["abc123"], answer)
+    assert graded is Verdict(verdict)
+    if graded is Verdict.INCOMPLETE:
+        assert "incomplete" in reasoning
+        assert _NOTHING_FALSE_NOTE not in reasoning
+
+
+def test_a_console_miss_without_false_claims_counts_as_did_not_know() -> None:
     parsed = parse_verdicts(
         '[{"id": "abc123", "correct": false, "reasoning": "missed"}]'
     )
     assert parsed["abc123"] == (
-        Verdict.HALLUCINATE,
+        Verdict.ABSTAIN,
         f"missed {_NO_FALSE_CLAIMS_NOTE}",
     )
 
@@ -345,14 +368,14 @@ def test_a_console_miss_without_false_claims_counts_as_hallucinated() -> None:
 def test_a_line_per_verdict_is_read_too() -> None:
     """The form is set by the chat, not by us: demanding one would break the work.
 
-    A line has no room for "false_claims", so a miss on it counts as hallucinated.
+    A line has no room for "false_claims", so a miss on it counts as did not know.
     """
     parsed = parse_verdicts(
         "abc123: correct — matches the gold answer\ndef456: incorrect — another port"
     )
     assert parsed["abc123"] == (Verdict.CORRECT, "matches the gold answer")
     assert parsed["def456"] == (
-        Verdict.HALLUCINATE,
+        Verdict.ABSTAIN,
         f"another port {_NO_FALSE_CLAIMS_NOTE}",
     )
 
@@ -360,7 +383,7 @@ def test_a_line_per_verdict_is_read_too() -> None:
 def test_english_verdicts_are_read() -> None:
     parsed = parse_verdicts("abc123: correct - matches\ndef456: wrong - no")
     assert parsed["abc123"][0] is Verdict.CORRECT
-    assert parsed["def456"][0] is Verdict.HALLUCINATE
+    assert parsed["def456"][0] is Verdict.ABSTAIN
 
 
 def test_the_console_judge_is_asked_what_the_api_judge_is() -> None:

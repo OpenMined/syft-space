@@ -549,6 +549,8 @@ export interface BenchmarkAnswerable {
   correct: number
   abstain: number
   hallucinate: number
+  /** Explanations that left key facts out, nothing false; absent on older cards. */
+  incomplete?: number | null
   /** Of the times it answered, the share that were wrong. */
   lmi?: number | null
 }
@@ -1189,6 +1191,7 @@ export type BenchmarkVerdict =
   | 'abstain'
   | 'hallucinate'
   | 'web_sourced'
+  | 'incomplete'
   | 'pending'
   | 'technical'
 
@@ -1360,6 +1363,8 @@ export interface BenchmarkReportShare {
   correct: number
   abstain: number
   hallucinate: number
+  /** Absent on older cards. */
+  incomplete?: number | null
   lmi: number | null
 }
 
@@ -1550,6 +1555,8 @@ export interface BenchmarkTally {
   hallucinate: number
   /** Included in `graded`. */
   web_sourced?: number
+  /** Included in `graded`; neither right nor hallucinated. */
+  incomplete?: number
   pending: number
   technical: number
   graded: number
@@ -1666,6 +1673,8 @@ export interface BenchmarkKindBuild {
   /** Failed ones included. */
   units_read: number
   failed_units: number
+  /** Written by the top-up rounds, beyond the budget; included in `written`. */
+  topped_up?: number
   dropped: Record<string, number>
   stopped: string
 }
@@ -1676,7 +1685,7 @@ export interface BenchmarkGeneratedPage {
   total: number
 }
 
-export type BenchmarkFilterStage = 'grounding' | 'control' | 'web_check'
+export type BenchmarkFilterStage = 'writing' | 'grounding' | 'control' | 'web_check'
 export type BenchmarkFilterOutcome = 'kept' | 'removed' | 'failed' | 'skipped'
 
 export interface BenchmarkWebCheck {

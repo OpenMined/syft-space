@@ -165,6 +165,8 @@ class RunReport:
     failed: int = 0
     # Control answers its web search supports: graded, not a hallucination.
     web_sourced: int = 0
+    # Explanations short of the key-facts bar with nothing unsupported.
+    incomplete: int = 0
     # How many verdicts were taken from a previous attempt rather than obtained now.
     # Without this number a resumed run would look like a run over three questions:
     # "asked 3" on a set of fifty is not a report but a riddle.
@@ -188,7 +190,13 @@ class RunReport:
     @property
     def graded(self) -> int:
         """The assessed answers — the denominator of every share."""
-        return self.correct + self.abstain + self.hallucinate + self.web_sourced
+        return (
+            self.correct
+            + self.abstain
+            + self.hallucinate
+            + self.web_sourced
+            + self.incomplete
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -893,7 +901,7 @@ def audit_record(asked: Asked, verdict: Grade, settings: Settings) -> dict[str, 
                 "latency_s": verdict.latency_s,
             }
     else:
-        # The judge was not called: the option letter was matched arithmetically, the
+        # The judge was not called: the option letter or fill-in span was matched, the
         # abstention recognised by regexes. That too is a fact for the audit — the
         # verdict did not cost a call.
         record["judged_without_model"] = True
@@ -945,6 +953,7 @@ def _gradable(pair: QaPair) -> Gradable:
         generator=pair.generator,
         task_type=pair.task_type,
         meta=pair.meta,
+        context=pair.context,
     )
 
 
@@ -969,7 +978,7 @@ async def _verdict_for(pair: QaPair, asked: Asked, seat: Provider, ctx: _Pass) -
 
 
 def _called_judge(verdict: Grade) -> bool:
-    """A judge model was called for this verdict (not a letter match, not deferred)."""
+    """A judge model was called (not a letter or span match, not deferred)."""
     return bool(verdict.judge_user) and verdict.verdict is not Verdict.PENDING
 
 
@@ -1211,6 +1220,8 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
         entry.abstain += 1
     elif verdict.verdict is Verdict.WEB_SOURCED:
         entry.web_sourced += 1
+    elif verdict.verdict is Verdict.INCOMPLETE:
+        entry.incomplete += 1
     else:
         entry.hallucinate += 1
 

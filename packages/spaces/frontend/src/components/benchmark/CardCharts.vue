@@ -30,7 +30,7 @@ import { Bar } from 'vue-chartjs'
 
 import InfoTip from './InfoTip.vue'
 import { barChartHeight, CHART_COLORS, pctBarOptions } from './charts'
-import { generatorWords } from './labels'
+import { generatorWords, guessText } from './labels'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ChartTooltip, Legend)
 
@@ -38,6 +38,8 @@ interface ShareRow {
   correct: number
   abstain: number
   hallucinate: number
+  /** Absent on older cards. */
+  incomplete?: number | null
 }
 
 interface ModelRow {
@@ -81,16 +83,20 @@ const props = defineProps<{
 const distribution = computed(() => {
   const share = props.answerable
   if (!share) return null
+  const bars: { label: string; value: number; color: string }[] = [
+    { label: 'Correct', value: share.correct, color: CHART_COLORS.correct },
+    { label: 'Abstained', value: share.abstain, color: CHART_COLORS.abstain },
+    { label: 'Invented', value: share.hallucinate, color: CHART_COLORS.hallucinate },
+  ]
+  if (share.incomplete) {
+    bars.push({ label: 'Incomplete', value: share.incomplete, color: CHART_COLORS.incomplete })
+  }
   return {
-    labels: ['Correct', 'Abstained', 'Invented'],
+    labels: bars.map((b) => b.label),
     datasets: [
       {
-        data: [
-          Math.round(share.correct * 100),
-          Math.round(share.abstain * 100),
-          Math.round(share.hallucinate * 100),
-        ],
-        backgroundColor: [CHART_COLORS.correct, CHART_COLORS.abstain, CHART_COLORS.hallucinate],
+        data: bars.map((b) => Math.round(b.value * 100)),
+        backgroundColor: bars.map((b) => b.color),
         borderRadius: 6,
         barPercentage: 0.6,
         maxBarThickness: 26,
@@ -125,7 +131,11 @@ const skills = computed(() =>
   [...props.skills].filter((row) => row.samples > 0).sort((a, b) => b.accuracy - a.accuracy),
 )
 const skillsChart = computed(() => ({
-  labels: skills.value.map((row) => generatorWords(row.generator).label),
+  labels: skills.value.map((row) => {
+    const label = generatorWords(row.generator).label
+    const guess = guessText(row.generator)
+    return guess ? `${label} · ${guess}` : label
+  }),
   datasets: [
     {
       data: skills.value.map((row) => Math.round(row.accuracy * 100)),
@@ -269,7 +279,9 @@ const nothingToDraw = computed(
     <div v-if="skills.length" class="border border-border/60 rounded-lg p-3 flex flex-col">
       <div class="flex items-center gap-1.5 mb-2">
         <h4 class="text-xs font-medium text-foreground">By type of question</h4>
-        <InfoTip text="Accuracy per generator. Only the ones this run asked." />
+        <InfoTip
+          text="Accuracy per generator. Only the ones this run asked. Guess: what picking an option at random would score."
+        />
       </div>
       <div class="mt-auto" :style="{ height: `${plotHeight}px` }">
         <Bar :data="skillsChart" :options="pctBarOptions()" />

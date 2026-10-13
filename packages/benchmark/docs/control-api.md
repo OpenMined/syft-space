@@ -29,7 +29,7 @@ sequenceDiagram
 | --- | --- | --- |
 | **Installation** | defaults under everything: addresses, models, concurrency, thresholds | `installation_settings` row — `PUT /settings`, `syft-benchmark settings` |
 | **Instrument** | arms, blocks, judges, models under test, thresholds | `target.instrument` — the Space sends the same one to every target of a connection |
-| **Probe** | set mode, window, generators, `top_k`, similarity threshold | `target.probe` — per target |
+| **Probe** | set mode, window, cap, top-up cost limit (`top_up_max_usd`), generators, `top_k`, similarity threshold | `target.probe` — per target |
 
 Applied in order installation → instrument → probe (`compose.py`) on every
 launch; the closer to the node, the more authority. Each layer stores only
@@ -215,7 +215,7 @@ Run reports, under `/console/report`:
 | --- | --- |
 | `GET /runs` | Active jobs and a page of finished runs |
 | `GET /runs/{job}` | One run's report, without per-question rows |
-| `GET /runs/{job}/generated` | The questions the job wrote, and its build per kind |
+| `GET /runs/{job}/generated` | The questions the job wrote, and its build per kind (`topped_up`: written by the top-up) |
 | `GET /runs/{job}/filter` | The job's filter decisions |
 | `GET /runs/{job}/questions` | One model's questions in the run, paged |
 | `GET /runs/{job}/questions/{qa}` | One question in full |

@@ -154,6 +154,9 @@ class Verdict(StrEnum):
     # A control question answered with specifics its web search supports: not
     # a hallucination, counted on its own.
     WEB_SOURCED = "web_sourced"
+    # An explanation the article supports that falls short of the key-facts
+    # bar: neither right nor hallucinated, counted like abstain in the shares.
+    INCOMPLETE = "incomplete"
 
 
 class ControlOutcome(StrEnum):
@@ -299,6 +302,11 @@ class StatusReason(StrEnum):
     # The web check model answered it correctly with web search
     # (generation/web_check.py).
     WEB_ANSWERABLE = "web_answerable"
+    # Rejected as written (generation/pipeline.py): the item is in another
+    # language than its article, or names a subject the question alone does
+    # not identify.
+    WRONG_LANGUAGE = "wrong_language"
+    AMBIGUOUS_ENTITY = "ambiguous_entity"
     OTHER = "other"
 
 
@@ -791,6 +799,14 @@ class Settings(BaseSettings):
             "particulars it exists to drop"
         ),
     )
+    entity_check: bool = Field(
+        default=True,
+        description=(
+            "Ask the question writer, in a fresh call, whether every person, "
+            "organisation and product a question names is identifiable from the "
+            "question alone; questions that fail are rejected"
+        ),
+    )
     answer_coverage_threshold: float = Field(
         default=0.6,
         ge=0.0,
@@ -938,6 +954,14 @@ class Settings(BaseSettings):
             "The ceiling on active items in the set. Zero — no ceiling. The surplus "
             "is taken out of the measurement rather than deleted: the selection goes "
             "round-robin over the generators"
+        ),
+    )
+    top_up_max_usd: float = Field(
+        default=5.0,
+        ge=0.0,
+        description=(
+            "What a build may spend, in USD, writing and checking more of the kinds "
+            "the checks left short of their target. Zero — no top-up"
         ),
     )
 

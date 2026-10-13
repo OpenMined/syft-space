@@ -31,27 +31,30 @@ There are two kinds of model call:
 from __future__ import annotations
 
 import hashlib
+import math
 import threading
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from syft_benchmark.config import (
     DatasetMode,
     PairStatus,
     Settings,
     SpaceConfig,
+    StatusReason,
     get_settings,
 )
 from syft_benchmark.db import ProcessedUnit, QaPair, session_scope
 from syft_benchmark.generation import cohort as cohorts
+from syft_benchmark.generation import decisions, entities, recorded
 from syft_benchmark.generation.article_dates import article_stamp, backfill
 from syft_benchmark.generation.control import Retriever
 from syft_benchmark.generation.extractive import (
@@ -74,7 +77,7 @@ from syft_benchmark.generation.generators import (
     reasons,
     user_prompt,
 )
-from syft_benchmark.generation.language import detect_language
+from syft_benchmark.generation.language import detect_language, written_text
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.recorded import new_call, writer_meta
@@ -118,12 +121,32 @@ BUDGET_REACHED = "budget reached"
 OUT_OF_MATERIAL = "ran out of material"
 FAILURE_STREAK = "failure streak"
 CANCELLED = "cancelled"
+COST_LIMIT = "top-up cost limit"
+
+# Top-up rounds after the build, at most.
+TOP_UP_ROUNDS = 2
+# A kind's survival rate is read from its newest decided pairs on the target.
+SURVIVAL_WINDOW = 200
+# The lowest survival rate a top-up sizes its writes by.
+MIN_SURVIVAL = 0.1
 
 # Drop reasons the pipeline adds to the generators' own.
 DUPLICATE = "duplicate"
 OVER_BUDGET = "over budget"
 OVER_UNIT_LIMIT = "over the per-passage limit"
 WRONG_LANGUAGE = "wrong language"
+AMBIGUOUS_ENTITY = entities.AMBIGUOUS_ENTITY
+
+
+@dataclass(frozen=True, slots=True)
+class _Rejected:
+    """An item rejected as written: stored rejected, checked no further."""
+
+    pair: Pair
+    # The build's drop reason (``KindStats.dropped``).
+    drop: str
+    reason: StatusReason
+    note: str
 
 
 @dataclass(slots=True)
@@ -140,6 +163,8 @@ class KindStats:
     units_read: int = 0
     # Units whose model call failed.
     failed_units: int = 0
+    # Written by the top-up rounds, on top of the budget.
+    topped_up: int = 0
     dropped: dict[str, int] = field(default_factory=dict)
     stopped: str = ""
 
@@ -156,6 +181,7 @@ class KindStats:
             "units_available": self.units_available,
             "units_read": self.units_read,
             "failed_units": self.failed_units,
+            "topped_up": self.topped_up,
             "dropped": dict(self.dropped),
             "stopped": self.stopped,
         }
@@ -273,6 +299,115 @@ def _mark_processed(
         )
 
 
+def _row(
+    space: SpaceConfig,
+    doc: Document,
+    chunk_id: str,
+    fragment: str,
+    pair: Pair,
+    generator: Generator,
+    model: str,
+    collection: str,
+    *,
+    cohort: str,
+    job: str,
+    writer: dict[str, Any] | None,
+    check: dict[str, Any] | None,
+    rejected: _Rejected | None = None,
+) -> QaPair | None:
+    """Write one item; None — a duplicate, not stored.
+
+    ``writer`` and ``check`` are the unit's writer and entity check calls:
+    the first row stored from each keeps its texts, the rest its id. A
+    ``rejected`` item is stored rejected, with its decision stamped.
+    """
+    meta: dict[str, Any] = {
+        **pair.meta,
+        "grading": pair.meta.get("grading", generator.grading),
+        **article_stamp(doc),
+    }
+    if writer is not None:
+        meta[recorded.WRITER] = writer_meta(writer, fragment[:8000])
+    verdict = pair.meta.get(entities.META)
+    if isinstance(verdict, dict):
+        meta[entities.META] = recorded.check_meta(check or {}, verdict)
+        if verdict.get("outcome") == decisions.FAILED and job:
+            meta.update(
+                decisions.stamped(
+                    meta,
+                    decisions.record(
+                        job_id=job,
+                        stage=decisions.WRITING,
+                        outcome=decisions.FAILED,
+                        note=f"entity check failed: {verdict.get('error') or ''}",
+                    ),
+                )
+            )
+    status = PairStatus.PENDING.value
+    reason: str | None = None
+    note = ""
+    if rejected is not None:
+        status = PairStatus.REJECTED.value
+        reason = rejected.reason.value
+        note = rejected.note
+        if job:
+            meta.update(
+                decisions.stamped(
+                    meta,
+                    decisions.record(
+                        job_id=job,
+                        stage=decisions.WRITING,
+                        outcome=decisions.REMOVED,
+                        note=note,
+                        reason=reason,
+                    ),
+                )
+            )
+    try:
+        with session_scope() as session:
+            row = QaPair(
+                id=uuid.uuid4().hex,
+                space=space.key,
+                cohort=cohort,
+                # Empty where nothing named the launch — the CLI, a console
+                # call. NULL rather than "", so that "this launch's questions"
+                # cannot accidentally match them.
+                job_id=job or None,
+                collection=collection,
+                generator=generator.key,
+                task_type=generator.task_type,
+                doc_id=doc.doc_id,
+                chunk_id=chunk_id,
+                document_title=doc.title,
+                file_name=doc.file_name,
+                question=pair.question,
+                answer=pair.answer,
+                distractors=pair.distractors,
+                context=fragment[:8000],
+                expected_behavior=generator.expected.value,
+                meta=meta,
+                status=status,
+                status_reason=reason,
+                status_note=note,
+                model=model,
+                question_hash=question_hash(pair.question),
+            )
+            session.add(row)
+            session.flush()
+            # Kept usable after the session closes, for the checks.
+            session.expunge(row)
+    except Exception as exc:  # noqa: BLE001 - duplicates caught after the fact, see the module docstring
+        if "qa_pairs_unique" not in str(exc):
+            raise
+        # Not stored: the calls' texts go on the next row.
+        if writer is not None and "system" in meta.get(recorded.WRITER, {}):
+            writer["_stored"] = False
+        if check is not None and "system" in meta.get(entities.META, {}):
+            check["_stored"] = False
+        return None
+    return row
+
+
 def _store(
     space: SpaceConfig,
     doc: Document,
@@ -289,19 +424,21 @@ def _store(
     job: str = "",
     cap: int | None = None,
     writer: dict[str, Any] | None = None,
+    check: dict[str, Any] | None = None,
+    rejected: Sequence[_Rejected] = (),
 ) -> list[QaPair]:
     """Write the items down as pending; returns the rows written.
 
-    ``writer`` is the model call that wrote them (``recorded.new_call``):
-    the first row stored from it keeps its texts in ``meta.writer``, the
-    rest its id.
+    ``writer`` is the model call that wrote them (``recorded.new_call``),
+    ``check`` the unit's entity check call (``_entity_check``): the first row
+    stored from each keeps its texts, the rest its id. ``rejected`` — the
+    items rejected as written: stored rejected, outside the kind's budget
+    and the returned rows.
 
-    Nothing here decides whether an item is fit to measure with — that moved
-    to its own pass, ``filter_stage.filter_pending()``, which reads the
+    Nothing here decides whether a pending item is fit to measure with — that
+    is its own pass, ``filter_stage.filter_pending()``, which reads the
     grounding and the control gate off what is stored here rather than off
-    the fresh candidate. So every pair below lands ``pending``, whatever its
-    answer or its question turn out to be worth; only the filtering pass
-    calls one ``active`` or ``rejected``.
+    the fresh candidate.
     """
     if cap is not None:
         # The kind's question budget for this run (smaller on a trial run).
@@ -311,65 +448,33 @@ def _store(
         stats = report.kinds.get(generator.key)
         if stats is not None:
             stats.drop(OVER_BUDGET, len(pairs) - max(room, 0))
-        if room <= 0:
-            return []
-        pairs = pairs[:room]
+        pairs = pairs[: max(room, 0)]
+
+    def one(pair: Pair, refused: _Rejected | None = None) -> QaPair | None:
+        return _row(
+            space,
+            doc,
+            chunk_id,
+            fragment,
+            pair,
+            generator,
+            model,
+            collection,
+            cohort=cohort,
+            job=job,
+            writer=writer,
+            check=check,
+            rejected=refused,
+        )
 
     written: list[QaPair] = []
     for pair in pairs:
-        stamp = (
-            {"writer": writer_meta(writer, fragment[:8000])}
-            if writer is not None
-            else {}
-        )
-        try:
-            with session_scope() as session:
-                row = QaPair(
-                    id=uuid.uuid4().hex,
-                    space=space.key,
-                    cohort=cohort,
-                    # Empty where nothing named the launch — the CLI, a
-                    # console call. NULL rather than "", so that "this
-                    # launch's questions" cannot accidentally match them.
-                    job_id=job or None,
-                    collection=collection,
-                    generator=generator.key,
-                    task_type=generator.task_type,
-                    doc_id=doc.doc_id,
-                    chunk_id=chunk_id,
-                    document_title=doc.title,
-                    file_name=doc.file_name,
-                    question=pair.question,
-                    answer=pair.answer,
-                    distractors=pair.distractors,
-                    context=fragment[:8000],
-                    expected_behavior=generator.expected.value,
-                    meta={
-                        **pair.meta,
-                        "grading": pair.meta.get("grading", generator.grading),
-                        **article_stamp(doc),
-                        **stamp,
-                    },
-                    status=PairStatus.PENDING.value,
-                    status_note="",
-                    model=model,
-                    question_hash=question_hash(pair.question),
-                )
-                session.add(row)
-                session.flush()
-                # Kept usable after the session closes, for the checks.
-                session.expunge(row)
-        except Exception as exc:  # noqa: BLE001 - duplicates caught after the fact, see the module docstring
-            if "qa_pairs_unique" in str(exc):
-                if writer is not None and "system" in stamp["writer"]:
-                    # Not stored: the call's texts go on the next row.
-                    writer["_stored"] = False
-                report.duplicates += 1
-                if generator.key in report.kinds:
-                    report.kinds[generator.key].drop(DUPLICATE)
-                continue
-            raise
-
+        row = one(pair)
+        if row is None:
+            report.duplicates += 1
+            if generator.key in report.kinds:
+                report.kinds[generator.key].drop(DUPLICATE)
+            continue
         written.append(row)
         report.pairs_made += 1
         report.by_generator[generator.key] = (
@@ -378,6 +483,8 @@ def _store(
         stats = report.kinds.get(generator.key)
         if stats is not None:
             stats.written += 1
+    for item in rejected:
+        one(item.pair, item)
     return written
 
 
@@ -405,7 +512,7 @@ def _masked_to_pairs(
 
 def _drop_wrong_language(
     pairs: list[Pair], document: str
-) -> tuple[list[Pair], list[str]]:
+) -> tuple[list[Pair], list[_Rejected]]:
     """Reject the items written in a language other than the document's.
 
     Every writer prompt asks for the document's language, and still a French or
@@ -421,15 +528,117 @@ def _drop_wrong_language(
     if expected is None:
         return pairs, []
     good: list[Pair] = []
-    rejected: list[str] = []
+    rejected: list[_Rejected] = []
     for pair in pairs:
-        text = " ".join([pair.question, pair.answer, *pair.distractors])
-        found = detect_language(text)
+        found = detect_language(written_text(pair))
         if found is not None and found != expected:
-            rejected.append(WRONG_LANGUAGE)
+            note = f"{WRONG_LANGUAGE}: {found}, the article {expected}"
+            rejected.append(
+                _Rejected(pair, WRONG_LANGUAGE, StatusReason.WRONG_LANGUAGE, note)
+            )
             continue
         good.append(pair)
     return good, rejected
+
+
+@dataclass(slots=True)
+class _EntityCheck:
+    """One entity check call: its record, the verdicts by question, or why
+    there are none."""
+
+    # {call, model, system, user, reply, cost_usd, latency_s}; empty — the
+    # call failed.
+    call: dict[str, Any] = field(default_factory=dict)
+    verdicts: dict[int, entities.Verdict] = field(default_factory=dict)
+    error: str | None = None
+
+
+def _entity_check(
+    texts: list[str],
+    conf: Settings,
+    provider: Provider,
+    hold: Callable[[], AbstractContextManager[None]] = nullcontext,
+) -> _EntityCheck:
+    """Ask the writer model, with no article, whether each question's
+    subjects are identifiable (``entities.SYSTEM``)."""
+    user = entities.user_prompt(texts)
+    try:
+        with hold():
+            raw, usage = chat(
+                entities.SYSTEM,
+                user,
+                provider=provider,
+                max_tokens=entities.TOKENS_PER_QUESTION * len(texts)
+                + REASONING_HEADROOM,
+                settings=conf,
+                role=cost.WRITER,
+            )
+    except LLMError as exc:
+        return _EntityCheck(error=str(exc))
+    call = {
+        "call": uuid.uuid4().hex,
+        "model": provider.model,
+        "system": entities.SYSTEM,
+        "user": user,
+        "reply": raw,
+        **cost.spent(usage),
+    }
+    try:
+        return _EntityCheck(call=call, verdicts=entities.parse(raw, len(texts)))
+    except LLMError as exc:
+        return _EntityCheck(call=call, error=str(exc))
+
+
+def _screen_entities(
+    made: Mapping[str, list[Pair]],
+    conf: Settings,
+    provider: Provider,
+    hold: Callable[[], AbstractContextManager[None]] = nullcontext,
+) -> tuple[dict[str, list[Pair]], dict[str, list[_Rejected]], dict[str, Any]]:
+    """The entity check over one unit's questions, in one call.
+
+    Returns:
+        Per kind the questions kept, each with its verdict in
+        ``meta.entity_check``, and the ones rejected; and the call. A failed
+        call or a question the reply leaves out keeps the question, its
+        verdict ``failed``
+    """
+    kept: dict[str, list[Pair]] = {key: [] for key in made}
+    rejected: dict[str, list[_Rejected]] = {key: [] for key in made}
+    order = [(key, pair) for key, pairs in made.items() for pair in pairs]
+    if not conf.entity_check or not order:
+        return dict(made), rejected, {}
+    check = _entity_check(
+        [entities.shown(key, pair) for key, pair in order], conf, provider, hold
+    )
+    for i, (key, pair) in enumerate(order):
+        verdict = check.verdicts.get(i)
+        record: dict[str, Any] = (
+            {
+                "outcome": decisions.FAILED,
+                "error": check.error or "the reply has no verdict on it",
+            }
+            if verdict is None
+            else {
+                "outcome": decisions.KEPT if verdict.ok else decisions.REMOVED,
+                "entities": verdict.entities,
+            }
+        )
+        stamped = replace(pair, meta={**pair.meta, entities.META: record})
+        if verdict is not None and not verdict.ok:
+            rejected[key].append(
+                _Rejected(
+                    stamped,
+                    AMBIGUOUS_ENTITY,
+                    StatusReason.AMBIGUOUS_ENTITY,
+                    verdict.note(),
+                )
+            )
+        else:
+            kept[key].append(stamped)
+    if check.error:
+        logger.warning(f"entity check failed, the questions are kept: {check.error}")
+    return kept, rejected, check.call
 
 
 @dataclass(slots=True)
@@ -594,11 +803,15 @@ class _Outcome:
     """What one unit gave back: questions per kind, or the error."""
 
     pairs: dict[str, tuple[list[Pair], list[str]]] = field(default_factory=dict)
+    # Per kind, the items rejected as written.
+    rejected: dict[str, list[_Rejected]] = field(default_factory=dict)
     model: str = ""
     parsed: int = 0
     error: str | None = None
     # The writer call (``recorded.new_call``).
     call: dict[str, Any] = field(default_factory=dict)
+    # The entity check call (``_entity_check``).
+    check: dict[str, Any] = field(default_factory=dict)
 
 
 def _queues(
@@ -657,21 +870,108 @@ def _queues(
 
 
 def _settle_kinds(
-    report: GenerationReport, queues: Sequence[_Queue], cap: int, *, cancelled: bool
+    report: GenerationReport,
+    queues: Sequence[_Queue],
+    caps: Mapping[str, int],
+    *,
+    cancelled: bool,
+    limited: bool = False,
 ) -> None:
-    """Why each kind stopped writing."""
+    """Why each kind stopped writing; ``limited`` — the top-up hit its cost limit."""
     queue_of = {key: queue for queue in queues for key in queue.keys}
     for key, stats in report.kinds.items():
         queue = queue_of.get(key)
         left = queue is not None and queue.pos < len(queue.units)
-        if stats.written >= cap:
+        if stats.written >= caps.get(key, stats.budget):
             stats.stopped = BUDGET_REACHED
         elif queue is not None and queue.gave_up:
             stats.stopped = FAILURE_STREAK
         elif cancelled and left:
             stats.stopped = CANCELLED
+        elif limited and left:
+            stats.stopped = COST_LIMIT
         else:
             stats.stopped = OUT_OF_MATERIAL
+
+
+def kind_targets(keys: Sequence[str], cap: int, conf: Settings) -> dict[str, int]:
+    """How many of each kind should pass the checks: its write budget, and
+    with a set cap (``dataset_max_pairs``) no more than an even share of it."""
+    share = cap
+    if conf.dataset_max_pairs and keys:
+        share = math.ceil(conf.dataset_max_pairs / len(keys))
+    return {key: min(cap, share) for key in keys}
+
+
+def survival_rates(space: str, keys: Sequence[str], conf: Settings) -> dict[str, float]:
+    """Each kind's share of decided pairs on this target that passed the checks.
+
+    Read from its newest ``SURVIVAL_WINDOW`` pairs that are active, retired
+    or rejected, an owner's rejection left out, as (kept + 1) / (decided + 2):
+    a kind with no history reads as one half.
+    """
+    decided = (
+        PairStatus.ACTIVE.value,
+        PairStatus.RETIRED.value,
+        PairStatus.REJECTED.value,
+    )
+    rates: dict[str, float] = {}
+    with session_scope(conf) as session:
+        for key in keys:
+            statuses = list(
+                session.execute(
+                    select(QaPair.status)
+                    .where(
+                        QaPair.space == space,
+                        QaPair.generator == key,
+                        QaPair.status.in_(decided),
+                        or_(
+                            QaPair.status_reason.is_(None),
+                            QaPair.status_reason != StatusReason.OWNER.value,
+                        ),
+                    )
+                    .order_by(QaPair.created_at.desc(), QaPair.id.desc())
+                    .limit(SURVIVAL_WINDOW)
+                ).scalars()
+            )
+            kept = sum(1 for status in statuses if status != PairStatus.REJECTED.value)
+            rates[key] = (kept + 1) / (len(statuses) + 2)
+    return rates
+
+
+def top_up_plan(
+    targets: Mapping[str, int],
+    survived: Mapping[str, int],
+    rates: Mapping[str, float],
+    cap: int,
+) -> dict[str, int]:
+    """How many more of each kind to write: its shortfall over its survival
+    rate (at least ``MIN_SURVIVAL``), at most ``cap``. Kinds at their target
+    are left out."""
+    plan: dict[str, int] = {}
+    for key, target in targets.items():
+        short = target - survived.get(key, 0)
+        if short > 0 and cap > 0:
+            rate = max(rates.get(key, 0.5), MIN_SURVIVAL)
+            plan[key] = min(cap, math.ceil(short / rate - 1e-9))
+    return plan
+
+
+def _survivors(written: Mapping[str, Sequence[str]], conf: Settings) -> dict[str, int]:
+    """Per kind, how many of the pairs written are active or still pending."""
+    ids = [pair_id for group in written.values() for pair_id in group]
+    if not ids:
+        return {}
+    with session_scope(conf) as session:
+        rows = session.execute(
+            select(QaPair.generator, QaPair.status).where(QaPair.id.in_(ids))
+        ).all()
+    alive = (PairStatus.ACTIVE.value, PairStatus.PENDING.value)
+    counts: dict[str, int] = {}
+    for generator, status in rows:
+        if status in alive:
+            counts[generator] = counts.get(generator, 0) + 1
+    return counts
 
 
 def _checked(screening: Screening, row: QaPair) -> None:
@@ -737,7 +1037,10 @@ def generate_for_space(
             the control gate, then the web check (``filter_stage.Screening``),
             while generation goes on. The set is then not recomputed here: the
             caller's filter pass checks what is left and recomputes it once
-            (``filter_and_rotate(rotate_anyway=True)``)
+            (``filter_and_rotate(rotate_anyway=True)``). After the build, a
+            kind short of its target (``kind_targets``) gets more written and
+            checked the same way: up to ``TOP_UP_ROUNDS`` rounds, sized by its
+            survival rate on this target, until ``top_up_max_usd`` is spent
         retrieve: What the control gate checks with when screening
         on_progress: Told "written N · checked M · removed R" as the build goes
 
@@ -776,6 +1079,8 @@ def generate_for_space(
     # not passages read, so a passage that yields less does not shrink the set.
     quota = (limit or conf.chunks_per_run) * conf.pairs_per_chunk
     cap = quota if per_generator is None else min(quota, per_generator)
+    # Per kind; the top-up raises a short kind's.
+    caps = {spec.key: cap for spec in specs}
     for spec in specs:
         report.kinds[spec.key] = KindStats(
             kind=spec.key,
@@ -834,7 +1139,7 @@ def generate_for_space(
     collection_id = client.collection_id(name)
     if collection_id is None:
         report.notes.append(f'there is no collection "{name}"')
-        _settle_kinds(report, [], cap, cancelled=False)
+        _settle_kinds(report, [], caps, cancelled=False)
         return report
 
     documents = load_documents(client, collection_id)
@@ -908,20 +1213,27 @@ def generate_for_space(
     # dispatched only while its kind has room beyond them, so the walk reads
     # no passage it does not need. A unit that writes less frees the room.
     reserved: dict[str, int] = {}
+    # The ids of the questions written, per kind.
+    built: dict[str, list[str]] = {}
 
     def wanted(queue: _Queue) -> tuple[str, ...]:
         return tuple(
             key
             for key in queue.keys
-            if report.by_generator.get(key, 0) + reserved.get(key, 0) < cap
+            if report.by_generator.get(key, 0) + reserved.get(key, 0) < caps[key]
         )
 
     def work(
         queue: _Queue, doc: Document, chunk: Chunk | None, keys: tuple[str, ...]
     ) -> _Outcome:
-        """One unit on a worker thread: the model call and the cleaning."""
+        """One unit on a worker thread: the model calls and the cleaning."""
         whole = document_text(doc)
         call: dict[str, Any] = {}
+        # Per kind: what passed the generator's own screening and the
+        # language check, why the rest did not, and what is stored rejected.
+        made: dict[str, list[Pair]] = {}
+        bad: dict[str, list[str]] = {}
+        refused: dict[str, list[_Rejected]] = {}
         if queue.spec is None:
             assert chunk is not None
             extracted = _extractive_for_chunk(
@@ -929,38 +1241,40 @@ def generate_for_space(
             )
             if extracted.error:
                 return _Outcome(error=extracted.error)
-            made: dict[str, tuple[list[Pair], list[str]]] = {}
+            parsed = sum(len(v) for v in extracted.by_key.values())
             for key, masked in extracted.by_key.items():
-                good, bad = _masked_to_pairs(masked, whole)
-                good, foreign = _drop_wrong_language(good, whole)
-                bad += foreign
+                good, bad[key] = _masked_to_pairs(masked, whole)
+                made[key], refused[key] = _drop_wrong_language(good, whole)
+        else:
+            with slots.hold():
+                items, error = _run_llm_generator(
+                    queue.spec, doc, chunk, conf, provider, record=call
+                )
+            if error:
+                return _Outcome(error=error)
+            key = queue.spec.key
+            good, bad[key] = queue.spec.clean(items, conf.pairs_per_chunk, whole)
+            made[key], refused[key] = _drop_wrong_language(good, whole)
+            parsed = len(made[key])
+        made, unclear, check = _screen_entities(made, conf, provider, slots.hold)
+        pairs: dict[str, tuple[list[Pair], list[str]]] = {}
+        for key, good in made.items():
+            refused[key] += unclear[key]
+            dropped = bad[key] + [r.drop for r in refused[key]]
+            if queue.spec is None:
                 # The model may return more than asked, and one dense passage
                 # would spend a kind's budget.
                 surplus = max(0, len(good) - conf.pairs_per_chunk)
-                made[key] = (
-                    good[: conf.pairs_per_chunk],
-                    bad + [OVER_UNIT_LIMIT] * surplus,
-                )
-            return _Outcome(
-                pairs=made,
-                model=conf.generator_model,
-                parsed=sum(len(v) for v in extracted.by_key.values()),
-                call=call,
-            )
-        with slots.hold():
-            items, error = _run_llm_generator(
-                queue.spec, doc, chunk, conf, provider, record=call
-            )
-        if error:
-            return _Outcome(error=error)
-        good, bad = queue.spec.clean(items, conf.pairs_per_chunk, whole)
-        good, foreign = _drop_wrong_language(good, whole)
-        bad += foreign
+                dropped += [OVER_UNIT_LIMIT] * surplus
+                good = good[: conf.pairs_per_chunk]
+            pairs[key] = (good, dropped)
         return _Outcome(
-            pairs={queue.spec.key: (good, bad)},
+            pairs=pairs,
+            rejected=refused,
             model=conf.generator_model,
-            parsed=len(good),
+            parsed=parsed,
             call=call,
+            check=check,
         )
 
     def settle(
@@ -1009,9 +1323,12 @@ def generate_for_space(
                 conf=conf,
                 cohort=cohort,
                 job=job,
-                cap=cap,
+                cap=caps[key],
                 writer=outcome.call or None,
+                check=outcome.check or None,
+                rejected=outcome.rejected.get(key, ()),
             )
+            built.setdefault(key, []).extend(row.id for row in rows)
             if screening is not None and check_pool is not None:
                 checks.extend(check_pool.submit(_checked, screening, r) for r in rows)
         _mark_processed(
@@ -1021,63 +1338,136 @@ def generate_for_space(
         tell()
 
     checks: list[Future[None]] = []
-    running: dict[
-        Future[_Outcome], tuple[_Queue, Document, Chunk | None, tuple[str, ...]]
-    ] = {}
-    check_pool = (
-        ThreadPoolExecutor(max_workers=width, thread_name_prefix="check")
-        if screening is not None
-        else None
-    )
-    try:
-        with ThreadPoolExecutor(max_workers=width, thread_name_prefix="gen") as pool:
-            while True:
-                # Round-robin over the kinds, one unit each per sweep.
-                dispatched = True
-                while dispatched and len(running) < width and not called_off():
-                    dispatched = False
-                    for queue in queues:
-                        if len(running) >= width:
-                            break
-                        if queue.done or queue.pos >= len(queue.units):
-                            continue
-                        if gave_up(queue.label, queue.streak):
-                            queue.done = True
-                            queue.gave_up = True
-                            continue
-                        keys = wanted(queue)
-                        if not keys:
-                            continue
-                        doc, chunk = queue.units[queue.pos]
-                        queue.pos += 1
-                        report.units_seen += 1
-                        if on_unit is not None:
-                            on_unit(
-                                queue.label,
-                                queue.pos,
-                                len(queue.units),
-                                report.pairs_made,
-                            )
+    check_pool: ThreadPoolExecutor | None = None
+
+    def build(halt: Callable[[], bool] = lambda: False) -> None:
+        """Walk the queues until every kind has its cap, the material runs
+        out, the owner stops it or ``halt`` says so."""
+        nonlocal check_pool
+        running: dict[
+            Future[_Outcome], tuple[_Queue, Document, Chunk | None, tuple[str, ...]]
+        ] = {}
+        # The workers charge the meter current here: the top-up's limit reads it.
+        check_pool = (
+            ThreadPoolExecutor(
+                max_workers=width, thread_name_prefix="check", **cost.pool_kwargs()
+            )
+            if screening is not None
+            else None
+        )
+        try:
+            with ThreadPoolExecutor(
+                max_workers=width, thread_name_prefix="gen", **cost.pool_kwargs()
+            ) as pool:
+                while True:
+                    # Round-robin over the kinds, one unit each per sweep.
+                    dispatched = True
+                    while (
+                        dispatched
+                        and len(running) < width
+                        and not called_off()
+                        and not halt()
+                    ):
+                        dispatched = False
+                        for queue in queues:
+                            if len(running) >= width:
+                                break
+                            if queue.done or queue.pos >= len(queue.units):
+                                continue
+                            if gave_up(queue.label, queue.streak):
+                                queue.done = True
+                                queue.gave_up = True
+                                continue
+                            keys = wanted(queue)
+                            if not keys:
+                                continue
+                            doc, chunk = queue.units[queue.pos]
+                            queue.pos += 1
+                            report.units_seen += 1
+                            if on_unit is not None:
+                                on_unit(
+                                    queue.label,
+                                    queue.pos,
+                                    len(queue.units),
+                                    report.pairs_made,
+                                )
+                            for key in keys:
+                                reserved[key] = reserved.get(key, 0) + queue.per_unit
+                            future = pool.submit(work, queue, doc, chunk, keys)
+                            running[future] = (queue, doc, chunk, keys)
+                            dispatched = True
+                    if not running:
+                        break
+                    finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                    for future in finished:
+                        queue, doc, chunk, keys = running.pop(future)
                         for key in keys:
-                            reserved[key] = reserved.get(key, 0) + queue.per_unit
-                        future = pool.submit(work, queue, doc, chunk, keys)
-                        running[future] = (queue, doc, chunk, keys)
-                        dispatched = True
-                if not running:
+                            reserved[key] -= queue.per_unit
+                        settle(queue, doc, chunk, keys, future.result())
+        finally:
+            if check_pool is not None:
+                # Written questions are checked before the build reports; on a
+                # stop the checks not started leave their questions pending.
+                check_pool.shutdown(wait=True)
+
+    build()
+
+    # The top-up: more of each kind the checks left short of its target.
+    limited = False
+    if screening is not None and conf.top_up_max_usd > 0 and not stopped:
+        current = cost.current()
+        metered: AbstractContextManager[cost.CostMeter] = (
+            nullcontext(current) if current is not None else cost.cost_meter()
+        )
+        with metered as meter:
+            start = meter.total_usd
+
+            def over() -> bool:
+                return meter.total_usd - start >= conf.top_up_max_usd
+
+            targets = kind_targets(list(report.kinds), cap, conf)
+            for turn in range(1, TOP_UP_ROUNDS + 1):
+                if called_off() or over():
                     break
-                finished, _ = wait(running, return_when=FIRST_COMPLETED)
-                for future in finished:
-                    queue, doc, chunk, keys = running.pop(future)
-                    for key in keys:
-                        reserved[key] -= queue.per_unit
-                    settle(queue, doc, chunk, keys, future.result())
-    finally:
-        if check_pool is not None:
-            # Written questions are checked before the build reports; on a stop
-            # the checks not started leave their questions pending.
-            check_pool.shutdown(wait=True)
+                open_keys = {
+                    key
+                    for queue in queues
+                    if not queue.done and queue.pos < len(queue.units)
+                    for key in queue.keys
+                }
+                rates = survival_rates(space.key, list(targets), conf)
+                plan = {
+                    key: extra
+                    for key, extra in top_up_plan(
+                        targets, _survivors(built, conf), rates, cap
+                    ).items()
+                    if key in open_keys
+                }
+                if not plan:
+                    break
+                report.notes.append(
+                    f"top-up round {turn}: "
+                    + ", ".join(
+                        f"{key} +{extra} (target {targets[key]}, "
+                        f"survival {rates[key]:.0%})"
+                        for key, extra in plan.items()
+                    )
+                )
+                before = dict(report.by_generator)
+                for key, extra in plan.items():
+                    caps[key] = report.by_generator.get(key, 0) + extra
+                build(halt=over)
+                for key in plan:
+                    report.kinds[key].topped_up += report.by_generator.get(
+                        key, 0
+                    ) - before.get(key, 0)
+            limited = over()
+        if limited:
+            report.notes.append(
+                f"top-up stopped at its cost limit, ${conf.top_up_max_usd:g}"
+            )
     tell(final=True)
-    _settle_kinds(report, queues, cap, cancelled=stopped)
+    _settle_kinds(report, queues, caps, cancelled=stopped, limited=limited)
     if screening is not None:
         report.screened = screening.summary()
 

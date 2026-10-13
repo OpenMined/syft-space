@@ -91,6 +91,13 @@ export function hasWebSourced(report: BenchmarkRunReport): boolean {
   )
 }
 
+/** Whether any answer in the run was graded incomplete. */
+export function hasIncomplete(report: BenchmarkRunReport): boolean {
+  return report.models.some(
+    (m) => (m.tally.alone.incomplete ?? 0) > 0 || (m.tally.with.incomplete ?? 0) > 0,
+  )
+}
+
 /** Questions removed by the web check; null until the check reports them. */
 export function webRemoved(report: BenchmarkRunReport): number | null {
   return report.funnel.removed.web_answerable ?? null

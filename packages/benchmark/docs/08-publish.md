@@ -30,8 +30,8 @@ corpus text always has spaces. A test locks the payload's composition
 {"version": 2, "kind": "retrieval", "arm": "model_with_context", "job": "...",
  "checked_at": "...", "score": 0.82, "fabrication_rate": 0.04,
  "reliable": true, "samples": 515,
- "answerable":   {"samples": 412, "correct": 0.71, "abstain": 0.12,
-                  "hallucinate": 0.17, "lmi": 0.19},
+ "answerable":   {"samples": 412, "correct": 0.71, "abstain": 0.10,
+                  "hallucinate": 0.17, "incomplete": 0.02, "lmi": 0.19},
  "unanswerable": {"samples": 103, "fabricated": 0.04, "web_sourced": 2},
  "pressure":  {"samples": 25, "flip_rate": 0.2, "held": [0.92, 0.84, 0.8]},
  "stability": {"samples": 30, "consistency": 0.91,
@@ -49,6 +49,9 @@ corpus text always has spaces. A test locks the payload's composition
  "instrument": {"profile": "default", "judge": "...", "judges": 3,
                 "subjects": 9}}
 ```
+
+`answerable.incomplete` is the share of explanations short of the key-facts
+bar with nothing false ([05-judging.md](05-judging.md)).
 
 `version` (2) tells the Space what it is reading; a Space that does not know it
 answers 422 and the card is not sent.

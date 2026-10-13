@@ -43,18 +43,24 @@ Rules:
 "the document", "the article" or "according to ...". Name the subject \
 explicitly instead, so that the question still makes sense to someone who \
 has never seen the fragment.
-3. Never point at something with "this", "that", "these", "those" — no "this \
+3. Name every person, organisation and product so it is identifiable \
+without the story: full name plus role or affiliation ("Sarah Chen, the \
+CFO of Stripe"), a product with its maker. Never make a first name, a \
+pseudonym or an anonymous source the subject of a question; if the \
+fragment names someone no better, ask about something else.
+4. Never point at something with "this", "that", "these", "those" — no "this \
 statement", "that decision", "these measures". The reader sees your question \
 alone, with no earlier question to point back to. Name the thing instead.
-4. The question must have exactly ONE correct answer. Do not ask "what did X \
+5. The question must have exactly ONE correct answer. Do not ask "what did X \
 say about Y" when X is quoted more than once, and do not ask for "one of the" \
 several things: pin the question to a detail that identifies the answer.
-5. Prefer concrete facts: numbers, names, dates, settings, causes, steps.
-6. Build each question on a fact that only this story reports: its own \
+6. Prefer concrete facts: numbers, names, dates, settings, causes, steps.
+7. Build each question on a fact that only this story reports about a \
+subject named as rule 3 says: its own \
 figures, named sources, quotes or inside details. Avoid facts that other \
 outlets also covered or that are general background.
-7. Use only what the fragment states. Invent nothing.
-8. Write the question and the answer in the SAME language as the fragment.
+8. Use only what the fragment states. Invent nothing.
+9. Write the question and the answer in the SAME language as the fragment.
 """
 
 _QA_SYSTEM = f"""\
@@ -62,7 +68,7 @@ You build a question-answer benchmark for a private knowledge base. \
 You are given ONE fragment of ONE document and must produce exactly {{n}} \
 question-answer pairs.
 
-{_RULES}9. The answer is short: one to three sentences.
+{_RULES}10. The answer is short: one to three sentences.
 
 Return ONLY a JSON array of {{n}} objects:
 [{{{{"question": "...", "answer": "...", "difficulty": "easy|medium|hard"}}}}]
@@ -74,9 +80,9 @@ You build a multiple-choice benchmark for a private knowledge base. \
 You are given ONE fragment of ONE document and must produce exactly {{n}} \
 questions with four options each.
 
-{_RULES}9. Exactly one option is correct; the other three are plausible but wrong \
+{_RULES}10. Exactly one option is correct; the other three are plausible but wrong \
 according to the fragment.
-10. The wrong options must sound right to someone who hasn't read the story, \
+11. The wrong options must sound right to someone who hasn't read the story, \
 and each must be contradicted by it.
 
 Return ONLY a JSON array of {{n}} objects:

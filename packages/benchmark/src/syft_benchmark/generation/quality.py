@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import re
 
+from syft_benchmark.generation.extractive import FILL_IN_PREFIX
+
 # A question that refers to "the text" or "the article" is useless in a
 # benchmark: during testing the answerer will see only the question itself,
 # without the source.
@@ -99,8 +101,6 @@ _SPEECH_RE = re.compile(
     r"declares?|declared|according\s+to)\b",
     re.IGNORECASE,
 )
-
-_FILL_IN_PREFIX = "Fill in the blank:"
 
 # --- a question with several correct answers --------------------------------
 # "What did coach Dan Hurley say about the victory?" — the document has several
@@ -264,7 +264,7 @@ def reject_reason(
         # The checks run on the sentence itself, so the first word they skip is
         # the sentence's own rather than the "Fill" of the prefix. The blank is
         # no anchor: a hidden name does not tell the reader who "he" is.
-        sentence = question.removeprefix(_FILL_IN_PREFIX).strip()
+        sentence = question.removeprefix(FILL_IN_PREFIX).strip()
         reason = _unanchored_reason(sentence)
         if reason:
             return reason

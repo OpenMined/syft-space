@@ -8,6 +8,7 @@ import {
   verdictTone,
 } from '@/components/benchmark/report/labels'
 import {
+  hasIncomplete,
   hasWebSourced,
   methodKinds,
   trickReading,
@@ -135,6 +136,16 @@ describe('control outcomes', () => {
     const m = modelReport(OPUS)
     const withWeb = { ...m, tally: { ...m.tally, alone: { ...m.tally.alone, web_sourced: 1 } } }
     expect(hasWebSourced(runReport({ models: [withWeb] }))).toBe(true)
+  })
+
+  it('labels incomplete and tells whether a run has any', () => {
+    expect(verdictLabel('incomplete')).toBe('Incomplete')
+    expect(verdictTip('incomplete')).toBe('Left out key facts but stated nothing false.')
+    expect(outcomeLabel('tiered_explanation', 'incomplete')).toBe('Incomplete')
+    expect(hasIncomplete(runReport({ models: [modelReport(OPUS)] }))).toBe(false)
+    const m = modelReport(OPUS)
+    const partial = { ...m, tally: { ...m.tally, with: { ...m.tally.with, incomplete: 1 } } }
+    expect(hasIncomplete(runReport({ models: [partial] }))).toBe(true)
   })
 })
 

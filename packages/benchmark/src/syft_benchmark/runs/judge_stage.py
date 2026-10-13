@@ -75,14 +75,16 @@ class JudgeSummary:
     hallucinate: int = 0
     failed: int = 0
     web_sourced: int = 0
+    incomplete: int = 0
     notes: list[str] = field(default_factory=list)
 
     def line(self) -> str:
         web = f", {self.web_sourced} from the web" if self.web_sourced else ""
+        partial = f", {self.incomplete} incomplete" if self.incomplete else ""
         return (
             f"checked {self.checked} — {self.correct} correct, "
-            f"{self.abstain} abstained, {self.hallucinate} hallucinated{web}, "
-            f"{self.failed} failed"
+            f"{self.abstain} abstained, {self.hallucinate} hallucinated{web}"
+            f"{partial}, {self.failed} failed"
         )
 
 
@@ -97,7 +99,13 @@ class _Task:
     answer: str
     grading: str
     key_facts: list[str]
+    # The article the pair was written from: key-facts grading checks against it.
+    context: str
     is_mcq: bool
+    # A fill-in-the-blank: a matching span is graded without the judge.
+    fill_in: bool
+    # Connect the facts: what a correct answer must state, every one.
+    hop_facts: list[str]
     # A control question's brief for the behaviour judge; None — not one.
     control: ControlCase | None
     run_row: dict[str, Any]
@@ -207,7 +215,10 @@ def _pending_tasks(
                     answer=str(result.answer or ""),
                     grading=str(meta.get("grading") or "judge"),
                     key_facts=[str(f) for f in meta.get("key_facts", [])],
+                    context=pair.context or "",
                     is_mcq=pair.task_type == "choice",
+                    fill_in=pair.task_type == "extractive",
+                    hop_facts=[str(f) for f in meta.get("hop_facts") or []],
                     control=(
                         control_case(pair.generator, pair.question, pair.answer, meta)
                         if is_control(pair.generator, meta)
@@ -285,7 +296,11 @@ def judge_pending(
                 )
             elif task.grading == "key_facts":
                 verdict = grade_key_facts(
-                    task.answer, task.key_facts, settings=conf, judge=seat
+                    task.answer,
+                    task.key_facts,
+                    article=task.context,
+                    settings=conf,
+                    judge=seat,
                 )
             else:
                 verdict = grade(
@@ -293,6 +308,8 @@ def judge_pending(
                     task.expected,
                     task.answer,
                     is_mcq=task.is_mcq,
+                    fill_in=task.fill_in,
+                    hop_facts=task.hop_facts,
                     settings=conf,
                     judge=seat,
                 )
@@ -387,6 +404,8 @@ def judge_pending(
                 report.abstain += 1
             elif verdict.verdict is Verdict.WEB_SOURCED:
                 report.web_sourced += 1
+            elif verdict.verdict is Verdict.INCOMPLETE:
+                report.incomplete += 1
             else:
                 report.hallucinate += 1
             progress.step(failed=verdict.failed)
@@ -705,7 +724,7 @@ class PromptsView:
     judge_prompt: str
     judge_raw: str
     # The verdict was reached without asking a model at all — an option letter
-    # matched arithmetically, an abstention recognised by a regex. An empty
+    # or fill-in span matched, an abstention recognised by a regex. An empty
     # judge prompt then means nothing was asked, not that nothing was kept.
     judged_without_model: bool
 

@@ -107,6 +107,26 @@ describe('ModelPage', () => {
     expect(row.find('[data-testid="kind-bar"]').exists()).toBe(false)
   })
 
+  it('shows the guessing rate next to the choice kinds only', () => {
+    const [names] = modelReport(OPUS).kinds
+    const report = runReport({
+      models: [
+        modelReport(OPUS, {
+          kinds: [
+            names!,
+            { ...names!, generator: 'mcq' },
+            { ...names!, generator: 'two_truths_one_lie' },
+          ],
+        }),
+      ],
+    })
+    const wrapper = mountPage(report, OPUS)
+    expect(wrapper.findAll('[data-testid="kind-row"]')).toHaveLength(3)
+    const guesses = wrapper.findAll('[data-testid="kind-guess"]')
+    expect(guesses.map((g) => g.text()).sort()).toEqual(['guess 25%', 'guess 33%'])
+    expect(guesses[0]!.attributes('title')).toBe('What picking an option at random would score.')
+  })
+
   it('links to the questions and the checks of this model', () => {
     const wrapper = mountPage(runReport(), OPUS)
     const links = wrapper.findAllComponents(RouterLinkStub)

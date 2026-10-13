@@ -7,7 +7,7 @@ import type {
   BenchmarkWebCheck,
 } from '@/api/types'
 import { day } from './report/figures'
-import { REMOVED_REASON_LABEL, removedReasonLabel } from './report/labels'
+import { REMOVED_REASON_LABEL, REMOVED_REASON_TIP, removedReasonLabel } from './report/labels'
 import { utcStamp } from './report/selectors'
 
 export const OUTCOMES: BenchmarkFilterOutcome[] = ['kept', 'removed', 'failed', 'skipped']
@@ -35,6 +35,7 @@ export function outcomeTone(outcome: string): string {
 }
 
 const STAGE_LABEL: Record<string, string> = {
+  writing: 'Writing',
   grounding: 'Grounding',
   control: 'Search',
   web_check: 'Web check',
@@ -46,13 +47,21 @@ export function stageLabel(stage: string): string {
 
 /** The reason in words: a known code's label, then the server's note when it says more. */
 export function reasonText(d: Pick<BenchmarkFilterDecision, 'reason' | 'reason_code'>): string {
-  const note = (d.reason ?? '').trim()
+  let note = (d.reason ?? '').trim()
   const isCode = note in REMOVED_REASON_LABEL
   const code = d.reason_code && d.reason_code !== 'other' ? d.reason_code : isCode ? note : null
   if (!code) return note
   const label = removedReasonLabel(code)
+  // `ambiguous entity: Mariam` says the code again before the detail.
+  const lead = `${code.replace(/_/g, ' ')}:`
+  if (note.toLowerCase().startsWith(lead)) note = note.slice(lead.length).trim()
   const repeats = note.toLowerCase() === label.toLowerCase()
   return note && !isCode && !repeats ? `${label}: ${note}` : label
+}
+
+/** What a removal reason means, for a tooltip; undefined when the label says it all. */
+export function reasonTip(d: Pick<BenchmarkFilterDecision, 'reason_code'>): string | undefined {
+  return d.reason_code ? REMOVED_REASON_TIP[d.reason_code] : undefined
 }
 
 /** `Written in 30 Sep 2026` for a question an earlier job wrote; null otherwise. */
@@ -105,6 +114,7 @@ const STOPPED_LABEL: Record<string, string> = {
   'ran out of material': 'Out of material',
   'failure streak': 'Failures',
   cancelled: 'Cancelled',
+  'top-up cost limit': 'Cost limit',
 }
 
 /** Why a kind stopped writing, as a 1-2 word chip. */
@@ -133,6 +143,14 @@ export function maskedBy(meta: Record<string, unknown> | null | undefined): {
   if (text('mode') !== 'spacy') return null
   const model = text('spacy_model')
   return { label: 'spaCy', tip: model ? `Cut by spaCy (${model}).` : 'Cut by spaCy.' }
+}
+
+/** `12 / 10`, top-up writes noted. */
+export function writtenText(
+  kind: Pick<BenchmarkKindBuild, 'written' | 'budget' | 'topped_up'>,
+): string {
+  const extra = kind.topped_up ? `, ${kind.topped_up} topped up` : ''
+  return `${kind.written} / ${kind.budget}${extra}`
 }
 
 /** `12 / 40 passages`, failed reads noted. */

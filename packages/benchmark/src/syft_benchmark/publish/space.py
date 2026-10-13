@@ -67,6 +67,7 @@ def payload_for(card: Card) -> dict[str, Any]:
             "correct": round(card.answerable.accuracy, 4),
             "abstain": round(card.answerable.abstain_rate, 4),
             "hallucinate": round(card.answerable.hallucination_rate, 4),
+            "incomplete": round(card.answerable.incomplete_rate, 4),
             "lmi": (
                 round(card.answerable.lmi, 4)
                 if card.answerable.lmi is not None

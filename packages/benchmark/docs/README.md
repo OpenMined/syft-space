@@ -60,7 +60,8 @@ shows whether retrieval or the model is the weak link. See
 control half no answer exists, and the right behaviour is to abstain or refute
 the premise. See [02-generation.md](02-generation.md).
 
-**Three outcomes, not a score:** `correct`, `abstain`, `hallucinate`. See
+**Three outcomes, not a score:** `correct`, `abstain`, `hallucinate`; an
+explanation graded by key facts can also be `incomplete`. See
 [05-judging.md](05-judging.md).
 
 ---
@@ -90,7 +91,7 @@ flowchart TB
     B --- b1["reads the Space's index,<br/>builds both halves of the set,<br/>every pair lands pending"]
     FI --- fi1["grounds the gold answer, finds it in the archive,<br/>web check, re-checks the control gate live;<br/>only pending pairs are touched"]
     S --- s1["set mode, cohort,<br/>frozen slice, limit"]
-    J --- j1["three outcomes; by the letter,<br/>by the facts, by behaviour,<br/>by a judge; a panel"]
+    J --- j1["three outcomes; by the letter or span,<br/>by the facts, by behaviour,<br/>by a judge; a panel"]
     E --- e1["the latest verdict per question,<br/>cut by arm, half of the set,<br/>block, model and judge"]
     AU --- a1["question, gold answer, the arms' answers,<br/>prompts and judges' verdicts"]
     F --- f1["aggregates into the Space"]
@@ -196,12 +197,13 @@ src/syft_benchmark/
     quality.py         question screening by item class
     validate.py        gold-answer screening: grounding in the chunk
     language.py        a text's language from built-in function-word lists
+    entities.py        the entity check: is each question's subject identifiable
     web_check.py       drops questions a model answers from the web
     filter_stage.py    STAGE 3: screens pending pairs; no corpus access
     decisions.py       filter decisions stamped on a pair, per job
     pipeline.py        the incremental generation run; filter_and_rotate()
     slots.py           how many generation calls are in flight
-    recorded.py        the writer call behind each pair, for the export
+    recorded.py        the writer and entity check calls behind each pair, for the export
     article_dates.py   the article date kept on each question
     rotation.py        the rolling set
     cohort.py          cohorts
@@ -219,6 +221,7 @@ src/syft_benchmark/
     timing.py          where a job's time went
     textmetrics.py     BLEU, ROUGE, BERTScore
     judge.py           the judging rules and the three outcomes
+    fill_in.py         a fill-in answer matched to its gold span, no judge
     judge_stage.py     STAGE 6 on its own: grades pending and judge-failed answers, insert-only
     blocks.py          denial_loop and monte_carlo
     console.py         the manual path through a chat: model and judge

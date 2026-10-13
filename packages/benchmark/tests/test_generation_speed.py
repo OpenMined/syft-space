@@ -74,6 +74,8 @@ def _settings(**kwargs: Any) -> Settings:
         "document_window_days": 0,
         "pairs_per_chunk": 2,
         "max_consecutive_failures": 5,
+        # The entity check is a writer call of its own: test_entity_check.py.
+        "entity_check": False,
     }
     return Settings(**{**base, **kwargs})
 
@@ -616,6 +618,7 @@ def test_a_kind_that_spends_its_budget_says_so(
         "units_available": 20,
         "units_read": 2,
         "failed_units": 0,
+        "topped_up": 0,
         "dropped": {pipeline.OVER_BUDGET: 2},
         "stopped": pipeline.BUDGET_REACHED,
     }

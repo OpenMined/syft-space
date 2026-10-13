@@ -158,6 +158,8 @@ class GeneratorSlice:
     failed: int
     # Control answers its web search supports: graded, not a hallucination.
     web_sourced: int = 0
+    # Explanations short of the key-facts bar: graded, neither right nor wrong.
+    incomplete: int = 0
 
     @property
     def accuracy(self) -> float:
@@ -170,6 +172,10 @@ class GeneratorSlice:
     @property
     def abstain_rate(self) -> float:
         return self.abstain / self.graded if self.graded else 0.0
+
+    @property
+    def incomplete_rate(self) -> float:
+        return self.incomplete / self.graded if self.graded else 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +242,14 @@ def by_generator(
         key = str(generators.get(row.qa_id) or "—")
         counts = tally.setdefault(
             key,
-            {"correct": 0, "abstain": 0, "hallucinate": 0, "web": 0, "failed": 0},
+            {
+                "correct": 0,
+                "abstain": 0,
+                "hallucinate": 0,
+                "web": 0,
+                "incomplete": 0,
+                "failed": 0,
+            },
         )
         # Out of the denominator, by the same mark as in the summary.
         if is_technical(row.verdict, row.answer):
@@ -249,6 +262,8 @@ def by_generator(
             counts["hallucinate"] += 1
         elif row.verdict == Verdict.WEB_SOURCED.value:
             counts["web"] += 1
+        elif row.verdict == Verdict.INCOMPLETE.value:
+            counts["incomplete"] += 1
 
     slices = [
         GeneratorSlice(
@@ -256,12 +271,14 @@ def by_generator(
             graded=counts["correct"]
             + counts["abstain"]
             + counts["hallucinate"]
-            + counts["web"],
+            + counts["web"]
+            + counts["incomplete"],
             correct=counts["correct"],
             abstain=counts["abstain"],
             hallucinate=counts["hallucinate"],
             failed=counts["failed"],
             web_sourced=counts["web"],
+            incomplete=counts["incomplete"],
         )
         for key, counts in tally.items()
     ]
@@ -383,14 +400,15 @@ def generator_lines(results: list[Metrics]) -> list[str]:
         "what the owner needs; worst first.",
         "",
         "| Space | Arm | Block | Model | Item type | Questions | Accuracy "
-        "| Hallucinations | Abstentions |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
+        "| Hallucinations | Abstentions | Incomplete |",
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for space, arm, block_name, model, entry in rows:
         lines.append(
             f"| {space} | {arm} | {block_name} | {model} | {entry.generator} "
             f"| {entry.graded} | {entry.accuracy:.0%} "
-            f"| {entry.hallucination_rate:.0%} | {entry.abstain_rate:.0%} |"
+            f"| {entry.hallucination_rate:.0%} | {entry.abstain_rate:.0%} "
+            f"| {entry.incomplete_rate:.0%} |"
         )
     return lines
 

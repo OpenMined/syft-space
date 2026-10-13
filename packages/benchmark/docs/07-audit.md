@@ -30,7 +30,7 @@ depend on the settings of the moment.
 * `judge_system`, `judge_prompt`, `judge_raw` (the reply before parsing),
   `judge_call` (cost, latency);
 * `judged_without_model: true` when no judge was called (regex abstention,
-  option letter match), `judged_by_console: <name>` for a console verdict,
+  option letter or fill-in span match), `judged_by_console: <name>` for a console verdict,
   `judged_by_owner` for an owner override.
 
 `results.extra` keeps the block transcripts: every `denial_loop` round

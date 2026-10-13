@@ -7,6 +7,9 @@ A port of `OMSyft/scripts/qa_judge.py`.
                       with nothing false in it: not counted as an error;
   * ``hallucinate`` — stated something that contradicts the gold answer.
 
+An explanation graded by key facts has a fourth: ``incomplete`` — nothing its
+article does not support, short of the key-facts bar.
+
 Abstention is separated from a miss deliberately, and that is the main
 distinction in the measurement. A model that says "I do not know" about a corpus
 it does not know is behaving correctly; a model that confidently invents about
@@ -32,6 +35,7 @@ from syft_benchmark.llm import (
 )
 from syft_benchmark.llm.cost import spent
 from syft_benchmark.llm.roles import web_search_for
+from syft_benchmark.runs.fill_in import match_fill_in
 
 
 def judge_web_search(conf: Settings, judge: Provider | None) -> tuple[bool, str]:
@@ -94,8 +98,8 @@ class Grade:
     asked and what it answered verbatim. Without that there is nothing at all to
     check the assessment with — the benchmark number is a model verdict, and
     "trust me, the judge decided so" does not satisfy an auditor. The fields are
-    empty where the judge was not called at all: matching an option letter and
-    recognising an abstention do not call a model.
+    empty where the judge was not called at all: matching an option letter or a
+    fill-in span and recognising an abstention do not call a model.
     """
 
     verdict: Verdict
@@ -108,7 +112,7 @@ class Grade:
     judge_user: str = ""
     judge_raw: str = ""
     # Which upstream served the judge. Empty where no model was called at all:
-    # a matched option letter, a recognised abstention.
+    # a matched option letter or fill-in span, a recognised abstention.
     served_by: str = ""
     # A control question's fine outcome (``ControlOutcome``); empty elsewhere.
     behavior: str = ""
@@ -126,7 +130,7 @@ def deferred(system: str, user: str) -> Grade:
     """The verdict is deferred: there is an answer, the judge has not seen it yet.
 
     Returned where and only where judging would run into a model call. The cheap
-    paths — a failed call, a recognised abstention, matching an option letter —
+    paths — a failed call, a recognised abstention, a matched letter or span —
     run as usual: deferring what is free means doing the work twice and leaving a
     hole in the report where the answer is already known.
 
@@ -198,6 +202,8 @@ are not.
 - An answer that is right in substance is correct even when it is worded \
 differently from the expected answer.
 - Missing a key fact that the question asks for makes the answer incorrect.
+- When required facts are listed, the answer is correct only if it states \
+every one of them.
 - If the model refused to answer or said it does not know, mark it incorrect.
 - For multiple choice the model must pick the same option as the expected \
 answer.
@@ -218,11 +224,29 @@ Return ONLY a JSON object, no markdown and no commentary:
 "reasoning": "one short sentence"}}
 """
 
+# A connect-the-facts pair: the facts its answer must link are listed, and
+# "covered" says which ones the answer states.
+_HOPS_JUDGE_SYSTEM = f"""\
+You are a strict grading assistant. Compare a model's answer against the \
+expected answer for one question, and check it states each required fact.
+
+{JUDGE_RULES}
+Return ONLY a JSON object, no markdown and no commentary:
+{{"correct": true, "false_claims": false, "covered": [true, true], \
+"confidence": 0.0, "reasoning": "one short sentence"}}
+
+The "covered" array has one entry per required fact, in the same order: does \
+the answer state it, in any wording?
+"""
+
 # Recorded after the judge's own reasoning, so the row says why a "not correct"
 # did not become a hallucination, or why it did without the judge saying so.
 _NOTHING_FALSE_NOTE = "(not correct, nothing false: counted as did not know)"
+_SHORT_OF_FACTS_NOTE = "(short of the key facts, nothing false: counted as incomplete)"
+_FACT_MISSING_NOTE = "(a required fact is missing: not correct)"
+_FILL_IN_NOTE = "matched the expected answer"
 _NO_FALSE_CLAIMS_NOTE = (
-    "(the judge did not say whether anything is false: counted as hallucinated)"
+    "(the judge did not say whether anything is false: counted as did not know)"
 )
 
 _KEY_FACTS_SYSTEM = """\
@@ -274,19 +298,20 @@ def free_text_verdict(data: dict[str, Any]) -> tuple[Verdict, str]:
     """The free-text judge's reply as a verdict and the note to record with it.
 
     Not correct is a hallucination only when the judge says something in the
-    answer is false; an answer that is merely incomplete counts as did not know.
-    When the judge does not say (a model that dropped the field, an unreadable
-    value), the answer counts as hallucinated, so no invention is hidden by a
-    missing field.
+    answer is false; otherwise, a missing or unreadable field included, it
+    counts as did not know. Where the reply lists "covered" facts, correct needs
+    every one of them.
     """
-    if _flag(data.get("correct")) is True:
+    covered = data.get("covered")
+    missing = isinstance(covered, list) and any(_flag(c) is not True for c in covered)
+    if _flag(data.get("correct")) is True and not missing:
         return Verdict.CORRECT, ""
+    lacking = _FACT_MISSING_NOTE if missing else ""
     false_claims = _flag(data.get("false_claims"))
-    if false_claims is None:
-        return Verdict.HALLUCINATE, _NO_FALSE_CLAIMS_NOTE
     if false_claims:
-        return Verdict.HALLUCINATE, ""
-    return Verdict.ABSTAIN, _NOTHING_FALSE_NOTE
+        return Verdict.HALLUCINATE, lacking
+    note = _NO_FALSE_CLAIMS_NOTE if false_claims is None else _NOTHING_FALSE_NOTE
+    return Verdict.ABSTAIN, f"{lacking} {note}".strip()
 
 
 def free_text_grade(data: dict[str, Any]) -> tuple[Verdict, str]:
@@ -295,12 +320,27 @@ def free_text_grade(data: dict[str, Any]) -> tuple[Verdict, str]:
     return verdict, f"{str(data.get('reasoning', ''))[:400]} {note}".strip()
 
 
+def explanation_grade(
+    verdict: Verdict, reasoning: str, answer: str
+) -> tuple[Verdict, str]:
+    """A free-text verdict on a key-facts explanation, read as ``grade_key_facts``
+    reads its own: a refusal stays abstain, not correct with nothing false is
+    incomplete, a false claim stays hallucinated."""
+    if verdict is not Verdict.ABSTAIN or detect_abstain(answer):
+        return verdict, reasoning
+    for note in (_NOTHING_FALSE_NOTE, _NO_FALSE_CLAIMS_NOTE):
+        reasoning = reasoning.replace(note, _SHORT_OF_FACTS_NOTE)
+    return Verdict.INCOMPLETE, reasoning
+
+
 def grade(
     question: str,
     expected: str,
     answer: str,
     *,
     is_mcq: bool = False,
+    fill_in: bool = False,
+    hop_facts: Sequence[str] = (),
     settings: Settings | None = None,
     judge: Provider | None = None,
     defer: bool = False,
@@ -312,6 +352,9 @@ def grade(
         expected: The gold answer
         answer: What the answerer said
         is_mcq: The answer is picked from options — then we match the letter first
+        fill_in: A fill-in-the-blank — a span matching the gold one is correct
+            with no judge call
+        hop_facts: The facts a connect-the-facts answer must all state
         settings: The process settings
         defer: Do not call the judge, return "awaiting a judge". The cheap paths
             still run as usual — there is no point deferring what is free
@@ -338,18 +381,30 @@ def grade(
                 "matched by the option letter",
             )
 
+    if fill_in and match_fill_in(question, expected, answer):
+        return Grade(Verdict.CORRECT, _FILL_IN_NOTE)
+
+    system = _HOPS_JUDGE_SYSTEM if hop_facts else _JUDGE_SYSTEM
+    required = (
+        "Required facts:\n"
+        + "\n".join(f"{i + 1}. {fact}" for i, fact in enumerate(hop_facts))
+        + "\n\n"
+        if hop_facts
+        else ""
+    )
     user = (
         f"Question:\n{question}\n\n"
         f"Expected answer:\n{expected}\n\n"
+        f"{required}"
         f"Model answer:\n{answer}\n\n"
         f"Is the model answer correct?"
     )
     if defer:
-        return deferred(_JUDGE_SYSTEM, user)
+        return deferred(system, user)
     try:
         searching, engine = judge_web_search(conf, judge)
         raw, usage = chat(
-            _JUDGE_SYSTEM,
+            system,
             user,
             model=None if judge is not None else conf.judge_model,
             provider=judge,
@@ -366,7 +421,7 @@ def grade(
             Verdict.TECHNICAL,
             f"the judge did not answer: {exc}",
             fatal=isinstance(exc, LLMFatalError),
-            judge_system=_JUDGE_SYSTEM,
+            judge_system=system,
             judge_user=user,
         )
 
@@ -374,7 +429,7 @@ def grade(
     return Grade(
         verdict,
         reasoning,
-        judge_system=_JUDGE_SYSTEM,
+        judge_system=system,
         judge_user=user,
         judge_raw=raw,
         served_by=str(usage.get("served_by") or ""),
@@ -386,19 +441,23 @@ def grade_key_facts(
     answer: str,
     facts: list[str],
     *,
+    article: str = "",
     settings: Settings | None = None,
     judge: Provider | None = None,
     defer: bool = False,
 ) -> Grade:
-    """Judge an extended explanation against a list of facts.
+    """Judge an extended explanation against a list of facts and its article.
 
     Comparing prose with prose is not an assessment but a lottery: an explanation
     can be correct and unlike the gold answer. So for tiered items the gold answer
     is accompanied by a list of checkable facts, and it is that which is judged.
+    Anything the article does not support is a hallucination; otherwise below
+    the key-facts bar is incomplete, at or above it correct.
 
     Args:
         answer: What the answerer said
         facts: The key facts listed by the generator
+        article: The source article; empty — the article check is skipped
         settings: The process settings
 
     Returns:
@@ -455,17 +514,77 @@ def grade_key_facts(
 
     share = sum(covered) / len(facts)
     reasoning = f"covered {sum(covered)} of {len(facts)} facts"
-    # Below the bar is incomplete, not invented: a fact left out is not a false
-    # one, so it counts as did not know.
-    verdict = Verdict.CORRECT if share >= conf.key_facts_threshold else Verdict.ABSTAIN
+    # Below the bar is incomplete, not invented: a fact left out is not a false one.
+    verdict = (
+        Verdict.CORRECT if share >= conf.key_facts_threshold else Verdict.INCOMPLETE
+    )
+    calls = [(_KEY_FACTS_SYSTEM, user, raw, usage)]
+    if article.strip():
+        grounded_user = _grounded_prompt(answer, article[:_ARTICLE_LIMIT])
+        try:
+            grounded_raw, grounded_usage = _grounded_chat(grounded_user, conf, judge)
+            data = parse_json_object(grounded_raw)
+        except LLMError as exc:
+            return Grade(
+                Verdict.TECHNICAL,
+                f"{reasoning}; the article check did not answer: {exc}",
+                fatal=isinstance(exc, LLMFatalError),
+                judge_system=_KEY_FACTS_SYSTEM,
+                judge_user=user,
+                judge_raw=raw,
+                served_by=str(usage.get("served_by") or ""),
+                **spent(usage),
+            )
+        calls.append((_GROUNDED_SYSTEM, grounded_user, grounded_raw, grounded_usage))
+        # A missing or unreadable answer counts as unsupported, so no invention
+        # is hidden by a dropped field.
+        if _flag(data.get("grounded")) is not True:
+            verdict = Verdict.HALLUCINATE
+            note = str(data.get("reasoning", ""))[:400]
+            reasoning = f"{reasoning}; not supported by the article: {note}"
     return Grade(
         verdict,
         reasoning,
-        judge_system=_KEY_FACTS_SYSTEM,
-        judge_user=user,
-        judge_raw=raw,
+        judge_system=_AUDIT_JOIN.join(c[0] for c in calls),
+        judge_user=_AUDIT_JOIN.join(c[1] for c in calls),
+        judge_raw=_AUDIT_JOIN.join(c[2] for c in calls),
         served_by=str(usage.get("served_by") or ""),
-        **spent(usage),
+        **_spent_all([c[3] for c in calls]),
+    )
+
+
+# The article as stored with the pair (``QaPair.context``).
+_ARTICLE_LIMIT = 8000
+# Between the calls of one verdict in its audit trail.
+_AUDIT_JOIN = "\n\n---\n\n"
+
+
+def _spent_all(usages: list[dict[str, Any]]) -> dict[str, Any]:
+    """The summed ``spent`` of several calls; None where none was priced or timed."""
+    each = [spent(u) for u in usages]
+    out: dict[str, Any] = {}
+    for key, digits in (("cost_usd", 6), ("latency_s", 2)):
+        values = [float(e[key]) for e in each if e[key] is not None]
+        out[key] = round(sum(values), digits) if values else None
+    return out
+
+
+def _grounded_prompt(answer: str, context: str) -> str:
+    return f"Fragments:\n{context}\n\nAnswer:\n{answer}\n\nIs the answer grounded?"
+
+
+def _grounded_chat(
+    user: str, conf: Settings, judge: Provider | None
+) -> tuple[str, dict[str, Any]]:
+    return chat(
+        _GROUNDED_SYSTEM,
+        user,
+        model=None if judge is not None else conf.judge_model,
+        provider=judge,
+        max_tokens=conf.answer_max_tokens,
+        settings=conf,
+        judging=True,
+        role=cost.JUDGES,
     )
 
 
@@ -487,21 +606,11 @@ def check_grounded(
         return None, "there were no chunks"
     conf = settings or get_settings()
 
-    context = "\n---\n".join(fragments)[:6000]
-    user = f"Fragments:\n{context}\n\nAnswer:\n{answer}\n\nIs the answer grounded?"
+    user = _grounded_prompt(answer, "\n---\n".join(fragments)[:6000])
     try:
         # Not a verdict and does not reach a row, so the upstream has nowhere
         # to go.
-        raw, _usage = chat(
-            _GROUNDED_SYSTEM,
-            user,
-            model=None if judge is not None else conf.judge_model,
-            provider=judge,
-            max_tokens=conf.answer_max_tokens,
-            settings=conf,
-            judging=True,
-            role=cost.JUDGES,
-        )
+        raw, _usage = _grounded_chat(user, conf, judge)
         data = parse_json_object(raw)
     except LLMError as exc:
         return None, f"the judge did not answer: {exc}"
@@ -718,6 +827,8 @@ class Gradable:
     generator: str = ""
     task_type: str = ""
     meta: dict[str, Any] | None = None
+    # The text the item was written from (``QaPair.context``).
+    context: str = ""
 
     @property
     def control(self) -> bool:
@@ -745,7 +856,8 @@ def grade_item(
 
     Control items go to the behaviour judge (seeing the answer's web
     citations), key-facts items to the facts check, everything else to the
-    free-text judge, options matched by letter first.
+    free-text judge: options matched by letter and fill-ins by span first,
+    connect-the-facts pairs held to every hop fact.
 
     Args:
         item: The question, its gold answer and kind
@@ -769,13 +881,20 @@ def grade_item(
     if str((item.meta or {}).get("grading") or "judge") == "key_facts":
         facts = [str(f) for f in (item.meta or {}).get("key_facts", [])]
         return run(grade_key_facts)(
-            answer, facts, settings=settings, judge=judge, defer=defer
+            answer,
+            facts,
+            article=item.context,
+            settings=settings,
+            judge=judge,
+            defer=defer,
         )
     return run(grade)(
         item.question,
         item.expected,
         answer,
         is_mcq=item.task_type == "choice",
+        fill_in=item.task_type == "extractive",
+        hop_facts=[str(f) for f in (item.meta or {}).get("hop_facts") or []],
         settings=settings,
         judge=judge,
         defer=defer,

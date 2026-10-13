@@ -337,7 +337,7 @@ def numbers_block(results: list[Metrics]) -> str:
     """
     lines = [
         "arm | block | model | judge | correct behaviour | questions | "
-        "correct | abstain | invention | LMI | retrieval"
+        "correct | abstain | invention | incomplete | LMI | retrieval"
     ]
     for m in results:
         lmi = f"{m.lmi:.2f}" if m.lmi is not None else "—"
@@ -347,7 +347,8 @@ def numbers_block(results: list[Metrics]) -> str:
             f"{m.judge or '—'} | "
             f"{BEHAVIOUR_LABEL.get(m.expected.value, m.expected.value)} | "
             f"{m.graded} | {m.accuracy:.0%} | {m.abstain_rate:.0%} | "
-            f"{m.hallucination_rate:.0%} | {lmi} | {retrieval}"
+            f"{m.hallucination_rate:.0%} | {m.incomplete_rate:.0%} | {lmi} | "
+            f"{retrieval}"
         )
     for m in results:
         if m.flip_rate is not None:

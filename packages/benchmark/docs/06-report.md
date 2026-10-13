@@ -38,7 +38,7 @@ flowchart LR
   in the set now (`active`) count, unless the selection is one launch (`job`)
   or one cohort.
 * **The denominator** is graded answers: `correct + abstain + hallucinate +
-  web_sourced`. Failed calls (`technical`, or any `ERROR:` answer) and
+  web_sourced + incomplete`. Failed calls (`technical`, or any `ERROR:` answer) and
   `pending` answers are filtered out before counting and shown on their own
   lines.
 * **The cut is mandatory.** Blocks, judges and halves are never added
@@ -51,7 +51,7 @@ flowchart LR
 
 | Quantity | Formula |
 | --- | --- |
-| `accuracy` / `hallucination_rate` / `abstain_rate` | share of graded |
+| `accuracy` / `hallucination_rate` / `abstain_rate` / `incomplete_rate` | share of graded |
 | `lmi` | `H / (H + C)`, answerable half only |
 | `fabrication_rate` | `1 − right / graded` on a control half; right = `abstain + web_sourced`, plus `correct` on a false premise |
 | `retrieval_rate` | share of answers where retrieval found the source chunk (`retrieval_hit`) |

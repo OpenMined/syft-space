@@ -226,7 +226,11 @@ def passed_filter(row: QaPair, conf: Settings) -> bool:
 
 
 def _graded(row: QaPair, answer: str, conf: Settings, judge: Provider | None) -> Grade:
-    """The main run's grading for this pair's kind (runs.execute._verdict_for)."""
+    """The main run's grading for this pair's kind (runs.judge.grade_item).
+
+    An explanation is checked against its key facts only: a web answer brings
+    in facts the article lacks, and only "correct" matters here.
+    """
     meta = row.meta or {}
     if str(meta.get("grading") or "judge") == "key_facts":
         facts = [str(f) for f in meta.get("key_facts", [])]
@@ -236,6 +240,8 @@ def _graded(row: QaPair, answer: str, conf: Settings, judge: Provider | None) ->
         row.answer,
         answer,
         is_mcq=row.task_type == "choice",
+        fill_in=row.task_type == "extractive",
+        hop_facts=[str(f) for f in meta.get("hop_facts") or []],
         settings=conf,
         judge=judge,
     )

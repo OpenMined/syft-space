@@ -271,11 +271,37 @@ def test_pending_and_technical_stay_out_of_rates(
         "abstain": 0,
         "hallucinate": 0,
         "web_sourced": 0,
+        "incomplete": 0,
         "pending": 1,
         "technical": 2,
         "graded": 1,
     }
     assert m1["asked"] == 4
+
+
+def test_incomplete_is_graded_but_neither_right_nor_made_up(
+    client: TestClient, clean: Any
+) -> None:
+    auth = _console(client)
+    seed = Seed()
+    for qa in ("q1", "q2"):
+        seed.pair(qa, generator="tiered_explanation")
+    seed.answer("q1", M1, "alone", "incomplete")
+    seed.answer("q1", M1, "with", "correct")
+    seed.answer("q2", M1, "alone", "hallucinate")
+    # The primary judge's verdict counts, not the second one's.
+    seed.answer("q2", M1, "with", "incomplete", judge=J1)
+    seed.answer("q2", M1, "with", "correct", judge=J2)
+    seed.save()
+
+    report = _report(client, auth)
+    m1 = _model(report, M1)
+    assert m1["tally"]["alone"]["incomplete"] == 1
+    assert m1["tally"]["with"]["incomplete"] == 1
+    assert (m1["graded_alone"], m1["graded_with"]) == (2, 2)
+    assert (m1["rate_alone"], m1["rate_with"]) == (0.0, 0.5)
+    assert (m1["made_up_alone"], m1["made_up_with"]) == (0.5, 0.0)
+    assert m1["groups"] == {"fixed": 1, "either": 0, "still": 1, "worse": 0}
 
 
 def test_trick_questions_feed_only_the_trick_check(

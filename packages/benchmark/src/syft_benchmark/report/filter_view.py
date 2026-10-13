@@ -69,6 +69,10 @@ def _rows(session: Session, target: str, job_ids: Sequence[str]) -> list[QaPair]
     return rows
 
 
+# Reasons decided as the question is written (the ``writing`` stage).
+_WRITING_REASONS = frozenset(
+    {StatusReason.WRONG_LANGUAGE.value, StatusReason.AMBIGUOUS_ENTITY.value}
+)
 # Reasons decided by a live retrieval search (the ``control`` stage).
 _SEARCH_REASONS = frozenset(
     {StatusReason.RETRIEVAL_GATE.value, StatusReason.NOT_ANSWERABLE.value}
@@ -97,7 +101,9 @@ def _inferred(row: QaPair) -> dict[str, Any] | None:
             }
         return None
     removed = status == PairStatus.REJECTED.value
-    if reason == StatusReason.WEB_ANSWERABLE.value or (
+    if reason in _WRITING_REASONS:
+        stage = decisions.WRITING
+    elif reason == StatusReason.WEB_ANSWERABLE.value or (
         not _is_control(row) and web.get("verdict")
     ):
         stage = decisions.WEB_CHECK

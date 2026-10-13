@@ -72,6 +72,8 @@ def _settings(**kwargs: Any) -> Settings:
         "max_consecutive_failures": 0,
         "concurrency": 1,
         "document_window_days": 0,
+        # The entity check is a writer call of its own: test_entity_check.py.
+        "entity_check": False,
     }
     return Settings(**{**base, **kwargs})
 

@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from syft_benchmark.config import PairStatus, StatusReason
 from syft_benchmark.db.models import Job, QaPair, Result, Run, Target
-from syft_benchmark.generation import decisions, recorded
+from syft_benchmark.generation import decisions, entities, recorded
 from syft_benchmark.generation.article_dates import DATE_KEY
 from syft_benchmark.question_order import answer_order, pair_key, pair_order
 from syft_benchmark.report import run_view
@@ -238,6 +238,15 @@ PAIR_COLS = (
     Col("Writer call", 34),
     Col("Writer call time (s)", 10),
     Col("Writer call cost (USD)", 10),
+    Col("Entity check", 10),
+    Col("Entities", 40, long=True),
+    Col("Entity check model", 26),
+    Col("Entity check prompt (system)", 60, long=True),
+    Col("Entity check prompt (user)", 60, long=True),
+    Col("Entity check reply", 60, long=True),
+    Col("Entity check call", 34),
+    Col("Entity check time (s)", 10),
+    Col("Entity check cost (USD)", 10),
     Col("Question", 50, long=True),
     Col("Right answer", 40, long=True),
     Col("Options / key facts / blanks", 40, long=True),
@@ -258,8 +267,12 @@ def _call_id(row: QaPair) -> str:
     return str(writer.get("call") or "") if isinstance(writer, dict) else ""
 
 
+def _check(row: QaPair) -> dict[str, Any]:
+    return _dict((row.meta or {}).get(entities.META))
+
+
 def _writer_calls(session: Session, rows: Sequence[QaPair]) -> Calls:
-    """The writer calls behind ``rows`` (``recorded.writer_calls``). A call's
+    """The writer and entity check calls behind ``rows``, by call id. A call's
     texts sit on one of its pairs only; one not among ``rows`` is read from
     the database."""
     calls = recorded.writer_calls(rows)
@@ -268,7 +281,14 @@ def _writer_calls(session: Session, rows: Sequence[QaPair]) -> Calls:
         column = QaPair.meta[recorded.WRITER]["call"].astext
         found = session.scalars(select(QaPair).where(column.in_(missing))).all()
         calls.update(recorded.writer_calls(found))
-    return calls
+    checks = recorded.check_calls(rows, entities.META)
+    missing = sorted({str(_check(row).get("call") or "") for row in rows})
+    missing = [c for c in missing if c and c not in checks]
+    if missing:
+        column = QaPair.meta[entities.META]["call"].astext
+        found = session.scalars(select(QaPair).where(column.in_(missing))).all()
+        checks.update(recorded.check_calls(found, entities.META))
+    return {**calls, **checks}
 
 
 def _details(row: QaPair) -> str:
@@ -303,9 +323,32 @@ def _masked_by(meta: dict[str, Any]) -> str:
     return ""
 
 
+def _entities(check: dict[str, Any]) -> str:
+    """``- Mariam: not identifiable (first name only)`` per entity."""
+    lines = []
+    for e in check.get("entities") or []:
+        if isinstance(e, dict) and e.get("name"):
+            known = e.get("identifiable")
+            said = (
+                "unknown"
+                if not isinstance(known, bool)
+                else "identifiable"
+                if known
+                else "not identifiable"
+            )
+            why = f" ({e['why']})" if e.get("why") else ""
+            lines.append(f"{e['name']}: {said}{why}")
+    if check.get("error"):
+        lines.append(f"Error: {check['error']}")
+    return _lines(lines) if lines else ""
+
+
 def _pair_cells(row: QaPair, calls: Calls) -> list[Any]:
     call_id = _call_id(row)
     call = calls.get(call_id, {})
+    check = _check(row)
+    check_id = str(check.get("call") or "")
+    check_call = calls.get(check_id, {})
     return [
         row.id,
         row.generator,
@@ -322,6 +365,15 @@ def _pair_cells(row: QaPair, calls: Calls) -> list[Any]:
         call_id,
         call.get("latency_s"),
         call.get("cost_usd"),
+        check.get("outcome"),
+        _entities(check),
+        check_call.get("model"),
+        check_call.get("system"),
+        check_call.get("user"),
+        check_call.get("reply"),
+        check_id,
+        check_call.get("latency_s"),
+        check_call.get("cost_usd"),
         row.question,
         row.answer,
         _details(row),

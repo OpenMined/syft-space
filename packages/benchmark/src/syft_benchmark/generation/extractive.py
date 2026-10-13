@@ -22,6 +22,9 @@ from typing import Any
 
 _MASK = "______"
 
+# The fixed words a masked sentence is asked with.
+FILL_IN_PREFIX = "Fill in the blank:"
+
 # There is no point masking a vague time: "recently" is restored out of thin air
 # and checks nothing.
 _VAGUE_TIME = re.compile(
@@ -145,6 +148,10 @@ rhetorical lines.
   - Blank a fact a reader could only know from this story. Never blank a word \
 the rest of the sentence gives away (the country before its own prime \
 minister, "one", "this year") or lets you work out (a unit conversion).
+  - Use a sentence only if it names its people, organisations and \
+products so they are identifiable without the story: full name plus role \
+or affiliation, a product with its maker. Skip a sentence whose subject is \
+a first name, a pseudonym or an anonymous source.
   - Use each sentence once.
 
 Respond with ONLY a JSON object with three arrays. No markdown, no commentary.
@@ -202,7 +209,7 @@ def parse_combined(
 
             out[category].append(
                 Masked(
-                    question=f"Fill in the blank: {question}",
+                    question=f"{FILL_IN_PREFIX} {question}",
                     answer=answer,
                     context=question,
                     meta={

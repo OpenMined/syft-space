@@ -645,6 +645,12 @@ class CardAnswerable(BaseModel):
     hallucinate: float = Field(
         ..., ge=0.0, le=1.0, description="Share answered confidently and wrong"
     )
+    incomplete: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Share of explanations that left key facts out, nothing false",
+    )
     lmi: float | None = Field(
         default=None,
         ge=0.0,

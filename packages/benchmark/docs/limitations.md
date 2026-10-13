@@ -10,6 +10,8 @@ What this measurement cannot do, or does only conditionally.
 * **A console judge grades only the `direct` block.** `denial_loop` and
   `monte_carlo` verdicts are issued during the run; the console judge did not
   see the rounds.
+* **The fill-in span match knows English forms only** (number words, dates);
+  any other reply goes to the judge.
 * **A human verdict cannot be rechecked like a machine one.** The audit record
   marks it.
 * **Text metrics know nothing of correctness.** BLEU, ROUGE and BERTScore

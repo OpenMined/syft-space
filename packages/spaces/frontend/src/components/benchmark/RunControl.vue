@@ -254,6 +254,14 @@
             <Checkbox id="bm-web-writer" v-model="form.webWriter" />
             <span class="text-sm">On</span>
           </SettingRow>
+          <SettingRow
+            label="Check names in questions"
+            help="Drops a question whose person or company can’t be identified from the question alone."
+            for-id="bm-entity-check"
+          >
+            <Checkbox id="bm-entity-check" v-model="form.entityCheck" />
+            <span class="text-sm">On</span>
+          </SettingRow>
         </template>
       </SetupStep>
 

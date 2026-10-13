@@ -82,11 +82,14 @@ const hasMore = computed(() => offset.value + items.value.length < total.value);
               'bg-success/20 text-success': row.verdict === 'correct',
               'bg-destructive/20 text-destructive':
                 row.verdict === 'hallucinate',
+              'bg-warning/20 text-warning': row.verdict === 'incomplete',
               'bg-muted text-muted-foreground':
-                row.verdict === 'abstain' || row.verdict === 'pending',
+                row.verdict === 'abstain' ||
+                row.verdict === 'pending' ||
+                row.verdict === 'web_sourced',
             }"
           >
-            {{ row.verdict }}
+            {{ row.verdict.replace("_", " ") }}
           </span>
         </div>
         <p v-if="row.reasoning" class="text-xs text-muted-foreground italic">

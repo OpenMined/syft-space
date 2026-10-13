@@ -322,6 +322,7 @@ export interface SetupForm {
   minChunkChars: number
   answerCoverage: number
   webWriter: boolean
+  entityCheck: boolean
   // step 3
   webCheckModel: string
   /** '' means Judge 1. */
@@ -398,6 +399,7 @@ const BENCH_DEFAULTS = {
   web_search_closed_book: true,
   web_search_with_context: false,
   web_search_generator: false,
+  entity_check: true,
   web_search_judge: false,
   web_search_engine: 'auto',
   web_search_max_results: 5,
@@ -501,6 +503,7 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
     minChunkChars: num(probe, 'min_chunk_chars'),
     answerCoverage: toPercent(num(instrument, 'answer_coverage_threshold')),
     webWriter: bool(instrument, 'web_search_generator'),
+    entityCheck: bool(instrument, 'entity_check'),
 
     webCheckModel: str(instrument, 'filter_model'),
     webCheckJudge: str(instrument, 'filter_judge_model'),
@@ -677,6 +680,7 @@ export function buildRequest(
   i('web_search_closed_book', form.webAlone)
   i('web_search_with_context', form.webWithData)
   i('web_search_generator', form.webWriter)
+  i('entity_check', form.entityCheck)
   i('web_search_judge', form.webJudges)
   i(
     'web_search_engine',

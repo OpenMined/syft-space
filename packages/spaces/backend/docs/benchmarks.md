@@ -145,8 +145,8 @@ POST /api/v1/endpoints/{slug}/quality
   "fabrication_rate": 0.04,
   "reliable": true,
   "samples": 515,
-  "answerable":   {"samples": 412, "correct": 0.71, "abstain": 0.12,
-                   "hallucinate": 0.17, "lmi": 0.19},
+  "answerable":   {"samples": 412, "correct": 0.71, "abstain": 0.10,
+                   "hallucinate": 0.17, "incomplete": 0.02, "lmi": 0.19},
   "unanswerable": {"samples": 103, "fabricated": 0.04, "web_sourced": 0},
   "discrimination": 0.63,
   "retrieval": 0.82,
@@ -168,7 +168,8 @@ POST /api/v1/endpoints/{slug}/quality
 
 - `answerable` / `unanswerable`: the half the corpus can answer, and the half
   it cannot — any reply there is an invention; `fabrication_rate` is its
-  headline.
+  headline. `answerable.incomplete` (optional): explanations that left key
+  facts out with nothing false.
 - `models`: one row per model under test, never averaged. `closed_accuracy` is
   the same model with no material; against `accuracy` it shows whether the
   endpoint's material helped.

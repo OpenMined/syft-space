@@ -2,7 +2,13 @@
 // way the rest of this codebase's two sides (Python/TypeScript) already are.
 
 export type PairStatus = "pending" | "active" | "rejected" | "retired";
-export type Verdict = "correct" | "abstain" | "hallucinate" | "pending";
+export type Verdict =
+  | "correct"
+  | "abstain"
+  | "hallucinate"
+  | "incomplete"
+  | "web_sourced"
+  | "pending";
 
 export interface PairResponse {
   id: string;

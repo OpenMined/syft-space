@@ -217,6 +217,10 @@ class Instrument(Layer):
     # --- Judging thresholds
     key_facts_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     answer_coverage_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    entity_check: bool | None = Field(
+        default=None,
+        description="Reject questions whose subject the question does not identify",
+    )
     consistency_floor: float | None = Field(default=None, ge=0.0, le=1.0)
 
     # --- Everything else about the instrument
@@ -281,6 +285,14 @@ class Probe(Layer):
     )
     dataset_max_pairs: int | None = Field(
         default=None, ge=0, description="Cap on active items. Zero — no cap"
+    )
+    top_up_max_usd: float | None = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "USD a build may spend writing more of the kinds the checks left "
+            "short. Zero — no top-up"
+        ),
     )
     disabled_generators: list[str] | None = Field(
         default=None, description="Generators not to run on this node"

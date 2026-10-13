@@ -1,4 +1,4 @@
-"""Incomplete answers count as did not know; only a false claim is a hallucination.
+"""Incomplete answers are not hallucinations; only a false claim is.
 
 No database and no model: the judge call is replaced by a canned reply.
 """
@@ -82,12 +82,12 @@ def test_an_incomplete_answer_says_why_it_is_not_a_hallucination(
         '{"correct": false, "false_claims": null, "reasoning": "wrong city"}',
     ],
 )
-def test_a_missing_false_claims_keeps_the_old_hallucination(
+def test_a_missing_false_claims_counts_as_did_not_know(
     monkeypatch: pytest.MonkeyPatch, raw: str
 ) -> None:
     _reply(monkeypatch, raw)
     graded = _grade()
-    assert graded.verdict is Verdict.HALLUCINATE
+    assert graded.verdict is Verdict.ABSTAIN
     assert graded.reasoning.startswith("wrong city")
     assert "did not say whether anything is false" in graded.reasoning
 
@@ -111,10 +111,10 @@ def test_a_wrong_option_letter_stays_a_hallucination(
     ("covered", "verdict"),
     [
         ("[true, true, true, true]", Verdict.CORRECT),
-        ("[true, false, false, false]", Verdict.ABSTAIN),
+        ("[true, false, false, false]", Verdict.INCOMPLETE),
     ],
 )
-def test_key_facts_below_the_bar_count_as_did_not_know(
+def test_key_facts_below_the_bar_count_as_incomplete(
     monkeypatch: pytest.MonkeyPatch, covered: str, verdict: Verdict
 ) -> None:
     _reply(monkeypatch, f'{{"covered": {covered}, "reasoning": "x"}}')
@@ -124,6 +124,92 @@ def test_key_facts_below_the_bar_count_as_did_not_know(
         settings=Settings(key_facts_threshold=0.75),
     )
     assert graded.verdict is verdict
+
+
+def _replies(monkeypatch: pytest.MonkeyPatch, *raws: str) -> list[str]:
+    """The judge answers the calls in order, one canned reply each."""
+    systems: list[str] = []
+    queue = list(raws)
+
+    def fake_chat(system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        systems.append(system)
+        return queue.pop(0), {"cost_usd": 0.01, "latency_s": 1.0}
+
+    monkeypatch.setattr(judge_module, "chat", fake_chat)
+    return systems
+
+
+@pytest.mark.parametrize(
+    ("covered", "grounded", "verdict"),
+    [
+        ("[true, true, true, true]", "true", Verdict.CORRECT),
+        ("[true, false, false, false]", "true", Verdict.INCOMPLETE),
+        ("[true, true, true, true]", "false", Verdict.HALLUCINATE),
+        ("[true, false, false, false]", "false", Verdict.HALLUCINATE),
+        # A dropped field hides no invention.
+        ("[true, true, true, true]", "null", Verdict.HALLUCINATE),
+    ],
+)
+def test_key_facts_check_the_article(
+    monkeypatch: pytest.MonkeyPatch, covered: str, grounded: str, verdict: Verdict
+) -> None:
+    systems = _replies(
+        monkeypatch,
+        f'{{"covered": {covered}, "reasoning": "x"}}',
+        f'{{"grounded": {grounded}, "reasoning": "adds a founding year"}}',
+    )
+    graded = judge_module.grade_key_facts(
+        "Goldman Sachs named a new technology banking co-head.",
+        ["fact one", "fact two", "fact three", "fact four"],
+        article="Goldman Sachs named Jane Doe co-head of technology banking.",
+        settings=Settings(key_facts_threshold=0.75),
+    )
+    assert graded.verdict is verdict
+    assert systems == [judge_module._KEY_FACTS_SYSTEM, judge_module._GROUNDED_SYSTEM]
+    # Both calls are in the audit trail and the cost.
+    assert judge_module._GROUNDED_SYSTEM in graded.judge_system
+    assert "Jane Doe" in graded.judge_user
+    assert graded.cost_usd == pytest.approx(0.02)
+
+
+def test_a_failed_article_check_measures_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_chat(system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise judge_module.LLMError("timeout")
+        return '{"covered": [true], "reasoning": "x"}', {}
+
+    monkeypatch.setattr(judge_module, "chat", fake_chat)
+    graded = judge_module.grade_key_facts(
+        "An answer.", ["fact"], article="The article.", settings=Settings()
+    )
+    assert graded.verdict is Verdict.TECHNICAL
+
+
+def test_grade_item_hands_key_facts_the_article(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    systems = _replies(
+        monkeypatch,
+        '{"covered": [true], "reasoning": "x"}',
+        '{"grounded": false, "reasoning": "invented"}',
+    )
+    item = judge_module.Gradable(
+        question="Explain this simply.\n\nTopic: a banker",
+        expected="...",
+        generator="tiered_explanation",
+        task_type="abstractive",
+        meta={"grading": "key_facts", "key_facts": ["fact"]},
+        context="The article.",
+    )
+    graded = judge_module.grade_item(item, "An answer.", settings=Settings())
+    assert graded.verdict is Verdict.HALLUCINATE
+    assert len(systems) == 2
 
 
 def test_a_made_up_trick_answer_stays_a_hallucination(

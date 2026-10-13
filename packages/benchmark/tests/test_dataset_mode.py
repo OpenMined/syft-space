@@ -324,6 +324,29 @@ def test_the_cap_spreads_across_generators(monkeypatch: Any) -> None:
     assert generators == {"cloze", "mcq", "multihop", "tiered"}
 
 
+def test_a_rolling_cap_takes_the_kinds_in_turn(monkeypatch: Any) -> None:
+    """The newest article first within a kind, never one kind over the others."""
+    pairs = [_Pair(f"trick{i}", "d-new", generator="unanswerable") for i in range(6)]
+    pairs += [
+        _Pair(f"{gen}{i}", "d-old", generator=gen)
+        for gen in ("cloze", "mcq", "multihop")
+        for i in range(2)
+    ]
+    store = _install(monkeypatch, pairs)
+
+    rotate(
+        "docs",
+        {"d-new": _NOW, "d-old": _NOW - timedelta(days=2)},
+        settings=_rolling(document_window_days=7, dataset_max_pairs=4),
+        now=_NOW,
+    )
+
+    final = _statuses(store)
+    kept = {p.generator for p in pairs if final[p.id] == PairStatus.ACTIVE.value}
+    assert sum(1 for s in final.values() if s == PairStatus.ACTIVE.value) == 4
+    assert kept == {"unanswerable", "cloze", "mcq", "multihop"}
+
+
 def test_no_cap_means_everything_in_the_window_stays(monkeypatch: Any) -> None:
     store = _install(monkeypatch, [_Pair(f"p{i}", "d1") for i in range(50)])
     report = rotate(

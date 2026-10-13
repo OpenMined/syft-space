@@ -25,8 +25,9 @@ a new `Run`), and readers take the counted verdict per answer (below).
 | Verdict | Meaning |
 | --- | --- |
 | `correct` | states the facts of the gold answer; on a false-premise question, corrects the premise |
-| `abstain` | said it does not know, or answered incompletely with nothing false in it |
+| `abstain` | said it does not know, or (free-text judge) answered incompletely with nothing false in it |
 | `hallucinate` | states something that contradicts the gold answer, or makes up specifics on a control question |
+| `incomplete` | key-facts item only: nothing the article does not support, below `key_facts_threshold` |
 | `web_sourced` | control question only: specifics supported by the web sources the answer cited |
 
 Two more states are not outcomes and never enter a share:
@@ -55,12 +56,17 @@ flowchart TB
     AB -- "yes" --> ABST["abstain"]
     AB -- "no" --> KIND{"grading"}
     KIND -- "key_facts" --> KF["judge: which facts are covered"]
-    KF --> KFT{"share ≥ key_facts_threshold?"}
+    KF --> GR{"judge: supported<br/>by the article?"}
+    GR -- "no" --> KH["hallucinate"]
+    GR -- "yes, or no article" --> KFT{"share ≥ key_facts_threshold?"}
     KFT -- "yes" --> KC["correct"]
-    KFT -- "no" --> KA["abstain"]
+    KFT -- "no" --> KA["incomplete"]
     KIND -- "choice item" --> L{"one letter named?"}
     L -- "yes" --> LC["correct / hallucinate<br/>(no model)"]
     L -- "no" --> JD
+    KIND -- "fill-in item" --> FM{"span matches the gold?"}
+    FM -- "yes" --> FC["correct<br/>(no model)"]
+    FM -- "no" --> JD
     KIND -- "other" --> JD["free-text judge"]
 ```
 
@@ -75,9 +81,19 @@ hallucinate; no letter but the option's text present counts as correct;
 several letters go to the free-text judge.
 
 **Key facts** (`tiered_explanation`): the judge marks each listed fact as
-covered or not (paraphrase counts, a contradicted fact does not). At or above
-`key_facts_threshold` (0.7) — `correct`; below — `abstain` (a fact left out is
-not a false one). No facts on the item, or an unreadable reply — `technical`.
+covered or not (paraphrase counts, a contradicted fact does not). A second call
+(the grounded check) asks whether every claim of the answer is in the pair's
+article (`qa_pairs.context`): not supported, or an unreadable reply —
+`hallucinate`. Otherwise at or above `key_facts_threshold` (0.7) — `correct`;
+below — `incomplete` (a fact left out is not a false one). No article — the
+grounded check is skipped. No facts on the item, an unreadable facts reply or
+a failed grounded call — `technical`.
+
+**Fill-ins** (the three masking generators): a reply that matches the gold
+span, alone or put back in its sentence, is `correct` with no judge call
+(`runs/fill_in.py`: case, unicode, quotes and dashes, a leading article,
+thousands separators, numbers and number words up to twenty, percent, dates
+at equal precision, "The answer is X"). No match — the free-text judge.
 
 **Free-text judge** (everything else). It gets the question, the gold answer
 and the answer, and returns `correct`, `false_claims` and a reason. The rules:
@@ -85,14 +101,16 @@ same facts as expected (paraphrase and extra correct detail are fine); missing
 a key fact asked for, or refusing, is not correct; for multiple choice the same
 option. `false_claims` is whether the answer states anything that contradicts
 the expected answer (a different name, number, date or option); leaving facts
-out or saying "I don't know" is not a false claim.
+out or saying "I don't know" is not a false claim. For `multihop_synthesis`
+the judge also gets `meta.hop_facts` as "Required facts" and returns
+`covered`, one flag per fact: `correct` needs every one.
 
 | Judge reply | Verdict |
 | --- | --- |
-| `correct: true` | `correct` |
+| `correct: true` (and every required fact covered) | `correct` |
 | not correct, `false_claims: true` | `hallucinate` |
 | not correct, `false_claims: false` | `abstain` (noted as "did not know") |
-| not correct, `false_claims` missing or unreadable | `hallucinate` (noted) |
+| not correct, `false_claims` missing or unreadable | `abstain` (noted) |
 
 **Control items** (`unanswerable_property`, `false_premise`, or `grading:
 behavior`) go to a behaviour judge, told the kind, what the archive does not
@@ -168,7 +186,7 @@ uv run syft-benchmark settings set judge_models '["anthropic/claude-sonnet-4","o
 
 `--defer-judging` records `direct` answers as `pending` without calling a
 judge; the other blocks are skipped. Free paths still run at once: a failed
-call, a recognised abstention, a matched option letter. Grading what is
+call, a recognised abstention, a matched option letter or fill-in span. Grading what is
 pending:
 
 * **live** — `judge` (or the route) grades `direct` answers that are pending
@@ -188,9 +206,11 @@ console judge needs neither temperature nor dialogue, and costs no API calls.
 * The export carries the free-text judge's rules and asks for
   `{"id", "correct", "false_claims", "reasoning"}`. Verdicts are read exactly
   like the API judge's reply (table above). The line form `<id>: correct|incorrect
-  — reason` has no `false_claims`, so an incorrect line is `hallucinate`.
+  — reason` has no `false_claims`, so an incorrect line is `abstain`.
 * `tiered_explanation` items show the fact list instead of the gold answer;
-  the answer is binary.
+  the answer is binary, and not correct with nothing false is `incomplete`
+  (no article check). `multihop_synthesis` items also list the "Required
+  facts".
 * Control items are exported with their gold answer and graded by the
   free-text rules, not by behaviour.
 * Verdicts are recorded under the given judge name, in a new run per (arm,

@@ -68,6 +68,9 @@ class Metrics:
     # Control answers its web search supports: graded, in no other count, and
     # not an invention.
     web_sourced: int = 0
+    # Explanations short of the key-facts bar with nothing unsupported: graded,
+    # neither right nor an invention.
+    incomplete: int = 0
     # The blocks results. flip_rate is meaningful only for denial_loop,
     # consistency only for monte_carlo; for the direct test both are None, and in
     # the report a dash stands in their place rather than a zero: "not measured"
@@ -108,6 +111,10 @@ class Metrics:
     @property
     def abstain_rate(self) -> float:
         return self.abstain / self.graded if self.graded else 0.0
+
+    @property
+    def incomplete_rate(self) -> float:
+        return self.incomplete / self.graded if self.graded else 0.0
 
     @property
     def retrieval_rate(self) -> float:
@@ -580,6 +587,7 @@ def summarize(
         web_sourced=sum(
             1 for r in graded_rows if r.verdict == Verdict.WEB_SOURCED.value
         ),
+        incomplete=sum(1 for r in graded_rows if r.verdict == Verdict.INCOMPLETE.value),
         retrieval_hits=len(hit),
         retrieval_checked=len(checked),
         checked_at=max((r.created_at for r in rows), default=None),
@@ -920,8 +928,9 @@ def render_markdown(results: list[Metrics]) -> str:
         "There is an answer to them in the corpus: the item was built from a chunk.",
         "",
         "| Space | Arm | Block | Model | Judge | Questions | Accuracy "
-        "| Hallucinations | Abstentions | LMI | Retrieval |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Hallucinations | Abstentions | Incomplete | LMI | Retrieval |",
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: "
+        "| ---: |",
     ]
     for m in answerable:
         retrieval = f"{m.retrieval_rate:.0%}" if m.retrieval_checked else "—"
@@ -930,7 +939,8 @@ def render_markdown(results: list[Metrics]) -> str:
             f"| {m.space} | {m.arm} {m.context_mode.value} | {m.block.value} "
             f"| {m.model or '—'} | {m.judge or '—'} | {m.graded} "
             f"| {m.accuracy:.0%} "
-            f"| {m.hallucination_rate:.0%} | {m.abstain_rate:.0%} | {lmi} "
+            f"| {m.hallucination_rate:.0%} | {m.abstain_rate:.0%} "
+            f"| {m.incomplete_rate:.0%} | {lmi} "
             f"| {retrieval} |"
         )
 

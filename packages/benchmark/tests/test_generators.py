@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import re
 
 import pytest
@@ -277,31 +278,62 @@ def test_multihop_requires_two_facts() -> None:
     assert "fewer than two facts" in rejected[0]
 
 
-def test_tiered_expands_into_three_levels() -> None:
+_TIERED = {
+    "topic": "how a Space publishes an endpoint",
+    "key_facts": ["one", "two", "three", "four", "five", "six"],
+    "tiers": [
+        {"tier": "eli5", "explanation": "A shop puts a sign in the window."},
+        {"tier": "eli10", "explanation": "The Space tells the Hub about it."},
+        {"tier": "eli18", "explanation": "Publication registers the endpoint."},
+    ],
+}
+
+
+def test_tiered_keeps_one_level_with_the_shared_facts() -> None:
+    pairs, rejected = clean_tiered([_TIERED], 1, DOC)
+    assert not rejected
+    assert len(pairs) == 1
+    meta = pairs[0].meta
+    assert meta["tier"] in {"eli5", "eli10", "eli18"}
+    assert meta["grading"] == "key_facts"
+    # Capped at five, the same for every level.
+    assert meta["key_facts"] == ["one", "two", "three", "four", "five"]
+
+
+def test_tiered_level_is_random_and_reproducible() -> None:
+    """Seeded from the topic by default; an injected generator picks otherwise."""
+    first = clean_tiered([_TIERED], 1, DOC)[0][0].meta["tier"]
+    assert all(
+        clean_tiered([_TIERED], 1, DOC)[0][0].meta["tier"] == first for _ in range(5)
+    )
+    picked = {
+        clean_tiered([_TIERED], 1, DOC, rng=random.Random(seed))[0][0].meta["tier"]
+        for seed in range(30)
+    }
+    assert picked == {"eli5", "eli10", "eli18"}
+
+
+def test_tiered_prompt_asks_for_shared_exclusive_facts() -> None:
+    prompt = GENERATORS["tiered_explanation"].system.format(n=1)
+    assert "short neutral subject" in prompt
+    assert "List 3 to 5 key facts" in prompt
+    assert "same key facts for every audience level" in prompt
+    assert '"key_facts": [' in prompt and "{{" not in prompt
+
+
+def test_tiered_falls_back_to_a_levels_own_facts() -> None:
     payload = {
-        "topic": "how a Space publishes an endpoint",
+        "topic": "publication",
         "tiers": [
-            {
-                "tier": "eli5",
-                "explanation": "A shop puts a sign in the window.",
-                "key_facts": ["a Space publishes"],
-            },
             {
                 "tier": "eli10",
                 "explanation": "The Space tells the Hub about it.",
                 "key_facts": ["the Hub is told"],
-            },
-            {
-                "tier": "eli18",
-                "explanation": "Publication registers the endpoint.",
-                "key_facts": ["registration"],
-            },
+            }
         ],
     }
-    pairs, rejected = clean_tiered([payload], 1, DOC)
-    assert not rejected
-    assert [p.meta["tier"] for p in pairs] == ["eli5", "eli10", "eli18"]
-    assert all(p.meta["grading"] == "key_facts" for p in pairs)
+    pairs, _ = clean_tiered([payload], 1, DOC)
+    assert pairs[0].meta["key_facts"] == ["the Hub is told"]
 
 
 def test_tiered_level_without_facts_is_unjudgeable() -> None:
@@ -397,7 +429,8 @@ def test_a_question_in_another_language_is_dropped() -> None:
     )
     good, bad = _drop_wrong_language([english, italian], _ENGLISH_ARTICLE)
     assert good == [english]
-    assert bad == [WRONG_LANGUAGE]
+    assert [r.drop for r in bad] == [WRONG_LANGUAGE]
+    assert bad[0].note == "wrong language: it, the article en"
 
 
 def test_too_short_to_tell_the_language_is_kept() -> None:
@@ -408,6 +441,97 @@ def test_too_short_to_tell_the_language_is_kept() -> None:
     good, bad = _drop_wrong_language([short], _ENGLISH_ARTICLE)
     assert good == [short]
     assert bad == []
+
+
+_RUSSIAN_ARTICLE = (
+    "Компания Акме привлекла сорок миллионов долларов в раунде, который возглавил "
+    "фонд Секвойя в марте, и в компании сказали, что потратят большую часть денег "
+    "на наём инженеров для нового офиса в Лиссабоне в течение двух лет."
+)
+_GERMAN_ARTICLE = (
+    "Die Firma Acme hat vierzig Millionen Dollar in einer Runde eingesammelt, die "
+    "von Sequoia im März geführt wurde, und das Geld soll vor allem für neue "
+    "Ingenieure in dem Büro in Lissabon in den nächsten zwei Jahren dienen."
+)
+
+
+def test_fixed_english_wording_does_not_decide_the_language() -> None:
+    """Items in the article's language are kept despite the English around them."""
+    from syft_benchmark.generation.negative import clean_unanswerable
+    from syft_benchmark.generation.pipeline import (
+        _drop_wrong_language,
+        _masked_to_pairs,
+    )
+
+    statements = [
+        {"statement": "Акме привлекла сорок миллионов долларов.", "label": "truth"},
+        {"statement": "Раунд возглавил фонд Секвойя.", "label": "truth"},
+        {"statement": "Новый офис откроют в Мадриде.", "label": "lie"},
+    ]
+    ttil, _ = clean_ttil(statements, 1, _RUSSIAN_ARTICLE)
+    masked = parse_combined(
+        {
+            "named_entity": [
+                {
+                    "question": "Новый офис компании Акме для инженеров откроют в "
+                    "городе ______ в течение двух лет.",
+                    "answer": "Лиссабоне",
+                }
+            ]
+        },
+        ("named_entity",),
+    )["named_entity"]
+    blanks, _ = _masked_to_pairs(masked, _RUSSIAN_ARTICLE)
+    assert ttil and blanks
+    good, bad = _drop_wrong_language(ttil + blanks, _RUSSIAN_ARTICLE)
+    assert good == ttil + blanks and bad == []
+
+    tiered, _ = clean_tiered(
+        [
+            {
+                "topic": "Die Finanzierung von Acme",
+                "tiers": [
+                    {
+                        "tier": "eli5",
+                        "explanation": "Acme hat viel Geld bekommen, und die Firma "
+                        "will damit mehr Leute für ihr neues Büro einstellen.",
+                        "key_facts": ["Acme hat vierzig Millionen Dollar eingesammelt"],
+                    }
+                ],
+            }
+        ],
+        1,
+        _GERMAN_ARTICLE,
+    )
+    absent, _ = clean_unanswerable(
+        [
+            {
+                "question": "Wie viele Ingenieure will Acme in dem Büro in Lissabon "
+                "einstellen?",
+                "missing": "die Zahl der Ingenieure",
+            }
+        ],
+        1,
+        _GERMAN_ARTICLE,
+    )
+    assert tiered and absent
+    good, bad = _drop_wrong_language(tiered + absent, _GERMAN_ARTICLE)
+    assert good == tiered + absent and bad == []
+
+
+def test_a_choice_in_another_language_is_dropped() -> None:
+    """Option letters do not save a French multiple choice from an English article."""
+    from syft_benchmark.generation.pipeline import WRONG_LANGUAGE, _drop_wrong_language
+
+    french = Pair(
+        question="Qui a mené le tour de table de la série B de Acme ?\n"
+        "  A) Sequoia\n  B) Accel\n  C) Index\n  D) Benchmark",
+        answer="A) Sequoia, qui a mené le tour en mars pour la société",
+        distractors=["B) Accel", "C) Index", "D) Benchmark"],
+        meta={},
+    )
+    good, bad = _drop_wrong_language([french], _ENGLISH_ARTICLE)
+    assert good == [] and [r.drop for r in bad] == [WRONG_LANGUAGE]
 
 
 def test_rules_are_numbered_without_gaps() -> None:
@@ -422,6 +546,27 @@ def test_rules_are_numbered_without_gaps() -> None:
         numbers = [int(n) for n in re.findall(r"^(\d+)\. ", system, re.MULTILINE)]
         assert numbers == list(range(1, len(numbers) + 1))
     assert "exactly ONE missing detail" in UNANSWERABLE_SYSTEM
+
+
+def test_writers_ask_about_facts_only_this_story_has() -> None:
+    """Open, multiple-choice, connect-the-facts and false-claim writers."""
+    from syft_benchmark.generation.abstractive import MULTIHOP_SYSTEM, TTIL_SYSTEM
+    from syft_benchmark.generation.extractive import COMBINED_SYSTEM
+    from syft_benchmark.generation.generators import _MCQ_SYSTEM, _QA_SYSTEM
+
+    def flat(system: str) -> str:
+        return " ".join(system.format(n=2).split())
+
+    rule = "Build each question on a fact that only this story reports"
+    for system in (_QA_SYSTEM, _MCQ_SYSTEM, MULTIHOP_SYSTEM, TTIL_SYSTEM):
+        assert rule in flat(system)
+    assert "each must be contradicted by it" in flat(_MCQ_SYSTEM)
+    assert "a detail only this story reports, so the web can't" in flat(TTIL_SYSTEM)
+    assert (
+        flat(COMBINED_SYSTEM)
+        .split(" Respond with ONLY")[0]
+        .endswith("- Use each sentence once.")
+    )
 
 
 def test_generation_calls_the_generator_role_not_the_common_provider(

@@ -28,7 +28,7 @@ erDiagram
         text answer "SENSITIVE: quotes the source"
         jsonb distractors
         text context
-        jsonb meta "grading, key_facts, screening, writer call, article date"
+        jsonb meta "grading, key_facts, screening, writer call, entity check, article date"
         string expected_behavior "answer-abstain-correct_premise"
         string status "pending-active-rejected-retired"
         text status_note
@@ -67,7 +67,7 @@ erDiagram
         string qa_id FK
         string endpoint_response_type "raw-summary-both"
         text answer
-        string verdict "correct-abstain-hallucinate-pending-technical-web_sourced"
+        string verdict "correct-abstain-hallucinate-incomplete-pending-technical-web_sourced"
         text reasoning
         string expected_behavior "copy of the label at run time"
         boolean grounded "arms B and C"
@@ -129,7 +129,8 @@ resuming.
 * **`qa_pairs.status`** — `pending` (built, not screened), `active`,
   `rejected` (screened out), `retired` (left the window or a previous cohort).
   `status_reason`: `grounding`, `retrieval_gate`, `not_answerable`,
-  `duplicate`, `owner`, `rotation`, `web_answerable`, `other`. Screened-out pairs are kept.
+  `duplicate`, `owner`, `rotation`, `web_answerable`, `wrong_language`,
+  `ambiguous_entity`, `other`. Screened-out pairs are kept.
 * **`qa_pairs.cohort` in the unique key** — the same question may repeat
   across cohorts (a rebuild over the same material).
 * **`processed_units` keyed by generator and cohort** — each generator

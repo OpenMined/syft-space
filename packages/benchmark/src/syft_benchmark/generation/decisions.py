@@ -3,7 +3,8 @@
 ``meta.screening`` is a list of records ``{stage, outcome, note, reason,
 job_id, at}`` (plus ``web``, the web check record, for that stage, and
 ``gate``, the call of the control gate or of an ordinary pair's archive
-check). ``control`` is the search stage: the control gate, and the archive
+check). ``writing`` is the check as a question is written (its language, the
+entity check). ``control`` is the search stage: the control gate, and the archive
 check of an ordinary pair. A job's Filter list is every pair carrying a
 record with its id, including pairs an earlier job wrote. The writer job
 stays ``qa_pairs.job_id``.
@@ -17,10 +18,11 @@ from typing import Any
 SCREENING = "screening"
 
 # Stages and outcomes of a decision.
+WRITING = "writing"
 GROUNDING = "grounding"
 CONTROL = "control"
 WEB_CHECK = "web_check"
-STAGES = (GROUNDING, CONTROL, WEB_CHECK)
+STAGES = (WRITING, GROUNDING, CONTROL, WEB_CHECK)
 
 KEPT = "kept"
 REMOVED = "removed"

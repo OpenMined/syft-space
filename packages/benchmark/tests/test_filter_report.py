@@ -531,6 +531,7 @@ def test_the_build_per_kind_is_kept_with_the_job(
             "units_available": 3,
             "units_read": 3,
             "failed_units": 0,
+            "topped_up": 0,
             "dropped": {"duplicate": 1},
             "stopped": "ran out of material",
         }

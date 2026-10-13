@@ -101,3 +101,30 @@ def writer_call(
     if not isinstance(writer, dict):
         return None
     return calls.get(str(writer.get("call")))
+
+
+# The texts of a check call that sit on one pair of it.
+_CHECK_FULL = ("model", "system", "user", "reply", "cost_usd", "latency_s")
+
+
+def check_meta(call: dict[str, Any], verdict: dict[str, Any]) -> dict[str, Any]:
+    """A pair's check record: its verdict, plus the call's texts on the first
+    pair stored from ``call``. ``call`` remembers that its texts were stored."""
+    if not call.get("call"):
+        return dict(verdict)
+    out = {**verdict, "call": call["call"]}
+    if not call.get("_stored"):
+        call["_stored"] = True
+        out.update({key: call[key] for key in _CHECK_FULL if key in call})
+    return out
+
+
+def check_calls(pairs: Iterable[_Pair], key: str) -> dict[str, dict[str, Any]]:
+    """Every check call under ``meta[key]`` the pairs carry the texts of, by
+    call id: {model, system, user, reply, cost_usd, latency_s}."""
+    out: dict[str, dict[str, Any]] = {}
+    for pair in pairs:
+        record = (pair.meta or {}).get(key)
+        if isinstance(record, dict) and record.get("call") and "system" in record:
+            out[str(record["call"])] = {k: record.get(k) for k in _CHECK_FULL}
+    return out

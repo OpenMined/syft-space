@@ -102,7 +102,16 @@
               class="border-b border-border last:border-b-0"
               data-testid="kind-row"
             >
-              <td class="px-4 py-3">{{ kindLabel(k.generator) }}</td>
+              <td class="px-4 py-3">
+                {{ kindLabel(k.generator) }}
+                <span
+                  v-if="guessText(k.generator)"
+                  class="ml-1.5 cursor-help text-xs text-muted-foreground"
+                  :title="GUESS_TIP"
+                  data-testid="kind-guess"
+                  >{{ guessText(k.generator) }}</span
+                >
+              </td>
               <td class="px-2 py-3 text-right text-muted-foreground tabular-nums">
                 {{ count(k.asked) }}
               </td>
@@ -162,6 +171,7 @@ import { kindLabel, modelName, vendorName, verdictTip } from './labels'
 import { checksLocation, questionsLocation } from './routing'
 import { isTrick } from './selectors'
 import { compareKinds } from '../questionOrder'
+import { GUESS_TIP, guessText } from '../labels'
 
 const run = useRun()
 
@@ -203,12 +213,20 @@ const PARTS = [
     bar: 'bg-sky-500/60',
     text: 'text-sky-700 dark:text-sky-400',
   },
+  {
+    key: 'incomplete',
+    label: 'incomplete',
+    bar: 'bg-violet-500/50',
+    text: 'text-violet-700 dark:text-violet-400',
+  },
 ] as const
 
-/** From the web only where it happened: it is a control-question outcome. */
+/** Shown only where they happened: each comes from one kind of question. */
+const OCCASIONAL = new Set<string>(['web_sourced', 'incomplete'])
+
 function parts(t: BenchmarkTally) {
   return PARTS.map((p) => ({ ...p, n: t[p.key] ?? 0 })).filter(
-    (p) => p.key !== 'web_sourced' || p.n > 0,
+    (p) => !OCCASIONAL.has(p.key) || p.n > 0,
   )
 }
 

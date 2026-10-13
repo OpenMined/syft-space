@@ -65,11 +65,10 @@ from syft_benchmark.runs.execute import CLOSED_BOOK_SYSTEM
 from syft_benchmark.runs.gate import evaluable
 from syft_benchmark.runs.judge import (
     JUDGE_RULES,
-    control_case,
+    Gradable,
+    explanation_grade,
     free_text_grade,
-    grade,
-    grade_control,
-    is_control,
+    grade_item,
     is_technical,
 )
 
@@ -101,6 +100,9 @@ class ConsoleReport:
     correct: int = 0
     abstain: int = 0
     hallucinate: int = 0
+    incomplete: int = 0
+    web_sourced: int = 0
+    technical: int = 0
     notes: list[str] | None = None
 
 
@@ -248,25 +250,22 @@ def import_answers(
     report.missing = len(answers) - len(pairs)
     for pair in pairs:
         answer = answers[pair.id]
-        # The judging method is set by the generator — as in an ordinary run. A
+        # The judging method is set by the item's kind — as in an ordinary run. A
         # control question is judged by behaviour: there is no correct answer, and
         # nothing to compare it against.
-        if is_control(pair.generator, pair.meta):
-            verdict = grade_control(
-                control_case(pair.generator, pair.question, pair.answer, pair.meta),
-                answer,
-                settings=conf,
-                judge=judge,
-            )
-        else:
-            verdict = grade(
-                pair.question,
-                pair.answer,
-                answer,
-                is_mcq=pair.task_type == "choice",
-                settings=conf,
-                judge=judge,
-            )
+        verdict = grade_item(
+            Gradable(
+                question=pair.question,
+                expected=pair.answer,
+                generator=pair.generator,
+                task_type=pair.task_type,
+                meta=pair.meta,
+                context=pair.context or "",
+            ),
+            answer,
+            settings=conf,
+            judge=judge,
+        )
 
         with session_scope() as session:
             session.add(
@@ -294,6 +293,12 @@ def import_answers(
             report.correct += 1
         elif verdict.verdict is Verdict.ABSTAIN:
             report.abstain += 1
+        elif verdict.verdict is Verdict.INCOMPLETE:
+            report.incomplete += 1
+        elif verdict.verdict is Verdict.WEB_SOURCED:
+            report.web_sourced += 1
+        elif verdict.verdict is Verdict.TECHNICAL:
+            report.technical += 1
         else:
             report.hallucinate += 1
 
@@ -321,7 +326,7 @@ def _judging_header(count: int) -> str:
 # The judge answer is one object per line or the whole array. The form is set by
 # the chat, not by us, and demanding a single one would mean breaking the work
 # over formatting. A line carries no "false_claims", so an incorrect one counts
-# as hallucinated, as with an API judge that leaves the field out.
+# as did not know, as with an API judge that leaves the field out.
 _VERDICT_RE = re.compile(
     r"^\s*([0-9a-f]{6,32})\s*[:.\)]\s*(correct|incorrect|wrong|yes|no|true|false)"
     r"\s*[—\-:]?\s*(.*)$",
@@ -342,6 +347,8 @@ class JudgingTask:
     answer: str
     grading: str
     key_facts: list[str] = field(default_factory=list)
+    # Connect the facts: what a correct answer must state, every one.
+    hop_facts: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -355,6 +362,7 @@ class JudgingReport:
     correct: int = 0
     abstain: int = 0
     hallucinate: int = 0
+    incomplete: int = 0
     notes: list[str] = field(default_factory=list)
 
 
@@ -460,6 +468,7 @@ def _judging_tasks(
                     answer=str(row.answer or ""),
                     grading=str(meta.get("grading") or "judge"),
                     key_facts=[str(f) for f in meta.get("key_facts", [])],
+                    hop_facts=[str(f) for f in meta.get("hop_facts") or []],
                 )
             )
     return tasks
@@ -518,6 +527,10 @@ def export_judging(
             lines.append(f"Facts the explanation must cover:\n{facts}")
         else:
             lines.append(f"Expected answer:\n{task.expected}")
+            if task.hop_facts:
+                hops = enumerate(task.hop_facts)
+                facts = "\n".join(f"  {i + 1}. {f}" for i, f in hops)
+                lines.append(f"Required facts:\n{facts}")
         lines.append(f"Model answer:\n{task.answer}")
         lines.append("")
 
@@ -620,6 +633,16 @@ def import_judging(
             )
             for result, run in rows
         ]
+        # The items graded by key facts: their verdicts are read as such.
+        explanations = {
+            qa_id
+            for qa_id, meta in session.execute(
+                select(QaPair.id, QaPair.meta).where(
+                    QaPair.id.in_({str(r["qa_id"]) for r, _ in source_rows})
+                )
+            ).all()
+            if str((meta or {}).get("grading") or "judge") == "key_facts"
+        }
 
     report.missing = len(verdicts) - len(source_rows)
     if not source_rows:
@@ -662,6 +685,10 @@ def import_judging(
                 )
 
         verdict, reasoning = verdicts[str(result_row["id"])]
+        if str(result_row["qa_id"]) in explanations:
+            verdict, reasoning = explanation_grade(
+                verdict, reasoning, str(result_row["answer"] or "")
+            )
         audit = dict(result_row["audit"] or {})
         # An auditor needs to see that the verdict was issued by a human in a chat
         # rather than by a model: it cannot be checked the way a machine one can.
@@ -704,6 +731,8 @@ def import_judging(
             report.correct += 1
         elif verdict is Verdict.ABSTAIN:
             report.abstain += 1
+        elif verdict is Verdict.INCOMPLETE:
+            report.incomplete += 1
         else:
             report.hallucinate += 1
 

@@ -24,7 +24,8 @@ export const KIND_DESC: Record<string, string> = {
   multihop_synthesis: 'Combine facts from different parts of a story.',
   two_truths_one_lie: 'Find the one false statement among three.',
   false_premise: 'Notice that the question assumes something that did not happen.',
-  tiered_explanation: 'Explain a story for a young reader. Graded on how many key facts it covers.',
+  tiered_explanation:
+    'Explain a story simply. Graded on its key facts; anything the story doesn’t support counts as hallucinated.',
   unanswerable_property:
     'Ask for a detail your reporting does not contain. The right response is “I don’t know”.',
 }
@@ -42,6 +43,7 @@ export const VERDICT_LABEL: Record<string, string> = {
   abstain: 'Didn’t know',
   hallucinate: 'Hallucinated',
   web_sourced: 'From the web',
+  incomplete: 'Incomplete',
   pending: 'Not graded yet',
   technical: 'Not measured',
 }
@@ -51,10 +53,16 @@ export function verdictLabel(verdict: string): string {
 }
 
 export const WEB_SOURCED_TIP = 'Stated facts its web search supports.'
+export const INCOMPLETE_TIP = 'Left out key facts but stated nothing false.'
+
+const VERDICT_TIP: Record<string, string> = {
+  web_sourced: WEB_SOURCED_TIP,
+  incomplete: INCOMPLETE_TIP,
+}
 
 /** Tooltip of a verdict pill; empty when it needs none. */
 export function verdictTip(verdict: string | null | undefined): string {
-  return verdict === 'web_sourced' ? WEB_SOURCED_TIP : ''
+  return (verdict && VERDICT_TIP[verdict]) || ''
 }
 
 /** Pill colours without the border reset, shared by every verdict pill. */
@@ -63,6 +71,7 @@ export const VERDICT_COLORS: Record<string, string> = {
   abstain: 'bg-muted text-muted-foreground',
   hallucinate: 'bg-warning/20 text-foreground',
   web_sourced: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
+  incomplete: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
 }
 
 /** Badge classes for a verdict pill. */
@@ -182,7 +191,14 @@ export const REMOVED_REASON_LABEL: Record<string, string> = {
   owner: 'Removed by you',
   rotation: 'Rotated out',
   web_answerable: 'Answerable from the web',
+  wrong_language: 'Wrong language',
+  ambiguous_entity: 'Unclear subject',
   other: 'Other',
+}
+
+export const REMOVED_REASON_TIP: Record<string, string> = {
+  wrong_language: 'Written in a different language from its article.',
+  ambiguous_entity: 'Names someone or something a reader can’t identify from the question alone.',
 }
 
 export function removedReasonLabel(reason: string): string {
