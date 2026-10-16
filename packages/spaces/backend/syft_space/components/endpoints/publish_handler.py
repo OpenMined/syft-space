@@ -475,7 +475,6 @@ class PublishEndpointHandler:
                     marketplace_id=marketplace.id,
                     available=verdict.available,
                     reason=verdict.reason,
-                    message=verdict.message,
                     error=None,
                 )
         except SyftHubError as e:

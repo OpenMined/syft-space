@@ -151,10 +151,8 @@ class NotAuthenticatedError(SyftHubError):
 class SlugAvailability(BaseModel):
     """The Hub's answer to "could I publish under this slug right now?"."""
 
-    slug: str
     available: bool
-    reason: str | None = None  # invalid | reserved | taken
-    message: str | None = None
+    reason: str | None = None  # why not, for a person; None when available
 
 
 class TokenResponse(BaseModel):
@@ -772,9 +770,8 @@ class SyftHubClient:
         if response.status_code in (404, 405):
             exists = await self.endpoint_exists(slug)
             return SlugAvailability(
-                slug=slug,
                 available=not exists,
-                reason="taken" if exists else None,
+                reason="Already published under this name" if exists else None,
             )
         return _handle_response(response, SlugAvailability)
 

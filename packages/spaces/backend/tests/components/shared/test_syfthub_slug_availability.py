@@ -34,10 +34,8 @@ def make_client(handler) -> tuple[SyftHubClient, list[httpx.Request]]:
 
 async def test_availability_relays_the_hubs_verdict():
     body = {
-        "slug": "admin",
         "available": False,
-        "reason": "reserved",
-        "message": "'admin' is a reserved slug and cannot be used",
+        "reason": "'admin' is a reserved slug and cannot be used",
     }
     client, seen = make_client(lambda r: httpx.Response(200, json=body))
 
@@ -45,8 +43,7 @@ async def test_availability_relays_the_hubs_verdict():
 
     assert seen[0].url.path == "/api/v1/endpoints/admin/availability"
     assert verdict.available is False
-    assert verdict.reason == "reserved"
-    assert verdict.message == body["message"]
+    assert verdict.reason == body["reason"]
 
 
 @pytest.mark.parametrize("missing_status", [404, 405])
@@ -65,8 +62,7 @@ async def test_availability_falls_back_to_exists_on_older_hubs(missing_status: i
         "/api/v1/endpoints/radar/exists",
     ]
     assert verdict.available is False
-    assert verdict.reason == "taken"
-    assert verdict.message is None
+    assert verdict.reason == "Already published under this name"
 
 
 async def test_availability_fallback_reports_free_slug():
