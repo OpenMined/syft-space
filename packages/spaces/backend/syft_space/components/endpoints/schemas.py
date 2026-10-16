@@ -647,7 +647,14 @@ class MarketplaceAvailabilityResult(BaseModel):
 
     marketplace_id: UUID = Field(..., description="Marketplace ID")
     available: bool | None = Field(
-        ..., description="True if available, False if exists, None if check failed"
+        ..., description="True if available, False if not, None if check failed"
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Why the marketplace refuses the slug: invalid, reserved or taken",
+    )
+    message: str | None = Field(
+        default=None, description="The marketplace's explanation when unavailable"
     )
     error: str | None = Field(default=None, description="Error message if check failed")
 

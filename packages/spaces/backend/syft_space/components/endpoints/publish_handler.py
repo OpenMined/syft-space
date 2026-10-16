@@ -470,9 +470,13 @@ class PublishEndpointHandler:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
-                exists = await client.endpoint_exists(slug)
+                verdict = await client.slug_availability(slug)
                 return MarketplaceAvailabilityResult(
-                    marketplace_id=marketplace.id, available=not exists, error=None
+                    marketplace_id=marketplace.id,
+                    available=verdict.available,
+                    reason=verdict.reason,
+                    message=verdict.message,
+                    error=None,
                 )
         except SyftHubError as e:
             return MarketplaceAvailabilityResult(

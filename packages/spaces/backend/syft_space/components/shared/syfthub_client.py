@@ -148,6 +148,15 @@ class NotAuthenticatedError(SyftHubError):
 # =============================================================================
 
 
+class SlugAvailability(BaseModel):
+    """The Hub's answer to "could I publish under this slug right now?"."""
+
+    slug: str
+    available: bool
+    reason: str | None = None  # invalid | reserved | taken
+    message: str | None = None
+
+
 class TokenResponse(BaseModel):
     """Response from login/refresh endpoints."""
 
@@ -320,14 +329,29 @@ def _parse_error_response(response: httpx.Response) -> ParsedError:
     if isinstance(detail, str):
         return ParsedError(message=detail)
 
-    # Pattern 3: Validation errors array
+    # Pattern 3: Validation errors array (FastAPI/pydantic shape). Keep the
+    # field name so a publisher learns *which* value was rejected.
     if isinstance(detail, list):
-        messages = [err.get("msg", str(err)) for err in detail]
-        return ParsedError(message="; ".join(messages))
+        return ParsedError(
+            message="; ".join(_describe_validation_error(e) for e in detail)
+        )
 
     return ParsedError(
         message=response.text[:200] if response.text else response.reason_phrase or ""
     )
+
+
+def _describe_validation_error(err: Any) -> str:
+    """``{"loc": ["body", "description"], "msg": "..."}`` -> ``description: ...``."""
+    if not isinstance(err, dict):
+        return str(err)
+    msg = err.get("msg", str(err))
+    loc = [
+        str(part)
+        for part in err.get("loc", ())
+        if part not in ("body", "query", "path")
+    ]
+    return f"{'.'.join(loc)}: {msg}" if loc else msg
 
 
 def _extract_validation_errors(response: httpx.Response) -> list[dict[str, Any]]:
@@ -732,6 +756,27 @@ class SyftHubClient:
         self._require_auth()
         response = await self._client.get(f"/api/v1/endpoints/{slug}/exists")  # type: ignore
         return _handle_response_raw(response)
+
+    async def slug_availability(self, slug: str) -> SlugAvailability:
+        """Ask the Hub whether a publish under ``slug`` would be accepted.
+
+        The Hub owns the slug rules (length, format, reserved names) and the
+        per-user uniqueness, so the answer comes from it rather than from a
+        copy of those rules here. A Hub that predates the route is asked the
+        narrower ``/exists`` question instead.
+        """
+        self._require_auth()
+        response = await self._client.get(  # type: ignore[union-attr]
+            f"/api/v1/endpoints/{slug}/availability"
+        )
+        if response.status_code in (404, 405):
+            exists = await self.endpoint_exists(slug)
+            return SlugAvailability(
+                slug=slug,
+                available=not exists,
+                reason="taken" if exists else None,
+            )
+        return _handle_response(response, SlugAvailability)
 
     async def publish_endpoint(
         self,
