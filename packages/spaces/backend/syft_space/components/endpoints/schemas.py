@@ -88,8 +88,8 @@ class CreateEndpointRequest(BaseModel):
         _slug = v.lower()
         if len(_slug) < 3:
             raise ValueError("Slug must be at least 3 characters long")
-        if len(_slug) > 64:
-            raise ValueError("Slug must be at most 64 characters long")
+        if len(_slug) > 63:
+            raise ValueError("Slug must be at most 63 characters long")
         if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", _slug):
             raise ValueError(
                 "Slug must contain only lowercase letters, numbers, and hyphens "
