@@ -1,7 +1,7 @@
 """The Hub decides whether a slug can be published; this space only relays.
 
-Pins the wire call, the fallback for Hubs without the route, and that a
-422's field name survives into the message a publisher reads.
+Pins the wire call and that a 422's field name survives into the message
+a publisher reads.
 """
 
 from __future__ import annotations
@@ -44,39 +44,6 @@ async def test_availability_relays_the_hubs_verdict():
     assert seen[0].url.path == "/api/v1/endpoints/admin/availability"
     assert verdict.available is False
     assert verdict.reason == body["reason"]
-
-
-@pytest.mark.parametrize("missing_status", [404, 405])
-async def test_availability_falls_back_to_exists_on_older_hubs(missing_status: int):
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/availability"):
-            return httpx.Response(missing_status, json={"detail": "Not Found"})
-        return httpx.Response(200, json=True)
-
-    client, seen = make_client(handler)
-
-    verdict = await client.slug_availability("radar")
-
-    assert [r.url.path for r in seen] == [
-        "/api/v1/endpoints/radar/availability",
-        "/api/v1/endpoints/radar/exists",
-    ]
-    assert verdict.available is False
-    assert verdict.reason == "Already published under this name"
-
-
-async def test_availability_fallback_reports_free_slug():
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/availability"):
-            return httpx.Response(404, json={"detail": "Not Found"})
-        return httpx.Response(200, json=False)
-
-    client, _ = make_client(handler)
-
-    verdict = await client.slug_availability("radar")
-
-    assert verdict.available is True
-    assert verdict.reason is None
 
 
 def test_validation_error_message_names_the_field():

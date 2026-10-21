@@ -744,35 +744,17 @@ class SyftHubClient:
         response = await self._client.get("/api/v1/users/me/accounting")  # type: ignore
         return _handle_response(response, AccountingResponse)
 
-    async def endpoint_exists(self, slug: str) -> bool:
-        """Check if an endpoint exists on SyftHub.
-        Args:
-            slug: Slug of the endpoint
-        Returns:
-            True if endpoint exists, False otherwise.
-        """
-        self._require_auth()
-        response = await self._client.get(f"/api/v1/endpoints/{slug}/exists")  # type: ignore
-        return _handle_response_raw(response)
-
     async def slug_availability(self, slug: str) -> SlugAvailability:
         """Ask the Hub whether a publish under ``slug`` would be accepted.
 
         The Hub owns the slug rules (length, format, reserved names) and the
         per-user uniqueness, so the answer comes from it rather than from a
-        copy of those rules here. A Hub that predates the route is asked the
-        narrower ``/exists`` question instead.
+        copy of those rules here.
         """
         self._require_auth()
         response = await self._client.get(  # type: ignore[union-attr]
             f"/api/v1/endpoints/{slug}/availability"
         )
-        if response.status_code in (404, 405):
-            exists = await self.endpoint_exists(slug)
-            return SlugAvailability(
-                available=not exists,
-                reason="Already published under this name" if exists else None,
-            )
         return _handle_response(response, SlugAvailability)
 
     async def publish_endpoint(
