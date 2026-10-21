@@ -16,7 +16,6 @@ import {
   Pencil,
   Trash2,
   AlertTriangle,
-  ExternalLink,
   Lightbulb,
   ChevronRight,
   ShieldCheck,
@@ -58,8 +57,8 @@ import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { useGoLive } from '@/composables/useGoLive'
+import { slugUnavailableReason } from '@/lib/slugAvailability'
 import { useTheme } from '@/composables/useTheme'
-import { useUserStore } from '@/stores/user'
 import {
   POLICY_TYPES,
   createEmptyPolicyRules,
@@ -77,7 +76,6 @@ import type { DatasetListItem, ModelListItem } from '@/api/types'
 
 const router = useRouter()
 const { isDark } = useTheme()
-const userStore = useUserStore()
 const { isCreating, creationStep, creationError, goLive } = useGoLive()
 
 const currentStep = ref(1)
@@ -440,6 +438,7 @@ const isValidSlug = (val: string): boolean => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(va
 
 const isCheckingName = ref(false)
 const nameAvailability = ref<'available' | 'taken' | null>(null)
+const nameUnavailableReason = ref<string | null>(null)
 let nameDebounce: ReturnType<typeof setTimeout> | null = null
 
 const endpointNameError = computed(() => {
@@ -448,7 +447,7 @@ const endpointNameError = computed(() => {
     return 'Use lowercase letters, numbers, and hyphens only (e.g., my-data-source)'
   }
   if (nameAvailability.value === 'taken') {
-    return 'This name is already taken. Choose a different name.'
+    return nameUnavailableReason.value ?? 'This name is already taken. Choose a different name.'
   }
   return null
 })
@@ -468,9 +467,8 @@ const checkNameAvailability = (val: string) => {
         slug: val,
         check_all_marketplaces: true,
       })
-      const localOk = result.local_available
-      const mktOk = !result.marketplaces || result.marketplaces.every((m) => m.available !== false)
-      nameAvailability.value = localOk && mktOk ? 'available' : 'taken'
+      nameUnavailableReason.value = slugUnavailableReason(result)
+      nameAvailability.value = nameUnavailableReason.value ? 'taken' : 'available'
     } catch (error) {
       console.error('Failed to check name availability:', error)
       nameAvailability.value = null
@@ -557,11 +555,8 @@ const fillExampleData = (exampleType: 'news' | 'research' | 'library') => {
   checkNameAvailability(name.value)
 }
 
-const showOverwriteDialog = ref(false)
 const showDescriptionPreview = ref(false)
 const isCheckingBeforePublish = ref(false)
-
-const existingEndpointUrl = computed(() => userStore.getEndpointUrlInMarketplace(name.value))
 
 const canProceedStep1 = computed(() => !!selectedDataSourceId.value || !!selectedModelId.value)
 
@@ -650,9 +645,13 @@ const handleGoLive = async () => {
       slug: name.value.trim(),
       check_all_marketplaces: true,
     })
-    const mktOk = !result.marketplaces || result.marketplaces.every((m) => m.available !== false)
-    if (!mktOk) {
-      showOverwriteDialog.value = true
+    const reason = slugUnavailableReason(result)
+    if (reason) {
+      // The Hub refused the name since it was last checked. Show its reason
+      // on the name step; publishing would only fail with the same message.
+      nameUnavailableReason.value = reason
+      nameAvailability.value = 'taken'
+      currentStep.value = 3
       return
     }
   } catch (error) {
@@ -661,11 +660,6 @@ const handleGoLive = async () => {
     isCheckingBeforePublish.value = false
   }
 
-  await goLive(buildGoLiveData())
-}
-
-const handleOverwriteConfirm = async () => {
-  showOverwriteDialog.value = false
   await goLive(buildGoLiveData())
 }
 </script>
@@ -1699,38 +1693,6 @@ const handleOverwriteConfirm = async () => {
           <Button :disabled="!aiModelId" @click="confirmAiConfig">
             {{ aiModelId ? 'Confirm' : 'Select a model' }}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <!-- Overwrite confirmation dialog -->
-    <Dialog :open="showOverwriteDialog" @update:open="showOverwriteDialog = $event">
-      <DialogContent class="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle class="flex items-center gap-2">
-            <AlertTriangle class="h-5 w-5 text-yellow-500" />
-            Name Already Exists
-          </DialogTitle>
-          <DialogDescription class="space-y-3">
-            <span class="block">
-              The name "<span class="font-medium">{{ name }}</span
-              >" is already taken on SyftHub. Proceeding will overwrite the existing resource.
-            </span>
-            <a
-              v-if="existingEndpointUrl"
-              :href="existingEndpointUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-1 text-primary hover:underline"
-            >
-              View existing resource
-              <ExternalLink class="h-3 w-3" />
-            </a>
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter class="gap-2">
-          <Button variant="outline" @click="showOverwriteDialog = false">Cancel</Button>
-          <Button variant="destructive" @click="handleOverwriteConfirm">Overwrite</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
