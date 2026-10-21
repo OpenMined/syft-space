@@ -1419,39 +1419,6 @@
     </div>
   </ErrorBoundary>
 
-  <!-- Overwrite Confirmation Dialog -->
-  <Dialog :open="showOverwriteDialog" @update:open="showOverwriteDialog = $event">
-    <DialogContent class="sm:max-w-md">
-      <DialogHeader>
-        <DialogTitle class="flex items-center gap-2">
-          <AlertTriangle class="h-5 w-5 text-yellow-500" />
-          Endpoint Name Already Exists
-        </DialogTitle>
-        <DialogDescription class="space-y-3">
-          <span class="block">
-            The endpoint name "<span class="font-medium">{{ formData.endpointName }}</span
-            >" is already taken on SyftHub. Proceeding will overwrite the existing endpoint with the
-            same name.
-          </span>
-          <a
-            v-if="existingEndpointUrl"
-            :href="existingEndpointUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center gap-1 text-primary hover:underline"
-          >
-            View existing endpoint
-            <ExternalLink class="h-3 w-3" />
-          </a>
-        </DialogDescription>
-      </DialogHeader>
-      <DialogFooter class="gap-2">
-        <Button variant="outline" @click="handleOverwriteCancel"> Cancel </Button>
-        <Button variant="destructive" @click="handleOverwriteConfirm"> Overwrite </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
-
   <!-- Policy Form Dialog (for auth + rate limit) -->
   <PolicyFormDialog
     v-model:open="showPolicyDialog"
@@ -1488,8 +1455,6 @@ import {
   Lightbulb,
   Loader2,
   Check,
-  AlertTriangle,
-  ExternalLink,
   DollarSign,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -1497,14 +1462,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { slugUnavailableReason } from '@/lib/slugAvailability'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import SourceBrowser from '@/components/SourceBrowser.vue'
 import PickSourceDialog from '@/components/PickSourceDialog.vue'
@@ -1531,19 +1489,12 @@ import 'md-editor-v3/lib/style.css'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useDataEndpointCreation } from '@/composables/useDataEndpointCreation'
-import { useUserStore } from '@/stores/user'
 import type { DatasetListItem } from '@/api/types'
 
 const router = useRouter()
-const userStore = useUserStore()
 const { isDark } = useTheme()
 const modelSelectorRef = ref<InstanceType<typeof ModelSelector> | null>(null)
 const cachedModelName = ref('')
-
-// Computed URL to view existing endpoint on SyftHub
-const existingEndpointUrl = computed(() =>
-  userStore.getEndpointUrlInMarketplace(formData.value.endpointName),
-)
 
 // Data endpoint creation composable
 const { isCreating, creationError, creationStep, createDataEndpointWithData, reset } =
@@ -1567,10 +1518,9 @@ const hasTypedEndpointName = ref(false)
 // Name validation state
 const isCheckingNameAvailability = ref(false)
 const nameAvailabilityResult = ref<'available' | 'taken' | null>(null)
+const nameUnavailableReason = ref<string | null>(null)
 const nameCheckDebounceTimer = ref<number | null>(null)
 
-// Overwrite confirmation dialog state
-const showOverwriteDialog = ref(false)
 const isCheckingBeforePublish = ref(false)
 
 const showAddPricingRuleDialog = ref(false)
@@ -1763,12 +1713,8 @@ const checkNameAvailability = async (name: string) => {
       check_all_marketplaces: true,
     })
 
-    // Marketplaces with unknown status (null) don't block availability.
-    const localAvailable = response.local_available
-    const marketplacesAvailable =
-      !response.marketplaces || response.marketplaces.every((m) => m.available !== false)
-
-    nameAvailabilityResult.value = localAvailable && marketplacesAvailable ? 'available' : 'taken'
+    nameUnavailableReason.value = slugUnavailableReason(response)
+    nameAvailabilityResult.value = nameUnavailableReason.value ? 'taken' : 'available'
   } catch (error) {
     nameAvailabilityResult.value = null
     console.error('Error checking name availability:', error)
@@ -1800,7 +1746,9 @@ const endpointNameError = computed(() => {
     return 'Name must contain only lowercase letters and numbers, with hyphens as word separators (e.g., my-data-source)'
   }
   if (nameAvailabilityResult.value === 'taken') {
-    return 'This name is already taken. Please choose a different name.'
+    return (
+      nameUnavailableReason.value ?? 'This name is already taken. Please choose a different name.'
+    )
   }
   return null
 })
@@ -1897,13 +1845,13 @@ const nextStep = async () => {
         check_all_marketplaces: true,
       })
 
-      const marketplacesAvailable =
-        !response.marketplaces || response.marketplaces.every((m) => m.available !== false)
-
-      if (!marketplacesAvailable) {
-        // Show warning dialog if name is taken on any marketplace
-        isCheckingBeforePublish.value = false
-        showOverwriteDialog.value = true
+      const reason = slugUnavailableReason(response)
+      if (reason) {
+        // The Hub refused the name since it was last checked. Show its reason
+        // on the name step; publishing would only fail with the same message.
+        nameUnavailableReason.value = reason
+        nameAvailabilityResult.value = 'taken'
+        currentSubStep.value = 4
         return
       }
     } catch (error) {
@@ -1935,15 +1883,6 @@ const publishEndpoint = async () => {
   }
 
   await createDataEndpointWithData(endpointData)
-}
-
-const handleOverwriteConfirm = async () => {
-  showOverwriteDialog.value = false
-  await publishEndpoint()
-}
-
-const handleOverwriteCancel = () => {
-  showOverwriteDialog.value = false
 }
 
 const previousStep = () => {
