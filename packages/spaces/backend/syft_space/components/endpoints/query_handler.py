@@ -522,15 +522,12 @@ class QueryEndpointHandler:
                 messages.insert(0, override)
 
         if references and references.documents:
-            context_content = "\\n\\n".join(
-                [
-                    f"[{doc.document_id}] {doc.content}"
-                    for doc in references.documents[:3]
-                ]
+            context_content = "\n\n".join(
+                f"[{doc.document_id}] {doc.content}" for doc in references.documents
             )
             context_message = ChatMessage(
                 role="system",
-                content=f"Use the following context to answer:\\n{context_content}",
+                content=f"Use the following context to answer:\n{context_content}",
             )
             messages.insert(0, context_message)
 

@@ -195,3 +195,35 @@ async def test_both_returns_summary_and_references() -> None:
     assert response.summary is not None
     assert response.references is not None
     assert response.references.documents[0].document_id == "doc-1"
+
+
+# ============== RAG context assembly ==============
+
+
+def _doc(doc_id: str, content: str, **metadata) -> SearchedDocument:
+    return SearchedDocument(
+        document_id=doc_id, content=content, metadata=metadata, similarity_score=0.9
+    )
+
+
+async def _context_for(documents: list[SearchedDocument]) -> str:
+    endpoint = _make_endpoint("summary")
+    handler, dataset_instance, model_instance = _make_handler(endpoint)
+    dataset_instance.search = AsyncMock(return_value=SearchResult(documents=documents))
+    await handler.query_endpoint("ep", _make_request(), SimpleNamespace(id=TENANT_ID))
+    _, messages_arg, _ = model_instance.chat.await_args.args
+    return messages_arg[0].content
+
+
+@pytest.mark.asyncio
+async def test_context_uses_real_newlines() -> None:
+    content = await _context_for([_doc("a", "one"), _doc("b", "two")])
+    assert "\\n" not in content
+    assert content == "Use the following context to answer:\n[a] one\n\n[b] two"
+
+
+@pytest.mark.asyncio
+async def test_context_includes_every_retrieved_document() -> None:
+    docs = [_doc(f"d{i}", f"chunk {i}") for i in range(5)]
+    content = await _context_for(docs)
+    assert all(f"[d{i}]" in content for i in range(5))
