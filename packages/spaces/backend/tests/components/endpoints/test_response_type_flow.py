@@ -219,7 +219,7 @@ async def _context_for(documents: list[SearchedDocument]) -> str:
 async def test_context_uses_real_newlines() -> None:
     content = await _context_for([_doc("a", "one"), _doc("b", "two")])
     assert "\\n" not in content
-    assert content == "Use the following context to answer:\n[a]\none\n\n[b]\ntwo"
+    assert content == "Use the following context to answer:\n[a] one\n\n[b] two"
 
 
 @pytest.mark.asyncio
@@ -227,21 +227,3 @@ async def test_context_includes_every_retrieved_document() -> None:
     docs = [_doc(f"d{i}", f"chunk {i}") for i in range(5)]
     content = await _context_for(docs)
     assert all(f"[d{i}]" in content for i in range(5))
-
-
-@pytest.mark.asyncio
-async def test_context_carries_source_line_and_neighbours() -> None:
-    content = await _context_for(
-        [
-            _doc(
-                "a",
-                "middle",
-                title="Paper",
-                url="https://x.y/p",
-                published="2026-09-25T10:00:00+00:00",
-                prev_context="before",
-                next_context="after",
-            )
-        ]
-    )
-    assert "[a] Paper | https://x.y/p | 2026-09-25\nbefore\nmiddle\nafter" in content

@@ -127,26 +127,6 @@ class QueryRejectedError(Exception):
         )
 
 
-def _context_block(doc: DocumentResponse) -> str:
-    """One retrieved chunk as the model sees it.
-
-    A source line (title, origin, date — whatever the metadata has), then the
-    chunk between its stored neighbours so text cut at a chunk edge reads whole.
-    """
-    meta = doc.metadata or {}
-    title = meta.get("title") or meta.get("file_name") or ""
-    origin = meta.get("url") or meta.get("feed_title") or meta.get("source") or ""
-    date = str(meta.get("published") or meta.get("updated") or "")[:10]
-    source_line = " | ".join(str(part) for part in (title, origin, date) if part)
-    body = "\n".join(
-        part
-        for part in (meta.get("prev_context"), doc.content, meta.get("next_context"))
-        if part
-    )
-    header = f"[{doc.document_id}] {source_line}".rstrip()
-    return f"{header}\n{body}"
-
-
 class QueryEndpointHandler:
     """Handler for the endpoint query pipeline (RAG + policy enforcement)."""
 
@@ -543,7 +523,7 @@ class QueryEndpointHandler:
 
         if references and references.documents:
             context_content = "\n\n".join(
-                _context_block(doc) for doc in references.documents
+                f"[{doc.document_id}] {doc.content}" for doc in references.documents
             )
             context_message = ChatMessage(
                 role="system",
