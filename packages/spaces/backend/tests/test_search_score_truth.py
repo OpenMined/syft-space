@@ -12,7 +12,6 @@ from syft_space.components.vector_stores.chromadb_local import (
     chromadb_vector_store as store_module,
 )
 from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store import (
-    _OVERFETCH_FACTOR,
     ChromaDBLocalVectorStore,
 )
 from syft_space.components.vector_stores.weaviate_remote import weaviate_vector_store
@@ -63,7 +62,7 @@ def test_chroma_score_is_one_minus_half_distance():
     assert [d.similarity_score for d in docs] == [1.0, 0.5]
 
 
-async def test_chroma_search_overfetches_then_returns_at_most_limit(monkeypatch):
+async def test_chroma_search_asks_for_limit_and_returns_at_most_limit(monkeypatch):
     # The collection is stubbed; don't require the chromadb package itself.
     monkeypatch.setattr(store_module, "_chromadb_available", lambda: True)
     captured: dict = {}
@@ -94,5 +93,5 @@ async def test_chroma_search_overfetches_then_returns_at_most_limit(monkeypatch)
         ctx, "q", SearchParameters(similarity_threshold=0.5, limit=5)
     )
 
-    assert captured["n_results"] == 5 * _OVERFETCH_FACTOR
+    assert captured["n_results"] == 5
     assert len(result.documents) == 5

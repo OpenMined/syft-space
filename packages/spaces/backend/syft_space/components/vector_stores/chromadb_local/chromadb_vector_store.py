@@ -78,11 +78,6 @@ def _chromadb_available() -> bool:
         return False
 
 
-# The threshold is applied after the HNSW query, so fetch a multiple of
-# ``limit`` and truncate afterwards; otherwise rows 6-10 that would pass the
-# threshold are never seen when rows 1-5 include misses.
-_OVERFETCH_FACTOR = 4
-
 # Embedding model — same as Weaviate (all-MiniLM-L6-v2).
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
@@ -344,8 +339,8 @@ class ChromaDBLocalVectorStore:
     ) -> tuple[list[SearchedDocument], set[str]]:
         """Convert raw ChromaDB query results into SearchedDocuments.
 
-        Applies the similarity threshold, keeps the first ``limit`` survivors
-        (results arrive nearest-first) and builds image URLs.
+        Applies the similarity threshold and builds image URLs. Results arrive
+        nearest-first, so the survivors are the top ``limit`` or fewer.
 
         Returns:
             Tuple of (matched documents, set of matched chunk IDs).
@@ -451,7 +446,7 @@ class ChromaDBLocalVectorStore:
 
             results = await collection.query(
                 query_embeddings=query_embedding,
-                n_results=params.limit * _OVERFETCH_FACTOR,
+                n_results=params.limit,
                 include=["documents", "metadatas", "distances"],
             )
 
