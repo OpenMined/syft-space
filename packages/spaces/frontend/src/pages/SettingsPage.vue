@@ -692,6 +692,24 @@
         </DialogContent>
       </Dialog>
 
+      <!-- Model Access Section: the benchmark connection and provider keys -->
+      <RouterLink
+        :to="{ name: 'model-access' }"
+        class="group flex items-center gap-3 bg-card border border-border rounded-xl p-6 hover:border-primary/40"
+        data-testid="model-access-link"
+      >
+        <div class="p-2 bg-primary/10 rounded-md">
+          <KeyRound class="h-5 w-5 text-primary" />
+        </div>
+        <div class="flex-1">
+          <h3 class="text-lg font-medium text-foreground">Model access</h3>
+          <p class="text-sm text-muted-foreground">
+            Benchmark connection, model providers and keys, and what leaves this machine
+          </p>
+        </div>
+        <ChevronRight class="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
+      </RouterLink>
+
       <!-- Diagnostics Section -->
       <div class="bg-card border border-border rounded-xl p-6">
         <div class="flex items-start space-x-3">
@@ -720,16 +738,15 @@
               Switching it off closes the door on new results. It does
               <span class="text-foreground">not</span> take back what was already
               published — that stays yours to do, per endpoint, on its Benchmark
-              tab.
+              results tab.
             </p>
-            <!-- This switch is about publishing, not about measuring. Which
-                 benchmark does the measuring, and how, is a page of its own —
-                 and saying so here is what stops the two being confused. -->
+            <!-- This switch is about publishing, not about measuring; saying so
+                 here is what stops the two being confused. -->
             <p class="text-xs text-muted-foreground max-w-2xl pt-1">
               This is only about publishing. Which benchmark measures your
-              endpoints, and how, is set on the
-              <RouterLink to="/benchmark" class="text-primary hover:underline">
-                Benchmark page </RouterLink
+              endpoints, and with which models, is set in
+              <RouterLink :to="{ name: 'model-access' }" class="text-primary hover:underline">
+                Model access</RouterLink
               >.
             </p>
           </div>
@@ -764,6 +781,8 @@ import {
   Copy,
   Plus,
   ArrowLeft,
+  ChevronRight,
+  KeyRound,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Checkbox } from '@/components/ui/checkbox'

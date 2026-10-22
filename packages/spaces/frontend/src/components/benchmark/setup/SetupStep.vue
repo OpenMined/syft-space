@@ -33,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-/** One numbered step of the Benchmark tab, with its advanced settings folded away. */
+/** One numbered step of the Benchmark setup tab, with its advanced settings folded away. */
 import { ChevronRight } from 'lucide-vue-next'
 
 defineProps<{ id: string; step: number; title: string; description: string }>()

@@ -194,7 +194,7 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> ProviderResponse:
-        """The shared default provider, and the three role overrides."""
+        """The shared default provider, and the per-role overrides."""
         return await handler.get_provider(tenant, connection_id)
 
     @router.put(

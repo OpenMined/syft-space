@@ -1,5 +1,5 @@
 /**
- * The Benchmark tab as plain data: the page's values, how they are read from
+ * The Benchmark setup tab as plain data: the page's values, how they are read from
  * the stored layers and written back, and the checks run before save and run.
  *
  * Kept free of Vue so every rule here is testable on its own.

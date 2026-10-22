@@ -202,13 +202,17 @@ def generator_provider(settings: Settings) -> Provider:
 
 
 def filter_provider(settings: Settings) -> Provider | None:
-    """The web check model, at the subjects' provider. None — no web check."""
+    """The web check model. None — no web check.
+
+    Its own provider when set; each blank field takes the subjects' value, then
+    the shared one.
+    """
     if not settings.filter_model:
         return None
     return _resolve(
         "filter",
-        settings.subject_url,
-        settings.subject_key,
+        settings.filter_url or settings.subject_url,
+        settings.filter_key or settings.subject_key,
         settings.filter_model,
         settings,
     )

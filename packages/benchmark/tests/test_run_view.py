@@ -279,6 +279,45 @@ def test_pending_and_technical_stay_out_of_rates(
     assert m1["asked"] == 4
 
 
+def test_a_failed_model_carries_the_reason(client: TestClient, clean: Any) -> None:
+    auth = _console(client)
+    seed = Seed()
+    for qa in ("q1", "q2"):
+        seed.pair(qa)
+        seed.answer(qa, M1, "alone", "correct")
+        seed.answer(qa, M1, "with", "correct")
+        refused = "ERROR: x/y -> 400: Model call failed: invalid request (400)"
+        seed.answer(qa, M2, "alone", "technical", answer=refused)
+    seed.save()
+
+    report = _report(client, auth)
+    assert _model(report, M1)["failure"] is None
+    assert _model(report, M2)["failure"] == {
+        "label": "Request refused",
+        "detail": "2 answers failed: the provider refused the request "
+        "(Model call failed: invalid request (400)).",
+    }
+    summary = next(m for m in report["run"]["models"] if m["model"] == M2)
+    assert summary["failure"]["label"] == "Request refused"
+
+
+@pytest.mark.parametrize(
+    ("answer", "label"),
+    [
+        ("ERROR: m -> 402: Insufficient credits", "Out of credits"),
+        ("ERROR: m -> 401: No auth credentials found", "Key refused"),
+        ("ERROR: m -> 400: m is not a valid model ID", "Unknown model"),
+        ("ERROR: m: m -> 429: Rate limit exceeded", "Rate limited"),
+        ("ERROR: m: ReadTimeout: timed out", "Timed out"),
+        ("ERROR: m: connection reset", "Call failed"),
+    ],
+)
+def test_failure_labels(answer: str, label: str) -> None:
+    failure = run_view.failure_of(answer, 1)
+    assert failure["label"] == label
+    assert failure["detail"].startswith("1 answer failed: ")
+
+
 def test_incomplete_is_graded_but_neither_right_nor_made_up(
     client: TestClient, clean: Any
 ) -> None:

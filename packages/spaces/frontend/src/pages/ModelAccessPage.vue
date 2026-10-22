@@ -1,9 +1,18 @@
 <template>
   <div class="p-6 max-w-5xl mx-auto space-y-6">
-    <PageHeader
-      title="Benchmark"
-      description="A benchmark measures how honest your endpoints are and hands the result to this Space. Connect one here, then say on each endpoint whether it should be measured."
-    />
+    <RouterLink
+      :to="{ name: 'settings' }"
+      class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+    >
+      <ChevronLeft class="h-3.5 w-3.5" />
+      Settings
+    </RouterLink>
+    <PageHeader>
+      <template #title>Model access</template>
+      <template #description>
+        The benchmark this Space uses, and the providers and keys it calls models with.
+      </template>
+    </PageHeader>
 
     <div v-if="loading" class="space-y-4">
       <Skeleton class="h-32 w-full" />
@@ -213,42 +222,34 @@
       </div>
     </section>
 
-    <!-- The provider: who does the asking and the grading, and who is billed
-         for it. Installation-wide rather than per endpoint — one benchmark
-         process has one environment — so an edit here changes the bill for
-         every Space that shares this benchmark, not only this one. -->
+    <!-- The providers: installation-wide rather than per endpoint — one
+         benchmark process has one environment — so an edit here changes the
+         bill for every Space that shares this benchmark. -->
     <section v-if="providerView && !connecting" class="border border-border/50 rounded-lg p-5 space-y-5">
       <div>
         <h2 class="heading-3 text-foreground flex items-center gap-2">
           <KeyRound class="h-5 w-5 text-muted-foreground" />
-          Models provider
+          Model providers
+          <InfoTip text="Each role can use its own provider and key; the key's owner pays for its calls." />
         </h2>
         <p class="text-xs text-muted-foreground mt-1 max-w-2xl">
-          The benchmark does the asking and the grading, so the bill lands
-          with whoever owns this key. Three roles, because each can point
-          at a different provider: the question writer usually has to stay
-          inside the perimeter, models under test almost never do.
+          What each role sends, and whether it leaves this machine.
         </p>
-      </div>
-
-      <div
-        v-if="current?.capabilities.external_models"
-        class="text-xs rounded-md px-3 py-2 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-      >
-        This installation may call models outside its own perimeter. The
-        question writer reads your documents, and questions often quote them
-        nearly verbatim.
       </div>
 
       <div class="space-y-4">
         <ProviderRow
-          v-for="role in providerRoles"
+          v-for="role in MODEL_ACCESS_ROLES"
           :key="role.key"
           :label="role.label"
-          :help="role.help"
+          :tip="role.tip"
+          :sends="role.sends"
           v-model:url="providerForm[role.key].url"
-          :url-default="providerView[role.key].url_default"
+          :placeholder="placeholderFor(role.key)"
+          :target="targets[role.key]"
+          :local="staysLocal(targets[role.key])"
           :key-set="providerView[role.key].key_set"
+          :key-source="keySource(providerView, role.key)"
           :busy="providerBusy === role.key"
           @save-key="(value) => saveProviderKey(role.key, value)"
           @clear-key="clearProviderKey(role.key)"
@@ -267,17 +268,33 @@
 
 <script setup lang="ts">
 /**
- * Connecting a benchmark, and who it asks and grades with.
+ * Model access: connecting a benchmark, and who it asks and grades with.
  *
  * The order on this page is the order of the decisions: **where is it**, then
  * **can it reach me**, then **who does the counting**. How a measurement is
- * actually built and run — generators, arms, judges — lives on each
- * endpoint's own Benchmark tab now, next to that endpoint's own results.
+ * built and run — models, arms, judges — lives on each endpoint's Benchmark
+ * setup tab.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { CheckCircle2, FlaskConical, KeyRound, Plus, TriangleAlert } from 'lucide-vue-next'
+import {
+  CheckCircle2,
+  ChevronLeft,
+  FlaskConical,
+  KeyRound,
+  Plus,
+  TriangleAlert,
+} from 'lucide-vue-next'
 
+import InfoTip from '@/components/benchmark/InfoTip.vue'
+import {
+  MODEL_ACCESS_ROLES,
+  effectiveUrl,
+  keySource,
+  staysLocal,
+  type ProviderKey,
+} from '@/components/benchmark/modelAccess'
 import ProviderRow from '@/components/benchmark/ProviderRow.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { Button } from '@/components/ui/button'
@@ -286,7 +303,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
 import { settingsApi } from '@/api/endpoints/settings'
-import type { BenchmarkConnection, ProviderResponse, ProviderRole } from '@/api/types'
+import type { BenchmarkConnection, ProviderResponse } from '@/api/types'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -323,35 +340,11 @@ async function load() {
 
 // --- the model providers ------------------------------------------------
 
-type ProviderKey = 'shared' | 'generator' | 'subject' | 'judge'
-
-const providerRoles: { key: ProviderKey; label: string; help: string }[] = [
-  {
-    key: 'shared',
-    label: 'Shared default',
-    help: 'Used by any role below left blank.',
-  },
-  {
-    key: 'generator',
-    label: 'Question writer',
-    help: 'Reads your documents to build questions — usually stays inside the perimeter.',
-  },
-  {
-    key: 'subject',
-    label: 'Models under test',
-    help: 'What the benchmark asks. Almost always external.',
-  },
-  {
-    key: 'judge',
-    label: 'Graders',
-    help: 'Must not share a provider with a model under test, or the grading is not independent.',
-  },
-]
-
 const providerView = ref<ProviderResponse | null>(null)
 const providerForm = reactive<Record<ProviderKey, { url: string }>>({
   shared: { url: '' },
   generator: { url: '' },
+  filter: { url: '' },
   subject: { url: '' },
   judge: { url: '' },
 })
@@ -360,15 +353,39 @@ const providerBusy = ref<ProviderKey | null>(null)
 
 const providerUrlsDirty = computed(() => {
   if (!providerView.value) return false
-  return providerRoles.some(
+  return MODEL_ACCESS_ROLES.some(
     ({ key }) => providerForm[key].url !== providerView.value![key].url,
   )
 })
 
+function typedUrls(): Record<ProviderKey, string> {
+  const out = {} as Record<ProviderKey, string>
+  for (const { key } of MODEL_ACCESS_ROLES) out[key] = providerForm[key].url
+  return out
+}
+
+// The address each role calls, from what is typed, so the stays/leaves chip
+// follows an edit before it is saved.
+const targets = computed(() => {
+  const out = {} as Record<ProviderKey, string>
+  const view = providerView.value
+  if (!view) return out
+  const urls = typedUrls()
+  for (const { key } of MODEL_ACCESS_ROLES) out[key] = effectiveUrl(urls, view, key)
+  return out
+})
+
+/** What a blank address box resolves to. */
+function placeholderFor(key: ProviderKey): string {
+  const view = providerView.value
+  if (!view) return ''
+  return view[key].url_default || targets.value[key] || ''
+}
+
 function adoptProvider(view: ProviderResponse) {
   providerView.value = view
-  for (const { key } of providerRoles) {
-    providerForm[key].url = view[key].url
+  for (const { key } of MODEL_ACCESS_ROLES) {
+    providerForm[key].url = view[key]?.url ?? ''
   }
 }
 
@@ -394,6 +411,7 @@ async function saveProviderUrls() {
         generator_url: providerForm.generator.url,
         subject_url: providerForm.subject.url,
         judge_url: providerForm.judge.url,
+        filter_url: providerForm.filter.url,
       }),
     )
     toast.success('Saved')
@@ -404,12 +422,9 @@ async function saveProviderUrls() {
   }
 }
 
-const PROVIDER_KEY_NAMES: Record<ProviderKey, string> = {
-  shared: 'llm_api_key',
-  generator: 'generator_key',
-  subject: 'subject_key',
-  judge: 'judge_key',
-}
+const PROVIDER_KEY_NAMES = Object.fromEntries(
+  MODEL_ACCESS_ROLES.map((role) => [role.key, role.keyName]),
+) as Record<ProviderKey, string>
 
 async function saveProviderKey(role: ProviderKey, value: string) {
   if (!current.value) return

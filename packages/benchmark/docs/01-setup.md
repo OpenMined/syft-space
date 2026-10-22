@@ -64,7 +64,8 @@ These stay in the environment only and cannot be set through the row or API:
 
 ## Where a secret lives
 
-Provider keys (`llm_api_key`, `generator_key`, `subject_key`, `judge_key`) and
+Provider keys (`llm_api_key`, `generator_key`, `subject_key`, `judge_key`,
+`filter_key`) and
 Space tokens (`target:<key>`) are sealed with AES-256-GCM in their own table,
 bound to their slot name, so a ciphertext cannot be moved to another slot.
 They are never part of the settings, which are copied into job snapshots, run
@@ -154,9 +155,10 @@ flowchart TB
 | **generator** | yes, whole | inside the perimeter | `generator_url`, `generator_key`, `generator_model` |
 | **models under test** | no, the question only | outside | `subject_url`, `subject_key`, `subject_models` |
 | **judge** | no | anywhere | `judge_url`, `judge_key`, `judge_model`, `judge_models` |
-| **web check model** | no, the question only | subjects' provider | `filter_model` (at `subject_url`) |
+| **web check model** | no, the question only | outside | `filter_url`, `filter_key`, `filter_model` |
 
 - An empty role URL/key falls back to `ollama_url` / `llm_api_key`.
+- An empty `filter_url` / `filter_key` takes the models under test's first.
 - Empty `subject_models` tests `generator_model`.
 - The judge should not share a provider with the model under test
   (`judge_policy`, default `warn`); see [05-judging.md](05-judging.md).

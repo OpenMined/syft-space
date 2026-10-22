@@ -355,6 +355,77 @@ def test_a_wrapped_provider_refusal_steps_down(
     assert usage["web_search_forced"] is False
 
 
+# The body qwen/qwen3.7-plus (Alibaba via OpenRouter) returned for a forced
+# tool_choice: no cause named anywhere.
+_BARE_REFUSAL = {
+    "error": {
+        "message": "Model call failed: invalid request (400)",
+        "code": 400,
+        "metadata": {
+            "provider_name": None,
+            "previous_errors": [
+                {"code": 400, "message": "Model call failed: invalid request (400)"}
+            ],
+        },
+    }
+}
+
+
+class _Bare:
+    """Refuses every forced tool_choice with a bare 400, answers otherwise."""
+
+    def __init__(self) -> None:
+        self.bodies: list[dict[str, Any]] = []
+
+    def __call__(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.bodies.append(dict(kwargs["json"]))
+        request = httpx.Request("POST", url)
+        if "tool_choice" in kwargs["json"]:
+            return httpx.Response(400, json=_BARE_REFUSAL, request=request)
+        message = {"content": "Paris"}
+        payload = {"choices": [{"message": message, "finish_reason": "stop"}]}
+        return httpx.Response(200, json=payload, request=request)
+
+
+def test_a_bare_400_on_a_forced_tool_steps_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Bare()
+    monkeypatch.setattr(httpx, "post", provider)
+
+    answer, usage = _search()
+
+    assert answer == "Paris"
+    assert [b.get("tool_choice") for b in provider.bodies] == ["required", NAMED, None]
+    assert usage["web_search_via"] == "tool"
+    assert usage["web_search_forced"] is False
+
+
+def test_a_bare_400_on_an_unforced_tool_is_not_stepped_around(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Refuser(3, "Model call failed: invalid request (400)", status=400)
+    monkeypatch.setattr(httpx, "post", provider)
+    ollama._STEPPED_DOWN[(NATIVE, "native")] = 2
+
+    with pytest.raises(LLMFatalError):
+        _search()
+
+    assert len(provider.bodies) == 1
+
+
+def test_a_wrong_model_id_is_not_stepped_around(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Refuser(3, "x/y is not a valid model ID", status=400)
+    monkeypatch.setattr(httpx, "post", provider)
+
+    with pytest.raises(LLMFatalError):
+        _search()
+
+    assert len(provider.bodies) == 1
+
+
 def test_a_refusal_names_the_providers_own_message() -> None:
     detail = ollama._error_detail(_WRAPPED_REFUSAL, "{}")
 

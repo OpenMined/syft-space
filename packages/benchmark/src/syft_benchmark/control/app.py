@@ -1199,6 +1199,11 @@ def _provider(conf: Settings) -> ProviderInfo:
         ("generator", conf.generator_url, conf.generator_key),
         ("subject", conf.subject_url, conf.subject_key),
         ("judge", conf.judge_url, conf.judge_key),
+        (
+            "filter",
+            conf.filter_url or conf.subject_url,
+            conf.filter_key or conf.subject_key,
+        ),
     ]
     return ProviderInfo(
         url=conf.ollama_url,

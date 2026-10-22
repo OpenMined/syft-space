@@ -1002,6 +1002,24 @@ async def test_clearing_a_provider_key_falls_back_to_the_shared_default() -> Non
     assert view.judge.key_set is False
 
 
+@pytest.mark.asyncio
+async def test_the_web_check_is_a_provider_role_of_its_own() -> None:
+    row = _connection()
+    handler, client = _handler(connections=[row])
+
+    await handler.save_provider(
+        TENANT, row.id, ProviderUrls(filter_url="https://api.openai.com/v1")
+    )
+    view = await handler.save_provider_credential(
+        TENANT, row.id, "filter_key", "sk-web"
+    )
+
+    assert client.settings_values["filter_url"] == "https://api.openai.com/v1"
+    assert view.filter.url == "https://api.openai.com/v1"
+    assert view.filter.key_set is True
+    assert view.subject.key_set is False
+
+
 # --- the console, embedded ----------------------------------------------------
 
 

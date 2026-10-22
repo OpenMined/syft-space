@@ -18,6 +18,7 @@ A finished job's figures are cached in ``run_aggregates`` under
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -59,7 +60,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 9
+AGGREGATE_VERSION = 10
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -445,6 +446,62 @@ def _load_rows(session: Session, job_id: str) -> list[_Row]:
     ]
 
 
+def _last_errors(session: Session, job_id: str) -> dict[str, str]:
+    """model -> its latest failed answer text in the counted direct block."""
+    stmt = (
+        select(Run.model, Result.answer)
+        .join(Run, Run.id == Result.run_id)
+        .where(
+            Run.job_id == job_id,
+            Run.context_mode.in_(list(ARM_OF)),
+            Run.block == EvalBlock.DIRECT.value,
+            Result.answer.op("~")(rf"^\s*{ERROR_PREFIX}"),
+        )
+        .order_by(Result.created_at.desc(), Result.id.desc())
+    )
+    found: dict[str, str] = {}
+    for model, answer in session.connection().execute(stmt).all():
+        found.setdefault(model or "", answer or "")
+    return found
+
+
+# (marks in the error text, label, what happened). First match wins.
+_FAILURES: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (
+        ("-> 402", "credit", "quota"),
+        "Out of credits",
+        "the provider key has no credits left",
+    ),
+    (("-> 401", "-> 403", "api key"), "Key refused", "the provider refused the key"),
+    (
+        ("-> 404", "valid model id", "no endpoints found"),
+        "Unknown model",
+        "the provider does not serve this model",
+    ),
+    (("-> 429", "rate limit"), "Rate limited", "the provider kept rate-limiting it"),
+    (("timed out", "timeout"), "Timed out", "the model did not answer in time"),
+    (("-> 400", "-> 422"), "Request refused", "the provider refused the request"),
+)
+_DETAIL_CAP = 160
+
+
+def failure_of(answer: str, failed: int) -> dict[str, str]:
+    """A short label and a one-sentence tooltip for a model's failed answers."""
+    text = answer.strip().removeprefix(ERROR_PREFIX).strip()
+    lowered = text.lower()
+    label, what = "Call failed", "the call to the model failed"
+    for marks, name, sentence in _FAILURES:
+        if any(mark in lowered for mark in marks):
+            label, what = name, sentence
+            break
+    said = re.sub(r"^.*?-> \d{3}:\s*", "", text)
+    if len(said) > _DETAIL_CAP:
+        said = said[: _DETAIL_CAP - 3] + "..."
+    noun = "answer" if failed == 1 else "answers"
+    tip = f"{failed} {noun} failed: {what}"
+    return {"label": label, "detail": f"{tip} ({said})." if said else f"{tip}."}
+
+
 def took_part(session: Session, job_id: str, qa_id: str) -> bool:
     """Whether the question has any result under the job."""
     found = session.execute(
@@ -596,6 +653,7 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
         .distinct()
     ).all()
     rows = _load_rows(session, job.id)
+    errors = _last_errors(session, job.id)
 
     generator_of = {qa: gen for qa, gen, *_ in pairs}
     trick_ids = {qa for qa, gen in generator_of.items() if gen == TRICK_GENERATOR}
@@ -668,6 +726,8 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
             WITH: _tally(with_[qa] for qa in asked_ids),
         }
         figures = _figures(model, len(asked_ids), tally)
+        if figures["technical"] and model in errors:
+            figures["failure"] = failure_of(errors[model], figures["technical"])
 
         groups = dict.fromkeys(GROUPS, 0)
         kinds: dict[str, Counter[str]] = defaultdict(Counter)
@@ -879,6 +939,7 @@ def _figures(
         "made_up_with": rate(with_["hallucinate"], with_["graded"]),
         "pending": alone["pending"] + with_["pending"],
         "technical": alone["technical"] + with_["technical"],
+        "failure": None,
     }
 
 
@@ -896,6 +957,7 @@ FIGURE_KEYS = (
     "made_up_with",
     "pending",
     "technical",
+    "failure",
 )
 
 

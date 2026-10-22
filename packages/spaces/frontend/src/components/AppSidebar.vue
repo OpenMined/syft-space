@@ -6,7 +6,6 @@ import {
   Database,
   Brain,
   Globe,
-  Gauge,
   Settings,
   User,
   Plus,
@@ -40,7 +39,7 @@ const routeMapping: Record<string, string[]> = {
   chat: ['chat'],
   endpoints: ['endpoints', 'endpoint-detail'],
   analytics: ['analytics'],
-  settings: ['settings'],
+  settings: ['settings', 'model-access'],
 }
 
 const isActive = (navId: string) => {
@@ -79,7 +78,6 @@ const liveNav: NavItem[] = [
     badgeVariant: 'secondary',
   },
   { id: 'analytics', route: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'benchmark', route: 'benchmark', label: 'Benchmark', icon: Gauge },
 ]
 
 const bottomNav: NavItem[] = []

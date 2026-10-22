@@ -265,3 +265,25 @@ def test_the_web_check_model_is_inside_the_perimeter_check() -> None:
     assert provider is not None and provider.model == "openai/gpt-5.1"
     with pytest.raises(ExternalCallBlocked):
         check_perimeter(conf)
+
+
+def test_the_web_check_has_its_own_provider() -> None:
+    from syft_benchmark.llm.roles import filter_provider
+
+    base = {
+        "filter_model": "openai/gpt-5.1",
+        "subject_url": "https://openrouter.ai/api/v1",
+        "subject_key": "sk-subject",
+    }
+    inherited = filter_provider(Settings(**base))
+    assert inherited is not None
+    assert (inherited.url, inherited.api_key) == (
+        "https://openrouter.ai/api/v1",
+        "sk-subject",
+    )
+
+    own = filter_provider(
+        Settings(**base, filter_url="https://api.openai.com/v1", filter_key="sk-web")
+    )
+    assert own is not None
+    assert (own.url, own.api_key) == ("https://api.openai.com/v1", "sk-web")

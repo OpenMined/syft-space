@@ -69,12 +69,12 @@ from syft_space.components.tenants.entities import Tenant
 # morning misconfigured until tomorrow.
 SNAPSHOT_MAX_AGE = timedelta(hours=1)
 
-# The four secret slots a provider role can occupy on the benchmark, as
+# The five secret slots a provider role can occupy on the benchmark, as
 # `config.py` names them there. Checked here too, ahead of the benchmark's own
 # refusal, so a typo in a route reads as "not a provider key" rather than
 # a raw 422 from a service the owner never sees directly.
 PROVIDER_KEY_NAMES = frozenset(
-    {"llm_api_key", "generator_key", "subject_key", "judge_key"}
+    {"llm_api_key", "generator_key", "subject_key", "judge_key", "filter_key"}
 )
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -369,6 +369,7 @@ class BenchmarkHandler:
             generator=role("generator_url", "generator_key"),
             subject=role("subject_url", "subject_key"),
             judge=role("judge_url", "judge_key"),
+            filter=role("filter_url", "filter_key"),
         )
 
     async def save_provider(

@@ -108,6 +108,16 @@
             <span v-if="vendorName(m.model)" class="text-xs text-muted-foreground">
               {{ vendorName(m.model) }}
             </span>
+            <Badge
+              v-if="m.failure"
+              variant="outline"
+              :class="STOPPED_TONE"
+              :title="m.failure.detail"
+              class="mt-1 w-fit cursor-help"
+              data-testid="model-failure"
+            >
+              {{ m.failure.label }}
+            </Badge>
           </span>
           <span
             class="order-3 flex basis-full flex-col gap-2 md:order-none md:flex-[1_1_23.75rem] md:basis-auto"

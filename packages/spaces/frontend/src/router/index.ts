@@ -89,13 +89,17 @@ const router = createRouter({
     },
     {
       path: '/benchmark',
-      name: 'benchmark',
-      component: () => import('../pages/BenchmarkPage.vue'),
+      redirect: { name: 'model-access' },
     },
     {
       path: '/settings',
       name: 'settings',
       component: () => import('../pages/SettingsPage.vue'),
+    },
+    {
+      path: '/settings/model-access',
+      name: 'model-access',
+      component: () => import('../pages/ModelAccessPage.vue'),
     },
     {
       path: '/go-live',

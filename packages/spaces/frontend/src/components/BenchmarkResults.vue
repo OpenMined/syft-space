@@ -298,7 +298,7 @@ watch(() => props.slug, load)
     <h3 class="text-sm font-medium text-foreground mb-1">Nothing measured yet</h3>
     <p class="text-xs text-muted-foreground max-w-md mx-auto">
       Not a score of zero — nobody has run the benchmark. Start on the
-      <strong class="text-foreground">Benchmark</strong> tab.
+      <strong class="text-foreground">Benchmark setup</strong> tab.
       <span v-if="mode === 'off'">Reporting is off in Settings.</span>
     </p>
   </div>

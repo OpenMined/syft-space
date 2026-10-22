@@ -24,7 +24,7 @@
       <Play class="mr-1.5 h-4 w-4" />
       Measure this endpoint
     </Button>
-    <Button v-else size="sm" variant="outline" @click="router.push({ name: 'benchmark' })">
+    <Button v-else size="sm" variant="outline" @click="router.push({ name: 'model-access' })">
       Connect a benchmark
     </Button>
   </section>
@@ -852,7 +852,7 @@
 
 <script setup lang="ts">
 /**
- * The endpoint's Benchmark tab: five steps that follow the pipeline, one save
+ * The endpoint's Benchmark setup tab: five steps that follow the pipeline, one save
  * and one Run button. The page shows effective values (the endpoint's own
  * layer, else the connection's, else the benchmark's defaults); the rules that
  * turn them into a request live in setup/setupForm.ts.

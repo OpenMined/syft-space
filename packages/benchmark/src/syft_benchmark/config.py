@@ -552,6 +552,14 @@ class Settings(BaseSettings):
         default=None,
         description="The judge of the web check's answers. Empty — the first judge",
     )
+    filter_url: str = Field(
+        default="",
+        description="The web check provider. Empty — the models under test's",
+    )
+    filter_key: str = Field(
+        default="",
+        description="The web check provider key. Empty — the models under test's",
+    )
     judge_temperature: float | None = Field(
         default=0.0,
         ge=0.0,
@@ -1190,7 +1198,7 @@ BOOTSTRAP_FIELDS: frozenset[str] = frozenset(
 # copied into every job snapshot and run params, handed out by /defaults and
 # written to the log, and a key would travel with them.
 SECRET_FIELDS: frozenset[str] = frozenset(
-    {"llm_api_key", "generator_key", "judge_key", "subject_key"}
+    {"llm_api_key", "generator_key", "judge_key", "subject_key", "filter_key"}
 )
 
 

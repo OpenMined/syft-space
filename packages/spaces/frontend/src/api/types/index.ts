@@ -855,7 +855,7 @@ export interface LedgerEntryPage {
 
 export type BenchmarkLayer = Record<string, unknown>
 
-/** The instrument keys the Benchmark tab writes by name. */
+/** The instrument keys the Benchmark setup tab writes by name. */
 export type BenchmarkInstrumentLayer = BenchmarkLayer & {
   /** Web check model (step 3). Unset means no web check. */
   filter_model?: string | null
@@ -1129,6 +1129,8 @@ export interface ProviderResponse {
   generator: ProviderRole
   subject: ProviderRole
   judge: ProviderRole
+  /** The web check; blank fields take the models under test's. */
+  filter: ProviderRole
 }
 
 export interface ProviderUrls {
@@ -1136,6 +1138,7 @@ export interface ProviderUrls {
   generator_url: string
   subject_url: string
   judge_url: string
+  filter_url: string
 }
 
 /** Articles in the time window, counted by the benchmark's generation rule. */
@@ -1494,6 +1497,14 @@ export interface BenchmarkModelFigures {
   made_up_with: number | null
   pending: number
   technical: number
+  /** Why some answers failed; absent on older aggregates. */
+  failure?: BenchmarkModelFailure | null
+}
+
+/** A model's failed calls: a short label and a one-sentence tooltip. */
+export interface BenchmarkModelFailure {
+  label: string
+  detail: string
 }
 
 /** A finished run. Lifts are in points. */

@@ -115,16 +115,20 @@ class ProviderRole(BaseModel):
 
 
 class ProviderResponse(BaseModel):
-    """The benchmark's four provider slots: the shared default and one per role."""
+    """The benchmark's provider slots: the shared default and one per role."""
 
     shared: ProviderRole = Field(default_factory=ProviderRole)
     generator: ProviderRole = Field(default_factory=ProviderRole)
     subject: ProviderRole = Field(default_factory=ProviderRole)
     judge: ProviderRole = Field(default_factory=ProviderRole)
+    filter: ProviderRole = Field(
+        default_factory=ProviderRole,
+        description="The web check; blank fields take the models under test's",
+    )
 
 
 class ProviderUrls(BaseModel):
-    """The four provider addresses, sent whole.
+    """The provider addresses, sent whole.
 
     Whole rather than patched, for the same reason as ``ConnectionSettings``:
     a field the owner cleared must be indistinguishable from one the form
@@ -135,6 +139,7 @@ class ProviderUrls(BaseModel):
     generator_url: str = ""
     subject_url: str = ""
     judge_url: str = ""
+    filter_url: str = ""
 
 
 class ProviderCredential(BaseModel):

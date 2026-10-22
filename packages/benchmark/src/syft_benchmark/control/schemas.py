@@ -910,7 +910,7 @@ class RoleProvider(BaseModel):
     almost always external.
     """
 
-    role: str = Field(description="generator, subject or judge")
+    role: str = Field(description="generator, subject, judge or filter")
     url: str = Field(description="The address this role actually uses")
     key_set: bool
     own: bool = Field(

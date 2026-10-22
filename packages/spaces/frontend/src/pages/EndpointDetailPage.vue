@@ -269,7 +269,7 @@
             class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
           >
             <FlaskConical class="h-4 w-4" />
-            Benchmark
+            Benchmark setup
           </TabsTrigger>
           <TabsTrigger
             value="results"
@@ -860,7 +860,7 @@
           </Card>
         </TabsContent>
 
-        <!-- Benchmark Tab: whether it is measured, and every phase of a run -->
+        <!-- Benchmark setup tab: whether it is measured, and every phase of a run -->
         <TabsContent value="benchmark" class="space-y-4 pt-6 mt-0">
           <RunControl :slug="routeSlug" :dataset="endpoint?.dataset ?? null" />
         </TabsContent>
@@ -1078,7 +1078,7 @@ const activeTab = ref(
   typeof requestedTab === 'string' && KNOWN_TABS.has(requestedTab) ? requestedTab : 'overview',
 )
 
-// A link inside a tab (the Benchmark tab's "See its results") moves the URL;
+// A link inside a tab (the Benchmark setup tab's "See its results") moves the URL;
 // the tab follows it.
 watch(
   () => route.query.tab,

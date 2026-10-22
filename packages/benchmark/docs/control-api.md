@@ -45,7 +45,8 @@ in the row outranks it.
 `control_origins`, `spaces_file`, `secret_key`, `secret_keys_retired`, and the
 perimeter — `allow_external_models`, `external_hosts`.
 
-**Secrets** (`llm_api_key`, `generator_key`, `judge_key`, `subject_key`, and
+**Secrets** (`llm_api_key`, `generator_key`, `judge_key`, `subject_key`,
+`filter_key`, and
 each target's Space token) are sealed with AES-256-GCM in `credentials`, each
 ciphertext bound to its slot name. They are never in the settings document,
 snapshots, `/defaults` or logs, and are never handed out: `GET /credentials`

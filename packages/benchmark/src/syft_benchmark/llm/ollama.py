@@ -50,6 +50,9 @@ class LLMFatalError(LLMError):
     instead of an instant hint about what to check.
     """
 
+    # The HTTP status (or the body's error code) it came with; 0 — none.
+    status: int = 0
+
 
 class LLMTruncatedError(LLMError):
     """The answer hit the token cap and brought back nothing usable."""
@@ -93,7 +96,9 @@ def _classify(status: int, detail: str, retry_after: float | None = None) -> LLM
     """A provider's refusal — fatal, busy, or worth retrying."""
     lowered = detail.lower()
     if status in _FATAL_STATUS or any(mark in lowered for mark in _FATAL_BODY):
-        return LLMFatalError(detail)
+        fatal = LLMFatalError(detail)
+        fatal.status = status
+        return fatal
     if status in _BUSY_STATUS:
         return LLMBusyError(detail, retry_after)
     return LLMError(detail)
@@ -310,10 +315,20 @@ def _apply_search(body: dict[str, Any], step: _Step, engine: str, results: int) 
         body["tool_choice"] = {"type": WEB_SEARCH_TOOL}
 
 
-def _refuses_search(error: LLMFatalError, named: str) -> bool:
-    """A refusal about the search tool itself, which a lesser step may avoid."""
+# Causes a lesser search step cannot cure, whatever the refusal's wording.
+_NOT_SEARCH = ("credit", "quota", "valid model id", "api key")
+
+
+def _refuses_search(error: LLMFatalError, named: str, forced: bool) -> bool:
+    """A refusal about the search tool itself, which a lesser step may avoid.
+
+    A forced tool_choice can also be refused with a bare 400 that names no
+    cause (Alibaba via OpenRouter: "invalid request (400)").
+    """
     text = str(error).replace(named, "").lower()
-    return "tool" in text and "credit" not in text and "quota" not in text
+    if any(mark in text for mark in _NOT_SEARCH):
+        return False
+    return "tool" in text or (forced and error.status == 400)
 
 
 def search_requests(usage: dict[str, Any]) -> int | None:
@@ -664,7 +679,7 @@ def chat(
                 continue
             # A refused search step: the next one down, at once. Forcing the
             # tool or the tool itself can be refused where plain search works.
-            if len(steps) > 1 and _refuses_search(exc, named):
+            if len(steps) > 1 and _refuses_search(exc, named, bool(steps[0][1])):
                 if steps[0][0] == "tool":
                     _step_down(wire, str(searched), steps)
                 steps.pop(0)

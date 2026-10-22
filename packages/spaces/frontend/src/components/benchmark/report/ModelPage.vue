@@ -7,7 +7,18 @@
 
   <section v-else class="space-y-6" data-testid="screen-ModelPage">
     <div class="space-y-0.5">
-      <h1 class="heading-3">{{ name }}</h1>
+      <div class="flex flex-wrap items-center gap-2.5">
+        <h1 class="heading-3">{{ name }}</h1>
+        <Badge
+          v-if="report.failure"
+          variant="outline"
+          class="cursor-help border-transparent bg-amber-500/10 text-amber-700 dark:text-amber-400"
+          :title="report.failure.detail"
+          data-testid="model-failure"
+        >
+          {{ report.failure.label }}
+        </Badge>
+      </div>
       <p class="max-w-[780px] text-sm text-muted-foreground" data-testid="model-subtitle">
         {{ subtitle }}
       </p>
@@ -165,6 +176,7 @@
 import { computed } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
 import type { BenchmarkTally } from '@/api/types'
+import { Badge } from '@/components/ui/badge'
 import { useRun } from './context'
 import { count, DASH, pct, points } from './figures'
 import { kindLabel, modelName, vendorName, verdictTip } from './labels'

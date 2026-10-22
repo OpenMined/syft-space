@@ -124,6 +124,28 @@ describe('RunSummaryPage', () => {
     })
   })
 
+  it('names why a model failed', () => {
+    const detail = '16 answers failed: the provider refused the request (invalid request (400)).'
+    const { wrapper } = mountPage(
+      runReport({
+        models: [
+          modelReport(OPUS),
+          modelReport(QWEN, {
+            graded_alone: 0,
+            graded_with: 0,
+            technical: 16,
+            failure: { label: 'Request refused', detail },
+          }),
+        ],
+      }),
+    )
+    const rows = wrapper.findAll('[data-testid="model-row"]')
+    expect(rows[0]!.find('[data-testid="model-failure"]').exists()).toBe(false)
+    const badge = rows[1]!.get('[data-testid="model-failure"]')
+    expect(badge.text()).toBe('Request refused')
+    expect(badge.attributes('title')).toBe(detail)
+  })
+
   it('shows time and cost, split by role', () => {
     const { wrapper } = mountPage(
       runReport({

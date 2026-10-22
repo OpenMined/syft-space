@@ -144,7 +144,7 @@ def filter_model(conf: Settings) -> str:
 
 
 def filter_provider(conf: Settings) -> Provider | None:
-    """Where the web check model is called: the subjects' provider."""
+    """Where the web check model is called: its own provider, else the subjects'."""
     return roles.filter_provider(conf)
 
 

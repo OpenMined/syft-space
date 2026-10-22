@@ -110,6 +110,7 @@ GROUPS: dict[str, str] = {
     "generator_url": PROVIDERS,
     "subject_url": PROVIDERS,
     "judge_url": PROVIDERS,
+    "filter_url": PROVIDERS,
     "llm_app_name": PROVIDERS,
     "llm_timeout": PROVIDERS,
     "llm_temperature": PROVIDERS,
