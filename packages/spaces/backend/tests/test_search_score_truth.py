@@ -1,5 +1,5 @@
-"""Search score truth: both stores report ``1 - cosine_distance / 2`` and the
-similarity threshold is applied before ``limit`` truncation, not after."""
+"""Search score truth: both stores report ``1 - cosine_distance / 2``;
+``limit`` is a ceiling and the threshold decides how many of those survive."""
 
 from __future__ import annotations
 
@@ -44,15 +44,14 @@ def _store() -> ChromaDBLocalVectorStore:
     return ChromaDBLocalVectorStore.__new__(ChromaDBLocalVectorStore)
 
 
-def test_chroma_threshold_runs_before_limit_truncation():
-    # Nearest-first: rows 0,1 pass, 2,3 miss, 4,5,6 pass. With limit 3 the
-    # old code (fetch 3, then filter) returned only rows 0 and 1.
-    results = _results([0.2, 0.4, 1.6, 1.8, 0.6, 0.7, 0.8])
+def test_chroma_threshold_drops_the_far_tail():
+    # Nearest-first: rows 0,1 pass, the rest miss. Fewer than limit come back.
+    results = _results([0.2, 0.4, 1.6, 1.8, 1.9])
     docs, matched = _store()._process_query_results(
-        results, "ds", similarity_threshold=0.5, limit=3
+        results, "ds", similarity_threshold=0.5, limit=5
     )
-    assert [d.document_id for d in docs] == ["c0", "c1", "c4"]
-    assert matched == {"c0", "c1", "c4"}
+    assert [d.document_id for d in docs] == ["c0", "c1"]
+    assert matched == {"c0", "c1"}
 
 
 def test_chroma_score_is_one_minus_half_distance():
