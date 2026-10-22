@@ -27,8 +27,8 @@ class SearchParameters(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Minimum similarity score, where score = 1 - cosine_distance / 2 "
-            "(so 0.5 is cosine similarity 0). Both stores use this mapping."
+            "Minimum similarity score (0 to 1) a document needs to be "
+            "returned. Higher is stricter."
         ),
     )
     limit: int = Field(
@@ -54,7 +54,7 @@ class SearchedDocument(BaseModel):
         ...,
         ge=0.0,
         le=1.0,
-        description="1 - cosine_distance / 2: 1 is identical, 0.5 is orthogonal",
+        description="Similarity to the query, 0 to 1. Higher is closer.",
     )
 
 

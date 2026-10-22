@@ -342,8 +342,8 @@ class QueryEndpointRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Minimum similarity score, where score = 1 - cosine_distance / 2. "
-            "0.5 keeps documents with cosine similarity above 0; 0.75 above 0.5."
+            "Minimum similarity score (0 to 1) a document needs to be "
+            "returned. Higher is stricter."
         ),
     )
     limit: int = Field(
