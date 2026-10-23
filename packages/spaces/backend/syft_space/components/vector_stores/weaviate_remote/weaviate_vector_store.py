@@ -16,6 +16,7 @@ from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
 )
+from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
@@ -40,6 +41,23 @@ except ImportError:
     enabled = False
 
 
+class WeaviateMetadataFields(MetadataFields):
+    """Keys the owner allowlisted in ``metadata_properties``, plus the
+    store's own ``creation_time``. ``distance`` and the content property are
+    internal. With no allowlist nothing else is declared, so nothing else
+    leaves.
+    """
+
+    def declared(self) -> tuple[MetadataField, ...]:
+        public = tuple(
+            MetadataField(name=n) for n in self.config.get("metadata_properties") or ()
+        ) + (MetadataField(name="creation_time"),)
+        hidden = [MetadataField(name="distance", hidden=True)]
+        if content := self.config.get("content_property"):
+            hidden.append(MetadataField(name=content, hidden=True))
+        return public + tuple(hidden)
+
+
 class WeaviateVectorStore:
     """Remote Weaviate vector store — search and healthcheck only.
 
@@ -50,6 +68,7 @@ class WeaviateVectorStore:
 
     NAME = "weaviate_remote"
     PROVISIONER_CLS = None
+    METADATA_FIELDS = WeaviateMetadataFields
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate remote vector store.

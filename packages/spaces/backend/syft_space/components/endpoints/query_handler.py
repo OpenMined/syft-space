@@ -458,7 +458,11 @@ class QueryEndpointHandler:
             DocumentResponse(
                 document_id=doc.document_id,
                 content=doc.content,
-                metadata=doc.metadata,
+                metadata=(
+                    dataset_instance.public_metadata(doc.metadata)
+                    if request.include_metadata
+                    else {}
+                ),
                 similarity_score=doc.similarity_score,
             )
             for doc in search_result.documents
@@ -466,7 +470,10 @@ class QueryEndpointHandler:
 
         return ReferencesResponse(
             documents=documents,
-            provider_info=ProviderInfo(search_engine=dataset.dtype),
+            provider_info=ProviderInfo(
+                search_engine=dataset.dtype,
+                metadata_fields=dataset_instance.metadata.public_names(),
+            ),
         )
 
     async def _chat_with_model(

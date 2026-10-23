@@ -486,6 +486,24 @@ class PublishEndpointHandler:
                 marketplace_id=marketplace.id, available=None, error=str(e)
             )
 
+    async def _metadata_fields(self, endpoint: Endpoint) -> list[str]:
+        """Public metadata keys of the endpoint's dataset; empty without one."""
+        if endpoint.dataset_id is None:
+            return []
+        dataset = await self.dataset_repository.get_by_id(
+            endpoint.dataset_id, endpoint.tenant_id
+        )
+        if dataset is None:
+            return []
+        try:
+            dataset_type_cls = self.dataset_registry.get_dataset_type(dataset.dtype)
+            return dataset_type_cls.metadata_for(dataset.configuration).public_names()
+        except Exception as e:  # publishing must not fail on the schema
+            logger.warning(
+                f"metadata_fields unavailable for endpoint {endpoint.slug}: {e}"
+            )
+            return []
+
     async def _build_publish_payload(self, endpoint: Endpoint) -> dict[str, Any]:
         """Build the publish payload for an endpoint.
 
@@ -576,6 +594,12 @@ class PublishEndpointHandler:
             "readme": endpoint.description or "",
             "slug": endpoint.slug,
             "policies": policies,
+            # What a query returns. The hub stores it beside the listing so
+            # callers can pick sources before spending; the hub ignores the
+            # key until it knows it.
+            "query_schema": {
+                "metadata_fields": await self._metadata_fields(endpoint),
+            },
             "connect": [
                 {
                     "type": "https",

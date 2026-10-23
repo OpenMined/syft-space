@@ -19,6 +19,7 @@ from typing import Any, ClassVar, Protocol
 
 from syft_space.components.shared.domain_types import HealthcheckResponse
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.metadata_types import MetadataFields
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchParameters,
@@ -108,6 +109,9 @@ class BaseVectorStore(Protocol):
 
     NAME: ClassVar[str]
     PROVISIONER_CLS: ClassVar[type[BaseVectorStoreProvisioner] | None] = None
+    # Keys the store adds to a document's metadata, and which of them are
+    # internal. The default declares nothing and hides nothing.
+    METADATA_FIELDS: ClassVar[type[MetadataFields]] = MetadataFields
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize the vector store with configuration."""

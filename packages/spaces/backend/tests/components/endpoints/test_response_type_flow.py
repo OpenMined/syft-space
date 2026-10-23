@@ -87,6 +87,8 @@ def _make_handler(
 
     dataset_instance = MagicMock()
     dataset_instance.search = AsyncMock(return_value=_make_search_result())
+    dataset_instance.public_metadata = lambda metadata: dict(metadata)
+    dataset_instance.metadata.public_names = lambda: ["title"]
     dataset_registry = MagicMock()
     dataset_registry.get_dataset_type = MagicMock(
         return_value=MagicMock(return_value=dataset_instance)
@@ -227,3 +229,59 @@ async def test_context_includes_every_retrieved_document() -> None:
     docs = [_doc(f"d{i}", f"chunk {i}") for i in range(5)]
     content = await _context_for(docs)
     assert all(f"[d{i}]" in content for i in range(5))
+
+
+# ============== reference metadata goes through the binding ==============
+
+
+@pytest.mark.asyncio
+async def test_reference_metadata_is_filtered_by_the_binding() -> None:
+    endpoint = _make_endpoint("raw")
+    handler, dataset_instance, _ = _make_handler(endpoint)
+    dataset_instance.search = AsyncMock(
+        return_value=SearchResult(
+            documents=[_doc("a", "x", title="Paper", prev_context="leak")]
+        )
+    )
+    dataset_instance.public_metadata = lambda m: {"title": m["title"]}
+
+    response = await handler.query_endpoint(
+        "ep", _make_request(), SimpleNamespace(id=TENANT_ID)
+    )
+
+    assert response.references.documents[0].metadata == {"title": "Paper"}
+
+
+@pytest.mark.asyncio
+async def test_include_metadata_false_sends_no_metadata() -> None:
+    endpoint = _make_endpoint("raw")
+    handler, dataset_instance, _ = _make_handler(endpoint)
+    dataset_instance.search = AsyncMock(
+        return_value=SearchResult(documents=[_doc("a", "x", title="Paper")])
+    )
+    request = AuthenticatedQueryRequest(
+        messages="q", sender_email="user@example.com", include_metadata=False
+    )
+
+    response = await handler.query_endpoint(
+        "ep", request, SimpleNamespace(id=TENANT_ID)
+    )
+
+    assert response.references.documents[0].metadata == {}
+
+
+@pytest.mark.asyncio
+async def test_references_name_the_metadata_fields_a_document_may_carry() -> None:
+    endpoint = _make_endpoint("raw")
+    handler, dataset_instance, _ = _make_handler(endpoint)
+    dataset_instance.metadata.public_names = lambda: ["title", "author", "doc_id"]
+
+    response = await handler.query_endpoint(
+        "ep", _make_request(), SimpleNamespace(id=TENANT_ID)
+    )
+
+    assert response.references.provider_info.metadata_fields == [
+        "title",
+        "author",
+        "doc_id",
+    ]
