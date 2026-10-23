@@ -470,7 +470,10 @@ class QueryEndpointHandler:
 
         return ReferencesResponse(
             documents=documents,
-            provider_info=ProviderInfo(search_engine=dataset.dtype),
+            provider_info=ProviderInfo(
+                search_engine=dataset.dtype,
+                metadata_fields=dataset_instance.metadata.public_names(),
+            ),
         )
 
     async def _chat_with_model(

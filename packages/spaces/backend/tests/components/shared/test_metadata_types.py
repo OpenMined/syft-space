@@ -20,7 +20,11 @@ class _Store(MetadataFields):
     fields = (MetadataField(name="prev_context", hidden=True),)
 
     def derived(self, source):
-        return tuple(MetadataField(name=f"{f.name}_ts") for f in source.declared())
+        return tuple(
+            MetadataField(name=f"{f.name}_ts")
+            for f in source.declared()
+            if not f.hidden
+        )
 
 
 def test_composes_declared_and_derived_from_both_halves():
@@ -57,3 +61,20 @@ def test_base_declaration_declares_and_derives_nothing():
     assert base.declared() == ()
     assert base.derived(base) == ()
     assert DatasetMetadata(base, base).public(META) == {}
+
+
+def test_public_names_keep_declaration_order_once_without_hidden():
+    class _Twice(MetadataFields):
+        fields = (
+            MetadataField(name="b"),
+            MetadataField(name="a"),
+            MetadataField(name="b"),
+            MetadataField(name="x", hidden=True),
+        )
+
+    assert DatasetMetadata(_Twice(), _Store()).public_names() == [
+        "b",
+        "a",
+        "b_ts",
+        "a_ts",
+    ]

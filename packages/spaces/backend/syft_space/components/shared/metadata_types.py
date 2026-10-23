@@ -54,6 +54,10 @@ class DatasetMetadata:
 
     def public(self, metadata: Mapping[str, Any]) -> dict[str, Any]:
         """Keep the keys some field declares public and none declares hidden."""
-        hidden = {f.name for f in self.fields if f.hidden}
-        public = {f.name for f in self.fields if not f.hidden} - hidden
+        public = set(self.public_names())
         return {k: v for k, v in metadata.items() if k in public}
+
+    def public_names(self) -> list[str]:
+        """Keys that may leave the space, in declaration order, once each."""
+        hidden = {f.name for f in self.fields if f.hidden}
+        return list(dict.fromkeys(f.name for f in self.fields if f.name not in hidden))
