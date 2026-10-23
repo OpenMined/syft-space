@@ -53,6 +53,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.article import article_html
@@ -750,6 +751,22 @@ class BlogspotSource:
         return all(a >= b for a, b in zip(stamps, stamps[1:], strict=False))
 
 
+class BlogspotMetadataFields(MetadataFields):
+    """Keys ``BlogspotSource.fetch`` writes for every post."""
+
+    fields = (
+        MetadataField(name="source"),
+        MetadataField(name="blog_id"),
+        MetadataField(name="post_id"),
+        MetadataField(name="title"),
+        MetadataField(name="url"),
+        MetadataField(name="updated"),
+        MetadataField(name="published"),
+        MetadataField(name="tags"),
+        MetadataField(name="author"),
+    )
+
+
 class BlogspotProvider:
     """Registry description and factories for the Blogspot source.
 
@@ -760,6 +777,7 @@ class BlogspotProvider:
     """
 
     NAME = "blogspot"
+    METADATA_FIELDS = BlogspotMetadataFields
 
     @classmethod
     def name(cls) -> str:

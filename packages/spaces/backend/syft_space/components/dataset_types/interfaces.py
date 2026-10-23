@@ -18,6 +18,7 @@ from typing import Any, ClassVar
 
 from syft_space.components.shared.domain_types import HealthcheckResponse
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.metadata_types import DatasetMetadata
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchParameters,
@@ -42,9 +43,11 @@ class BaseDatasetType:
     NAME: ClassVar[str]
     SOURCE_PROVIDER_CLS: ClassVar[type[BaseSourceProvider]]
     VECTOR_STORE_CLS: ClassVar[type[BaseVectorStore]]
+    METADATA_CLS: ClassVar[type[DatasetMetadata]] = DatasetMetadata
 
     source: BaseSource
     vector_store: BaseVectorStore
+    metadata: DatasetMetadata
 
     def __init__(self, configuration: dict[str, Any]) -> None:
         """Construct the source + vector store from the flat user config.
@@ -56,6 +59,14 @@ class BaseDatasetType:
         source_cfg, vector_store_cfg = cls.split_config(configuration)
         self.source = cls.SOURCE_PROVIDER_CLS.for_ingest(source_cfg)
         self.vector_store = cls.VECTOR_STORE_CLS(vector_store_cfg)
+        self.metadata = cls.METADATA_CLS(
+            cls.SOURCE_PROVIDER_CLS.METADATA_FIELDS(source_cfg),
+            cls.VECTOR_STORE_CLS.METADATA_FIELDS(vector_store_cfg),
+        )
+
+    def public_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        """A document's metadata reduced to the keys that may leave the space."""
+        return self.metadata.public(metadata)
 
     # ── Required per-binding ─────────────────────────────────────────
 

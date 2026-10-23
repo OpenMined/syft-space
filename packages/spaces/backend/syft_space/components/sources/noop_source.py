@@ -15,6 +15,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.metadata_types import MetadataFields
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourcePage,
@@ -70,6 +71,7 @@ class NoOpProvider:
     """
 
     NAME = "noop"
+    METADATA_FIELDS = MetadataFields
     IS_NOOP = True
 
     @classmethod

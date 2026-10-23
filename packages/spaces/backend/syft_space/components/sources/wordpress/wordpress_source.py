@@ -31,6 +31,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.article import article_html, html_to_text
@@ -566,6 +567,25 @@ class WordPressSource:
                 )
 
 
+class WordPressMetadataFields(MetadataFields):
+    """Keys ``WordPressSource.fetch`` writes for every post."""
+
+    fields = (
+        MetadataField(name="source"),
+        MetadataField(name="title"),
+        MetadataField(name="url"),
+        MetadataField(name="author"),
+        MetadataField(name="published"),
+        MetadataField(name="updated"),
+        MetadataField(name="tags"),
+        MetadataField(name="post_type"),
+        MetadataField(name="post_id"),
+        MetadataField(name="slug"),
+        MetadataField(name="status", hidden=True),
+        MetadataField(name="author_id"),
+    )
+
+
 class WordPressProvider:
     """Registry description and factories for the WordPress source.
 
@@ -576,6 +596,7 @@ class WordPressProvider:
     """
 
     NAME = "wordpress"
+    METADATA_FIELDS = WordPressMetadataFields
 
     @classmethod
     def name(cls) -> str:
