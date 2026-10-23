@@ -11,7 +11,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
 import pytest
 
 from syft_space.components.dataset_types.interfaces import BaseDatasetType
@@ -93,83 +92,32 @@ def test_rss_entry_metadata_is_fully_declared():
     assert emitted <= _names(RssMetadataFields().declared())
 
 
-async def test_wordpress_fetch_metadata_is_fully_declared(monkeypatch):
+def test_wordpress_post_metadata_is_fully_declared():
     post = {
-        "id": 7,
-        "slug": "hello",
         "link": "https://example.com/hello",
         "date_gmt": "2024-01-10T09:00:00",
         "modified_gmt": "2024-01-15T10:30:00",
-        "title": {"rendered": "Hello"},
-        "content": {"rendered": "<p>body</p>"},
         "author": 1,
         "status": "publish",
         "_embedded": {"author": [{"name": "Ada"}], "wp:term": [[{"name": "T"}]]},
     }
-    types = {
-        "post": {
-            "slug": "post",
-            "name": "Posts",
-            "rest_base": "posts",
-            "viewable": True,
-        }
-    }
-
-    def handler(request):
-        body = types if request.url.path.endswith("/types") else post
-        return httpx.Response(200, json=body, request=request)
-
-    monkeypatch.setattr(
-        wp,
-        "_make_client",
-        lambda _cfg: httpx.AsyncClient(
-            base_url="https://example.com/wp-json/wp/v2",
-            transport=httpx.MockTransport(handler),
-        ),
-    )
-    source = wp.WordPressSource(
-        wp.WordPressDatasetConfig.model_validate(
-            {
-                "siteUrl": "https://example.com",
-                "username": "u",
-                "applicationPassword": "p",
-            }
+    emitted = set(
+        wp._post_metadata(
+            post, post_type="post", post_id=7, title="Hello", slug="hello"
         )
     )
-    async with source.fetch("post:7") as ingest_file:
-        emitted = set(ingest_file.metadata)
     assert emitted <= _names(wp.WordPressMetadataFields().declared())
 
 
-async def test_blogspot_fetch_metadata_is_fully_declared(monkeypatch):
+def test_blogspot_post_metadata_is_fully_declared():
     post = {
-        "id": "10",
-        "title": "Hello",
-        "content": "<p>body</p>",
         "url": "https://example.blogspot.com/p/10",
         "updated": "2024-03-01T00:00:00Z",
         "published": "2024-02-06T23:46:00.000-08:00",
         "labels": ["ml"],
         "author": {"displayName": "Ada"},
     }
-
-    def handler(request):
-        return httpx.Response(200, json=post, request=request)
-
-    monkeypatch.setattr(
-        bs,
-        "_make_client",
-        lambda: httpx.AsyncClient(
-            base_url=bs.BLOGGER_API_ROOT, transport=httpx.MockTransport(handler)
-        ),
-    )
-    source = bs.BlogspotSource(
-        bs.BlogspotDatasetConfig.model_validate(
-            {"blogUrls": "https://example.blogspot.com", "apiKey": "k"}
-        )
-    )
-    async with source.fetch("1:10") as ingest_file:
-        emitted = set(ingest_file.metadata)
+    emitted = set(bs._post_metadata(post, blog_id="1", post_id="10", title="Hello"))
     assert emitted <= _names(bs.BlogspotMetadataFields().declared())
 
 

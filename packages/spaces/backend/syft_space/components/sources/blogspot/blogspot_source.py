@@ -495,6 +495,26 @@ class BlogspotBrowser:
             )
 
 
+def _post_metadata(
+    post: dict[str, Any], *, blog_id: str, post_id: str, title: str
+) -> dict[str, Any]:
+    """Searchable facts about a post; every key is in BlogspotMetadataFields."""
+    return {
+        "source": BlogspotProvider.NAME,
+        "blog_id": blog_id,
+        "post_id": post_id,
+        "title": title,
+        "url": post.get("url"),
+        # Datetimes, not raw strings: the vector store turns each
+        # into an ISO value plus a filterable epoch int. The
+        # fingerprint still uses the raw `updated`.
+        "updated": parse_datetime(post.get("updated")),
+        "published": parse_datetime(post.get("published")),
+        "tags": post.get("labels"),
+        "author": (post.get("author") or {}).get("displayName"),
+    }
+
+
 class BlogspotSource:
     """Ingest-time access to public Blogger blogs.
 
@@ -547,20 +567,7 @@ class BlogspotSource:
         # title. Full identity travels in metadata.
         filename = f"{_slugify(title)}_{post_id}.html"
 
-        metadata = {
-            "source": BlogspotProvider.NAME,
-            "blog_id": blog_id,
-            "post_id": post_id,
-            "title": title,
-            "url": post.get("url"),
-            # Datetimes, not raw strings: the vector store turns each
-            # into an ISO value plus a filterable epoch int. The
-            # fingerprint above still uses the raw `updated`.
-            "updated": parse_datetime(updated),
-            "published": parse_datetime(post.get("published")),
-            "tags": post.get("labels"),
-            "author": (post.get("author") or {}).get("displayName"),
-        }
+        metadata = _post_metadata(post, blog_id=blog_id, post_id=post_id, title=title)
 
         fd, tmp_str = tempfile.mkstemp(
             prefix=f"blogspot_{blog_id}_{post_id}_", suffix=".html"
