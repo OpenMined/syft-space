@@ -196,6 +196,7 @@ def _make_handler(
     dataset_repository.get_by_id = AsyncMock(return_value=dataset)
     dataset_instance = MagicMock()
     dataset_instance.public_metadata = lambda metadata: dict(metadata)
+    dataset_instance.metadata.public_names = lambda: ["title"]
     dataset_instance.search = AsyncMock(
         return_value=SearchResult(
             documents=[

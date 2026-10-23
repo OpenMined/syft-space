@@ -59,7 +59,13 @@ class BaseDatasetType:
         source_cfg, vector_store_cfg = cls.split_config(configuration)
         self.source = cls.SOURCE_PROVIDER_CLS.for_ingest(source_cfg)
         self.vector_store = cls.VECTOR_STORE_CLS(vector_store_cfg)
-        self.metadata = cls.METADATA_CLS(
+        self.metadata = cls.metadata_for(configuration)
+
+    @classmethod
+    def metadata_for(cls, configuration: dict[str, Any]) -> DatasetMetadata:
+        """The binding's metadata contract from config alone, no collaborators built."""
+        source_cfg, vector_store_cfg = cls.split_config(configuration)
+        return cls.METADATA_CLS(
             cls.SOURCE_PROVIDER_CLS.METADATA_FIELDS(source_cfg),
             cls.VECTOR_STORE_CLS.METADATA_FIELDS(vector_store_cfg),
         )

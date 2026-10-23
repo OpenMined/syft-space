@@ -88,6 +88,7 @@ def _make_handler(
     dataset_instance = MagicMock()
     dataset_instance.search = AsyncMock(return_value=_make_search_result())
     dataset_instance.public_metadata = lambda metadata: dict(metadata)
+    dataset_instance.metadata.public_names = lambda: ["title"]
     dataset_registry = MagicMock()
     dataset_registry.get_dataset_type = MagicMock(
         return_value=MagicMock(return_value=dataset_instance)
@@ -267,3 +268,20 @@ async def test_include_metadata_false_sends_no_metadata() -> None:
     )
 
     assert response.references.documents[0].metadata == {}
+
+
+@pytest.mark.asyncio
+async def test_references_name_the_metadata_fields_a_document_may_carry() -> None:
+    endpoint = _make_endpoint("raw")
+    handler, dataset_instance, _ = _make_handler(endpoint)
+    dataset_instance.metadata.public_names = lambda: ["title", "author", "doc_id"]
+
+    response = await handler.query_endpoint(
+        "ep", _make_request(), SimpleNamespace(id=TENANT_ID)
+    )
+
+    assert response.references.provider_info.metadata_fields == [
+        "title",
+        "author",
+        "doc_id",
+    ]

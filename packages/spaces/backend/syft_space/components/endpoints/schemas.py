@@ -451,6 +451,10 @@ class ProviderInfo(BaseModel):
         default=None, description="Response time in milliseconds"
     )
     search_engine: str | None = Field(default=None, description="Search engine used")
+    metadata_fields: list[str] | None = Field(
+        default=None,
+        description="Metadata keys a reference document may carry, in full",
+    )
 
 
 class SummaryResponse(BaseModel):

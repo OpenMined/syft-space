@@ -304,3 +304,19 @@ def test_binding_composes_both_declarations_once():
         "unknown": "u",
     }
     assert binding.public_metadata(meta) == {"title": "t", "doc_id": "d", "title_ts": 1}
+
+
+def test_metadata_for_needs_no_collaborators():
+    class _ExplodingProvider(_Provider):
+        @classmethod
+        def for_ingest(cls, cfg):
+            raise AssertionError("source must not be built for the contract")
+
+    class _ContractOnly(_Binding):
+        SOURCE_PROVIDER_CLS = _ExplodingProvider
+
+    assert _ContractOnly.metadata_for({}).public_names() == [
+        "title",
+        "doc_id",
+        "title_ts",
+    ]
