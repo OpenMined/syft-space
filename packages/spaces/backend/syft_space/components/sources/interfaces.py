@@ -15,11 +15,12 @@ Bindings between the two live in ``dataset_types/``.
 
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Literal, Protocol
+from typing import Any, ClassVar, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.metadata_types import MetadataFields
 
 
 class SourceItem(BaseModel):
@@ -161,10 +162,12 @@ class BaseSourceProvider(Protocol):
     browse / dataset configuration schemas and their validators, and
     the two factories that build a ``BaseBrowser`` or a ``BaseSource``
     from a configuration dict. The picker calls ``for_browse``;
-    ingestion calls ``for_ingest``.
+    ingestion calls ``for_ingest``. ``METADATA_FIELDS`` declares the keys
+    the source writes into ``IngestFile.metadata``.
     """
 
     NAME: str
+    METADATA_FIELDS: ClassVar[type[MetadataFields]]
 
     @classmethod
     def name(cls) -> str:

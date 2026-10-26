@@ -26,6 +26,7 @@ from syft_space.components.shared.domain_types import (
     HealthcheckStatus,
 )
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
@@ -123,6 +124,40 @@ def _chroma_scalars(metadata: dict[str, Any]) -> dict[str, Any]:
     return scalars
 
 
+class ChromaDBMetadataFields(MetadataFields):
+    """Keys this store writes at ingest and adds at search time.
+
+    Chunk pointers, neighbour text, picture ids and the source's external id
+    (the on-disk path for local files) stay inside the space.
+    """
+
+    fields = (
+        MetadataField(name="doc_id"),
+        MetadataField(name="chunk_index"),
+        MetadataField(name="file_name"),
+        MetadataField(name="file_type", hidden=True),
+        MetadataField(name="file_size", hidden=True),
+        MetadataField(name="page_numbers"),
+        MetadataField(name="headings"),
+        MetadataField(name="image_urls"),
+        MetadataField(name="external_id", hidden=True),
+        MetadataField(name="prev_chunk_id", hidden=True),
+        MetadataField(name="next_chunk_id", hidden=True),
+        MetadataField(name="picture_ids", hidden=True),
+        MetadataField(name="prev_context", hidden=True),
+        MetadataField(name="next_context", hidden=True),
+    )
+
+    def derived(self, source: MetadataFields) -> tuple[MetadataField, ...]:
+        # _chroma_scalars writes ``{key}_ts`` beside every datetime value;
+        # declaring one per source field over-declares harmlessly.
+        return tuple(
+            MetadataField(name=f"{f.name}_ts")
+            for f in source.declared()
+            if not f.hidden
+        )
+
+
 class ChromaDBLocalVectorStore:
     """ChromaDB vector store.
 
@@ -134,6 +169,7 @@ class ChromaDBLocalVectorStore:
 
     NAME = "chromadb_local"
     PROVISIONER_CLS = _resolve_provisioner_cls()
+    METADATA_FIELDS = ChromaDBMetadataFields
 
     # Class-level lock for thread-safe lazy embedding-model init.
     _embedding_fn_lock = threading.Lock()

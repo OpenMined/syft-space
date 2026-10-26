@@ -51,6 +51,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.article import UNTITLED, article_html, html_to_text
@@ -757,6 +758,22 @@ async def _validate_connection(config: RssBrowseConfig) -> None:
                 logger.info("Feed %s currently has no items", url)
 
 
+class RssMetadataFields(MetadataFields):
+    """Keys ``_entry_metadata`` writes for every item."""
+
+    fields = (
+        MetadataField(name="source"),
+        MetadataField(name="feed_url"),
+        MetadataField(name="feed_title"),
+        MetadataField(name="title"),
+        MetadataField(name="url"),
+        MetadataField(name="comments_url"),
+        MetadataField(name="author"),
+        MetadataField(name="tags"),
+        MetadataField(name="published"),
+    )
+
+
 class RssProvider:
     """Registry description and factories for the RSS source.
 
@@ -765,6 +782,7 @@ class RssProvider:
     """
 
     NAME = "rss"
+    METADATA_FIELDS = RssMetadataFields
 
     @classmethod
     def name(cls) -> str:
