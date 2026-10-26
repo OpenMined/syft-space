@@ -35,10 +35,30 @@ try:
     import weaviate
     from weaviate.classes.init import Auth
     from weaviate.classes.query import Filter, MetadataQuery
+    from weaviate.outputs.query import Object, WeaviateProperties
 
     enabled = True
 except ImportError:
     enabled = False
+
+
+def _document_metadata(
+    result: Object[WeaviateProperties, None],
+    config: RemoteWeaviateVectorStoreConfiguration,
+) -> dict[str, Any]:
+    """Metadata of one searched document: the store's own keys plus the
+    properties the owner allowlisted in ``metadata_properties``. No
+    allowlist, no properties."""
+    allowed = config.metadata_properties or ()
+    return {
+        "creation_time": (
+            str(result.metadata.creation_time)
+            if result.metadata.creation_time
+            else None
+        ),
+        "distance": result.metadata.distance,
+        **{k: v for k, v in result.properties.items() if k in allowed},
+    }
 
 
 class WeaviateMetadataFields(MetadataFields):
@@ -190,24 +210,7 @@ class WeaviateVectorStore:
                 else:
                     content = json.dumps(result.properties, default=str)
 
-                if self.config.metadata_properties is not None:
-                    custom_metadata = {
-                        k: v
-                        for k, v in result.properties.items()
-                        if k in self.config.metadata_properties
-                    }
-                else:
-                    custom_metadata = dict(result.properties)
-
-                metadata = {
-                    "creation_time": (
-                        str(result.metadata.creation_time)
-                        if result.metadata.creation_time
-                        else None
-                    ),
-                    "distance": result.metadata.distance,
-                    **custom_metadata,
-                }
+                metadata = _document_metadata(result, self.config)
 
                 documents.append(
                     SearchedDocument(

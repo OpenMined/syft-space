@@ -38,8 +38,9 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
     metadata_properties: list[str] | None = Field(
         default=None,
         description=(
-            "Properties to include in metadata (e.g., ['title', 'author']). "
-            "If not specified, all properties are included."
+            "Properties returned as document metadata and declared on the "
+            "endpoint (e.g., ['title', 'author']). If not specified, no "
+            "property is returned; only creation_time is."
         ),
     )
     filters: WeaviateFilter | None = Field(

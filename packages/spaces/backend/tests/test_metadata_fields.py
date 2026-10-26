@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -37,9 +38,13 @@ from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store im
     ChromaDBLocalVectorStore,
     ChromaDBMetadataFields,
 )
+from syft_space.components.vector_stores.weaviate_remote.schemas import (
+    RemoteWeaviateVectorStoreConfiguration,
+)
 from syft_space.components.vector_stores.weaviate_remote.weaviate_vector_store import (
     WeaviateMetadataFields,
     WeaviateVectorStore,
+    _document_metadata,
 )
 
 
@@ -238,6 +243,52 @@ def test_weaviate_without_allowlist_declares_only_its_own_key():
     fields = WeaviateMetadataFields({"content_property": "body"})
     meta = {"title": "t", "body": "…", "distance": 0.2, "creation_time": "c"}
     assert _public_of(meta, fields) == {"creation_time": "c"}
+
+
+def _result(**properties: Any) -> Any:
+    """A ``near_text`` hit as the Weaviate client returns it."""
+    query = pytest.importorskip("weaviate.outputs.query")
+    return query.Object(
+        uuid=uuid4(),
+        metadata=query.MetadataReturn(
+            creation_time=datetime(2024, 1, 1, tzinfo=timezone.utc), distance=0.2
+        ),
+        properties=properties,
+        references=None,
+        vector={},
+        collection="C",
+    )
+
+
+_CREATED = "2024-01-01 00:00:00+00:00"
+
+
+def test_weaviate_document_metadata_is_the_allowlist_only():
+    cfg = _weaviate_config(metadata_properties=["title"], content_property="body")
+    meta = _document_metadata(_result(title="t", body="…", other=1), cfg)
+    assert meta == {"creation_time": _CREATED, "distance": 0.2, "title": "t"}
+
+
+def test_weaviate_document_metadata_without_allowlist_has_no_properties():
+    """Unset allowlist: the store copies nothing, so nothing is there to leak."""
+    cfg = _weaviate_config(content_property="body")
+    meta = _document_metadata(_result(title="t", body="…"), cfg)
+    assert meta == {"creation_time": _CREATED, "distance": 0.2}
+    assert _public_of(meta, WeaviateMetadataFields(cfg.model_dump())) == {
+        "creation_time": _CREATED
+    }
+
+
+def _weaviate_config(**overrides):
+    return RemoteWeaviateVectorStoreConfiguration.model_validate(
+        {
+            "http_url": "http://w.test:8080",
+            "grpc_url": "http://w.test:50051",
+            "api_key": "k",
+            "collection_name": "C",
+            **overrides,
+        }
+    )
 
 
 # ============== dataset type: composition ==============
