@@ -18,7 +18,6 @@ from syft_benchmark.config import (
     ExpectedBehavior,
     get_settings,
 )
-from syft_benchmark.publish import payload_for
 from syft_benchmark.report import card as card_mod
 from syft_benchmark.report import metrics as metrics_mod
 from syft_benchmark.report.card import (
@@ -29,6 +28,7 @@ from syft_benchmark.report.card import (
     Instrument,
     Trust,
     build,
+    payload_for,
 )
 from syft_benchmark.report.metrics import Metrics
 from syft_benchmark.report.slices import GeneratorSlice, JudgePair
@@ -121,14 +121,9 @@ def _quiet_surroundings(monkeypatch: Any) -> None:
 # --- the kind of product ---------------------------------------------------
 
 
-def test_a_retrieval_endpoint_is_not_left_without_a_badge(monkeypatch: Any) -> None:
-    """The main thing the kind appeared for at all.
-
-    An endpoint in raw mode has no arm B — it refuses to run, because such a node
-    has nothing to formulate an answer with. While the published arm was set by a
-    setting, such a node went out to the storefront empty despite excellent
-    retrieval, and the user screened it out at the badge.
-    """
+def test_a_retrieval_endpoint_is_not_left_without_a_score(monkeypatch: Any) -> None:
+    """An endpoint in raw mode has no arm B: such a node has nothing to formulate
+    an answer with, so its card is built from arm C and its retrieval."""
     monkeypatch.setattr(card_mod, "endpoint_kind", lambda *a, **k: RETRIEVAL)
     monkeypatch.setattr(
         card_mod, "models_seen", lambda *a, **k: ["gemma3-4b-gpu", "qwen3-8b"]
@@ -256,7 +251,7 @@ def test_one_model_needs_no_naming(monkeypatch: Any) -> None:
 # --- trust -----------------------------------------------------------------
 
 
-def test_a_share_over_too_few_questions_does_not_reach_the_badge() -> None:
+def test_a_share_over_too_few_questions_is_not_reliable() -> None:
     """A share nobody vouches for is worse than no share."""
     trust = Trust(
         samples=MIN_SAMPLES - 1,
@@ -272,7 +267,7 @@ def test_a_share_over_too_few_questions_does_not_reach_the_badge() -> None:
     assert trust.flags == ["few_samples"]
 
 
-def test_disagreeing_judges_grey_the_badge_out() -> None:
+def test_disagreeing_judges_make_the_card_unreliable() -> None:
     """Below the agreement floor the difference between nodes drowns in the spread."""
     trust = Trust(
         samples=200,
@@ -309,7 +304,7 @@ def test_an_interrupted_run_is_visible_as_a_skewed_sample() -> None:
 
 
 def test_the_flags_carry_codes_and_not_our_prose() -> None:
-    """The wording is written by the storefront: it has its own reader and language."""
+    """The wording is written by the reader: it has its own audience and language."""
     trust = Trust(
         samples=1,
         judges=2,
@@ -331,7 +326,7 @@ def test_the_flags_carry_codes_and_not_our_prose() -> None:
 
 
 def test_the_judge_agreement_floor_is_the_one_the_report_uses() -> None:
-    """The agreement floor is one for the report and the badge: otherwise they argue."""
+    """The agreement floor is one for the report and the card: otherwise they argue."""
     pairs = [JudgePair(left="a", right="b", shared=10, agreed=9)]
     from syft_benchmark.report.slices import average_agreement
 

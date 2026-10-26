@@ -409,6 +409,28 @@ describe('web search settings', () => {
     expect(buildRequest(target, form, KEYS).instrument!.web_search_max_results).toBe(1)
   })
 
+  it('caps searches per answer at 0..30, 0 by default', () => {
+    const target = makeTarget()
+    const form = formFromTarget(target, KEYS)
+    expect(form.webMaxSearches).toBe(0)
+    form.webMaxSearches = 5
+    expect(buildRequest(target, form, KEYS).instrument!.web_search_max_calls).toBe(5)
+    form.webMaxSearches = 99
+    expect(buildRequest(target, form, KEYS).instrument!.web_search_max_calls).toBe(30)
+    const saved = makeTarget({ instrument: { web_search_max_calls: 3 } })
+    expect(formFromTarget(saved, KEYS).webMaxSearches).toBe(3)
+  })
+
+  it('stores the spending cap, 100 USD by default', () => {
+    const target = makeTarget()
+    const form = formFromTarget(target, KEYS)
+    expect(form.maxJobUsd).toBe(100)
+    form.maxJobUsd = 2500
+    expect(buildRequest(target, form, KEYS).instrument!.max_job_usd).toBe(2500)
+    form.maxJobUsd = 0
+    expect(buildRequest(target, form, KEYS).instrument!.max_job_usd).toBe(0)
+  })
+
   it('keeps the entity check on unless switched off', () => {
     const target = makeTarget()
     const form = formFromTarget(target, KEYS)

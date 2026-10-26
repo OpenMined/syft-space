@@ -6,7 +6,7 @@ What this measurement cannot do, or does only conditionally.
 
 * **The judge is a model.** A panel measures agreement between judges, but high
   agreement means the judges are alike, not that they are right. The judge's
-  name is part of every number: it is in the report and the published card.
+  name is part of every number: it is in the report and the card.
 * **A console judge grades only the `direct` block.** `denial_loop` and
   `monte_carlo` verdicts are issued during the run; the console judge did not
   see the rounds.
@@ -49,7 +49,7 @@ What this measurement cannot do, or does only conditionally.
   chunks to hand the model.
 * **The price of context is relative to arm A** of a specific model; it can be
   compared between models, not between judges.
-* **The manual chat path is not for the storefront**: the chat product has its
+* **The manual chat path is not for the report**: the chat product has its
   own system prompt, the sample is small, temperature is uncontrolled.
 
 ## The models

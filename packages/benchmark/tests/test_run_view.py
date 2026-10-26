@@ -372,51 +372,6 @@ def test_trick_questions_feed_only_the_trick_check(
     assert [row["qa_id"] for row in listed["items"]] == ["q1"]
 
 
-def test_an_excluded_question_leaves_the_figures_but_stays_listed(
-    client: TestClient, clean: Any
-) -> None:
-    auth = _console(client)
-    seed = Seed()
-    seed.pair("q1")
-    seed.pair("q2")
-    seed.answer("q1", M1, "with", "correct")
-    seed.answer("q2", M1, "with", "hallucinate")
-    seed.save()
-    assert _model(_report(client, auth), M1)["rate_with"] == 0.5
-
-    put = client.put(
-        f"/console/report/runs/{JOB}/questions/q2/exclusion",
-        json={"reason": "ambiguous"},
-        headers=auth,
-    )
-    assert put.status_code == 200, put.text
-    assert put.json()["question"]["excluded"] is True
-    assert put.json()["exclusion"]["reason"] == "ambiguous"
-
-    report = _report(client, auth)
-    assert _model(report, M1)["rate_with"] == 1.0
-    assert report["run"]["questions"] == 1 and report["funnel"]["asked"] == 1
-
-    url = f"/console/report/runs/{JOB}/questions"
-    every = client.get(url, params={"model": M1}, headers=auth).json()
-    assert [(r["qa_id"], r["excluded"]) for r in every["items"]] == [
-        ("q1", False),
-        ("q2", True),
-    ]
-    only = client.get(url, params={"model": M1, "excluded": "only"}, headers=auth)
-    assert [r["qa_id"] for r in only.json()["items"]] == ["q2"]
-    hidden = client.get(url, params={"model": M1, "excluded": "hide"}, headers=auth)
-    assert hidden.json()["counts"]["all"] == 1
-
-    assert (
-        client.delete(
-            f"/console/report/runs/{JOB}/questions/q2/exclusion", headers=auth
-        ).status_code
-        == 204
-    )
-    assert _model(_report(client, auth), M1)["rate_with"] == 0.5
-
-
 def test_the_question_set_ignores_the_pairs_status_now(
     client: TestClient, clean: Any
 ) -> None:
@@ -853,7 +808,7 @@ def test_card_outdated_and_rebuilding_the_card(client: TestClient, clean: Any) -
     )
     assert _report(client, auth)["run"]["card_outdated"] is True
 
-    # A preview build leaves the published baseline alone.
+    # A build without `record` leaves the stored baseline alone.
     built = client.post("/console/report", json={"job": JOB}, headers=auth)
     assert built.status_code == 200, built.text
     assert _report(client, auth)["run"]["card_outdated"] is True

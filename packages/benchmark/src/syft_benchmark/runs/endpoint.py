@@ -43,6 +43,11 @@ from syft_benchmark.runs.judge import ERROR_PREFIX
 RETRIEVAL_ONLY_TOKENS = 1
 
 
+class EndpointFailed(RuntimeError):
+    """The endpoint call failed (HTTP error, timeout, transport): not an empty
+    retrieval, so a gate must treat the question as not checked."""
+
+
 def ask_endpoint(
     space: SpaceConfig,
     question: str,
@@ -54,7 +59,7 @@ def ask_endpoint(
     temperature: float | None = None,
     timeout: float = 900.0,
 ) -> dict[str, Any]:
-    """Put a question to the endpoint the way the hub storefront does.
+    """Put a question to the endpoint the way a consumer does.
 
     Nothing is added to the question: the system prompt, the retrieval and the
     assembly of the context are the endpoint own business, and in arm B it is
@@ -129,6 +134,9 @@ def endpoint_retriever(
     Needed by generation, to screen out a negative that retrieval does in fact
     answer. Handed over as a callable rather than a client: generation must not
     depend on the runs module, and the gate has to be testable offline.
+
+    Raises ``EndpointFailed`` when the call fails, so a failure never reads as
+    "retrieval found nothing".
     """
     conf = settings or get_settings()
 
@@ -136,6 +144,9 @@ def endpoint_retriever(
         outcome = ask_endpoint(
             space, question, settings=conf, max_tokens=RETRIEVAL_ONLY_TOKENS
         )
+        if outcome["failed"]:
+            error = str(outcome["answer"]).removeprefix(ERROR_PREFIX).strip()
+            raise EndpointFailed(f"{space.key}: {error}")
         return [
             str(doc.get("content") or "")
             for doc in outcome["documents"]

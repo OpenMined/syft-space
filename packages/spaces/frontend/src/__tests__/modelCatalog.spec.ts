@@ -34,9 +34,7 @@ const answer = (count: number): BenchmarkModelCatalog => ({
   total: count,
 })
 
-// A fresh connection id per test: the cache is module-level on purpose — four
-// pickers on one form share it — so reusing an id would leak one test's
-// catalogue into the next.
+// A fresh connection id per test: the cache is module-level.
 let connection = 0
 const next = (): string => `connection-${++connection}`
 
@@ -46,8 +44,6 @@ beforeEach(() => {
 
 describe('useModelCatalog', () => {
   it('fetches a connection catalogue once, however many pickers ask', async () => {
-    // Four fields on the settings form pick models. Asking four times over one
-    // page is three requests for an answer already in hand.
     listModels.mockResolvedValue(answer(2))
     const id = next()
 
@@ -73,10 +69,7 @@ describe('useModelCatalog', () => {
   })
 
   it('replaces what is held when the benchmark refetches its provider list', async () => {
-    // A refresh exists to make the old list go away. A merge would keep a model
-    // the provider has stopped serving on the list for ever — the one kind of
-    // stale entry worse than none, because it looks configured and fails at the
-    // first call.
+    // A refresh replaces the list rather than merging into it.
     listModels.mockResolvedValue(answer(2))
     refreshModels.mockResolvedValue(answer(5))
     const id = next()
@@ -86,7 +79,7 @@ describe('useModelCatalog', () => {
     expect(await picker.refresh(id)).toBe(true)
     expect(picker.catalog.value.models).toHaveLength(5)
 
-    // And the next picker to open gets the new list, not the cached old one.
+    // The cache holds the new list too.
     const another = useModelCatalog()
     await another.load(id)
     expect(another.catalog.value.models).toHaveLength(5)
@@ -94,9 +87,7 @@ describe('useModelCatalog', () => {
   })
 
   it('keeps the benchmark own words about a refusal', async () => {
-    // A perimeter that forbids the call names the host to open. That is an
-    // instruction to the owner, and replacing it with "something went wrong"
-    // leaves them with nothing to act on.
+    // The benchmark's own message is shown as is.
     refreshModels.mockRejectedValue({
       response: { data: { detail: 'add openrouter.ai to external_hosts' } },
     })
@@ -107,9 +98,7 @@ describe('useModelCatalog', () => {
   })
 
   it('survives a benchmark that hands over nothing', async () => {
-    // Without a catalogue the picker still takes a typed identifier, which is
-    // where these fields were before one existed. A form that cannot open is a
-    // worse answer than a form that cannot suggest.
+    // Not fatal: the picker still takes a typed identifier.
     listModels.mockRejectedValue(new Error('benchmark is not answering'))
 
     const picker = useModelCatalog()

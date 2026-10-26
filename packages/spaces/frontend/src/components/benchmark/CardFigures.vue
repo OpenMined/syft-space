@@ -1,12 +1,5 @@
 <script setup lang="ts">
-/**
- * The six figures of one run, wherever it is shown.
- *
- * Extracted so the list and the run's own page cannot drift apart: two runs are
- * compared by the figures sitting in the same places, and a figure that means
- * one thing in the list and another on the page it opens would be worse than no
- * figure at all.
- */
+/** The six figures of one run, shared by the run list and the run page. */
 import { computed } from 'vue'
 
 import StatTile from './StatTile.vue'
@@ -19,16 +12,7 @@ const percent = (value: number | null | undefined): string =>
 
 const searching = computed(() => props.card.kind === 'retrieval')
 
-/**
- * The headline tile, and why it sometimes carries two numbers.
- *
- * An endpoint that answers with its own model is two things at once: a search
- * that either finds the material or does not, and a model that either uses it
- * correctly or does not. Split across two tiles those read as unrelated
- * figures; together — 71%/95% — they say plainly that the search is not what is
- * letting this endpoint down. A retrieval endpoint has only the one number, and
- * showing it twice would be noise.
- */
+/** Retrieval: the hit rate. Answering: accuracy, plus the search hit rate when it differs. */
 const headline = computed(() => {
   const score = percent(props.card.score)
   const found = props.card.retrieval == null ? null : percent(props.card.retrieval)
@@ -53,8 +37,6 @@ const subjects = computed(() => props.card.instrument?.subjects ?? props.card.mo
 </script>
 
 <template>
-  <!-- Each in its own box with a little air around it: six separate things
-       rather than one long sentence of numbers. -->
   <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
     <StatTile :value="headline.value" :label="headline.label" :help="headline.help" />
     <StatTile
@@ -70,12 +52,12 @@ const subjects = computed(() => props.card.instrument?.subjects ?? props.card.mo
     <StatTile
       :value="percent(card.trust?.consistency)"
       label="repeats"
-      help="Repeats that came back with the same answer. Dash — block not run."
+      help="Repeats that gave the same answer; a dash means the block was not run."
     />
     <StatTile
       :value="percent(card.pressure?.flip_rate)"
       label="flipped"
-      help="Right answers given up under push-back. Dash — block not run."
+      help="Right answers given up under push-back; a dash means the block was not run."
     />
     <StatTile :value="String(subjects || '—')" label="models" help="Models under test." />
   </div>

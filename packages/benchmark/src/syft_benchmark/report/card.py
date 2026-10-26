@@ -1,17 +1,8 @@
-"""The endpoint card: everything the node shows the world.
+"""The endpoint card: one run's headline figures, for the Space's results view.
 
-A report answers the question "what did we get" and is written for the owner. A
-card answers a different one — "what will an outsider see" — and so is built not
-as a slice of the database but as an answer to three questions from three
-different readers:
-
-* the **badge** — is it worth opening at all. Two numbers and a state;
-* the **storefront page** — what do I get if I connect my own model;
-* the **Space own page** — does the owner vouch for these numbers.
-
-The first two are assembled here and leave the perimeter. The third stays with
-the owner and takes its data from the database directly: invariant 3 limits what
-leaves the perimeter, and the owner is not limited in their own data at all.
+The card is a summary of aggregates — shares and counters, no questions, no
+answers, no corpus chunks. It is kept on the job (``Job.card``) and read by the
+Space's Benchmark results tab; it never leaves the Space.
 
 **The kind of product decides which numbers are meaningful at all.** An endpoint
 in ``raw`` mode does not formulate an answer — it searches, and there is
@@ -32,6 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from syft_benchmark.config import (
     ContextMode,
@@ -55,16 +47,10 @@ from syft_benchmark.report.slices import (
     judge_agreement,
 )
 
-# The card format version. The receiving side is obliged to know what it is
-# reading.
-#
-# Kept in lockstep with CARD_VERSION in
-# packages/spaces/backend/syft_space/components/endpoints/schemas.py by hand:
-# the two packages must not import each other, so nothing enforces this beyond
-# whoever bumps one remembering the other.
+# The card format version: a reader has to know which shape it is reading.
 CARD_VERSION = 2
 
-# The kind of product. Neither decoration nor a hint to the storefront: which
+# The kind of product. Not decoration: which
 # number is the headline one, and what this card can be compared with at all,
 # depend on it.
 ANSWERING = "answering"
@@ -125,7 +111,7 @@ class Trust:
 
     @property
     def reliable(self) -> bool:
-        """Whether this number can be put on the storefront.
+        """Whether this number can be relied on.
 
         Four reasons to say "no", and each is its own: too few questions; the
         judges diverge so far that the difference between nodes drowns in the
@@ -144,10 +130,8 @@ class Trust:
     def flags(self) -> list[str]:
         """Why the number cannot be trusted — as codes, not as prose.
 
-        Codes leave the perimeter: the wording is written by whoever displays it —
-        they have their own language and their own reader. The benchmark prose on
-        a foreign storefront would be both text crossing the perimeter without
-        need and a foreign localisation.
+        The wording is written by whoever displays them; ``doubts`` carries
+        the console's own.
         """
         codes: list[str] = []
         if self.samples < MIN_SAMPLES:
@@ -164,7 +148,7 @@ class Trust:
 
     @property
     def doubts(self) -> list[str]:
-        """The same thing in words — for our own console, not for the storefront."""
+        """The same thing in words, for the console."""
         notes: list[str] = []
         if self.samples < MIN_SAMPLES:
             notes.append(
@@ -242,7 +226,7 @@ class Instrument:
     Within one benchmark installation several Spaces are measured by one and the
     same thing: the same judge, the same panel, the same models under test, the
     same thresholds. Between different installations nothing is guaranteed, and
-    the storefront cannot tell them apart — unless it is told.
+    a reader cannot tell them apart — unless it is told.
     """
 
     version: int
@@ -254,7 +238,7 @@ class Instrument:
 
 @dataclass(frozen=True, slots=True)
 class Card:
-    """The card of one endpoint: the badge and the public page."""
+    """The card of one endpoint: the headline figures and their breakdown."""
 
     space: str
     endpoint: str
@@ -506,7 +490,7 @@ def build(
     settings: Settings | None = None,
     job: str | None = None,
 ) -> Card | None:
-    """Assemble the node card: the badge and the public page.
+    """Assemble the node card.
 
     The arm is chosen by the kind of product rather than by a setting: a
     retrieval node is shown through arm C, an answering node through its stored
@@ -523,7 +507,7 @@ def build(
             verdicts nobody asked for again
 
     Returns:
-        The card, or ``None`` if there is nothing to publish
+        The card, or ``None`` if nothing was graded
     """
     conf = settings or get_settings()
     kind = endpoint_kind(space, conf)
@@ -690,7 +674,7 @@ def _job_primary(job: str, settings: Settings) -> str | None:
 def _instrument(
     space: str, mode: ContextMode, settings: Settings, job: str | None = None
 ) -> Instrument:
-    """What it was measured with — so the storefront compares only the comparable."""
+    """What it was measured with — so only the comparable is compared."""
     panel = [j for j in judges_seen(space, mode, EvalBlock.DIRECT, job) if j]
     primary = _job_primary(job, settings) if job else None
     if primary is None:
@@ -711,3 +695,135 @@ def _instrument(
             ]
         ),
     )
+
+
+def payload_for(card: Card) -> dict[str, Any]:
+    """The card as stored on its job (``Job.card``): shares and counters only."""
+    body: dict[str, Any] = {
+        "version": CARD_VERSION,
+        # The kind of product. Mandatory: on a retrieval node the headline
+        # number is the retrieval hit, on an answering one the accuracy of the
+        # answer, and naming them alike means passing one off as the other.
+        "kind": card.kind,
+        "arm": card.arm,
+        # The launch this card describes.
+        "job": card.job,
+        "checked_at": card.checked_at.isoformat() if card.checked_at else "",
+        "score": card.score,
+        "fabrication_rate": card.fabrication,
+        "reliable": card.reliable,
+        "samples": card.trust.samples if card.trust else 0,
+    }
+
+    if card.answerable is not None:
+        body["answerable"] = {
+            "samples": card.answerable.graded,
+            "correct": round(card.answerable.accuracy, 4),
+            "abstain": round(card.answerable.abstain_rate, 4),
+            "hallucinate": round(card.answerable.hallucination_rate, 4),
+            "incomplete": round(card.answerable.incomplete_rate, 4),
+            "lmi": (
+                round(card.answerable.lmi, 4)
+                if card.answerable.lmi is not None
+                else None
+            ),
+        }
+    if card.control is not None:
+        body["unanswerable"] = {
+            "samples": card.control.graded,
+            "fabricated": round(card.control.fabrication_rate, 4),
+            # Answers its web search supports: not counted as fabricated.
+            "web_sourced": card.control.web_sourced,
+        }
+
+    if card.pressure is not None:
+        body["pressure"] = {
+            "samples": card.pressure.samples,
+            "flip_rate": card.pressure.flip_rate,
+            # A list of shares, one per round of push-back. Nothing of the
+            # pressed question crosses — not what was asked, not the reply that
+            # gave in, only how many were still standing at each round.
+            "held": card.pressure.held,
+        }
+    if card.stability is not None:
+        body["stability"] = {
+            "samples": card.stability.samples,
+            "consistency": card.stability.consistency,
+            # Temperature as a number, share as a number. The temperature is a
+            # setting of ours, not anything of the owner's.
+            "by_temperature": [
+                {"temperature": float(temperature), "accuracy": accuracy}
+                for temperature, accuracy in card.stability.by_temperature.items()
+            ],
+        }
+
+    body["discrimination"] = card.discrimination
+    body["retrieval"] = card.retrieval
+
+    # Nine models as a list, not as an average. An average over them would
+    # measure the composition of our config: add a tenth and the number moves,
+    # although nothing happened to the node.
+    body["models"] = [
+        {
+            "model": row.model,
+            "samples": row.samples,
+            "accuracy": row.accuracy,
+            "fabrication": row.fabrication,
+            "lmi": row.lmi,
+            "context_gain": row.context_gain,
+            "closed_accuracy": row.closed_accuracy,
+        }
+        for row in card.models
+    ]
+    body["skills"] = [
+        {
+            "generator": row.generator,
+            "samples": row.samples,
+            "accuracy": row.accuracy,
+        }
+        for row in card.skills
+    ]
+
+    if card.trust is not None:
+        body["trust"] = {
+            "judges": card.trust.judges,
+            "agreement": card.trust.agreement,
+            "consistency": card.trust.consistency,
+            "even_coverage": card.trust.even_coverage,
+            "failed": card.trust.failed,
+            "pending": card.trust.pending,
+            # Codes, not prose: the wording is written by the reader.
+            "flags": card.trust.flags,
+        }
+    if card.dataset is not None:
+        body["dataset"] = {
+            "mode": card.dataset.mode,
+            "window_days": card.dataset.window_days,
+            "cohort": card.dataset.cohort,
+            "questions": card.dataset.questions,
+        }
+    if card.instrument is not None:
+        # The instrument identity. Within one installation several Spaces are
+        # measured by one and the same thing and are comparable with one
+        # another; between installations nothing is guaranteed.
+        body["instrument"] = {
+            "profile": card.instrument.profile,
+            "judge": card.instrument.judge,
+            "judges": card.instrument.judges,
+            "subjects": card.instrument.subjects,
+        }
+    return body
+
+
+def owner_payload_for(card: Card) -> dict[str, Any]:
+    """The same card, as its owner reads it on the console.
+
+    Adds `trust.doubts` (the flags in prose, see `Trust.doubts`) and
+    `score_label`, so the console does not re-derive "correct" vs. "finds"
+    from `kind` itself.
+    """
+    body = payload_for(card)
+    body["score_label"] = card.score_label
+    if card.trust is not None:
+        body["trust"]["doubts"] = card.trust.doubts
+    return body

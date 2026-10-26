@@ -5,8 +5,6 @@ import { hasToken, ApiError } from "@/api/client";
 import {
   buildReport,
   getProbe,
-  publishReport,
-  retractReport,
   runFilter,
   runJudge,
   saveProbe,
@@ -159,34 +157,6 @@ async function doBuildReport(): Promise<void> {
     reportLoading.value = false;
   }
 }
-
-async function doPublish(): Promise<void> {
-  reportLoading.value = true;
-  try {
-    report.value = await publishReport();
-    toast.success("Published");
-  } catch (error) {
-    toast.error(
-      error instanceof ApiError ? error.message : "Could not publish",
-    );
-  } finally {
-    reportLoading.value = false;
-  }
-}
-
-async function doRetract(): Promise<void> {
-  reportLoading.value = true;
-  try {
-    await retractReport();
-    toast.success("Retracted");
-  } catch (error) {
-    toast.error(
-      error instanceof ApiError ? error.message : "Could not retract",
-    );
-  } finally {
-    reportLoading.value = false;
-  }
-}
 </script>
 
 <template>
@@ -288,14 +258,13 @@ async function doRetract(): Promise<void> {
               generate: false,
               evaluate: true,
               defer_judging: true,
-              publish: false,
             }),
           )
         "
       >
         <p class="text-xs text-muted-foreground">
-          Answers are graded in the Judging block below, or reviewed on the
-          target's published card once Testing has run.
+          Answers are graded in the Judging block below, or reviewed in the
+          Space's Benchmark results once Testing has run.
         </p>
         <ResultList :refresh-key="refreshKey" />
       </PhaseBlock>
@@ -314,7 +283,7 @@ async function doRetract(): Promise<void> {
 
       <PhaseBlock
         title="Report"
-        help="Builds the card from what is active and graded right now — no fresh run needed. Publishing is a separate, explicit step."
+        help="Builds the card from what is active and graded right now — no fresh run needed."
         status=""
         action-label="Build"
         :action-disabled="reportLoading"
@@ -324,24 +293,6 @@ async function doRetract(): Promise<void> {
           <pre class="rounded-md bg-muted p-2 text-xs overflow-auto">{{
             report
           }}</pre>
-          <div class="flex gap-2">
-            <button
-              type="button"
-              class="rounded-md bg-primary text-primary-foreground text-sm px-3 py-1.5 disabled:opacity-50"
-              :disabled="reportLoading"
-              @click="doPublish"
-            >
-              Publish
-            </button>
-            <button
-              type="button"
-              class="rounded-md border border-border text-sm px-3 py-1.5 disabled:opacity-50"
-              :disabled="reportLoading"
-              @click="doRetract"
-            >
-              Retract
-            </button>
-          </div>
         </div>
         <p v-else class="text-sm text-muted-foreground">Not built yet.</p>
       </PhaseBlock>

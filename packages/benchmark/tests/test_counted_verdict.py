@@ -1,4 +1,4 @@
-"""The counted verdict behind every published figure, and judge failures.
+"""The counted verdict behind every reported figure, and judge failures.
 
 The counted verdict of an answer is the owner's override, else the primary
 judge's freshest verdict, else the next judge's in panel order — the same

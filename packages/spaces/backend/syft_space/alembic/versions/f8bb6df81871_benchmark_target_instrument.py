@@ -1,12 +1,7 @@
 """add instrument to benchmark_targets
 
-``probe`` already lets one endpoint override the connection's dataset and
-retrieval settings; ``instrument`` does the same for arms, blocks, judges,
-subject models and thresholds. Unset fields fall back to the connection's own
-instrument, and those to the benchmark's built-in defaults — the same
-three-layer merge `probe` already goes through on the benchmark side
-(`compose.py:settings_for`, which already reads `Target.instrument` and gives
-it more authority than the connection's).
+Per-endpoint override of the connection's instrument settings (arms, blocks,
+judges, subject models, thresholds), like ``probe``.
 
 Revision ID: f8bb6df81871
 Revises: 427f6bfcda9e

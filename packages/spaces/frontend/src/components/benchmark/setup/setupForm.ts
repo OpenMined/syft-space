@@ -338,6 +338,8 @@ export interface SetupForm {
   webWithData: boolean
   webEngine: string
   webMaxResults: number
+  /** 0 means the provider's own limit. */
+  webMaxSearches: number
   retrievalTopK: number
   contextDocs: number
   fragmentMaxChars: number
@@ -361,6 +363,8 @@ export interface SetupForm {
   judgeReasoning: string
   // run settings
   maxFailures: number
+  /** USD; 0 means no cap. */
+  maxJobUsd: number
   reuseAnswers: boolean
   modelConcurrency: number
 }
@@ -388,6 +392,7 @@ const FALLBACK = {
   judge_policy: 'strict',
   key_facts_threshold: 0.7,
   max_consecutive_failures: 5,
+  max_job_usd: 100,
   reuse_answers: true,
 } as const
 
@@ -403,6 +408,7 @@ const BENCH_DEFAULTS = {
   web_search_judge: false,
   web_search_engine: 'auto',
   web_search_max_results: 5,
+  web_search_max_calls: 0,
   manual_status_priority: 'filter',
   concurrency: 16,
   judge_temperature: 0,
@@ -410,6 +416,9 @@ const BENCH_DEFAULTS = {
 } as const
 
 export const MODEL_CONCURRENCY_MAX = 64
+
+/** OpenRouter's own ceiling on server tool calls in one request. */
+export const WEB_SEARCHES_MAX = 30
 
 const DEFAULT_WRITE_AT_MOST = 1000
 
@@ -519,6 +528,7 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
       ? engine
       : BENCH_DEFAULTS.web_search_engine,
     webMaxResults: num(instrument, 'web_search_max_results'),
+    webMaxSearches: num(instrument, 'web_search_max_calls'),
     retrievalTopK: num(probe, 'retrieval_top_k'),
     contextDocs: num(instrument, 'context_docs'),
     fragmentMaxChars: num(instrument, 'fragment_max_chars'),
@@ -544,6 +554,7 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
       : BENCH_DEFAULTS.judge_reasoning_effort,
 
     maxFailures: num(instrument, 'max_consecutive_failures'),
+    maxJobUsd: num(instrument, 'max_job_usd'),
     reuseAnswers: bool(instrument, 'reuse_answers'),
     modelConcurrency: num(instrument, 'concurrency'),
   }
@@ -675,6 +686,7 @@ export function buildRequest(
     TEXT_METRICS.map((m) => m.value).filter((m) => form.textMetrics.includes(m)),
   )
   i('max_consecutive_failures', finite(form.maxFailures, num(effInstr, 'max_consecutive_failures')))
+  i('max_job_usd', Math.max(0, finite(form.maxJobUsd, num(effInstr, 'max_job_usd'))))
   i('reuse_answers', form.reuseAnswers)
 
   i('web_search_closed_book', form.webAlone)
@@ -693,6 +705,13 @@ export function buildRequest(
     Math.min(
       20,
       Math.max(1, Math.round(finite(form.webMaxResults, BENCH_DEFAULTS.web_search_max_results))),
+    ),
+  )
+  i(
+    'web_search_max_calls',
+    Math.min(
+      WEB_SEARCHES_MAX,
+      Math.max(0, Math.round(finite(form.webMaxSearches, num(effInstr, 'web_search_max_calls')))),
     ),
   )
   i('manual_status_priority', form.manualPriority === 'manual' ? 'manual' : 'filter')
@@ -802,7 +821,6 @@ const PHASE_TEXT: Record<string, string> = {
   evaluate: 'Asking the models.',
   judge: 'Grading the answers.',
   report: 'Writing up the results.',
-  publish: 'Publishing the results.',
 }
 
 export function phaseText(phase: string): string {

@@ -1,4 +1,4 @@
-"""Stage 5: the report as a document — tables, charts, observations, conclusion.
+"""Stage 6: the report as a document — tables, charts, observations, conclusion.
 
 The Markdown report from ``metrics.py`` stays: it reads in a console, goes into
 git and is compared line by line between runs. This one assembles from the same
@@ -8,7 +8,7 @@ each quantity means, and with a conclusion at the end.
 Two rules that shaped the module.
 
 **The report is built from aggregates and from nothing else.** The input is a
-list of ``Metrics`` — the same numbers that are published to the storefront.
+list of ``Metrics`` — aggregated numbers only.
 Neither a question, nor a gold answer, nor a corpus chunk is here or can appear:
 the document leaves the owner hands further than the audit export, and it must
 not carry corpus text. The raw records live in ``audit.py``, are marked there as
@@ -812,9 +812,7 @@ def _generator_section(
     )
 
 
-def _agreement_section(
-    sections: _Sections, answerable: list[Metrics], conf: Settings
-) -> None:
+def _agreement_section(sections: _Sections, answerable: list[Metrics]) -> None:
     """Whether whoever computed this can be trusted.
 
     A panel is set up so that the divergence of assessments can be seen, but by
@@ -1018,7 +1016,7 @@ def build_docx(
     _stability_section(sections, results, conf)
     _exposure_section(sections, answerable)
     _generator_section(sections, answerable, conf)
-    _agreement_section(sections, answerable, conf)
+    _agreement_section(sections, answerable)
     _reliability_section(sections, results)
     _conclusions(sections, results, findings(results, settings=conf), conf)
 

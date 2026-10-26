@@ -2,9 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { mergeConfig, defineConfig, configDefaults } from 'vitest/config'
 import viteConfig from './vite.config'
 
-// `viteConfig` is a config *function* (it branches on `command` to keep the
-// devtools plugin out of builds), so it has to be called with this run's env
-// before `mergeConfig` has an object to merge.
+// `viteConfig` is a function of the config env, so call it before merging.
 export default defineConfig((configEnv) =>
   mergeConfig(
     viteConfig(configEnv),

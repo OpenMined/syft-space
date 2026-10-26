@@ -3,9 +3,7 @@
 The order of the steps is not arbitrary. Generation goes first because the runs
 have to go over a fresh dataset. Run A goes before B: it is cheaper (one model
 call against a request to the endpoint with retrieval), and if the model is
-unreachable that comes to light before the long part. Publishing comes last and
-as a separate step, so that an interrupted cycle does not put out half the
-results.
+unreachable that comes to light before the long part.
 
 One Space failing does not stop the rest: the node may simply have been rebooting.
 """
@@ -42,10 +40,7 @@ from syft_benchmark.llm import (
     judge_providers,
     subject_providers,
 )
-from syft_benchmark.publish import publish
 from syft_benchmark.report import Metrics, build_docx, render_markdown, summarize
-from syft_benchmark.report.card import build as build_card
-from syft_benchmark.report.metrics import latest_measuring_job
 from syft_benchmark.report.run_view import record_generation
 from syft_benchmark.runs import (
     MODEL_ARMS,
@@ -74,7 +69,6 @@ class CycleReport:
     spaces: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
     generated: int = 0
-    published: int = 0
     report_path: Path | None = None
     document_path: Path | None = None
 
@@ -673,8 +667,8 @@ def run_cycle(
 
         # The document is assembled by the same cycle, but its failure does not
         # bring the cycle down: the Markdown is already written, and drawing the
-        # charts and the analyst paragraph is a layer on top of it — being left
-        # without published metrics over that would be a trade in the wrong direction.
+        # charts and the analyst paragraph is a layer on top of it — losing
+        # the Markdown over that would be a trade in the wrong direction.
         try:
             report.document_path = build_docx(
                 collected, REPORTS_DIR / f"benchmark-{stamp}.docx", settings=conf
@@ -682,24 +676,6 @@ def run_cycle(
         except Exception as exc:  # noqa: BLE001 - the Markdown report is already there
             report.failures.append(f"document: {exc}")
             logger.warning(f"the document was not assembled: {exc}")
-
-    # The direct test is what gets published: the block figures are the owner
-    # internal analytics. The arm is chosen by the card itself, by the kind of
-    # product.
-    for node_conf, space in nodes:
-        card = build_card(
-            space.key,
-            space.endpoint,
-            settings=node_conf,
-            job=latest_measuring_job(space.key),
-        )
-        if card is None:
-            continue
-        sent = publish(space, card)
-        if sent.ok:
-            report.published += 1
-        else:
-            logger.info(f"{space.key}: not published — {sent.detail}")
 
     return report
 
@@ -735,7 +711,7 @@ def run_forever(
         report = run_cycle(resolve(keys, settings), settings)
         logger.info(
             f"cycle finished: nodes {len(report.spaces)}, "
-            f"published {report.published}, failures {len(report.failures)}"
+            f"failures {len(report.failures)}"
         )
         moment = next_fire(interval, at)
         logger.info(f"next cycle: {moment:%Y-%m-%d %H:%M}")

@@ -95,7 +95,11 @@ class Gate:
 
 
 def _search(question: str, retrieve: Retriever) -> list[str] | Gate:
-    """The non-empty fragments found, or the failed check."""
+    """The non-empty fragments found, or the failed check.
+
+    A retriever signals a failed endpoint call by raising, never by returning
+    nothing: an empty list means retrieval genuinely found nothing.
+    """
     try:
         return [text.strip() for text in retrieve(question) if text.strip()]
     except Exception as exc:  # noqa: BLE001 - the endpoint may have been rebooting

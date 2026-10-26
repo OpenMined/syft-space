@@ -8,7 +8,6 @@ from syft_benchmark.db.models import (
     Result,
     Run,
     RunAggregate,
-    RunExclusion,
     Target,
 )
 from syft_benchmark.db.session import get_engine, session_scope
@@ -21,7 +20,6 @@ __all__ = [
     "Result",
     "Run",
     "RunAggregate",
-    "RunExclusion",
     "Target",
     "get_engine",
     "session_scope",

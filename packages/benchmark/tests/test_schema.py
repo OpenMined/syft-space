@@ -29,7 +29,6 @@ def test_the_schema_is_measurement_plus_control_plus_configuration() -> None:
         "installation_settings",
         "credentials",
         "model_catalog",
-        "run_exclusions",
         "run_aggregates",
     }
 

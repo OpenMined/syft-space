@@ -1,7 +1,6 @@
 """Endpoint API routes."""
 
 from typing import Any
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -20,17 +19,11 @@ from syft_space.components.endpoints.schemas import (
     EndpointCreateResponse,
     EndpointDetailResponse,
     EndpointListItem,
-    EndpointQualityResponse,
     PublishEndpointRequest,
     PublishEndpointResponse,
-    PublishQualityCardResponse,
-    QualityHistoryResponse,
     QueryEndpointRequest,
     QueryEndpointResponse,
     RejectionResponse,
-    ReportQualityRequest,
-    ReportQualityResponse,
-    RetractQualityResponse,
     SlugAvailabilityRequest,
     SlugAvailabilityResponse,
     UnpublishResult,
@@ -229,74 +222,5 @@ def build_endpoint_routes(
         handler: PublishEndpointHandler = Depends(get_publish_handler),
     ) -> list[UnpublishResult]:
         return await handler.unpublish_endpoint(slug, tenant)
-
-    @router.post("/{slug}/quality", response_model=ReportQualityResponse)
-    async def report_quality(
-        slug: str,
-        request: ReportQualityRequest,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: PublishEndpointHandler = Depends(get_publish_handler),
-    ) -> ReportQualityResponse:
-        """Hand a benchmark's card to this Space to publish.
-
-        404 while the benchmarks mode is "off", which is the default. 422 when the
-        card is of a version or shape this Space cannot read - refusing is the
-        point: a card understood wrongly is worse than one not taken.
-        """
-        return await handler.report_quality(slug, request, tenant)
-
-    @router.get("/{slug}/quality", response_model=EndpointQualityResponse)
-    async def get_quality(
-        slug: str,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: PublishEndpointHandler = Depends(get_publish_handler),
-    ) -> EndpointQualityResponse:
-        """The stored card, for the owner's own page.
-
-        This is what a retraction is decided from, so it carries the whole card
-        and not the badge figures. Always available to the owner, whatever
-        the benchmarks mode says: he must be able to read what is said in his
-        name even after he has closed the door on new reports.
-        """
-        return await handler.get_quality(slug, tenant)
-
-    @router.get("/{slug}/quality/history", response_model=QualityHistoryResponse)
-    async def get_quality_history(
-        slug: str,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: PublishEndpointHandler = Depends(get_publish_handler),
-    ) -> QualityHistoryResponse:
-        """Every card this endpoint has collected, newest run first.
-
-        Withdrawn cards included: a share is only readable next to the shares
-        before it, and a history with the awkward runs left out is not one.
-        """
-        return await handler.get_quality_history(slug, tenant)
-
-    @router.post(
-        "/{slug}/quality/cards/{card_id}/publish",
-        response_model=PublishQualityCardResponse,
-    )
-    async def publish_quality_card(
-        slug: str,
-        card_id: UUID,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: PublishEndpointHandler = Depends(get_publish_handler),
-    ) -> PublishQualityCardResponse:
-        """Put an earlier run back on top of a later one.
-
-        Always available to the owner, like retraction: which figures stand in
-        his name is his decision, not the benchmark's.
-        """
-        return await handler.publish_quality_card(slug, card_id, tenant)
-
-    @router.delete("/{slug}/quality", response_model=RetractQualityResponse)
-    async def retract_quality(
-        slug: str,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: PublishEndpointHandler = Depends(get_publish_handler),
-    ) -> RetractQualityResponse:
-        """Withdraw a published card. Always available to the owner."""
-        return await handler.retract_quality(slug, tenant)
 
     return router

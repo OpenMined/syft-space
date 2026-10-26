@@ -3,7 +3,7 @@ import type { BenchmarkCostByRole, BenchmarkRunReport, BenchmarkRunSummary } fro
 import { runSpan } from '../timing'
 import { clock, shortStamp, utcStamp } from './figures'
 
-/** Seconds from job start to finish; null for older runs or a run still going. */
+/** Seconds from job start to finish; null when unknown or still running. */
 export function runDuration(
   run: Pick<BenchmarkRunSummary, 'started_at' | 'finished_at'>,
 ): number | null {

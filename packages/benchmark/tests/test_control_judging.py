@@ -26,9 +26,8 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import Job, QaPair, Result, Run, session_scope
 from syft_benchmark.llm import LLMError, Provider
-from syft_benchmark.publish.space import payload_for
 from syft_benchmark.report import run_view
-from syft_benchmark.report.card import Card
+from syft_benchmark.report.card import Card, payload_for
 from syft_benchmark.report.metrics import Metrics, render_markdown, summarize
 from syft_benchmark.report.run_questions import question_detail
 from syft_benchmark.report.slices import by_generator
@@ -217,14 +216,13 @@ def _metrics(expected: ExpectedBehavior, **counts: int) -> Metrics:
 
 
 def test_fabrication_leaves_out_the_web_and_corrections() -> None:
-    # Regex-graded rows of old: counted exactly as before.
+    # Rows without web-sourced verdicts.
     old = _metrics(ExpectedBehavior.ABSTAIN, abstain=3, hallucinate=1)
     assert old.fabrication_rate == pytest.approx(0.25)
 
     new = _metrics(ExpectedBehavior.ABSTAIN, abstain=2, hallucinate=1, web_sourced=1)
     assert new.fabrication_rate == pytest.approx(0.25)
     assert new.hallucination_rate == pytest.approx(0.25)
-    assert new.web_sourced_rate == pytest.approx(0.25)
     assert new.lmi is None
 
     premise = _metrics(

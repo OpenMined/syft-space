@@ -8,8 +8,6 @@ erDiagram
     QA_PAIRS ||--o{ RESULTS : "was assessed"
     RUNS ||--o{ RESULTS : "contains"
     JOBS ||--o{ RUNS : "opened"
-    JOBS ||--o{ RUN_EXCLUSIONS : "leaves out"
-    QA_PAIRS ||--o{ RUN_EXCLUSIONS : "left out"
     JOBS ||--o| RUN_AGGREGATES : "cached figures"
     TARGETS ||--o{ JOBS : "measured by"
     PROCESSED_UNITS
@@ -91,7 +89,6 @@ erDiagram
 | `results` | one answer and its verdict; judges and hand verdicts add rows, never rewrite |
 | `targets` | nodes under test: address, endpoint, index location, `instrument` and `probe` overrides, `enabled`, `schedule`, `schedule_at`, `next_run_at` |
 | `jobs` | launches: `state`, `phase`, `kind`, `trigger`, progress, `params` (request and timing), `card`, `error` |
-| `run_exclusions` | questions the owner left out of one job's figures |
 | `run_aggregates` | cached figures of one job; no row means recompute |
 | `installation_settings` | the single (`id = 1`) row of installation overrides |
 | `credentials` | sealed secrets: provider keys and Space tokens |
@@ -129,8 +126,8 @@ resuming.
 * **`qa_pairs.status`** — `pending` (built, not screened), `active`,
   `rejected` (screened out), `retired` (left the window or a previous cohort).
   `status_reason`: `grounding`, `retrieval_gate`, `not_answerable`,
-  `duplicate`, `owner`, `rotation`, `web_answerable`, `wrong_language`,
-  `ambiguous_entity`, `other`. Screened-out pairs are kept.
+  `duplicate`, `owner`, `rotation`, `web_answerable`, `public_knowledge`,
+  `wrong_language`, `ambiguous_entity`, `other`. Screened-out pairs are kept.
 * **`qa_pairs.cohort` in the unique key** — the same question may repeat
   across cohorts (a rebuild over the same material).
 * **`processed_units` keyed by generator and cohort** — each generator
@@ -143,9 +140,8 @@ resuming.
 * **`results.audit`** — the prompts as sent.
 * **Deleting a pair** (`db/pair_guard.py`) — refused once any result
   references it (`results.qa_id` cascades); retire it instead.
-* **`jobs.card`** — the card built after measuring, in the shape the Space
-  receives, set whether or not it was published; replaced when the job's card
-  is published or recorded. `card_outdated` is measured against it.
+* **`jobs.card`** — the card built after measuring; replaced when the card is
+  rebuilt with `record`. `card_outdated` is measured against it.
 * **`targets.instrument` / `probe`, `installation_settings.values`** — sparse
   overrides, not snapshots, so a changed default reaches every target.
 * **`model_catalog`** — read and written whole. The shipped

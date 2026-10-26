@@ -35,7 +35,7 @@ export function kindLabel(generator: string): string {
 }
 
 export function kindDescription(generator: string): string {
-  return KIND_DESC[generator] ?? generatorWords(generator).help ?? ''
+  return KIND_DESC[generator] ?? ''
 }
 
 export const VERDICT_LABEL: Record<string, string> = {
@@ -91,10 +91,7 @@ const BEHAVIOR_OF: Record<string, Behavior> = {
   hallucinate: 'made_up',
 }
 
-/**
- * The fine outcome of a control answer: the one the API gives, else derived from the
- * verdict (older rows, overrides). Null for other kinds and non-outcomes.
- */
+/** A control answer's fine outcome: the API's, else derived from the verdict; null otherwise. */
 export function behaviorOf(
   generator: string | null | undefined,
   verdict: string | null | undefined,

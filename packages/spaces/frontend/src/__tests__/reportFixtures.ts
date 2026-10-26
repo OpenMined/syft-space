@@ -98,8 +98,6 @@ export function runSummary(
     lift_lo: 47,
     lift_hi: 70,
     card_outdated: false,
-    published: false,
-    card_id: null,
     ...extra,
   }
 }
@@ -176,7 +174,6 @@ export function questionRow(
     verdict_with: 'correct',
     group: 'fixed',
     overridden: false,
-    excluded: false,
     ...extra,
   }
 }
@@ -215,7 +212,6 @@ export function questionDetail(
       { model: GEMINI, primary: false, alone: 'abstain', with: 'correct' },
     ],
     judges_agreed: true,
-    exclusion: null,
     ...extra,
   }
 }

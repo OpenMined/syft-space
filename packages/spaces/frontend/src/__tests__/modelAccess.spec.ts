@@ -6,6 +6,7 @@ import {
   effectiveUrl,
   hostOf,
   keySource,
+  localityTip,
   staysLocal,
   type ProviderKey,
 } from '@/components/benchmark/modelAccess'
@@ -63,6 +64,17 @@ describe('staysLocal', () => {
 
   it('reads the host', () => {
     expect(hostOf('https://OpenRouter.ai/api/v1')).toBe('openrouter.ai')
+  })
+})
+
+describe('localityTip', () => {
+  it.each([
+    ['http://benchmark:8200', 'Keys go to benchmark, on this machine or its Docker network.'],
+    ['http://localhost:8200', 'Keys go to localhost, on this machine or its Docker network.'],
+    ['https://bench.example.com', 'Keys go to bench.example.com, outside this machine.'],
+    ['http://10.0.0.5:8200', 'Keys go to 10.0.0.5, outside this machine.'],
+  ])('names the host of %s', (url, tip) => {
+    expect(localityTip(url, 'Keys go to')).toBe(tip)
   })
 })
 

@@ -23,8 +23,7 @@ A key is mandatory for the service routes. The launch route raises work worth
 hours and money, and an open port would mean that anyone who reached the
 network could spend someone else's budget. Without a key the service still
 comes up, answers ``/health`` and tells everything else that it is not
-configured — exactly like a Space with benchmarks_mode off: not "you may
-not", but "there is nothing here".
+configured: not "you may not", but "there is nothing here".
 """
 
 from __future__ import annotations
@@ -108,11 +107,8 @@ from syft_benchmark.llm.catalog import ModelEntry
 from syft_benchmark.llm.ollama import installed_models
 from syft_benchmark.llm.providers import ProviderKind, kind_for_url
 from syft_benchmark.llm.roles import clash_refusal
-from syft_benchmark.publish import owner_payload_for, payload_for
-from syft_benchmark.publish import publish as publish_card
-from syft_benchmark.publish import retract as retract_card
 from syft_benchmark.report import run_view
-from syft_benchmark.report.card import Card
+from syft_benchmark.report.card import Card, owner_payload_for, payload_for
 from syft_benchmark.report.card import build as build_card
 from syft_benchmark.report.metrics import latest_measuring_job
 from syft_benchmark.runs import (
@@ -238,8 +234,8 @@ ConsoleGuard = Annotated[ConsoleAuth, Depends(console_session)]
 
 
 def _record_card(settings: Settings, card: Card) -> None:
-    """Keep the card on its finished job as the published one: `card_outdated`
-    of the run is measured against it."""
+    """Store the rebuilt card on its finished job: `card_outdated` of the run is
+    measured against it."""
     if not card.job:
         return
     with session_scope(settings) as session:
@@ -480,7 +476,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # --- secrets --------------------------------------------------------------
     #
     # They go in and never come out. What can be asked is whether there is one
-    # and when it was set — the same thing a target's token has always said.
+    # and when it was set, as for a target's token.
 
     @app.get("/credentials", response_model=list[SecretView])
     def list_secrets(conf: Guard) -> list[SecretView]:
@@ -585,18 +581,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             item = registry.view(row, has_token=registry.has_token(session, key))
             item.last_job = _last_job(session, key)
             return item
-
-    @app.delete("/targets/{key}", status_code=status.HTTP_204_NO_CONTENT)
-    def delete_target(key: str, conf: Guard) -> None:
-        """Remove a target.
-
-        Its measurements stay: they are about the endpoint, not the row.
-        """
-        with session_scope(conf) as session:
-            if not registry.drop(session, key, conf):
-                raise HTTPException(
-                    status.HTTP_404_NOT_FOUND, f"there is no target {key}"
-                )
 
     @app.post("/targets/{key}/check")
     def check_target(key: str, conf: Guard) -> dict[str, Any]:
@@ -724,47 +708,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return payload_for(card)
 
-    @app.post("/targets/{key}/publish")
-    def publish_report(key: str, conf: Guard) -> dict[str, Any]:
-        """Build the current card and hand it to the Space.
-
-        Always builds fresh rather than reusing whatever `/report` last
-        returned: publishing a card the owner has not actually looked at
-        again would risk sending out something stale.
-        """
-        with session_scope(conf) as session:
-            row = _target_or_404(session, key)
-            node_conf, space = settings_for(row, conf)
-        card = build_card(
-            space.key,
-            space.endpoint,
-            settings=node_conf,
-            # A card is of one launch. Nobody names it here, so it is the
-            # newest one that asked a question: judging or filtering since
-            # then belongs to that same measurement, not to a new one.
-            job=latest_measuring_job(space.key),
-        )
-        if card is None:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "there is nothing gradable yet to build a card from",
-            )
-        sent = publish_card(space, card)
-        if not sent.ok:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, sent.detail)
-        _record_card(conf, card)
-        return payload_for(card)
-
-    @app.post("/targets/{key}/retract", status_code=status.HTTP_204_NO_CONTENT)
-    def retract_report(key: str, conf: Guard) -> None:
-        """Retract the target's published card through the Space."""
-        with session_scope(conf) as session:
-            row = _target_or_404(session, key)
-            _, space = settings_for(row, conf)
-        outcome = retract_card(space)
-        if not outcome.ok:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, outcome.detail)
-
     @app.post("/targets/{key}/session", response_model=SessionView)
     def start_console_session(key: str, conf: Guard) -> SessionView:
         """Mint a short-lived console session, scoped to this one target.
@@ -818,24 +761,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.flush()
             job = session.get(Job, job_id)
             return JobView.model_validate(job)
-
-    @app.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
-    def delete_job(job_id: str, conf: Guard) -> None:
-        """Discard a finished job: its runs and their verdicts, card included.
-
-        Not the question set — `qa_pairs` belongs to the target and is shared
-        by every job that ever measured it. A live job is not touched by this
-        route at all: stop it first, on its own terms.
-        """
-        with session_scope(conf) as session:
-            outcome = job_queue.delete(session, job_id)
-        if outcome == "not_found":
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"there is no job {job_id}")
-        if outcome == "not_final":
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                f"job {job_id} is still queued or running — cancel it first",
-            )
 
     # --- the console: everything under a session token, scoped to one target
 
@@ -916,15 +841,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         pairs = [PairResponse.model_validate(v) for v in items]
         return PairPage(items=pairs, total=total)
-
-    @app.get("/console/pairs/{pair_id}", response_model=PairResponse)
-    def console_get_pair(pair_id: str, auth: ConsoleGuard) -> PairResponse:
-        view = get_pair(pair_id, target_key=auth.target_key, settings=auth.settings)
-        if view is None:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND, f"there is no pair {pair_id}"
-            )
-        return PairResponse.model_validate(view)
 
     @app.patch("/console/pairs/{pair_id}", response_model=PairResponse)
     def console_update_pair(
@@ -1115,36 +1031,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         """The owner's own view of the card — see `owner_payload_for`.
 
-        Not what `/console/publish` sends onward: this stays behind the
-        session token, on the owner's own console. `job` (body or query)
-        names the launch; without it, the newest one that measured.
-        `record` (body or query) keeps the card as the job's published one:
-        a caller that publishes it elsewhere sets it.
+        `job` (body or query) names the launch; without it, the newest one
+        that measured. `record` (body or query) stores the rebuilt card on
+        that job.
         """
         card, _ = _console_card(auth, body, job)
         if record or (body is not None and body.record):
             _record_card(auth.settings, card)
         return owner_payload_for(card)
-
-    @app.post("/console/publish")
-    def console_publish(
-        auth: ConsoleGuard, body: CardRequest | None = None, job: str | None = None
-    ) -> dict[str, Any]:
-        card, space = _console_card(auth, body, job)
-        sent = publish_card(space, card)
-        if not sent.ok:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, sent.detail)
-        _record_card(auth.settings, card)
-        return payload_for(card)
-
-    @app.post("/console/retract", status_code=status.HTTP_204_NO_CONTENT)
-    def console_retract(auth: ConsoleGuard) -> None:
-        with session_scope(auth.settings) as session:
-            row = _console_target(session, auth)
-            _, space = settings_for(row, auth.settings)
-        outcome = retract_card(space)
-        if not outcome.ok:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, outcome.detail)
 
     # Imported here: the router module takes the console guard from this one.
     from syft_benchmark.control.report_routes import router as report_router
@@ -1255,6 +1149,7 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
             web_search_generator=conf.web_search_generator,
             web_search_judge=conf.web_search_judge,
             web_search_max_results=conf.web_search_max_results,
+            web_search_max_calls=conf.web_search_max_calls,
             judge_temperature=(
                 MODEL_DEFAULT
                 if conf.judge_temperature is None
@@ -1268,6 +1163,7 @@ def _effective_defaults(conf: Settings) -> dict[str, Any]:
             text_metrics=conf.text_metrics,
             methodology_profile=conf.methodology_profile,
             max_consecutive_failures=conf.max_consecutive_failures,
+            max_job_usd=conf.max_job_usd,
             concurrency=conf.concurrency,
             reuse_answers=conf.reuse_answers,
             audit_log=conf.audit_log,

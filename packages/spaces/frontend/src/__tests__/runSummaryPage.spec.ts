@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { computed, defineComponent, h, ref, shallowRef } from 'vue'
-import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
+import { mount, RouterLinkStub } from '@vue/test-utils'
 import type { BenchmarkRunReport } from '@/api/types'
 import RunSummaryPage from '@/components/benchmark/report/RunSummaryPage.vue'
 import { provideRun, provideRunReport } from '@/components/benchmark/report/context'
@@ -13,10 +13,6 @@ vi.mock('vue-sonner', () => ({ toast }))
 function mountPage(report: BenchmarkRunReport) {
   const data = shallowRef<BenchmarkRunReport | null>(report)
   const actions = {
-    publish: vi.fn(async () => {
-      data.value = { ...data.value!, run: { ...data.value!.run, published: true } }
-      return { refused: [] }
-    }),
     downloadSummary: vi.fn(async () => {}),
   }
   const Host = defineComponent({
@@ -60,7 +56,7 @@ describe('RunSummaryPage', () => {
       }),
     )
     expect(wrapper.get('h1').text()).toMatch(/^Run of 30 Sep 2026, \d{2}:\d{2}$/)
-    expect(wrapper.text()).toContain('Private')
+    expect(wrapper.text()).not.toMatch(/Private|Published|Publish/)
     expect(wrapper.get('[data-testid="run-articles"]').text()).toBe(
       '23 questions from 10 articles published 5–9 Oct 2025 · 4 new this run',
     )
@@ -200,37 +196,9 @@ describe('RunSummaryPage', () => {
     expect(wrapper.find('[data-testid="cost-parts"]').exists()).toBe(false)
   })
 
-  it('publishes a private run and then shows the note without the button', async () => {
+  it('offers the summary download', async () => {
     const { wrapper, actions } = mountPage(runReport())
-    expect(wrapper.find('[data-testid="published-note"]').exists()).toBe(false)
-    await wrapper.get('[data-testid="publish"]').trigger('click')
-    await flushPromises()
-    expect(actions.publish).toHaveBeenCalledWith('j1')
-    expect(wrapper.get('[data-testid="published-note"]').text()).toBe(
-      'Published. Scores from this run are now public; questions and articles stay private.',
-    )
-    expect(wrapper.find('[data-testid="publish"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Unpublish')
-  })
-
-  it('offers only the download on a published run', async () => {
-    const { wrapper, actions } = mountPage(
-      runReport({ run: runSummary('j1', { published: true, card_outdated: true }) }),
-    )
-    expect(wrapper.text()).toContain('Published')
-    expect(wrapper.find('[data-testid="publish"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="published-note"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toMatch(/out of date|Republish|Unpublish/)
     await wrapper.get('[data-testid="download-summary"]').trigger('click')
     expect(actions.downloadSummary).toHaveBeenCalledWith('j1')
-  })
-
-  it('reports a failed publish', async () => {
-    const { wrapper, actions } = mountPage(runReport())
-    actions.publish.mockRejectedValueOnce(new Error('nope'))
-    await wrapper.get('[data-testid="publish"]').trigger('click')
-    await flushPromises()
-    expect(toast.error).toHaveBeenCalled()
-    expect(wrapper.find('[data-testid="published-note"]').exists()).toBe(false)
   })
 })

@@ -13,8 +13,7 @@ export default defineConfig(({ command }) => ({
     tailwindcss(),
     vue(),
     vueJsx(),
-    // Dev-only: parts of the devtools plugin apply to builds too, and none of
-    // it is any use in the image we ship.
+    // Devtools in dev only; kept out of builds.
     ...(command === 'serve' ? [vueDevTools({ launchEditor: 'cursor' })] : []),
   ],
   resolve: {

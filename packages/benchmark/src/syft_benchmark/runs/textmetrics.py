@@ -10,12 +10,12 @@ answer. But the judge opinion has exactly one trouble: there is nothing to check
 it with except another opinion. Text metrics are computed mechanically, do not
 depend on any judge, and therefore work as a second, independent view. If the
 verdict and the textual match diverge, that is grounds for a look with your own
-eyes, not a figure for the storefront.
+eyes, not a headline figure.
 
 **What they are not.** Neither BLEU nor ROUGE knows whether the answer is right:
 they measure word overlap. A retelling in one own words gets a low score with a
 correct answer, while a verbatim quotation off the point gets a high one. So they
-enter no share of the report, are not published and take no part in the verdict.
+enter no share of the report and take no part in the verdict.
 It makes sense to compare them between the models of ONE report, not against
 numbers from other people papers.
 

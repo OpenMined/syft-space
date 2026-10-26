@@ -26,7 +26,7 @@ const TAB =
       <TabsTrigger value="filter" :class="TAB">Filter</TabsTrigger>
     </TabsList>
     <TabsContent value="generate" class="pt-4 mt-0">
-      <PairList :slug="slug" :job="job" :refresh-key="0" />
+      <PairList :slug="slug" :job="job" />
     </TabsContent>
     <TabsContent value="filter" class="pt-4 mt-0">
       <FilterList :slug="slug" :job="job" />

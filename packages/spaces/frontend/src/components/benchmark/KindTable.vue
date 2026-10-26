@@ -7,7 +7,7 @@ import { droppedLines, droppedTotal, readText, stoppedLabel, writtenText } from 
 import { kindLabel } from './report/labels'
 import { compareKinds } from './questionOrder'
 
-const props = defineProps<{ slug: string; job: string; refreshKey?: number }>()
+const props = defineProps<{ slug: string; job: string }>()
 
 const kinds = ref<BenchmarkKindBuild[]>([])
 
@@ -20,7 +20,7 @@ async function load(): Promise<void> {
   }
 }
 
-watch([() => props.job, () => props.refreshKey], load, { immediate: true })
+watch(() => props.job, load, { immediate: true })
 
 const STOP_TONE: Record<string, string> = {
   'budget reached': 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
@@ -43,7 +43,7 @@ const STOP_TONE: Record<string, string> = {
           <th
             scope="col"
             class="px-3 py-2 text-right font-medium"
-            title="Questions written, of the budget. A top-up writes more of a kind the checks left short."
+            title="Questions written of the budget, including top-ups for kinds the checks left short."
           >
             Written
           </th>

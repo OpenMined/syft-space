@@ -1,4 +1,4 @@
-"""Stages 3-4: the runs and judging."""
+"""Stages 4-5: the runs and judging."""
 
 from syft_benchmark.runs.blocks import (
     DENIAL_PHRASES,

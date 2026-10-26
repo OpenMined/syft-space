@@ -2,8 +2,8 @@
 
 An honesty benchmark for [Syft Space](https://github.com/OpenMined/syft-space) endpoints.
 
-It builds a question set from a Space's corpus, asks it three ways, and hands
-the Space a card to publish. What is under test is **the model's interaction
+It builds a question set from a Space's corpus, asks it three ways, and keeps
+a card of each run for the Space's Benchmark results tab. What is under test is **the model's interaction
 with RAG**:
 
 | Arm | Who answers | What it gets | Correct behaviour | What it measures |
@@ -16,8 +16,8 @@ Half of the set is answerable from the corpus; the control half has no answer,
 and the correct behaviour there is to abstain or refute the premise. Outcomes:
 `correct`, `abstain`, `hallucinate` (an explanation can also be `incomplete`).
 
-**The benchmark measures, the Space publishes, SyftHub displays.** There are no
-hub credentials here.
+**The benchmark measures, the Space shows the results.** Results stay inside the
+Space; there are no SyftHub credentials here.
 
 Documentation: [docs/README.md](docs/README.md).
 
@@ -36,6 +36,9 @@ cp .env.example .env    # BENCH_CONTROL_TOKEN, or only /health answers
 uv run syft-benchmark secrets keygen >> .env   # the master key for stored secrets
 docker compose --profile service up -d --build
 ```
+
+The control API listens on `127.0.0.1:8200` and the database on
+`127.0.0.1:5442`; reach them from elsewhere through an SSH tunnel.
 
 The schema is migrated on start. Connect the benchmark from the Space's UI and
 configure a target there; its `chroma_host` is the Space's **container name**
@@ -72,7 +75,7 @@ uv run syft-benchmark status docs
 uv run syft-benchmark report docs --out reports/latest.md
 uv run syft-benchmark report docs --docx reports/latest.docx   # with charts
 uv run syft-benchmark audit docs --out reports/audit.jsonl
-uv run syft-benchmark publish docs
+uv run syft-benchmark card docs
 ```
 
 Start with `--limit 2`: it exercises every kind of item cheaply.
@@ -102,13 +105,12 @@ Start with `--limit 2`: it exercises every kind of item cheaply.
 | `export-judging` / `import-judging` | judging through a chat, without an API | [05-judging](docs/05-judging.md) |
 | `report` | metrics; `--docx` writes a document with charts | [06-report](docs/06-report.md) |
 | `audit <space>` | export the raw records; `--job`, `--judge`, `--no-context` | [07-audit](docs/07-audit.md) |
-| `publish` / `retract <space>` | hand the card to the Space; retract it | [08-publish](docs/08-publish.md) |
+| `card` | the card of the newest measuring launch; `--json` | [08-card](docs/08-card.md) |
 | `cycle [--every 24h --at 03:00]` | the whole cycle from the console | [docs/README](docs/README.md) |
 | `serve` | the control API, the queue and the schedule | [control-api](docs/control-api.md) |
 
 Commands that take `[space]...` run over every registered Space when none is
-given. Publishing is a separate command: an interrupted run must not publish
-half its results. With the service up, leave scheduling to it and use `cycle`
+given. With the service up, leave scheduling to it and use `cycle`
 only for a single pass.
 
 ---

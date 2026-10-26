@@ -1,21 +1,11 @@
 <script setup lang="ts">
-/**
- * Text cut to a few lines, readable in full on hover — where it was cut.
- *
- * A question or an answer can run to a paragraph, and a page that shows every
- * one of them in full is a page nobody scrolls to the end of. Cutting them all
- * to the same height is what makes a column of answers comparable at a glance.
- *
- * The panel appears only where something was actually cut off. One that opens
- * over text the reader can already see is noise, and after a few of those
- * nobody hovers the ones that mattered.
- */
+/** Text clamped to a few lines; the full text shows on hover only when it is cut. */
 import { computed, onUnmounted, ref, watch } from 'vue'
 import HoverPanel from './HoverPanel.vue'
 
 const props = withDefaults(defineProps<{ text: string; lines?: 3 | 5 }>(), { lines: 3 })
 
-/** Spelled out rather than built: Tailwind reads its classes out of the source. */
+/** Literal class names so Tailwind finds them. */
 const CLAMP = { 3: 'line-clamp-3', 5: 'line-clamp-5' } as const
 
 const clamp = computed(() => CLAMP[props.lines])
@@ -30,8 +20,7 @@ function measure(): void {
   clipped.value = !!element && element.scrollHeight - element.clientHeight > 1
 }
 
-// Re-measured when the element is replaced — the two branches below swap one
-// for the other — when it is resized, and when the text itself changes.
+// Re-measure when the element is swapped or resized and when the text changes.
 watch(
   body,
   (element) => {

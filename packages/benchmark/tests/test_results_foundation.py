@@ -1,5 +1,5 @@
 """The data under the results pages: the deletion guard, status reasons, the
-run aggregate cache, exclusions and the card of a named launch."""
+run aggregate cache and the card of a named launch."""
 
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ from syft_benchmark.db import (
     Result,
     Run,
     RunAggregate,
-    RunExclusion,
     Target,
     session_scope,
 )
@@ -357,95 +356,6 @@ def test_deferred_judging_belongs_to_the_answers_launch(
     assert jobs == {"job-judge"}
 
 
-# --- exclusions --------------------------------------------------------------
-
-
-def _exclusion_url(job_id: str, qa_id: str) -> str:
-    return f"/console/report/runs/{job_id}/questions/{qa_id}/exclusion"
-
-
-@needs_db
-def test_excluding_and_restoring_a_question(client: TestClient, clean: Any) -> None:
-    session_a = _console(client, KEY)
-    with session_scope() as session:
-        session.add(_job("job-ex"))
-        session.add_all([_pair("p-ex"), _pair("p-absent")])
-        session.flush()
-        session.add_all(_answered("p-ex", "job-ex"))
-    _cache("job-ex")
-
-    url = _exclusion_url("job-ex", "p-ex")
-    first = client.put(url, json={"reason": "ambiguous"}, headers=session_a)
-    assert first.status_code == 200, first.text
-    assert first.json()["exclusion"]["reason"] == "ambiguous"
-    assert first.json()["question"]["excluded"] is True
-    assert first.json()["question"]["status"] == PairStatus.ACTIVE.value
-    # The placeholder is gone; the detail recomputed the real figures.
-    assert "run" in _payload("job-ex")
-
-    again = client.put(url, json={"reason": "badly worded"}, headers=session_a)
-    assert again.status_code == 200
-    assert (
-        again.json()["exclusion"]["created_at"]
-        == first.json()["exclusion"]["created_at"]
-    )
-    with session_scope() as session:
-        rows = session.query(RunExclusion).where(RunExclusion.job_id == "job-ex").all()
-        assert [(r.qa_id, r.reason) for r in rows] == [("p-ex", "badly worded")]
-
-    assert _cached("job-ex")
-    assert client.delete(url, headers=session_a).status_code == 204
-    assert client.delete(url, headers=session_a).status_code == 204
-    assert not _cached("job-ex")
-    with session_scope() as session:
-        assert session.get(RunExclusion, ("job-ex", "p-ex")) is None
-
-    missing = _exclusion_url("job-ex", "p-absent")
-    assert client.put(missing, json={}, headers=session_a).status_code == 404
-    assert client.delete(missing, headers=session_a).status_code == 404
-
-
-@needs_db
-def test_excluding_with_retire_retires_the_pair(client: TestClient, clean: Any) -> None:
-    session_a = _console(client, KEY)
-    with session_scope() as session:
-        session.add(_job("job-ret"))
-        session.add(_pair("p-ret"))
-        session.flush()
-        session.add_all(_answered("p-ret", "job-ret"))
-
-    url = _exclusion_url("job-ret", "p-ret")
-    done = client.put(url, json={"reason": "wrong", "retire": True}, headers=session_a)
-    assert done.status_code == 200
-    assert done.json()["question"]["status"] == PairStatus.RETIRED.value
-    with session_scope() as session:
-        pair = session.get(QaPair, "p-ret")
-        assert pair is not None
-        assert pair.status == PairStatus.RETIRED.value
-        assert pair.status_reason == StatusReason.OWNER.value
-
-    # Restoring keeps the pair retired.
-    assert client.delete(url, headers=session_a).status_code == 204
-    with session_scope() as session:
-        pair = session.get(QaPair, "p-ret")
-        assert pair is not None and pair.status == PairStatus.RETIRED.value
-
-
-@needs_db
-def test_another_targets_job_cannot_be_touched(client: TestClient, clean: Any) -> None:
-    session_a = _console(client, KEY)
-    _console(client, KEY2)
-    with session_scope() as session:
-        session.add(_job("job-b", target=KEY2))
-        session.add(_pair("p-b", space=KEY2))
-        session.flush()
-        session.add_all(_answered("p-b", "job-b", space=KEY2))
-
-    url = _exclusion_url("job-b", "p-b")
-    assert client.put(url, json={}, headers=session_a).status_code == 404
-    assert client.delete(url, headers=session_a).status_code == 404
-
-
 # --- the card of a named launch -----------------------------------------------
 
 
@@ -466,7 +376,7 @@ def test_the_card_is_built_for_the_named_job(
     monkeypatch.setattr(control_app, "build_card", fake_build)
     monkeypatch.setattr(control_app, "latest_measuring_job", lambda _: "newest")
 
-    for route in ("/console/report", "/console/publish"):
+    for route in ("/console/report",):
         by_body = client.post(route, json={"job": "job-card"}, headers=session_a)
         assert by_body.status_code == 409
         by_query = client.post(f"{route}?job=job-card", headers=session_a)
@@ -476,4 +386,4 @@ def test_the_card_is_built_for_the_named_job(
         foreign = client.post(route, json={"job": "job-foreign"}, headers=session_a)
         assert foreign.status_code == 404
 
-    assert asked == ["job-card", "job-card", "newest"] * 2
+    assert asked == ["job-card", "job-card", "newest"]

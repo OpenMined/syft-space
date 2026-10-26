@@ -264,8 +264,8 @@ def test_rotation_moves_the_secrets_and_can_be_run_twice(clean: Any) -> None:
 
 @needs_db
 def test_a_target_token_is_sealed_and_still_reaches_the_call(clean: Any) -> None:
-    """The token is what publishes the card. It must survive the move out of
-    its column — and it must not come back as a column."""
+    """The token reaches the Space's endpoint. It is sealed in credentials and
+    never stored as a column."""
     conf = _conf()
     spec = TargetSpec(key=KEY, url="http://space.invalid", endpoint="kb", token="tok-1")
     with session_scope(conf) as session:
@@ -321,21 +321,6 @@ def test_an_empty_token_withdraws_access(clean: Any) -> None:
             conf,
         )
         assert registry.has_token(session, KEY) is False
-
-
-@needs_db
-def test_a_deleted_target_does_not_leave_its_token_behind(clean: Any) -> None:
-    """A sealed secret nobody can name any more is one nobody will remove."""
-    conf = _conf()
-    with session_scope(conf) as session:
-        registry.save(
-            session,
-            TargetSpec(key=KEY, url="http://space.invalid", token="tok-1"),
-            conf,
-        )
-    with session_scope(conf) as session:
-        assert registry.drop(session, KEY, conf) is True
-    assert store.secret(conf, store.target_secret(KEY)) is None
 
 
 @needs_db

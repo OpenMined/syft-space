@@ -26,10 +26,6 @@ export function listPairs(filters: {
   return api.get<PairPage>(`/console/pairs${query(filters)}`);
 }
 
-export function getPair(id: string): Promise<PairResponse> {
-  return api.get<PairResponse>(`/console/pairs/${id}`);
-}
-
 export function updatePairStatus(
   id: string,
   status: PairStatus,
@@ -86,14 +82,6 @@ export function listJobs(): Promise<JobView[]> {
 
 export function buildReport(): Promise<Record<string, unknown>> {
   return api.post("/console/report");
-}
-
-export function publishReport(): Promise<Record<string, unknown>> {
-  return api.post("/console/publish");
-}
-
-export function retractReport(): Promise<void> {
-  return api.post("/console/retract");
 }
 
 // --- this target's own probe layer ------------------------------------------

@@ -1,11 +1,5 @@
 <script setup lang="ts">
-/**
- * What does not fit, on hover — and reachable once it is open.
- *
- * A tooltip cannot be used for this: it closes the moment the pointer leaves
- * what opened it, so anything inside it that has to be read at length, or
- * scrolled, is unreachable. A hover card stays while the pointer is in it.
- */
+/** A hover card for long content; unlike a tooltip, it stays open while the pointer is inside. */
 import { HoverCardContent, HoverCardPortal, HoverCardRoot, HoverCardTrigger } from 'reka-ui'
 
 withDefaults(defineProps<{ width?: string }>(), { width: 'w-96' })

@@ -1,4 +1,4 @@
-"""Stage 5: aggregating verdicts into metrics and a report."""
+"""Stage 6: aggregating verdicts into metrics and a report."""
 
 from syft_benchmark.report.audit import (
     AuditExport,

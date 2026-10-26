@@ -1,9 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
-// Pages are loaded on demand. Importing them eagerly puts every page, and
-// everything they pull in, into the entry chunk — a single multi-megabyte
-// response that a browser on a real network link has to finish before it
-// can render anything.
+// Pages are lazy-loaded to keep the entry chunk small.
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 import { settingsApi } from '../api/endpoints/settings'
 import { useServerAvailabilityStore } from '../stores/serverAvailability'

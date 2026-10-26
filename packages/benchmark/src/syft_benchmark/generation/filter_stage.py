@@ -10,7 +10,7 @@ Four checks, all reading the persisted row rather than a fresh candidate:
 
   * **grounding** (``validate.py``) — does the gold answer rest on the chunk.
     Lexical, deterministic, needs nothing but the row itself (``context`` is
-    the chunk, truncated the same way it always was; ``meta["claims"]``, where
+    the chunk, truncated the same way as at generation; ``meta["claims"]``, where
     present, is what a reworded item's answer must follow from instead).
   * **the archive check** (``control.gate_answerable``) — for a grounded
     ordinary pair, does live retrieval find a fragment stating its answer. A

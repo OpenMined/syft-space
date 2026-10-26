@@ -7,15 +7,15 @@ An overview and a map. Each stage has its own file, linked below.
 ## 1. The problem
 
 A [Syft Space](https://github.com/OpenMined/syft-space) holds the owner's
-private corpus and exposes RAG endpoints; SyftHub shows them to consumers. The
-consumer asks whether an endpoint's answers can be trusted; the owner asks how
-useful the endpoint is. The answer is a number obtained so that:
+private corpus and exposes RAG endpoints. The owner asks whether an endpoint's
+answers can be trusted and how useful the endpoint is. The answer is a number
+obtained so that:
 
 * the private corpus never leaves the owner's perimeter;
-* publishing is done by the owner (the Space), not by the benchmark;
+* the results stay inside the Space;
 * "found it in the corpus" is told apart from "the model knows this anyway".
 
-**The benchmark measures, the Space publishes, SyftHub displays.**
+**The benchmark measures, the Space shows the results.**
 
 ```mermaid
 flowchart LR
@@ -29,16 +29,14 @@ flowchart LR
         BENCH <--> DB
     end
     SPACE["Space API"]
-    HUB["the SyftHub storefront"]
 
     BENCH -- "a question to the endpoint" --> SPACE
-    BENCH -- "card: shares and counters" --> SPACE
-    SPACE -- "publishes under its own account" --> HUB
+    SPACE -- "reads runs and cards" --> BENCH
 
     style P fill:#f6f8fa,stroke:#8b949e
 ```
 
-The benchmark holds no hub credentials; see [privacy.md](privacy.md).
+The benchmark holds no SyftHub credentials; see [privacy.md](privacy.md).
 
 ---
 
@@ -69,24 +67,21 @@ explanation graded by key facts can also be `incomplete`. See
 ## 3. The pipeline
 
 Every stage is its own CLI command and control-API launch option.
-Publishing is separate from a run: an interrupted run must not publish half its
-results.
 
 ```mermaid
 flowchart TB
     A["chunks / doctor<br/><i>stage 1: is everything in place</i>"] -.-> B
-    B["generate<br/>stage 2"] --> FI["filter<br/>stage 3"]
-    FI --> S["selection into the measurement<br/>stage 4"]
-    S --> C["evaluate -m closed_book<br/>arm A"]
+    B["generate<br/>stage 2"] --> FI["filter<br/>stage 2"]
+    FI --> S["selection into the measurement<br/>stage 3"]
+    S --> C["evaluate -m closed_book<br/>stage 4, arm A"]
     S --> D["evaluate -m open_book<br/>arm B"]
     S --> H["evaluate -m model_with_context<br/>arm C"]
-    C --> J["judging<br/>stage 6"]
+    C --> J["judging<br/>stage 5"]
     D --> J
     H --> J
-    J --> E["report<br/>stage 7"]
-    E -.-> AU["audit<br/>stage 8"]
-    E --> F["publish<br/>stage 9"]
-    F -.-> G["retract"]
+    J --> E["report<br/>stage 6"]
+    E -.-> AU["audit<br/>stage 7"]
+    E --> F["card<br/>stage 8"]
 
     B --- b1["reads the Space's index,<br/>builds both halves of the set,<br/>every pair lands pending"]
     FI --- fi1["grounds the gold answer, finds it in the archive,<br/>web check, re-checks the control gate live;<br/>only pending pairs are touched"]
@@ -94,7 +89,7 @@ flowchart TB
     J --- j1["three outcomes; by the letter or span,<br/>by the facts, by behaviour,<br/>by a judge; a panel"]
     E --- e1["the latest verdict per question,<br/>cut by arm, half of the set,<br/>block, model and judge"]
     AU --- a1["question, gold answer, the arms' answers,<br/>prompts and judges' verdicts"]
-    F --- f1["aggregates into the Space"]
+    F --- f1["aggregates, kept on the job"]
 
     style b1 fill:#fff,stroke-dasharray: 3 3
     style fi1 fill:#fff,stroke-dasharray: 3 3
@@ -108,14 +103,13 @@ flowchart TB
 | Stage | Commands | What happens | Document |
 | ---: | --- | --- | --- |
 | 1 | `doctor`, `chunks`, `spaces`, `models` | the rig, the model roles, the perimeter | [01-setup.md](01-setup.md) |
-| 2 | `generate` | ten generators build both halves of the set; every pair lands `pending` | [02-generation.md](02-generation.md) |
-| 3 | `filter` | screens `pending` pairs into `active` / `rejected`; manual override in the console | [02-generation.md](02-generation.md) |
-| 4 | `generate --mode`, `freeze`, `--limit`, `cohorts` | which set goes into the measurement | [03-dataset.md](03-dataset.md) |
-| 5 | `evaluate`, `status` | three arms × three blocks × the models under test | [04-evaluation.md](04-evaluation.md) |
-| 6 | inside `evaluate`; `judge`; `export-judging` / `import-judging` | reducing an answer to one of the three outcomes | [05-judging.md](05-judging.md) |
-| 7 | `report` | metrics, cuts, Markdown and docx | [06-report.md](06-report.md) |
-| 8 | `audit` | the raw records for inspection | [07-audit.md](07-audit.md) |
-| 9 | `publish`, `retract` | the card goes to the Space, which publishes it | [08-publish.md](08-publish.md) |
+| 2 | `generate`, `filter` | ten generators build both halves of the set, every pair `pending`; filtering screens them into `active` / `rejected`; manual override in the console | [02-generation.md](02-generation.md) |
+| 3 | `generate --mode`, `freeze`, `--limit`, `cohorts` | which set goes into the measurement | [03-dataset.md](03-dataset.md) |
+| 4 | `evaluate`, `status` | three arms × three blocks × the models under test | [04-evaluation.md](04-evaluation.md) |
+| 5 | inside `evaluate`; `judge`; `export-judging` / `import-judging` | reducing an answer to one of the three outcomes | [05-judging.md](05-judging.md) |
+| 6 | `report` | metrics, cuts, Markdown and docx | [06-report.md](06-report.md) |
+| 7 | `audit` | the raw records for inspection | [07-audit.md](07-audit.md) |
+| 8 | `card` | the run's headline figures, kept on the job for the Space | [08-card.md](08-card.md) |
 
 ---
 
@@ -128,9 +122,9 @@ uv run syft-benchmark cycle --resume                    # finish an interrupted 
 ```
 
 Per Space: generate and filter (when `generate_in_cycle`, default `true`) →
-evaluate → report → publish. With `--every`, the first pass runs immediately. The report
+evaluate → report. With `--every`, the first pass runs immediately. The report
 is written to `reports/benchmark-<stamp>.md` and `.docx`; a failed docx does
-not fail the cycle. One Space failing to publish does not stop the rest.
+not fail the cycle. One Space failing does not stop the rest.
 
 `--every` is the console's schedule. The service fires its own schedule from
 each target's settings, in UTC ([control-api.md](control-api.md)); with the
@@ -151,7 +145,7 @@ service up, use `cycle` only for a single pass.
 | [05-judging.md](05-judging.md) | three outcomes, judging rules, the panel, live and console judging |
 | [06-report.md](06-report.md) | metrics and the denominator, cuts, the two forms of the report |
 | [07-audit.md](07-audit.md) | the audit log and the export of raw records |
-| [08-publish.md](08-publish.md) | the card in the Space, the `reliable` gate, retraction |
+| [08-card.md](08-card.md) | the card, the `reliable` gate |
 
 **Design and boundaries**
 
@@ -183,12 +177,12 @@ src/syft_benchmark/
   sources/chroma.py    reads the Space's index (invariant 1)
   llm/
     ollama.py          the chat client; the perimeter check before every call
-    roles.py           three roles, providers, judge independence, the panel
+    roles.py           four roles, providers, judge independence, the panel
     catalog.py         one identity per model, whoever serves it
     openrouter.py      a provider's model list as catalogue entries
     providers.py       which kind of provider answers at an address
     cost.py            what a job spent at the provider
-  generation/          STAGES 2-4
+  generation/          STAGES 2-3
     generators.py      ten specifications: prompt + parsing
     extractive.py      fill-in-the-blanks (masking) items
     abstractive.py     multihop, tiered, two truths and a lie
@@ -199,7 +193,7 @@ src/syft_benchmark/
     language.py        a text's language from built-in function-word lists
     entities.py        the entity check: is each question's subject identifiable
     web_check.py       drops questions a model answers from the web
-    filter_stage.py    STAGE 3: screens pending pairs; no corpus access
+    filter_stage.py    filtering: screens pending pairs; no corpus access
     decisions.py       filter decisions stamped on a pair, per job
     pipeline.py        the incremental generation run; filter_and_rotate()
     slots.py           how many generation calls are in flight
@@ -210,7 +204,7 @@ src/syft_benchmark/
     shuffle.py         option shuffling, deterministic per question
     pairs.py           listing, reading, deleting pairs of one target
     pair.py            an item: provenance, fingerprint, labels
-  runs/                STAGES 5-6
+  runs/                STAGES 4-5
     execute.py         three arms, context assembly, the panel inside a run
     endpoint.py        the conversation with the Space's endpoint
     gate.py            only web-checked questions reach the tested models
@@ -222,12 +216,12 @@ src/syft_benchmark/
     textmetrics.py     BLEU, ROUGE, BERTScore
     judge.py           the judging rules and the three outcomes
     fill_in.py         a fill-in answer matched to its gold span, no judge
-    judge_stage.py     STAGE 6 on its own: grades pending and judge-failed answers, insert-only
+    judge_stage.py     STAGE 5 on its own: grades pending and judge-failed answers, insert-only
     blocks.py          denial_loop and monte_carlo
     console.py         the manual path through a chat: model and judge
-  report/              STAGES 7-8
+  report/              STAGES 6-8
     metrics.py         the counted verdict per question, cuts, Markdown
-    card.py            the card for the Space, the reliable gate
+    card.py            the card kept on the job, the reliable gate
     slices.py          cuts by item type and by judge agreement
     stability.py       comparing cohorts
     charts.py          charts over computed metrics
@@ -240,8 +234,6 @@ src/syft_benchmark/
     export_xlsx.py     one run's Excel export
     filter_view.py     what a job built and filtered
     text_view.py       text metrics of one run
-    exclusions.py      leaving a question out of one run's figures
-  publish/space.py     STAGE 9: the card into the Space; retraction
   control/             the service
     app.py             the HTTP routes
     report_routes.py   /console/report/runs/*: the console's run reports

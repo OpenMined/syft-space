@@ -1,13 +1,7 @@
-"""Talking to a benchmark's control API.
+"""HTTP client for a benchmark's control API.
 
-Thin on purpose. The Space does not model what a benchmark setting *is* — it
-stores what the owner set and hands it over. Every field this client knows by
-name is a field that would need a migration here when the benchmark grows one,
-and the point of the design is that it does not.
-
-Every call has a short timeout and every failure comes back as a value rather
-than an exception. A benchmark that is down must make its own page say so, not
-make the Space's settings page unopenable.
+Settings pass through unparsed. Calls have short timeouts and return failures
+as a ``Reply`` value instead of raising.
 """
 
 from collections.abc import AsyncIterator
@@ -18,51 +12,44 @@ from urllib.parse import urlencode
 import httpx
 from loguru import logger
 
-# Short: these calls are a form waiting to be drawn or a button waiting to be
-# acknowledged. Starting a run returns as soon as it is queued — the run itself
-# takes hours and is watched through the job, not held open on a socket.
+# Default; starting a run returns once it is queued.
 TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
-# The one call that may legitimately take a while: reading the index to see how
-# much material is there. It walks the whole collection.
+# Target checks walk the whole collection; model refresh calls the provider.
 CHECK_TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 
-# A generated document: built from a cached aggregate, but still a file.
+# Summary document download.
 DOWNLOAD_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
 
-# The Excel export of a run: every text of thousands of rows, built on request.
+# Excel export, built on request.
 EXPORT_TIMEOUT = httpx.Timeout(300.0, connect=5.0)
 
 
 @dataclass
 class Reply:
-    """What came back, including the case where nothing did."""
+    """A call's result; ``ok`` is False on any failure, including no answer."""
 
     ok: bool
     data: Any = None
     status: int = 0
     detail: str = ""
-    # Set only by `download` and `stream`: the headers a file is passed on with.
+    # File headers, set by `download` and `stream`.
     headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def missing(self) -> bool:
-        """Asked about something the benchmark does not have."""
+        """The benchmark answered 404."""
         return self.status == 404
 
     @property
     def unconfigured(self) -> bool:
-        """The benchmark is up but has no control key set.
-
-        Not the same as refusing us: it means nobody has switched control on
-        over there, and the owner has to do it on the benchmark's side.
-        """
+        """The benchmark is up but has no control key set (503)."""
         return self.status == 503
 
 
 @dataclass
 class Snapshot:
-    """Everything the settings form needs, in one round trip."""
+    """The benchmark's self-description: reachability, capabilities, schema, defaults."""
 
     reachable: bool = False
     detail: str = ""
@@ -115,12 +102,7 @@ class BenchmarkClient:
     # --- what this benchmark is ------------------------------------------
 
     async def snapshot(self) -> Snapshot:
-        """Ask the benchmark what it can do and how it is configured.
-
-        Three calls rather than one because they answer three questions and a
-        benchmark may grow any of them separately. Partial failure is kept:
-        capabilities without defaults still draws a usable form.
-        """
+        """Fetch health, capabilities, schema and defaults; partial results are kept."""
         health = await self._call("GET", "/health")
         if not health.ok:
             return Snapshot(detail=health.detail or "benchmark is not answering")
@@ -146,31 +128,19 @@ class BenchmarkClient:
     # --- the model catalogue -----------------------------------------------
 
     async def models(self, query: dict[str, Any]) -> Reply:
-        """The models this benchmark can offer, filtered as the picker asks.
-
-        Proxied, not stored: a copy here would be a second answer to what may be
-        measured, stale exactly when somebody has just added a model. The
-        filtering is the benchmark's for the same reason.
-        """
+        """The benchmark's model catalogue, filtered by the benchmark."""
         clean = {key: value for key, value in query.items() if value not in (None, "")}
         suffix = f"?{urlencode(clean)}" if clean else ""
         return await self._call("GET", f"/models{suffix}")
 
     async def refresh_models(self) -> Reply:
-        """Have the benchmark fetch its provider's model list afresh.
-
-        The long timeout: a call to a third party, and a few hundred kilobytes
-        back.
-        """
+        """Have the benchmark refetch its provider's model list."""
         return await self._call("POST", "/models/refresh", timeout=CHECK_TIMEOUT)
 
     # --- targets -----------------------------------------------------------
 
     async def put_target(self, key: str, spec: dict[str, Any]) -> Reply:
         return await self._call("PUT", f"/targets/{key}", body=spec)
-
-    async def delete_target(self, key: str) -> Reply:
-        return await self._call("DELETE", f"/targets/{key}")
 
     async def check_target(self, key: str) -> Reply:
         return await self._call("POST", f"/targets/{key}/check", timeout=CHECK_TIMEOUT)
@@ -181,7 +151,7 @@ class BenchmarkClient:
         return await self._call("POST", f"/targets/{key}/runs", body=request)
 
     async def target(self, key: str) -> Reply:
-        """One target as the benchmark holds it — including when it next fires."""
+        """One target as the benchmark holds it, including ``next_run_at``."""
         return await self._call("GET", f"/targets/{key}")
 
     async def window(self, key: str, days: int | None = None) -> Reply:
@@ -195,9 +165,6 @@ class BenchmarkClient:
     async def cancel(self, job_id: str) -> Reply:
         return await self._call("POST", f"/jobs/{job_id}/cancel")
 
-    async def delete_job(self, job_id: str) -> Reply:
-        return await self._call("DELETE", f"/jobs/{job_id}")
-
     async def mint_session(self, key: str) -> Reply:
         """A short-lived, single-target token for the benchmark's own console."""
         return await self._call("POST", f"/targets/{key}/session")
@@ -205,7 +172,7 @@ class BenchmarkClient:
     # --- installation settings ----------------------------------------------
 
     async def get_settings(self) -> Reply:
-        """This installation's own overrides — not the effective values."""
+        """The benchmark's setting overrides, not the effective values."""
         return await self._call("GET", "/settings")
 
     async def put_settings(self, values: dict[str, Any]) -> Reply:
@@ -213,8 +180,7 @@ class BenchmarkClient:
 
     # --- secrets ---------------------------------------------------------------
     #
-    # They go in and never come out. `list_credentials` says only whether one
-    # is set and since when — the same thing a target's token has always said.
+    # Write-only: `list_credentials` returns names and update times, not values.
 
     async def list_credentials(self) -> Reply:
         return await self._call("GET", "/credentials")
@@ -227,13 +193,8 @@ class BenchmarkClient:
 
     # --- the console: pairs, results, filtering, judging, the report -------
     #
-    # Authenticated differently from everything above: a session token scoped
-    # to one target, minted fresh by the caller for each of these (see
-    # `BenchmarkHandler._console`), never this client's own `token`. `raw`
-    # exists because this client does not know what a console route looks
-    # like by name — naming each one here would mean a migration whenever the
-    # benchmark's own console grows a field, exactly what this client is built
-    # to avoid everywhere else.
+    # Used with a per-target session token (see `BenchmarkHandler._console`),
+    # not the control key. Paths are given by the caller.
 
     async def raw(
         self,
@@ -272,8 +233,7 @@ class BenchmarkClient:
     async def stream(
         self, path: str, *, params: dict[str, Any] | None = None
     ) -> tuple[Reply, AsyncIterator[bytes] | None]:
-        """A file from the console, passed on as it arrives: the reply (type
-        and name in `headers`) and its body, or a refusal and None."""
+        """A streamed file: the reply (with `headers`) and its body, or a refusal and None."""
         clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
         suffix = f"?{urlencode(clean)}" if clean else ""
         url = f"{self.url}{path}{suffix}"
@@ -305,13 +265,13 @@ class BenchmarkClient:
 
 
 def _file_headers(resp: httpx.Response) -> dict[str, str]:
-    """The headers a file is passed on with."""
+    """Content type and disposition, to pass a file on."""
     kept = ("content-type", "content-disposition")
     return {k.lower(): v for k, v in resp.headers.items() if k.lower() in kept}
 
 
 def _detail(resp: httpx.Response) -> str:
-    """The benchmark's own words about the refusal, if it gave any."""
+    """The error detail from a failed response."""
     try:
         body = resp.json()
     except ValueError:

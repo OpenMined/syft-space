@@ -35,11 +35,7 @@ class BenchmarkConnectionRepository(AsyncBaseRepository[BenchmarkConnection]):
             return row if row and row.tenant_id == tenant_id else None
 
     async def default_for(self, tenant_id: UUID) -> BenchmarkConnection | None:
-        """The connection used when an endpoint does not name one.
-
-        Falls back to the only active connection there is. A Space with exactly
-        one benchmark should never have to be told which one to use.
-        """
+        """The default active connection, or the only active one."""
         rows = await self.list_for_tenant(tenant_id)
         active = [row for row in rows if row.is_active]
         for row in active:
@@ -48,7 +44,7 @@ class BenchmarkConnectionRepository(AsyncBaseRepository[BenchmarkConnection]):
         return active[0] if len(active) == 1 else None
 
     async def clear_default(self, tenant_id: UUID, keep: UUID) -> None:
-        """Only one connection is the default one at a time."""
+        """Unset the default flag on every connection but ``keep``."""
         async with self.db.get_session() as session:
             rows = await session.exec(
                 select(BenchmarkConnection).where(
@@ -90,11 +86,7 @@ class BenchmarkTargetRepository(AsyncBaseRepository[BenchmarkTarget]):
             return len(list(rows.all()))
 
     async def remember_job(self, target_id: UUID, job: dict | None) -> None:
-        """Keep the last run's state so the page opens while the benchmark is down.
-
-        A cached answer, plainly marked with its age by the job's own
-        timestamps — not a second source of truth.
-        """
+        """Cache the last job for when the benchmark is unreachable."""
         async with self.db.get_session() as session:
             row = await session.get(BenchmarkTarget, target_id)
             if row is None:
@@ -105,7 +97,7 @@ class BenchmarkTargetRepository(AsyncBaseRepository[BenchmarkTarget]):
             await session.commit()
 
     async def mark_synced(self, target_id: UUID) -> None:
-        """Note that the benchmark now has this target's settings."""
+        """Record that the benchmark has this target's settings."""
         async with self.db.get_session() as session:
             row = await session.get(BenchmarkTarget, target_id)
             if row is None:

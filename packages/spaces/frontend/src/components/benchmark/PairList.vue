@@ -1,13 +1,7 @@
 <script setup lang="ts">
 /**
- * The question/answer pairs of one status band, grouped by the generator
- * that built them — shared by the Generation and Filtering blocks, which
- * show the same rows pre-filtered differently by the parent.
- *
- * Fetched in full rather than paged: a run realistically produces low
- * hundreds of pairs, and grouping by generator needs every row in hand to
- * count them, not one page at a time. `MAX_FETCH` is a safety stop, not a
- * design limit — past it the list says so instead of quietly truncating.
+ * Question/answer pairs grouped by generator. Fetched in full, up to
+ * `MAX_FETCH`, because grouping needs every row; the list says when it is cut.
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
@@ -22,8 +16,7 @@ import type { BenchmarkPair, BenchmarkPairStatus } from '@/api/types'
 const props = defineProps<{
   slug: string
   status?: BenchmarkPairStatus
-  refreshKey: number
-  /** One launch's questions; empty — everything this endpoint has. */
+  /** One job's questions; empty for all of this endpoint's. */
   job?: string
 }>()
 
@@ -67,9 +60,7 @@ async function load(): Promise<void> {
   }
 }
 
-watch([() => props.status, () => props.refreshKey, () => props.job], load, {
-  immediate: true,
-})
+watch([() => props.status, () => props.job], load, { immediate: true })
 
 async function setStatus(pair: BenchmarkPair, status: BenchmarkPairStatus): Promise<void> {
   busyId.value = pair.id

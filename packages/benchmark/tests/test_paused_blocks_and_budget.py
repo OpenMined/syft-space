@@ -57,11 +57,9 @@ def test_denial_loop_and_monte_carlo_are_not_run_even_when_chosen(
     assert "paused: denial_loop, monte_carlo" in out.notes
 
 
-def test_a_job_is_stopped_once_its_calls_reach_the_cap(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(jobs, "MAX_JOB_USD", 1.0)
+def test_a_job_is_stopped_once_its_calls_reach_the_cap() -> None:
     reporter = jobs.Reporter("pytest-cap")
+    reporter.max_usd = 1.0
 
     with cost_meter(job_id="pytest-cap") as meter:
         meter.add(0.6, "subjects")
@@ -74,6 +72,17 @@ def test_a_job_is_stopped_once_its_calls_reach_the_cap(
 
     assert reporter.cancelled is True
     assert reporter.budget_problem() == ["over_budget: $1.10 spent, the cap is $1"]
+
+
+def test_the_cap_defaults_to_100_usd_and_zero_means_none() -> None:
+    assert jobs.Reporter("pytest-cap-default").max_usd == 100.0
+    reporter = jobs.Reporter("pytest-no-cap", Settings(max_job_usd=0))
+
+    with cost_meter(job_id="pytest-no-cap") as meter:
+        meter.add(10_000.0, "subjects")
+        reporter._check_budget()
+
+    assert reporter.cancelled is False
 
 
 def test_a_run_summary_says_who_stopped_the_job() -> None:

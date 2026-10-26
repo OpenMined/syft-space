@@ -86,6 +86,19 @@ export function staysLocal(url: string): boolean {
 }
 
 /**
+ * One sentence on where an address points, for a locality chip's tooltip.
+ *
+ * @param url - The address
+ * @param lead - What reaches it, e.g. "Sent to"
+ */
+export function localityTip(url: string, lead: string): string {
+  const host = hostOf(url) || 'the default address'
+  return staysLocal(url)
+    ? `${lead} ${host}, on this machine or its Docker network.`
+    : `${lead} ${host}, outside this machine.`
+}
+
+/**
  * The address a role actually calls: its own, else its installation default,
  * else its fallback role's.
  *

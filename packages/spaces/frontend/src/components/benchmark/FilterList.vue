@@ -22,7 +22,7 @@ import { generatorWords } from './labels'
 import { modelName } from './report/labels'
 import { sortQuestions } from './questionOrder'
 
-const props = defineProps<{ slug: string; job: string; refreshKey?: number }>()
+const props = defineProps<{ slug: string; job: string }>()
 
 const PAGE = 200
 const MAX_FETCH = 1000
@@ -65,7 +65,7 @@ async function load(): Promise<void> {
   }
 }
 
-watch([() => props.job, () => props.refreshKey], load, { immediate: true })
+watch(() => props.job, load, { immediate: true })
 
 function rowKey(d: BenchmarkFilterDecision, n: number): string {
   return `${d.qa_id}-${d.stage}-${d.at ?? n}`

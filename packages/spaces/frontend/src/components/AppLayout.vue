@@ -51,7 +51,7 @@ const { isMobileOpen, closeMobile, toggleMobile } = useSidebar()
 
       <!-- Right column: main content -->
       <div class="flex flex-col flex-1 min-w-0 md:pt-0 pt-14">
-        <!-- relative: absolute children (sr-only text) stay inside the scroller, not the page -->
+        <!-- relative: keeps absolute children (sr-only text) inside the scroller -->
         <main class="relative flex-1 overflow-y-auto">
           <slot />
         </main>

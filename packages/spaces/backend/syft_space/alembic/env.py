@@ -18,10 +18,7 @@ from syft_space.components.datasets.entities import (  # noqa: F401
     DatasetSelection,
     ProvisionerState,
 )
-from syft_space.components.endpoints.entities import (  # noqa: F401
-    Endpoint,
-    EndpointQualityCard,
-)
+from syft_space.components.endpoints.entities import Endpoint  # noqa: F401
 from syft_space.components.ingestion.entities import IngestionJob  # noqa: F401
 from syft_space.components.marketplaces.entities import Marketplace  # noqa: F401
 from syft_space.components.models.entities import Model  # noqa: F401
@@ -31,10 +28,7 @@ from syft_space.components.payments.gateway.entities import (  # noqa: F401
     UserBalance,
 )
 from syft_space.components.policies.entities import Policy  # noqa: F401
-from syft_space.components.settings.entities import (  # noqa: F401
-    BenchmarkSettings,
-    Settings,
-)
+from syft_space.components.settings.entities import Settings  # noqa: F401
 from syft_space.components.shared.database import SQLiteConfig
 from syft_space.components.tenants.entities import Tenant  # noqa: F401
 from syft_space.components.wallets.entities import Wallet  # noqa: F401

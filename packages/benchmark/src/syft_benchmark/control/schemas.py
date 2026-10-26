@@ -199,6 +199,15 @@ class Instrument(Layer):
         le=20,
         description="Results per search, for the Exa engine",
     )
+    web_search_max_calls: int | None = Field(
+        default=None,
+        ge=0,
+        le=30,
+        description=(
+            "Searches one answer of a tested model may make. Zero — the "
+            "provider's own limit"
+        ),
+    )
 
     # --- How every judge is called
     judge_temperature: (
@@ -244,6 +253,11 @@ class Instrument(Layer):
         ge=1,
         le=64,
         description="How many model calls to keep in flight at once",
+    )
+    max_job_usd: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="USD at which a job is stopped. Zero — no cap",
     )
     reuse_answers: bool | None = None
     audit_log: bool | None = None
@@ -487,9 +501,6 @@ class RunRequest(BaseModel):
             "there is nothing gradable to build one from yet"
         ),
     )
-    publish: bool = Field(
-        default=True, description="Hand the card to the Space when it is over"
-    )
     limit: int | None = Field(
         default=None,
         ge=1,
@@ -498,8 +509,7 @@ class RunRequest(BaseModel):
             "a configuration has to be checkable without paying for hours. It is "
             "not an overall cap — a generator is a separate skill, and at a small "
             "value an overall cap would simply throw some skills out of the "
-            "measurement. Publishing follows `publish` here as it does for a "
-            "full run; the thin sample shows up in the card as `few_samples`"
+            "measurement. The thin sample shows up in the card as `few_samples`"
         ),
     )
 
@@ -806,22 +816,11 @@ class VerdictOverride(BaseModel):
         return value
 
 
-class ExclusionRequest(BaseModel):
-    """Leave one question out of one run's figures."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    reason: str = Field(default="", max_length=2000)
-    retire: bool = Field(
-        default=False, description="Also retire the pair so future runs skip it"
-    )
-
-
 class CardRequest(BaseModel):
-    """Which launch to build or publish the card of; none — the newest.
+    """Which launch to build the card of; none — the newest.
 
-    ``record``: keep the card on the job as its published one, the baseline of
-    ``card_outdated``. Publishing always records.
+    ``record``: store the rebuilt card on the job, the baseline of
+    ``card_outdated``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -858,9 +857,8 @@ class JobView(BaseModel):
     message: str
     trigger: str
     error: str
-    # The card assembled after measuring, in the shape the Space accepts it in
-    # — present whether or not it was ever published. None until the job has
-    # measured something to build one from.
+    # The card assembled after measuring (``report.card.payload_for``). None
+    # until the job has measured something to build one from.
     card: dict[str, Any] | None = None
     created_at: datetime
     started_at: datetime | None
@@ -883,22 +881,6 @@ class JobView(BaseModel):
     def share(self) -> float | None:
         """The share of what is done. None while the extent of the work is unknown."""
         return self.done / self.total if self.total else None
-
-    @property
-    def questions_total(self) -> int:
-        """How many questions will be asked over the whole measurement.
-
-        The set is one and the same for every run — the arm, the block and the
-        model change — and so the total extent is "questions in a run × number
-        of runs". Until the first run has picked its items the extent is
-        unknown, and this is zero.
-        """
-        return self.step_total * self.total
-
-    @property
-    def questions_done(self) -> int:
-        """How many questions have been asked, counting finished runs whole."""
-        return self.step_total * self.done + self.step_done
 
 
 class RoleProvider(BaseModel):

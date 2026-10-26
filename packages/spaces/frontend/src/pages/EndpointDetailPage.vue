@@ -860,12 +860,12 @@
           </Card>
         </TabsContent>
 
-        <!-- Benchmark setup tab: whether it is measured, and every phase of a run -->
+        <!-- Benchmark setup tab -->
         <TabsContent value="benchmark" class="space-y-4 pt-6 mt-0">
           <RunControl :slug="routeSlug" :dataset="endpoint?.dataset ?? null" />
         </TabsContent>
 
-        <!-- Benchmark results Tab: what the runs found, and what is published -->
+        <!-- Benchmark results tab -->
         <TabsContent value="results" class="space-y-4 pt-6 mt-0">
           <ResultsHome :slug="routeSlug" />
         </TabsContent>
@@ -1067,19 +1067,16 @@ const { isDark } = useTheme()
 const error = ref(false)
 const loading = ref(true)
 const endpoint = ref<EndpointResponse | null>(null)
-// Slug from the route: the benchmark tab asks for the card by it, so it has no
-// reason to wait for the endpoint itself to load.
+// From the route, so the benchmark tabs need not wait for the endpoint to load.
 const routeSlug = computed(() => route.params.slug as string)
-// The active tab lives in the URL, not only in memory — otherwise a reload,
-// or a link sent to someone else, always lands back on Overview.
+// The active tab is kept in the URL so reloads and shared links keep it.
 const KNOWN_TABS = new Set(['overview', 'access', 'transactions', 'benchmark', 'results'])
 const requestedTab = route.query.tab
 const activeTab = ref(
   typeof requestedTab === 'string' && KNOWN_TABS.has(requestedTab) ? requestedTab : 'overview',
 )
 
-// A link inside a tab (the Benchmark setup tab's "See its results") moves the URL;
-// the tab follows it.
+// Follow tab changes made through the URL (links inside a tab).
 watch(
   () => route.query.tab,
   (tab) => {

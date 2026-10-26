@@ -1,4 +1,4 @@
-"""Stage 5: folding the verdicts into metrics.
+"""Stage 6: folding the verdicts into metrics.
 
 Computed over the COUNTED verdict for each question in each cut: the owner's
 override, else the freshest verdict of the primary judge, else that of the next
@@ -178,10 +178,6 @@ class Metrics:
         if self.expected is ExpectedBehavior.CORRECT_PREMISE:
             right += self.correct
         return (self.graded - right) / self.graded
-
-    @property
-    def web_sourced_rate(self) -> float:
-        return self.web_sourced / self.graded if self.graded else 0.0
 
     @property
     def false_abstain_rate(self) -> float | None:
@@ -426,10 +422,9 @@ def latest_measuring_job(space: str) -> str | None:
     measurement while the freshest one sat unmentioned in the database.
 
     None means exactly that case, and it is honest: there is no launch to name,
-    so the card is the node as of now — which is what ``job=None`` has always
-    meant. Generating questions, filtering them and grading what is already
-    answered open no runs at all, so none of them starts a new card: judging
-    yesterday's answers improves yesterday's.
+    so the card is the node as of now. Generating questions, filtering them and
+    grading what is already answered open no runs at all, so none of them starts
+    a new card: judging yesterday's answers improves yesterday's.
     """
     with session_scope() as session:
         return session.execute(
@@ -481,11 +476,11 @@ def summarize(
 
     An empty ``judge`` takes the counted verdict per question: the owner's
     override, else the primary judge's, else the next judge's in panel order.
-    Every published figure is counted this way. A named ``judge`` counts that
+    Every headline figure is counted this way. A named ``judge`` counts that
     judge alone (the per-judge view).
 
     ``expected`` defaults to the answerable half of the set, the half accuracy
-    and everything published is counted over. ``None`` mixes the halves and is
+    and every headline figure is counted over. ``None`` mixes the halves and is
     meaningful only when that is explicitly wanted.
 
     ``cohort`` computes over the named pool of questions. Needed by the

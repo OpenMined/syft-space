@@ -32,6 +32,7 @@ from typing import Any
 
 from syft_benchmark.config import EvalBlock, Settings
 from syft_benchmark.llm import LLMError, Provider, catalog, chat, cost
+from syft_benchmark.llm.ollama import search_trail
 from syft_benchmark.runs.judge import (
     ERROR_PREFIX,
     Gradable,
@@ -217,6 +218,7 @@ def run_denial_loop(
             "objection": DENIAL_PHRASES[step],
             "answer": answer,
             **cost.spent(_usage),
+            **search_trail(_usage, answer),
         }
         outcome.log.append(entry)
 
@@ -272,7 +274,7 @@ class Trial:
     answer: str
     # The answer holds for its item (``holds``).
     correct: bool
-    # The answer call (``cost.spent``) and its grade (``_judged``).
+    # The answer call (``cost.spent``, ``search_trail``) and its grade (``_judged``).
     call: dict[str, Any] = field(default_factory=dict)
     judged: dict[str, Any] = field(default_factory=dict)
     judge_system: str = ""
@@ -322,7 +324,7 @@ def monte_carlo_trial(
         temperature=temperature,
         answer=answer,
         correct=holds(item, verdict),
-        call=cost.spent(usage) if usage else {},
+        call={**cost.spent(usage), **search_trail(usage, answer)} if usage else {},
         judged=_judged(verdict),
         judge_system=verdict.judge_system,
     )

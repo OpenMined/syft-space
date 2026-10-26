@@ -1,29 +1,22 @@
-# Stage 8. Publishing
+# Stage 8. The card
 
 ```bash
-uv run syft-benchmark publish docs --dry-run   # show the payload, send nothing
-uv run syft-benchmark publish docs
-uv run syft-benchmark retract docs
+uv run syft-benchmark card docs          # the headline figures
+uv run syft-benchmark card docs --json   # the card in its stored shape
 ```
 
-The benchmark does not talk to SyftHub. It hands the card to the Space that
-owns the endpoint (`POST {url}/api/v1/endpoints/{endpoint}/quality`, with the
-Space's token), and the Space publishes it under its own account
-([invariant 5](privacy.md)). `retract` calls `DELETE` on the same route; the
-Space decides who may retract.
-
-Publishing is a separate step (or the end of a control-API job with
-`publish: true`). The CLI publishes the card of the launch that owns the
-Space's newest run; a run from the CLI belongs to no launch, and then the card
-describes the node as of now.
+A control-API job builds the card at its end and keeps it on the job
+(`JobView.card`). The Space reads it for its Benchmark results tab; the card
+never leaves the Space. The CLI shows the card of the launch that owns the
+Space's newest run.
 
 ---
 
-## Only aggregates leave the perimeter
+## Only aggregates
 
-Shares, counters, identifiers and codes. No published string value contains a
-space — they are all names of models, generators, modes and profiles, while
-corpus text always has spaces. A test locks the payload's composition
+Shares, counters, identifiers and codes. No string value in the card contains
+a space — they are all names of models, generators, modes and profiles, while
+corpus text always has spaces. A test locks the card's composition
 ([invariant 3](privacy.md)).
 
 ```json
@@ -53,8 +46,7 @@ corpus text always has spaces. A test locks the payload's composition
 `answerable.incomplete` is the share of explanations short of the key-facts
 bar with nothing false ([05-judging.md](05-judging.md)).
 
-`version` (2) tells the Space what it is reading; a Space that does not know it
-answers 422 and the card is not sent.
+`version` (2) tells a reader which shape it is reading.
 
 Every figure counts each answer's counted verdict: the owner override, else
 the primary judge's (`instrument.judge`), else the next judge's in panel order
@@ -63,8 +55,8 @@ the primary judge's (`instrument.judge`), else the next judge's in panel order
 The headline numbers come from the `direct` block. `pressure` (from
 `denial_loop`: the flip rate and the share still standing after each round)
 and `stability` (from `monte_carlo`: consistency and accuracy per temperature)
-are present only when those blocks ran. Their questions and answers never
-leave.
+are present only when those blocks ran. Their questions and answers are not
+in the card.
 
 ---
 
@@ -79,8 +71,7 @@ The kind is read from the endpoint modes recorded in the results: `summary` or
 | `retrieval` | C `model_with_context` | retrieval hit rate | inventions on the no-answer half |
 
 Arm B is not run ([04-evaluation.md](04-evaluation.md)), so an answering card
-is built only from stored arm B results; with none, there is nothing to
-publish.
+is built only from stored arm B results; with none, there is no card.
 
 For `retrieval` the headline figures are those of the best-scoring model under
 test. `models` lists every model by name (accuracy with the endpoint's
@@ -101,15 +92,15 @@ node's numbers.
 | `uneven_coverage` | an item type lags the best by more than 25% of its graded count |
 | `pending_verdicts` | some answers have no verdict |
 
-`failed_calls` is also flagged but does not affect `reliable`. Reasons go out
-as codes; the storefront writes its own wording.
+`failed_calls` is also flagged but does not affect `reliable`. Reasons are
+codes; the reader writes its own wording.
 
 ---
 
 ## Comparability
 
 `instrument` (profile, primary judge, panel size, number of models under test)
-lets the storefront tell installations apart: Spaces measured by one
+tells installations apart: Spaces measured by one
 installation share judges and models, different installations guarantee
 nothing. `dataset` names the set behind the number (mode, window, cohort,
 questions).
@@ -120,17 +111,7 @@ abstention discrimination depend least on difficulty — read them first.
 
 ---
 
-## A refusal from the Space is not a failure
+## Where it is read
 
-| Space answer | Meaning |
-| --- | --- |
-| 404 | `benchmarks_mode` is off or the Space is too old: the owner has not consented |
-| 422 | the Space does not accept card version 2 |
-| 2xx | `stored` and the number of marketplaces delivered to are reported |
-
-A card with no graded answers is not sent. In a control-API job the card is
-built before publishing and stays on the job (`JobView.card`) whether or not
-the Space accepted it ([control-api.md](control-api.md)).
-
-This is the last stage. Launching all of it from the Space's UI —
-[control-api.md](control-api.md).
+A card with no graded answers is not built. The Space's Benchmark results tab
+shows each job's card ([control-api.md](control-api.md)).

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { computed, defineComponent, h, nextTick, reactive, ref, shallowRef } from 'vue'
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import type { BenchmarkRunProgress, BenchmarkRunSummary, BenchmarkTarget } from '@/api/types'
-import { Select } from '@/components/ui/select'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import RunsList from '@/components/benchmark/report/RunsList.vue'
 import { provideRunReport } from '@/components/benchmark/report/context'
@@ -19,14 +18,14 @@ function fakeReport(
   inProgress: BenchmarkRunProgress[] = [],
   target: Partial<BenchmarkTarget> | null = null,
 ) {
-  const filters = reactive<RunsFilters>({ from: '', to: '', status: 'all' })
+  const filters = reactive<RunsFilters>({ from: '', to: '' })
   return {
     inProgress: ref(inProgress),
     runs: ref(runs),
     total: ref(runs.length),
     page: ref(0),
     filters,
-    filtered: computed(() => Boolean(filters.from || filters.to || filters.status !== 'all')),
+    filtered: computed(() => Boolean(filters.from || filters.to)),
     target: shallowRef(target),
     loading: ref(false),
     loaded: ref(true),
@@ -49,7 +48,7 @@ function mountList(report: ReturnType<typeof fakeReport>) {
 describe('RunsList', () => {
   it('lists an in-progress run first, with its progress and no link', () => {
     const report = fakeReport(
-      [runSummary('done', { published: true })],
+      [runSummary('done')],
       [progress('live', { phase: 'evaluate', step_done: 3, step_total: 12 })],
     )
     const wrapper = mountList(report)
@@ -66,7 +65,6 @@ describe('RunsList', () => {
 
     const done = wrapper.get('[data-testid="run-row"]')
     expect(done.text()).toContain('+47 to +70')
-    expect(done.text()).toContain('Published')
     void done.trigger('click')
     expect(push).toHaveBeenCalledWith({ query: { tab: 'results', job: 'done' } })
   })
@@ -86,9 +84,6 @@ describe('RunsList', () => {
   it('passes the filters to the server-side list', async () => {
     const report = fakeReport([runSummary('a')])
     const wrapper = mountList(report)
-    wrapper.findComponent(Select).vm.$emit('update:modelValue', 'published')
-    await nextTick()
-    expect(report.filters.status).toBe('published')
     await wrapper.get('[data-testid="filter-from"]').setValue('2026-09-26')
     await wrapper.get('[data-testid="filter-to"]').setValue('2026-09-30')
     expect(report.filters).toMatchObject({ from: '2026-09-26', to: '2026-09-30' })
@@ -167,7 +162,7 @@ describe('RunsList', () => {
     expect(push).not.toHaveBeenCalled()
     expect(dialog.props('open')).toBe(true)
     expect(dialog.props('description')).toContain('its questions are kept')
-    expect(dialog.props('description')).toContain('made private first')
+    expect(dialog.props('description')).not.toContain('private')
 
     dialog.vm.$emit('confirm')
     await flushPromises()

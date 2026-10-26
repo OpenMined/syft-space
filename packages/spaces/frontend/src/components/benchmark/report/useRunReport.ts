@@ -19,10 +19,8 @@ import type {
   BenchmarkRunList,
   BenchmarkRunProgress,
   BenchmarkRunReport,
-  BenchmarkRunStatusFilter,
   BenchmarkRunSummary,
   BenchmarkTarget,
-  QualityMarketplaceResult,
 } from '@/api/types'
 
 /** Same cadence as useBenchmarkJobs. */
@@ -34,12 +32,6 @@ export interface RunsFilters {
   /** `YYYY-MM-DD`, or empty. */
   from: string
   to: string
-  status: BenchmarkRunStatusFilter
-}
-
-export interface PublishOutcome {
-  /** Marketplaces that did not accept the change. */
-  refused: QualityMarketplaceResult[]
 }
 
 /** Hand a blob to the browser as a download. */
@@ -69,7 +61,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
   const inProgress = ref<BenchmarkRunProgress[]>([])
   const runs = ref<BenchmarkRunSummary[]>([])
   const total = ref(0)
-  const filters = reactive<RunsFilters>({ from: '', to: '', status: 'all' })
+  const filters = reactive<RunsFilters>({ from: '', to: '' })
   const page = ref(0)
   const target = shallowRef<BenchmarkTarget | null>(null)
   const loading = ref(false)
@@ -79,7 +71,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
   /** Bumped whenever cached run data is dropped; open views refetch on change. */
   const revision = ref(0)
 
-  const filtered = computed(() => Boolean(filters.from || filters.to || filters.status !== 'all'))
+  const filtered = computed(() => Boolean(filters.from || filters.to))
 
   const reportCache = new Map<string, Promise<BenchmarkRunReport>>()
   const detailCache = new Map<string, Promise<BenchmarkQuestionDetail>>()
@@ -104,7 +96,6 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     const list = await benchmarksApi.listReportRuns(toValue(slug), {
       from: filters.from || undefined,
       to: filters.to || undefined,
-      status: filters.status === 'all' ? undefined : filters.status,
       limit: RUNS_PAGE,
       offset: page.value * RUNS_PAGE,
     })
@@ -164,7 +155,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
   if (getCurrentScope()) onScopeDispose(stopPolling)
 
   watch(
-    () => [filters.from, filters.to, filters.status],
+    () => [filters.from, filters.to],
     () => {
       if (page.value !== 0) page.value = 0
       else void refresh()
@@ -233,19 +224,6 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     )
   }
 
-  /** After an action: drop the run's cached figures and refresh the list quietly. */
-  function changed(jobId: string): void {
-    invalidate(jobId)
-    void poll()
-  }
-
-  /** Publish the card of this run, whatever its age. */
-  async function publish(jobId: string): Promise<PublishOutcome> {
-    const result = await benchmarksApi.publishRun(toValue(slug), jobId)
-    changed(jobId)
-    return { refused: result?.refused ?? [] }
-  }
-
   /** Delete a finished run, then reload the list. */
   async function deleteRun(jobId: string): Promise<void> {
     await benchmarksApi.deleteRun(toValue(slug), jobId)
@@ -272,12 +250,10 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     page,
     refresh,
     isRunning,
-    invalidate,
     loadReport,
     loadQuestions,
     loadQuestion,
     loadFragments,
-    publish,
     deleteRun,
     downloadSummary,
   }

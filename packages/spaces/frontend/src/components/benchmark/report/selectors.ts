@@ -146,7 +146,7 @@ export function repeatsTotal(report: BenchmarkRunReport): number | null {
   return r.trials * Math.max(r.temperatures.length, 1)
 }
 
-/** Status chip of a job that asked no model, in place of Published/Private; null otherwise. */
+/** Status chip of a job that asked no model; null otherwise. */
 export function runStateLabel(
   run: Pick<BenchmarkRunSummary, 'build_only' | 'state' | 'stopped'>,
 ): string | null {

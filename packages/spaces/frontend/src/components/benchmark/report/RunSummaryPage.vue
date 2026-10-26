@@ -4,9 +4,6 @@
       <div class="space-y-0.5">
         <div class="flex flex-wrap items-center gap-2.5">
           <h1 class="heading-3">Run of {{ dayTime(utcStamp(data.run.created_at)) }}</h1>
-          <Badge variant="outline" :class="published ? PUBLISHED_TONE : PRIVATE_TONE">
-            {{ published ? 'Published' : 'Private' }}
-          </Badge>
           <Badge
             v-if="stoppedLabel(data.run)"
             variant="outline"
@@ -30,20 +27,8 @@
         >
           Download summary
         </Button>
-        <Button v-if="!published" :disabled="publishing" data-testid="publish" @click="publish">
-          Publish scores
-        </Button>
       </div>
     </div>
-
-    <p
-      v-if="justPublished"
-      role="status"
-      class="rounded-md bg-primary/10 px-3.5 py-2.5 text-sm text-primary"
-      data-testid="published-note"
-    >
-      Published. Scores from this run are now public; questions and articles stay private.
-    </p>
 
     <div
       class="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-lg border border-border bg-card px-4 py-3 text-sm"
@@ -240,7 +225,6 @@
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { ChevronRight } from 'lucide-vue-next'
-import type { QualityMarketplaceResult } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import BuildPhases from '../BuildPhases.vue'
@@ -267,8 +251,6 @@ import {
   tookText,
 } from './timeCost'
 
-const PUBLISHED_TONE = 'border-transparent bg-primary/10 text-primary'
-const PRIVATE_TONE = 'border-transparent bg-muted text-muted-foreground'
 const STOPPED_TONE = 'border-transparent bg-amber-500/10 text-amber-700 dark:text-amber-400'
 const TILE =
   'flex flex-col gap-0.5 border-b border-border px-5 py-4 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0'
@@ -276,7 +258,6 @@ const TILE =
 const report = useReport()
 const { jobId, slug, data } = useRun()
 
-const published = computed(() => data.value?.run.published ?? false)
 /** No model was asked: the page shows what the job wrote and filtered. */
 const buildOnly = computed(() => data.value?.run.build_only ?? false)
 const header = computed(() => (data.value ? runHeaderText(data.value) : null))
@@ -313,8 +294,6 @@ function ofText(right: number, graded: number): string {
 }
 
 const downloading = ref(false)
-const publishing = ref(false)
-const justPublished = ref(false)
 
 async function download(): Promise<void> {
   downloading.value = true
@@ -324,31 +303,6 @@ async function download(): Promise<void> {
     toast.error(apiErrorDetail(e, 'Could not download the summary'))
   } finally {
     downloading.value = false
-  }
-}
-
-function refusedText(refused: QualityMarketplaceResult[]): string {
-  return refused
-    .map((r) => {
-      const why = r.error || r.message
-      return why ? `${r.marketplace_name}: ${why}` : r.marketplace_name
-    })
-    .join('; ')
-}
-
-async function publish(): Promise<void> {
-  publishing.value = true
-  try {
-    const { refused } = await report.publish(jobId)
-    justPublished.value = true
-    if (refused.length)
-      toast.warning(`${refused.length} marketplace(s) refused the scores`, {
-        description: refusedText(refused),
-      })
-  } catch (e) {
-    toast.error(apiErrorDetail(e, 'Could not publish this run'))
-  } finally {
-    publishing.value = false
   }
 }
 </script>

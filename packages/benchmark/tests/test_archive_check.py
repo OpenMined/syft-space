@@ -20,6 +20,7 @@ from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.generation import control, decisions, filter_stage, web_check
 from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.llm import LLMError
+from syft_benchmark.runs import endpoint as run_endpoint
 from syft_benchmark.runs import judge as run_judge
 
 SPACE = "pytest-archive-check"
@@ -396,3 +397,84 @@ def test_a_multiple_choice_answer_goes_in_without_its_letter(
     _screen(row, _archive)
 
     assert "Expected answer:\nHarbourton council\n" in prompts[0]
+
+
+# --- a failed endpoint is not an empty retrieval ------------------------------
+
+HTTP_502 = {
+    "answer": f"{run_judge.ERROR_PREFIX} HTTP 502: Bad Gateway",
+    "documents": [],
+    "latency": 0.1,
+    "failed": True,
+}
+NOTHING_FOUND = {"answer": "x", "documents": [], "latency": 0.1, "failed": False}
+
+
+def _endpoint(
+    monkeypatch: pytest.MonkeyPatch, outcome: dict[str, Any]
+) -> control.Retriever:
+    """The real endpoint retriever over a stubbed endpoint call."""
+    monkeypatch.setattr(run_endpoint, "ask_endpoint", lambda *_a, **_k: outcome)
+    return run_endpoint.endpoint_retriever(_space(), _settings())
+
+
+def test_the_retriever_raises_on_a_failed_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    retrieve = _endpoint(monkeypatch, HTTP_502)
+
+    with pytest.raises(run_endpoint.EndpointFailed, match="HTTP 502") as err:
+        retrieve(ANSWERABLE)
+    assert run_judge.ERROR_PREFIX not in str(err.value)
+
+
+def test_a_failed_endpoint_leaves_an_ordinary_pair_unchecked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    models = _Models(monkeypatch)
+
+    status, reason, note, meta = _screen(
+        _pair("ok", ANSWERABLE), _endpoint(monkeypatch, HTTP_502)
+    )
+
+    assert (status, reason) == (PairStatus.PENDING, None)
+    assert note.startswith(filter_stage.ARCHIVE_RETRY)
+    assert "HTTP 502" in note
+    assert meta["gate_checked"] is False
+    assert models.gate == []
+
+
+def test_a_failed_endpoint_never_admits_a_control_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    models = _Models(monkeypatch)
+    row = _pair(
+        "missing", "What colour is the keeper's car?", "", "unanswerable_property"
+    )
+
+    status, _, note, meta = _screen(row, _endpoint(monkeypatch, HTTP_502))
+
+    assert status is not PairStatus.ACTIVE
+    assert "HTTP 502" in note
+    assert meta["gate_checked"] is False
+    assert models.gate == []
+
+
+def test_an_empty_retrieval_keeps_its_verdicts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    models = _Models(monkeypatch)
+    retrieve = _endpoint(monkeypatch, NOTHING_FOUND)
+
+    status, reason, _, meta = _screen(_pair("ok", ANSWERABLE), retrieve)
+    assert (status, reason) == (PairStatus.REJECTED, StatusReason.NOT_ANSWERABLE)
+    assert meta["gate_checked"] is True
+
+    row = _pair(
+        "missing", "What colour is the keeper's car?", "", "unanswerable_property"
+    )
+    status, _, note, meta = _screen(row, retrieve)
+    assert status is PairStatus.ACTIVE
+    assert note == "retrieval returned nothing"
+    assert meta["gate_checked"] is True
+    assert models.gate == []

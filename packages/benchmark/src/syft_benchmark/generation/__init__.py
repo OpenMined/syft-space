@@ -1,7 +1,7 @@
-"""Stage 1: building the "question — gold answer" dataset.
+"""Stage 2: building the "question — gold answer" dataset.
 
-Stage 2, deciding which of what stage 1 built is fit to measure with, is
-``filter_stage`` — a separate pass, not a step of this one.
+Deciding which of what was built is fit to measure with is ``filter_stage``
+— a separate pass, not a step of the build.
 """
 
 from syft_benchmark.generation.control import (

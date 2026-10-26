@@ -21,7 +21,7 @@ uv run alembic upgrade head   # schema
 uv run syft-benchmark secrets keygen >> .env       # the master key for secrets
 ```
 
-The benchmark's Postgres (port 5442, `BENCH_DB_PORT`) is separate from the
+The benchmark's Postgres (host port 5442 on 127.0.0.1, `BENCH_DB_PORT`) is separate from the
 Space's database. It holds a third copy of corpus content — gold answers often
 quote the source, and retrieved chunks and prompts are stored whole — and is
 protected like the corpus; see [privacy.md](privacy.md) and

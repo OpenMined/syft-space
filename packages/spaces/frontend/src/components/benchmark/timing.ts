@@ -6,7 +6,7 @@ const PHASES: Record<string, string> = {
   filter: 'Filter',
   evaluate: 'Evaluate',
   judge: 'Judge',
-  publish: 'Publish',
+  report: 'Report',
 }
 
 export function phaseLabel(phase: string): string {

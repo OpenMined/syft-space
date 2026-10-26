@@ -1,20 +1,13 @@
 <template>
   <div class="space-y-1.5">
     <Popover v-model:open="open">
-      <!-- The anchor is the whole control, not the part that opens the list:
-           that is what the popover takes its width from, and a list narrower
-           than the field it belongs to reads as a different control. -->
+      <!-- Anchored to the whole control so the list matches its width. -->
       <PopoverAnchor as-child>
         <div
           class="flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
           :class="warn ? 'border-amber-500' : 'border-input'"
         >
-          <!-- Several models are chips, one is a line of text: a single model
-               shown as a chip reads as "one of many".
-
-               Each chip's remove control is a button of its own and sits
-               OUTSIDE the one that opens the list — nested inside it, a click
-               would reach the button around it and open the picker. -->
+          <!-- Chips for multiple models; remove buttons sit outside the trigger. -->
           <template v-if="multiple">
             <Badge
               v-for="id in selected"
@@ -67,8 +60,7 @@
           />
         </div>
 
-        <!-- The vendors come from the catalogue, not from a list on this side:
-             a benchmark whose provider adds a vendor gets it here the same day. -->
+        <!-- Vendors come from the catalogue. -->
         <div
           v-if="catalog.vendors.length"
           class="flex flex-wrap gap-1 border-b border-border/50 px-2 py-2"
@@ -129,9 +121,7 @@
           </p>
 
           <template v-else>
-            <!-- A name that means a different model every few months. Offered
-                 as the convenient way to say "the current one", but what is
-                 stored is the model it means today. -->
+            <!-- Moving names (`~vendor/x-latest`); the pinned model is stored. -->
             <button
               v-for="[name, target] in movingMatches"
               :key="name"
@@ -200,8 +190,7 @@
               and {{ hidden }} more — narrow the search
             </p>
 
-            <!-- The catalogue is not a whitelist: a model released this
-                 morning is in no snapshot. -->
+            <!-- A typed name not in the catalogue can still be used. -->
             <button
               v-if="custom"
               type="button"
@@ -211,7 +200,7 @@
               <span class="min-w-0">
                 <span class="block truncate text-sm text-foreground">Use “{{ custom }}”</span>
                 <span class="block truncate text-[11px] text-muted-foreground">
-                  not in the catalogue — it will be sent exactly as written
+                  not in the catalogue; sent as written
                 </span>
               </span>
               <Badge variant="outline" class="shrink-0 font-normal">as typed</Badge>
@@ -244,26 +233,16 @@
 
     <p v-if="error" class="text-xs text-destructive">{{ error }}</p>
 
-    <!-- A stored value the catalogue has never heard of: it may be newer than
-         the snapshot, and it may be a typo. -->
     <p v-if="unknown.length" class="text-xs text-muted-foreground">
-      Not in the catalogue: {{ unknown.join(', ') }}. It will be sent as written.
+      Not in the catalogue, sent as written: {{ unknown.join(', ') }}
     </p>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * Choosing models by picking rather than by spelling: a typo in a model name is
- * found by the provider, not by the form, and costs a paid run.
- *
- * Nothing here knows which field it is drawing. The benchmark marks a field
- * with `catalog: "models"` and this fetches that catalogue — the same rule by
- * which `/schema` describes fields rather than the form knowing them by name.
- *
- * What the picker shows and what it stores differ for `~vendor/thing-latest`
- * names: it stores the model such a name means today, because a measurement
- * recorded under a moving name cannot be repeated.
+ * Model picker over the benchmark's catalogue. A moving name
+ * (`~vendor/thing-latest`) is stored as the model it currently points to.
  */
 import { computed, ref, watch } from 'vue'
 import { Check, ChevronsUpDown, Search, X } from 'lucide-vue-next'
@@ -282,16 +261,15 @@ import type { ModelFilter } from '@/components/benchmark/setup/setupForm'
 import { useModelCatalog } from '@/composables/useModelCatalog'
 import type { BenchmarkModel } from '@/api/types'
 
-// The rest are a line saying how many: three hundred rows in a popover are
-// slower to scroll than to narrow.
+// Rows shown; the rest are counted.
 const SHOWN = 80
 
 const props = withDefaults(
   defineProps<{
     modelValue?: string | string[]
-    /** A panel of judges and a list of models under test take several. */
+    /** Allow several models. */
     multiple?: boolean
-    /** Which benchmark's catalogue. Without it the picker still takes a typed name. */
+    /** Which benchmark's catalogue; without it only typed names work. */
     connectionId?: string
     placeholder?: string
     /** Models not offered, such as the ones other slots already hold. */
@@ -324,8 +302,7 @@ const query = ref('')
 const vendor = ref('')
 const filters = ref<ModelFilter[]>([])
 
-// Loaded with the page: the chosen models are shown by their catalogue names.
-// The cache makes every picker on a page share one request.
+// Loaded up front so chosen models show their names; pickers share one cached request.
 watch(
   () => props.connectionId,
   (id) => {
@@ -346,7 +323,7 @@ function label(id: string): string {
   return modelName(id, byId.value.get(id))
 }
 
-/** Chosen values the catalogue does not know — newer than it, or a typo. */
+/** Chosen values not in the catalogue. */
 const unknown = computed(() =>
   catalog.value.models.length ? selected.value.filter((id) => !byId.value.has(id)) : [],
 )
@@ -371,7 +348,7 @@ const hidden = computed(() => matches.value.length - shown.value.length)
 
 const movingMatches = computed(() => {
   if (vendor.value) return []
-  // A moving name has no capabilities of its own; the model it means today does.
+  // Filters apply to the model a moving name points to.
   if (filters.value.length) {
     return Object.entries(catalog.value.pins).filter(([name, target]) => {
       const entry = byId.value.get(target)
@@ -390,7 +367,7 @@ const movingMatches = computed(() => {
   )
 })
 
-/** The typed text, when it is not already an entry — offered as it stands. */
+/** The typed text, when it is not a catalogue entry. */
 const custom = computed(() => {
   const typed = query.value.trim()
   if (!typed || byId.value.has(typed) || props.exclude.includes(typed)) return ''
@@ -425,7 +402,7 @@ function trim(value: number): string {
 
 function write(next: string[]): void {
   if (props.multiple) {
-    // An empty list reads as "not set here", as everywhere else in this form.
+    // An empty list means not set.
     emit('update:modelValue', next.length ? next : undefined)
     return
   }
@@ -447,7 +424,7 @@ function choose(id: string): void {
   open.value = false
 }
 
-/** Enter takes the obvious one: the first match, or the typed name. */
+/** Enter picks the first match, or the typed name. */
 function takeFirst(): void {
   const first = movingMatches.value[0]?.[1] ?? shown.value[0]?.id ?? custom.value
   if (first) choose(first)

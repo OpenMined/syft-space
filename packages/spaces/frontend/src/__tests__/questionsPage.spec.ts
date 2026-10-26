@@ -138,7 +138,6 @@ describe('QuestionsPage', () => {
       group: undefined,
       generator: undefined,
       q: undefined,
-      excluded: 'hide',
       limit: 25,
       offset: 0,
     })
@@ -271,7 +270,11 @@ describe('QuestionsPage', () => {
               { url: 'javascript:alert(1)', title: 'Bad' },
             ],
           },
-          with: { ...base.arms.with!, web_search_unused: true },
+          with: {
+            ...base.arms.with!,
+            web_search_unused: true,
+            web_search_unused_reason: 'The model chose not to search.',
+          },
         },
       }
     })
@@ -288,7 +291,9 @@ describe('QuestionsPage', () => {
     expect(alone.find('[data-testid="searched-no"]').exists()).toBe(false)
 
     const withData = wrapper.get('[data-testid="answer-ctx"]')
-    expect(withData.get('[data-testid="searched-no"]').text()).toBe('Searched: no')
+    const searchedNo = withData.get('[data-testid="searched-no"]')
+    expect(searchedNo.text()).toBe('Searched: no')
+    expect(searchedNo.attributes('title')).toBe('The model chose not to search.')
     expect(withData.find('[data-testid="citations"]').exists()).toBe(false)
   })
 

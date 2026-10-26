@@ -1,14 +1,8 @@
-"""What the benchmark pages send and receive.
+"""Benchmark API schemas.
 
-Settings travel as open documents — ``dict[str, Any]`` — and that is the whole
-design, not a shortcut. The Space stores what the owner set and hands it to the
-benchmark; naming the fields here would mean a migration in this repository
-every time the benchmark grows a knob, and a forgotten migration would mean a
-form that silently cannot configure something that already works.
-
-What *is* named here is everything the Space itself decides: which benchmark,
-which endpoint, on or off, when. Those are the owner's answers, and they are
-the Space's business.
+Measurement settings are open ``dict[str, Any]`` documents owned by the
+benchmark; only what the Space itself decides (connection, endpoint, on/off,
+schedule) is typed here.
 """
 
 from datetime import datetime
@@ -23,20 +17,9 @@ class ConnectionRequest(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=120)
     url: str = Field(..., min_length=1, description="Base URL of the control API")
-    console_url: str = Field(
-        default="",
-        description=(
-            "Base URL a browser can reach the console at, if different from "
-            "`url`. Empty falls back to `url`"
-        ),
-    )
     token: str | None = Field(
         default=None,
-        description=(
-            "Control key. Omit to keep the stored one — the form is never told "
-            "what it is, so it cannot send it back, and without this rule "
-            "renaming a connection would silently revoke its access"
-        ),
+        description=("Control key. Omit to keep the stored one"),
     )
 
     space_url: str = Field(
@@ -49,31 +32,25 @@ class ConnectionRequest(BaseModel):
     is_default: bool = False
     is_active: bool = True
 
-    @field_validator("url", "console_url")
+    @field_validator("url")
     @classmethod
     def strip_trailing_slash(cls, value: str) -> str:
         return value.rstrip("/")
 
 
 class ConnectionSettings(BaseModel):
-    """The two layers of settings the owner set for this benchmark.
-
-    Sent whole, not patched: the form shows the settings as one document, and
-    with a patch a cleared field would be indistinguishable from a field the
-    form did not send — so clearing one would be impossible.
-    """
+    """Connection-wide measurement settings, sent whole so cleared fields are cleared."""
 
     instrument: dict[str, Any] = Field(default_factory=dict)
     probe: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConnectionResponse(BaseModel):
-    """A connection as the settings page sees it. Never carries the key."""
+    """A connection, without its key."""
 
     id: UUID
     name: str
     url: str
-    console_url: str
     has_token: bool
 
     space_url: str
@@ -84,8 +61,7 @@ class ConnectionResponse(BaseModel):
     instrument: dict[str, Any] = Field(default_factory=dict)
     probe: dict[str, Any] = Field(default_factory=dict)
 
-    # What the benchmark last told us about itself. Stale on purpose: a
-    # benchmark that is down should not make this page unopenable.
+    # The benchmark's cached self-description.
     reachable: bool = False
     detail: str = ""
     checked_at: datetime | None = None
@@ -99,13 +75,10 @@ class ConnectionResponse(BaseModel):
 
 
 class ProviderRole(BaseModel):
-    """One provider role, as the connection page draws it.
+    """One provider role.
 
-    ``url`` is the override this connection has set; blank means "take the
-    installation's own default", shown separately in ``url_default`` so an
-    empty box reads as inherited rather than as a broken address. The key
-    itself never travels here — only whether one is set and since when, the
-    same thing `GET /credentials` on the benchmark says about itself.
+    Blank ``url`` means the benchmark's default, given in ``url_default``. The
+    key is never returned, only whether it is set and when.
     """
 
     url: str = ""
@@ -128,12 +101,7 @@ class ProviderResponse(BaseModel):
 
 
 class ProviderUrls(BaseModel):
-    """The provider addresses, sent whole.
-
-    Whole rather than patched, for the same reason as ``ConnectionSettings``:
-    a field the owner cleared must be indistinguishable from one the form
-    simply did not send.
-    """
+    """Provider URLs, sent whole so cleared fields are cleared."""
 
     ollama_url: str = ""
     generator_url: str = ""
@@ -162,24 +130,19 @@ class TargetRequest(BaseModel):
     probe: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "What differs for this endpoint. Unset fields fall back to the "
-            "connection's, and those to the benchmark's own defaults"
+            "Per-endpoint probe settings. Unset fields fall back to the "
+            "connection's, then to the benchmark's defaults"
         ),
     )
     instrument: dict[str, Any] = Field(
         default_factory=dict,
         description=(
             "Arms, blocks, judges, subject models and thresholds for this "
-            "endpoint alone. Unset fields fall back to the connection's, and "
-            "those to the benchmark's own defaults"
+            "endpoint. Unset fields fall back to the connection's, then to "
+            "the benchmark's defaults"
         ),
     )
-    # The benchmark watches these itself and measures without being asked.
-    #
-    # The hour is UTC, and the form is obliged to say so. The benchmark keeps
-    # and fires it in UTC because a service in a container has no way of
-    # knowing what the owner's night is, and one that took its own clock for it
-    # would shift every schedule the day its host moved.
+    # The benchmark runs the schedule itself, in UTC.
     schedule: str = Field(
         default="",
         description="An interval such as 24h or 6h; empty — measure on request only",
@@ -187,26 +150,23 @@ class TargetRequest(BaseModel):
     schedule_at: str = Field(
         default="",
         description=(
-            "The hour of the launch, HH:MM, IN UTC. It applies to a daily "
-            "interval; on a shorter one the step runs from the previous launch"
+            "Launch time, HH:MM UTC, for a daily interval; shorter intervals "
+            "count from the previous launch"
         ),
     )
 
 
 class JobResponse(BaseModel):
-    """A run in flight, or the last one that finished."""
+    """A benchmark job."""
 
     id: str
     state: str
     phase: str
     kind: str = "pipeline"
-    # Passes finished out of passes planned. Zero as the total means the scale
-    # is not known yet, not that there is nothing to do.
+    # Passes done of planned; total 0 means not known yet.
     done: int = 0
     total: int = 0
-    # What is running right now, and how far into itself it is. Two counts
-    # rather than one: passes and the questions inside a pass are different
-    # units, and merged into a single bar they misreport both.
+    # The current pass and its progress in questions.
     arm: str = ""
     block: str = ""
     model: str = ""
@@ -215,10 +175,7 @@ class JobResponse(BaseModel):
     message: str = ""
     error: str = ""
     trigger: str = ""
-    # The card assembled after measuring, in the shape a marketplace is handed
-    # — present whether or not this run was published. None until the job has
-    # measured something to build one from, or when it never asked at all
-    # (a launch that only refreshed the question set).
+    # The card built after measuring; None if nothing was graded.
     card: dict[str, Any] | None = None
     created_at: datetime | None = None
     started_at: datetime | None = None
@@ -228,14 +185,14 @@ class JobResponse(BaseModel):
 
 
 class TargetResponse(BaseModel):
-    """How this endpoint is measured, and where its last run got to."""
+    """This endpoint's benchmark settings and last job."""
 
     endpoint_slug: str
     measured: bool = Field(
         default=False,
         description=(
-            "Whether this endpoint has been opted into measuring at all. False "
-            "is not a score of zero and must never be rendered as one"
+            "Whether this endpoint is opted into measuring. False is not a "
+            "score of zero"
         ),
     )
     connection_id: UUID | None = None
@@ -250,20 +207,16 @@ class TargetResponse(BaseModel):
     instrument: dict[str, Any] = Field(default_factory=dict)
     schedule: str = ""
     schedule_at: str = ""
-    # When the benchmark will next fire this schedule, in UTC. Asked of the
-    # benchmark rather than worked out here: it is the one that decides, and
-    # two computations of one moment part company on exactly the question this
-    # is displayed to answer — "why has it not run yet".
+    # Next scheduled run in UTC, as reported by the benchmark.
     next_run_at: datetime | None = None
     synced_at: datetime | None = None
 
-    # Copied from the connection so the endpoint page can draw its form without
-    # a second request — it is the same form, with one layer more.
+    # Copied from the connection so the endpoint form needs no second request.
     fields: dict[str, Any] = Field(default_factory=dict)
     defaults: dict[str, Any] = Field(default_factory=dict)
     capabilities: dict[str, Any] = Field(
         default_factory=dict,
-        description="What this installation offers — arms, generators, models",
+        description="What the benchmark offers: arms, generators, models",
     )
     connection_probe: dict[str, Any] = Field(
         default_factory=dict,
@@ -289,13 +242,7 @@ class WindowResponse(BaseModel):
 
 
 class CheckResponse(BaseModel):
-    """Whether the benchmark can reach this endpoint's index and API.
-
-    Both roads are reported separately because they are separate: the index is
-    reached directly, the endpoint over HTTP, and one can work while the other
-    does not. A single "available" flag would hide exactly the half that is
-    missing.
-    """
+    """Whether the benchmark can reach this endpoint's index and its HTTP API, separately."""
 
     ok: bool = False
     corpus: bool = False
@@ -314,7 +261,7 @@ class CheckResponse(BaseModel):
 
 
 class RunRequest(BaseModel):
-    """Measure now."""
+    """Start a run."""
 
     generate: bool | None = Field(
         default=None,
@@ -322,51 +269,18 @@ class RunRequest(BaseModel):
     )
     filter: bool | None = Field(
         default=None,
-        description=(
-            "Screen the pending pairs generation just built; empty — follow "
-            "`generate`, so a launch that built a set also decides what of it "
-            "is fit"
-        ),
+        description=("Filter the pending pairs; empty — follow `generate`"),
     )
     evaluate: bool | None = Field(
         default=None,
-        description=(
-            "Ask and grade after the question set is built; empty — yes. Off "
-            "for a launch that only wants the set refreshed and nothing asked "
-            "against it yet"
-        ),
+        description=("Ask and grade after the question set is built; empty — yes"),
     )
     defer_judging: bool = Field(
         default=False,
-        description=(
-            "Collect answers without calling a judge, leaving every verdict "
-            "pending for a later judging pass to grade"
-        ),
-    )
-    publish: bool = Field(
-        default=True, description="Hand the card over when the run finishes"
+        description=("Collect answers without judging; verdicts stay pending"),
     )
     limit: int | None = Field(
         default=None,
         ge=1,
-        description=(
-            "Questions per generator, for a trial run. Publishing follows "
-            "`publish` here too — the thin sample is named in the card rather "
-            "than hidden"
-        ),
+        description=("Questions per generator, for a trial run; noted on the card"),
     )
-
-
-class SessionResponse(BaseModel):
-    """A link into the benchmark's own console — generation, filtering,
-    execution, judging and the report, all in one place.
-
-    ``url`` already carries the token; there is nothing else for the owner
-    to do with this besides opening it. It is scoped to this one endpoint
-    and expires — see ``syft_benchmark.control.session`` on the benchmark's
-    side, which actually mints and checks it. This Space never validates or
-    stores it; it only asks for one and hands the link on.
-    """
-
-    url: str
-    expires_at: datetime

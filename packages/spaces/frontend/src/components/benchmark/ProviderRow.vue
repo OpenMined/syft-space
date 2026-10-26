@@ -1,19 +1,12 @@
 <script setup lang="ts">
-/**
- * One provider role: what it sends and where, its address, and its key.
- *
- * The address is part of the whole-document save the page around this does;
- * the key is not — it is set or cleared immediately, one call each, because
- * it never travels back to be edited in place.
- */
+/** One provider role: what it sends and where, its address, and its key (saved on its own). */
 import { computed, ref } from 'vue'
-import { ArrowUpRight, HardDrive } from 'lucide-vue-next'
 import InfoTip from '@/components/benchmark/InfoTip.vue'
-import { hostOf, type KeySource } from '@/components/benchmark/modelAccess'
+import LocalityChip from '@/components/benchmark/LocalityChip.vue'
+import { localityTip, type KeySource } from '@/components/benchmark/modelAccess'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 const props = defineProps<{
   label: string
@@ -45,12 +38,7 @@ const emit = defineEmits<{
 
 const keyInput = ref('')
 
-const whereTip = computed(() => {
-  const host = hostOf(props.target) || 'the default address'
-  return props.local
-    ? `Sent to ${host}, on this machine or its Docker network.`
-    : `Sent to ${host}, outside this machine.`
-})
+const whereTip = computed(() => localityTip(props.target, 'Sent to'))
 
 function saveKey() {
   if (!keyInput.value) return
@@ -72,25 +60,7 @@ function saveKey() {
         </p>
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
-        <TooltipProvider v-if="sends">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <span
-                class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md cursor-default"
-                :class="
-                  local
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                    : 'bg-sky-500/10 text-sky-700 dark:text-sky-400'
-                "
-                data-testid="locality"
-              >
-                <component :is="local ? HardDrive : ArrowUpRight" class="h-3 w-3" />
-                {{ local ? 'Stays local' : 'Leaves machine' }}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent class="max-w-64">{{ whereTip }}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <LocalityChip v-if="sends" :local="local" :tip="whereTip" />
         <span
           class="text-xs px-2 py-1 rounded-md"
           :class="

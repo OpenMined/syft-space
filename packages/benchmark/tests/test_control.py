@@ -530,7 +530,6 @@ def test_the_job_row_says_nothing_a_renderer_would_have_to_translate() -> None:
     ours = {
         job_queue.TARGET_GONE,
         job_queue.NO_CARD,
-        job_queue.PUBLISH_REFUSED,
         job_queue.SERVICE_RESTARTED,
         job_queue.NOTHING_GRADED,
         job_queue.NO_QUESTIONS,
@@ -710,8 +709,6 @@ def test_progress_counts_passes_and_questions_separately() -> None:
         finished_at=None,
     )
     assert job.share == 2 / 6
-    assert job.questions_total == 720
-    assert job.questions_done == 2 * 120 + 30
 
 
 def test_the_scale_of_the_run_is_unknown_until_the_first_pass_picks_tasks() -> None:
@@ -737,7 +734,6 @@ def test_the_scale_of_the_run_is_unknown_until_the_first_pass_picks_tasks() -> N
         finished_at=None,
     )
     assert job.share is None
-    assert job.questions_total == 0
 
 
 # --- carrying the cancellation into the measurement -------------------------
@@ -823,7 +819,7 @@ def test_a_phase_that_writes_nothing_can_still_ask_whether_to_stop(clean: Any) -
         session.execute(delete(Job).where(Job.id == "pytest-ask"))
 
 
-# --- the phase routes: filter, judge, report, publish, retract ---------------
+# --- the phase routes: filter, judge, report ---------------------------------
 
 
 @needs_db
@@ -870,20 +866,6 @@ def test_report_with_nothing_graded_yet_is_a_conflict(
         headers=AUTH,
     )
     assert client.post(f"/targets/{KEY}/report", headers=AUTH).status_code == 409
-    assert client.post(f"/targets/{KEY}/publish", headers=AUTH).status_code == 409
-
-
-@needs_db
-def test_retract_against_an_unreachable_space_is_a_bad_gateway(
-    client: TestClient, clean: Any
-) -> None:
-    """The Space at this URL cannot really be reached — retract must say so, not 200."""
-    client.put(
-        f"/targets/{KEY}",
-        json=TargetSpec(key=KEY, url="http://space.invalid").model_dump(mode="json"),
-        headers=AUTH,
-    )
-    assert client.post(f"/targets/{KEY}/retract", headers=AUTH).status_code == 502
 
 
 @needs_db

@@ -68,7 +68,3 @@ export function questionsLocation(jobId: string, modelId: string): RouteLocation
 export function checksLocation(jobId: string, modelId: string): RouteLocationRaw {
   return at({ job: jobId, model: modelId, screen: 'checks' })
 }
-
-export function technicalLocation(cardId?: string | null): RouteLocationRaw {
-  return at(cardId ? { view: 'technical', run: cardId } : { view: 'technical' })
-}

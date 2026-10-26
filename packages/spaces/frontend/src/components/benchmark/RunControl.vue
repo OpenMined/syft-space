@@ -29,7 +29,7 @@
     </Button>
   </section>
 
-  <!-- The negative bottom margin eats the page's bottom padding, so the bar ends flush with the page. -->
+  <!-- Negative bottom margin keeps the bottom bar flush with the page. -->
   <div
     v-else-if="target && form"
     class="-mb-10 flex flex-col gap-6 lg:-mb-12"
@@ -383,6 +383,18 @@
               </span>
             </span>
           </label>
+          <span v-if="form.webAlone" class="flex items-center gap-2 pl-6.5">
+            <Label for="bm-web-searches" class="text-xs font-normal text-muted-foreground">
+              Searches per answer, at most
+            </Label>
+            <NumberInput
+              id="bm-web-searches"
+              v-model="form.webMaxSearches"
+              :min="0"
+              :max="WEB_SEARCHES_MAX"
+              title="0 means the provider’s own limit (30)."
+            />
+          </span>
           <label class="flex cursor-pointer items-start gap-2.5">
             <Checkbox v-model="form.webWithData" class="mt-0.5" />
             <span class="flex flex-col">
@@ -697,6 +709,15 @@
             <NumberInput id="bm-failures" v-model="form.maxFailures" :min="0" />
           </SettingRow>
           <SettingRow
+            label="Stop at spending"
+            help="0 never stops."
+            tip="A run stops once its model calls cost this much."
+            unit="USD"
+            for-id="bm-max-usd"
+          >
+            <NumberInput id="bm-max-usd" v-model="form.maxJobUsd" :min="0" :step="50" />
+          </SettingRow>
+          <SettingRow
             label="Reuse identical answers"
             help="Turn off to measure how much answers vary."
             for-id="bm-reuse"
@@ -878,6 +899,7 @@ import {
   KINDS,
   MANUAL_PRIORITIES,
   MODEL_CONCURRENCY_MAX,
+  WEB_SEARCHES_MAX,
   SCHEDULES,
   TEXT_METRICS,
   WEB_ENGINES,
@@ -1051,8 +1073,7 @@ const windowLabel = computed(() => {
   return days === 1 ? 'Added in the last 24 hours' : `Added in the last ${days} days`
 })
 
-// Counted by the benchmark with the rule its generation uses, so the number
-// here is the number of articles a run will read.
+// Counted by the benchmark with its generation rule.
 let windowAsk = 0
 async function loadWindow(): Promise<void> {
   const ask = ++windowAsk
@@ -1269,7 +1290,7 @@ async function stopRun(): Promise<void> {
   }
 }
 
-// A run that just finished has new results to point at.
+// Reload after a run finishes.
 watch(
   () => activeJob.value?.id,
   (now, before) => {

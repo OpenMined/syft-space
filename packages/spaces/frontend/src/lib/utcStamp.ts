@@ -1,9 +1,4 @@
-/**
- * Helpers for folder names stamped with a UTC moment, e.g. the news
- * collector's run folders `2026-10-07_1900_UTC` (optionally suffixed `_2`,
- * `_3`, ... on collision). The UI shows the same moment in the viewer's time
- * zone next to such names.
- */
+/** Folder names stamped with a UTC moment, e.g. `2026-10-07_1900_UTC` (or `_2`, `_3` on collision). */
 
 const UTC_STAMP_RE = /^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})_UTC(?:_[1-9]\d*)?$/
 

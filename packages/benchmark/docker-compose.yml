@@ -57,11 +57,11 @@ services:
         condition: service_healthy
 
     ports:
-      - "${BENCH_CONTROL_PORT:-8200}:8200"
+      - "127.0.0.1:${BENCH_CONTROL_PORT:-8200}:8200"
 
     # What is left in .env: the control key, the master key for the stored
     # secrets, and the perimeter. Everything else the installation configures is
-    # in its database now.
+    # in its database.
     #
     # BENCH_SECRET_KEY is deliberately NOT repeated in `environment` below. An
     # entry there wins over the file, so a shell without that variable exported

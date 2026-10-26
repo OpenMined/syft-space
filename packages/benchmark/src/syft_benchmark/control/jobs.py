@@ -41,16 +41,15 @@ from syft_benchmark.db.models import (
     Result,
     Run,
     RunAggregate,
-    RunExclusion,
     Target,
 )
 from syft_benchmark.db.run_cache import invalidate_run
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation import decisions, filter_and_rotate
 from syft_benchmark.llm.cost import CostMeter, cost_meter, meter_for, openrouter_spend
-from syft_benchmark.publish import payload_for, publish
 from syft_benchmark.report import run_view
 from syft_benchmark.report.card import build as build_card
+from syft_benchmark.report.card import payload_for
 from syft_benchmark.runs import endpoint_retriever, judge_pending
 from syft_benchmark.runs.parallel import Progress
 from syft_benchmark.runs.timing import CallClock, JobClock, PassTime
@@ -75,15 +74,11 @@ BEAT_SECONDS = 2.0
 # is worse than showing it untranslated.
 TARGET_GONE = "target_gone"
 NO_CARD = "no_card"
-PUBLISH_REFUSED = "publish_refused"
 SERVICE_RESTARTED = "service_restarted"
 NOTHING_GRADED = "nothing_graded"
 NO_QUESTIONS = "no_questions"
 NOTHING_GENERATED = "nothing_generated"
 OVER_BUDGET = "over_budget"
-
-# A job whose priced calls reach this many USD is stopped, as if by the owner.
-MAX_JOB_USD = 100.0
 
 # The job's evaluation plan in its params (report API, "Progress plan").
 PROGRESS_PLAN = "progress_plan"
@@ -129,6 +124,13 @@ class Reporter:
         self.cancelled = False
         # The USD spent when the cap stopped the job; None — it did not.
         self.over_budget: float | None = None
+        # The job's cap (``max_job_usd``); the node's value is set once the
+        # job's layers are known. Zero — no cap.
+        self.max_usd: float = (
+            settings.max_job_usd
+            if settings is not None
+            else Settings.model_fields["max_job_usd"].default
+        )
         self.arm = ""
         self.block = ""
         self.model = ""
@@ -234,12 +236,14 @@ class Reporter:
         """The job's error line when the cap stopped it."""
         if self.over_budget is None:
             return []
-        spent = f"${self.over_budget:.2f} spent, the cap is ${MAX_JOB_USD:.0f}"
+        spent = f"${self.over_budget:.2f} spent, the cap is ${self.max_usd:g}"
         return [f"{OVER_BUDGET}: {spent}"]
 
     def _check_budget(self) -> None:
+        if self.max_usd <= 0:
+            return
         meter = meter_for(self.job_id)
-        if meter is not None and meter.total_usd >= MAX_JOB_USD:
+        if meter is not None and meter.total_usd >= self.max_usd:
             self.over_budget = meter.total_usd
             self.cancelled = True
             logger.warning(f"job {self.job_id}: stopped at ${meter.total_usd:.2f}")
@@ -356,43 +360,16 @@ def cancel(session: Session, job_id: str) -> bool:
     return True
 
 
-def delete(session: Session, job_id: str) -> str:
-    """Discard a finished job: its own row, its runs, and their verdicts.
-
-    An owner's call, not a cascade — which is why it is a separate function
-    rather than a foreign key: a job in progress is not touched, and the
-    dataset (`qa_pairs`) is not either. That set belongs to the target, is
-    shared by every job that ever measured it, and outlives any one of them —
-    deleting a run's own data must not quietly thin out the question set every
-    other job, past and future, is compared against.
-
-    Returns:
-        "deleted", "not_found", or "not_final" (still queued or running — ask
-        it to stop first)
-    """
-    job = session.get(Job, job_id)
-    if job is None:
-        return "not_found"
-    if not JobState(job.state).final:
-        return "not_final"
-    # `Result.run_id` cascades at the database level; deleting the runs is
-    # enough to take their verdicts with them.
-    session.execute(sa_delete(Run).where(Run.job_id == job_id))
-    session.delete(job)
-    return "deleted"
-
-
 def discard_run(session: Session, job: Job) -> None:
     """Delete a finished job and everything only it owns.
 
-    Its runs, answers, verdicts and overrides, exclusions, cached figures, and
+    Its runs, answers, verdicts and overrides, cached figures, and
     its build and filter records on the questions. The questions themselves
     stay: a question once asked is never deleted.
     """
     runs = select(Run.id).where(Run.job_id == job.id)
     session.execute(sa_delete(Result).where(Result.run_id.in_(runs)))
     session.execute(sa_delete(Run).where(Run.job_id == job.id))
-    session.execute(sa_delete(RunExclusion).where(RunExclusion.job_id == job.id))
     session.execute(sa_delete(RunAggregate).where(RunAggregate.job_id == job.id))
     session.execute(
         update(QaPair)
@@ -458,6 +435,7 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
             node_conf, space = settings_for(target, conf)
 
         reporter = Reporter(job_id, conf)
+        reporter.max_usd = node_conf.max_job_usd
         reporter.concurrency = {
             "model": node_conf.concurrency,
             "endpoint": node_conf.endpoint_concurrency,
@@ -501,7 +479,10 @@ def _execute_pipeline(
     group are — all of it is one call to ``measure()``, distinguished only by
     which of ``RunRequest``'s booleans are set.
     """
-    request = RunRequest.model_validate(params)
+    # Reads jobs queued before `publish` was dropped: the key is ignored.
+    request = RunRequest.model_validate(
+        {key: value for key, value in params.items() if key != "publish"}
+    )
 
     # The layers from the request itself lie on top of the ones saved on the
     # target and do not change the target: a trial run with a different
@@ -520,6 +501,7 @@ def _execute_pipeline(
 
     if reporter is None:
         reporter = Reporter(job_id, base_settings)
+    reporter.max_usd = node_conf.max_job_usd
     card_payload: dict[str, Any] | None = None
     done = measure(
         space,
@@ -554,32 +536,18 @@ def _execute_pipeline(
             # the provider sent back.
             failures.append(_with_sample(NOTHING_GRADED, done.failure_sample))
 
-        # The card is built from the verdicts that are in the database on
-        # the same terms whether or not it is going anywhere: "how did this
-        # run go" must not depend on the answer to "does anyone else get to
-        # see it". A thin sample is not hidden but named — `trust.flags`
-        # carries `few_samples`, and the reader sees how many questions the
-        # numbers stand on. Cancelled is a different matter: a run cut off
-        # halfway was not a statement. Deferred is a third: there is not a
-        # single verdict yet to build anything from — that is judge_stage's
-        # job, once the owner runs it.
+        # The card is built from the verdicts in the database. A thin sample
+        # is not hidden but named — `trust.flags` carries `few_samples`.
+        # Cancelled: a run cut off halfway was not a statement. Deferred: there
+        # is not a single verdict yet — judge_stage builds it once the owner
+        # runs it.
         if not reporter.cancelled and not request.defer_judging:
-            reporter.phase(JobPhase.PUBLISH)
+            reporter.phase(JobPhase.REPORT)
             card = build_card(space.key, space.endpoint, settings=node_conf, job=job_id)
             if card is None:
                 failures.append(NO_CARD)
             else:
                 card_payload = payload_for(card)
-                # Publishing — handing the card to the Space, and from
-                # there to whatever marketplace it is registered with — is
-                # the one part that is optional: the owner ticks it per
-                # run, and its refusal (benchmarks_mode off, an old Space)
-                # is a failure of that step alone, not of the measurement
-                # the card already describes.
-                if request.publish:
-                    sent = publish(space, card)
-                    if not sent.ok:
-                        failures.append(f"{PUBLISH_REFUSED}: {sent.detail}")
 
     state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
     _finish(
@@ -749,9 +717,7 @@ def _finish(
     middle of one arm while the others went through and gave numbers. A failure
     is when the job did not reach the end at all.
 
-    ``card``, when given, is kept regardless of ``state`` or ``error``: a run
-    that measured fine and only failed to publish still has a card, and it is
-    the one place that says so.
+    ``card``, when given, is kept regardless of ``state`` or ``error``.
     """
     with session_scope(settings) as session:
         job = session.get(Job, job_id)

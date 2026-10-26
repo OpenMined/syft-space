@@ -1,4 +1,4 @@
-"""Stage 4 on its own: judging the answers a deferred pass left pending.
+"""Stage 5 on its own: judging the answers a deferred pass left pending.
 
 ``evaluate --defer-judging`` (``run_pass(..., defer_judging=True)``) already
 records every answer with ``verdict = pending`` instead of calling a judge —
@@ -1045,8 +1045,8 @@ def list_results(
         # The judge is part of the key, and has to be: a panel grades one
         # answer several times over, and without it the second judge's opinion
         # would read as having replaced the first — "superseded" — when it
-        # replaced nothing. The report has always cut by judge for the same
-        # reason (see `judge_agreement`); only this listing did not.
+        # replaced nothing. The report cuts by judge for the same reason (see
+        # `judge_agreement`).
         freshest: dict[tuple[str, ...], str] = {}
         overridden: dict[tuple[str, ...], str] = {}
         history = session.execute(

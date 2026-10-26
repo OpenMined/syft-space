@@ -1,10 +1,7 @@
 """The benchmark's command line.
 
 The commands mirror the pipeline's stages and are deliberately invoked
-separately. Publishing is not stitched onto the tail of a run: a run can be
-interrupted halfway, and there is no point publishing half the results —
-checking is the owner's internal business, publishing metrics is a statement
-made outwards.
+separately.
 """
 
 from __future__ import annotations
@@ -53,9 +50,6 @@ from syft_benchmark.llm import (
     openrouter,
     subject_providers,
 )
-from syft_benchmark.publish import payload_for
-from syft_benchmark.publish import publish as publish_metrics
-from syft_benchmark.publish import retract as retract_metrics
 from syft_benchmark.report import (
     Metrics,
     build_docx,
@@ -66,7 +60,7 @@ from syft_benchmark.report import (
     stability,
     summarize,
 )
-from syft_benchmark.report.card import RETRIEVAL
+from syft_benchmark.report.card import RETRIEVAL, payload_for
 from syft_benchmark.report.card import build as build_card
 from syft_benchmark.report.metrics import latest_measuring_job
 from syft_benchmark.runs import (
@@ -592,7 +586,7 @@ def generate(
         str, typer.Option("--cohort", help="Cohort name; empty — date and time")
     ] = "",
 ) -> None:
-    """Stage 1: build items from new chunks and documents.
+    """Stage 2: build items from new chunks and documents.
 
     The set comes in three kinds. **incremental** — it accumulates: new material
     adds items, the earlier ones stay in the measurement. That is how you
@@ -799,7 +793,7 @@ def evaluate(
         ),
     ] = False,
 ) -> None:
-    """Stages 3-4: ask the questions and judge the answers.
+    """Stages 4-5: ask the questions and judge the answers.
 
     Without --mode every arm from the settings is taken, without --block every
     block. denial_loop applies to the arms where a model answers: it requires a
@@ -1021,7 +1015,7 @@ def judge(
         typer.Option(help="How many pending answers to grade; all by default"),
     ] = None,
 ) -> None:
-    """Stage 4 on its own: grade the answers a deferred pass left pending.
+    """Stage 5 on its own: grade the answers a deferred pass left pending.
 
     `evaluate --defer-judging` records answers without calling a judge. This
     is the other half: it grades what is pending, and answers whose judge call
@@ -1300,7 +1294,7 @@ def report(
         ),
     ] = None,
 ) -> None:
-    """Stage 5: fold the verdicts into metrics and a report.
+    """Stage 6: fold the verdicts into metrics and a report.
 
     Markdown reads in a console and compares line by line between runs; --docx
     builds a document for a person out of the same metrics — with charts, an
@@ -1414,72 +1408,53 @@ def audit(
 
 
 @app.command()
-def publish(
+def card(
     space: SpaceKeys = None,
-    dry_run: Annotated[
-        bool, typer.Option(help="Show what would have been sent")
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Print the card in its stored shape")
     ] = False,
 ) -> None:
-    """Stage 5: hand the card to the Space to publish.
+    """Show the card of the newest measuring launch.
 
     The arm is chosen by the card from the kind of product, not by a setting
-    (``report.card.build_card``).
+    (``report.card.build``).
     """
     for _, target in _targets(space):
-        # What goes to the storefront is the direct check: the numbers of the
-        # blocks are the owner's internal analytics.
-        card = build_card(
+        built = build_card(
             target.key, target.endpoint, job=latest_measuring_job(target.key)
         )
-        if card is None:
-            typer.echo(f"{target.key}: no verdicts — nothing to publish")
+        if built is None:
+            typer.echo(f"{target.key}: no verdicts — no card")
             continue
 
-        kind = "retrieves" if card.kind == RETRIEVAL else "answers"
-        score = f"{card.score:.0%}" if card.score is not None else "-"
-        fabrication = f"{card.fabrication:.0%}" if card.fabrication is not None else "-"
-        typer.echo(
-            f"{target.key} ({kind}, arm {card.arm}): "
-            f"{card.score_label} {score}, fabrications {fabrication}, "
-            f"questions {card.trust.samples if card.trust else 0}"
+        kind = "retrieves" if built.kind == RETRIEVAL else "answers"
+        score = f"{built.score:.0%}" if built.score is not None else "-"
+        fabrication = (
+            f"{built.fabrication:.0%}" if built.fabrication is not None else "-"
         )
-        if card.models:
-            low, high = card.spread or (card.models[0].accuracy,) * 2
+        typer.echo(
+            f"{target.key} ({kind}, arm {built.arm}): "
+            f"{built.score_label} {score}, fabrications {fabrication}, "
+            f"questions {built.trust.samples if built.trust else 0}"
+        )
+        if built.models:
+            low, high = built.spread or (built.models[0].accuracy,) * 2
             typer.echo(
-                f"  with the models under test ({len(card.models)}): "
+                f"  with the models under test ({len(built.models)}): "
                 f"from {low:.0%} to {high:.0%}"
             )
-        if card.trust and not card.trust.reliable:
-            typer.secho(
-                "  it will reach the storefront with a note:",
-                fg=typer.colors.YELLOW,
-            )
-            for note in card.trust.doubts:
+        if built.trust and not built.trust.reliable:
+            typer.secho("  not reliable:", fg=typer.colors.YELLOW)
+            for note in built.trust.doubts:
                 typer.secho(f"    {note}", fg=typer.colors.YELLOW)
 
-        if dry_run:
+        if as_json:
             typer.echo(
-                "  payload: "
-                + json.dumps(payload_for(card), ensure_ascii=False, indent=2).replace(
+                "  card: "
+                + json.dumps(payload_for(built), ensure_ascii=False, indent=2).replace(
                     "\n", "\n  "
                 )
             )
-            continue
-
-        outcome = publish_metrics(target, card)
-        colour = typer.colors.GREEN if outcome.ok else typer.colors.YELLOW
-        typer.secho(f"  {outcome.detail}", fg=colour)
-
-
-@app.command()
-def retract(
-    space: Annotated[str, typer.Argument(help="The Space key")],
-) -> None:
-    """Retract the published metrics through the Space."""
-    _, target = _targets([space])[0]
-    outcome = retract_metrics(target)
-    colour = typer.colors.GREEN if outcome.ok else typer.colors.YELLOW
-    typer.secho(outcome.detail, fg=colour)
 
 
 @app.command("export-questions")
@@ -1641,7 +1616,7 @@ def cycle(
         ),
     ] = False,
 ) -> None:
-    """The full daily cycle: generation, both runs, the report, publishing.
+    """The full daily cycle: generation, both runs, the report.
 
     --resume makes sense for a one-off launch: the cycle runs for hours, and
     both a node reboot and a spent balance have time to cut it short. An endless

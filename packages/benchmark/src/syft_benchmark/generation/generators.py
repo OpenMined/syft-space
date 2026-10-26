@@ -323,18 +323,15 @@ GENERATORS: dict[str, Generator] = {
         system=TIERED_SYSTEM,
         clean=clean_tiered,
         # The longest item of them all: three explanations of differing levels
-        # plus a list of facts, and all in one JSON object. 900 was enough for a
-        # 4B model; on a live run Opus broke off in the middle of the first line.
-        # Raising it a third time is not what fixed that — the pipeline starts
-        # this one generator from the shared answer ceiling, and a cut-off call
-        # is repeated with a larger budget. The number stays as the estimate it
-        # always was.
+        # plus a list of facts, in one JSON object. Only an estimate: the
+        # pipeline starts this generator from the shared answer ceiling, and a
+        # cut-off call is repeated with a larger budget.
         tokens_per_pair=1400,
     ),
     # --- our addition -----------------------------------------------------
     # A free-form question with a short answer. There is nothing like it in
     # LiveTruth: there, knowledge of paid content was tested, whereas we also need
-    # the ordinary shape in which a real storefront user comes to the endpoint.
+    # the ordinary shape in which a real user comes to the endpoint.
     "qa": Generator(
         key="qa",
         task_type="abstractive",

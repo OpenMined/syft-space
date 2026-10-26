@@ -6,7 +6,7 @@ are described by a structure, and passing a structure through flat environment
 variables is inconvenient; everything else, on the contrary, naturally lives in
 the environment and in .env.
 
-The ban on external calls (invariant 2 of the spec) lives here too. It is
+The ban on external calls (invariant 2, docs/privacy.md) lives here too. It is
 implemented as a check rather than an agreement: the questions are generated from
 private documents, and the only reliable way not to send them outside is to have
 no code that can do it, except through an explicitly allowed list of hosts.
@@ -182,7 +182,7 @@ class TextMetric(StrEnum):
     textual match diverge, that is grounds for a look with your own eyes.
 
     They do not know correctness and cannot: what is measured is word overlap. So
-    they enter no share of the report and are not published.
+    they enter no share of the report and no card.
     """
 
     BLEU = "bleu"  # n-gram overlap with a brevity penalty
@@ -355,7 +355,6 @@ class JobPhase(StrEnum):
     EVALUATE = "evaluate"
     JUDGE = "judge"
     REPORT = "report"
-    PUBLISH = "publish"
     DONE = "done"
 
 
@@ -369,14 +368,13 @@ class JobKind(StrEnum):
     ``/targets/{key}/runs`` creates, whatever combination of ``generate``,
     ``filter`` and ``evaluate`` its ``RunRequest`` sets — including a lone
     generate, a lone evaluate, or the two console-facing groups ("Prepare" =
-    generate+filter, "Test" = evaluate+report+publish), since all of those
+    generate+filter, "Test" = evaluate+report), since all of those
     are just different flag combinations on the one long-lived function,
     ``scheduler.measure()``. ``FILTER`` and ``JUDGE`` are the two phases that
     are NOT reachable that way — each needs its own already-stored input
     (pending pairs; pending verdicts) rather than a fresh call to
-    ``measure()``, so each gets its own kind and its own route. Report,
-    publish and retract need no kind at all: building a card and handing it
-    to the Space are both fast, synchronous operations, not queued ones.
+    ``measure()``, so each gets its own kind and its own route. Building a
+    card needs no kind at all: it is a fast, synchronous operation.
     """
 
     PIPELINE = "pipeline"
@@ -612,6 +610,15 @@ class Settings(BaseSettings):
         le=20,
         description="Results per search, for the Exa engine",
     )
+    web_search_max_calls: int = Field(
+        default=0,
+        ge=0,
+        le=30,
+        description=(
+            "Searches one answer of a tested model may make. Zero — the "
+            "provider's own limit (30 on OpenRouter)"
+        ),
+    )
 
     # --- The measurement arms. Both by default: A and C differ by exactly the
     # context, and that difference is the measurement.
@@ -717,8 +724,8 @@ class Settings(BaseSettings):
     # --- the text metrics
     #
     # Off by default, and that is not caution. The headline assessment is the
-    # judge verdict; text similarity does not know correctness, enters no share and
-    # is not published. It is switched on when a view of the same answers that is
+    # judge verdict; text similarity does not know correctness and enters no
+    # share. It is switched on when a view of the same answers that is
     # independent of the judge is needed.
     text_metrics: list[TextMetric] = Field(
         default_factory=list,
@@ -775,9 +782,17 @@ class Settings(BaseSettings):
         ge=0,
         description=(
             "After how many failed questions in a row to abandon an arm. Zero — do "
-            "not abandon. A port from LiveTruth: a wrong key or a node that has "
+            "not abandon. A wrong key or a node that has "
             "gone down is otherwise paid for in hours and a table of nothing but "
             "failures"
+        ),
+    )
+    max_job_usd: float = Field(
+        default=100.0,
+        ge=0.0,
+        description=(
+            "A job whose priced calls reach this many USD is stopped, as if by "
+            "the owner. Zero — no cap"
         ),
     )
     reuse_answers: bool = Field(
@@ -873,8 +888,7 @@ class Settings(BaseSettings):
     # Off until a token is set, and that is not over-caution. Its one route starts
     # work that runs for hours and costs money on external models; a port open by
     # default would mean that anyone who could reach the network could spend
-    # someone else budget. The behaviour is the same as a Space with its
-    # benchmarks_mode: not "you may not" but "there is nothing here".
+    # someone else budget. Not "you may not" but "there is nothing here".
     control_token: str = Field(
         default="",
         description="The control API key. Empty — the API says it is not configured",
@@ -902,9 +916,8 @@ class Settings(BaseSettings):
         ge=64,
         description=(
             "The ceiling on any model answer: the model under test, the judge, the "
-            "grounding check. One for all and generous — a port of decision P1 from "
-            "LiveTruth, where reasoning measurements reached 3269 tokens and one "
-            "case burned 4096. This adds nothing to the bill: max_tokens limits, it "
+            "grounding check. One for all and generous: reasoning alone can take "
+            "4096 tokens. This adds nothing to the bill: max_tokens limits, it "
             "does not order"
         ),
     )
@@ -1022,11 +1035,11 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- Publishing
+    # --- The card
     #
-    # The published arm is deliberately not here. It is a property of the NODE, not
-    # of the installation: one Space may be summary, another raw. It is chosen by
-    # the card, by the kind of product — see report.card.
+    # The card's headline arm is deliberately not here. It is a property of the
+    # NODE, not of the installation: one Space may be summary, another raw. It is
+    # chosen by the card, by the kind of product — see report.card.
 
     @field_validator("judge_temperature", mode="before")
     @classmethod
@@ -1114,6 +1127,7 @@ class Settings(BaseSettings):
             "web_search_with_context": self.web_search_with_context,
             "web_search_judge": self.web_search_judge,
             "web_search_max_results": self.web_search_max_results,
+            "web_search_max_calls": self.web_search_max_calls,
             # How the judges were tuned decides their verdicts.
             "judge_temperature": self.judge_temperature,
             "judge_reasoning_effort": self.judge_reasoning_effort.value,

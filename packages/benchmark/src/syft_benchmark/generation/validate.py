@@ -1,7 +1,6 @@
 """Screening the gold answers.
 
-This step was not in the prototype — it answers question 5 of the spec. The
-gold answer is written by an LLM with the chunk in front of it, and it usually
+The gold answer is written by an LLM with the chunk in front of it, and it usually
 copies it from there. But sometimes it fills in from memory: adds a year, a job
 title, a unit of measurement that is not in the chunk. Such a gold answer looks
 plausible and spoils the measurement silently — a good endpoint answers from
@@ -11,9 +10,8 @@ cannot be spotted in the metrics: they are simply lower than they should be.
 The check is lexical rather than model-based, and that is deliberate. It is
 cheap (there are thousands of gold answers), deterministic (the same input
 gives the same verdict — for screening that matters more than subtlety) and it
-checks exactly what is needed: whether the answer was taken from the chunk.
-Confirmation by a second model remains a possible extension, but starting with
-it would mean judging a generator with a generator.
+checks exactly what is needed: whether the answer was taken from the chunk. A
+second model confirming it would mean judging a generator with a generator.
 """
 
 from __future__ import annotations

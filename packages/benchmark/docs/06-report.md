@@ -32,7 +32,7 @@ flowchart LR
 ```
 
 * **One verdict per question** in each cut. This report is cut by judge:
-  each judge's freshest verdict. The card and every published figure take the
+  each judge's freshest verdict. The card and every headline figure take the
   counted verdict instead: the owner override, else the primary judge's, else
   the next judge's in panel order ([05-judging.md](05-judging.md)). Only items
   in the set now (`active`) count, unless the selection is one launch (`job`)
@@ -131,7 +131,7 @@ uv sync --extra metrics     # only for bertscore (pulls in torch)
 Off by default. A mechanical, judge-independent view of the same answers: a
 large divergence from the verdict is a reason to look by eye. Word overlap
 does not know correctness, so these numbers enter no share, take no part in
-the verdict and are not published. Computed only for prose items
+the verdict and are not in the card. Computed only for prose items
 (`multihop_synthesis`, `tiered_explanation`, `qa`) and never for failed calls.
 
 | Metric | What it computes |
@@ -164,6 +164,6 @@ unmeasured blocks. The builder (`document.py`, `narrative.py`, `charts.py`)
 takes only metrics; a test forbids it importing the database or `sources`.
 
 Different Spaces cannot be compared on accuracy: each has its own corpus and
-questions ([08-publish.md](08-publish.md)).
+questions ([08-card.md](08-card.md)).
 
 Next — [stage 7: the audit](07-audit.md).

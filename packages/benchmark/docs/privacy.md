@@ -11,14 +11,14 @@ flowchart TB
     subgraph I2["2 — questions and gold answers"]
         S2["do not leave the perimeter"] --- T2["check_model_host before every model call;<br/>BOTH the flag AND the host in the list are needed"]
     end
-    subgraph I3["3 — outwards"]
-        S3["only aggregates leave"] --- T3["the payload's composition is locked down by a test"]
+    subgraph I3["3 — the card"]
+        S3["aggregates only"] --- T3["the card's composition is locked down by a test"]
     end
     subgraph I4["4 — the database"]
         S4["protected like the corpus"] --- T4["its own Postgres, its own network"]
     end
     subgraph I5["5 — SyftHub"]
-        S5["no credentials here"] --- T5["no hub_* fields;<br/>nobody calls a hub route"]
+        S5["no credentials here"] --- T5["no hub_* fields;<br/>no SyftHub route is called"]
     end
 ```
 
@@ -48,13 +48,12 @@ public or synthetic corpus ([01-setup.md](01-setup.md)).
 Refreshing the model catalogue is also an outbound call: it obeys the same
 check, refuses with the host to open, and runs only on request.
 
-## 3. Only aggregates go to the Space
+## 3. The card holds only aggregates
 
-The published card's keys are fixed by a test, and no published string can
-hold a sentence (they are names of models, generators, modes, profiles). The
-owner's console view adds prose (`trust.doubts`, `score_label`) that the
-published payload must never carry, also tested. The audit trail is kept off
-the publish path. See [08-publish.md](08-publish.md).
+The card's keys are fixed by a test, and no string in it can hold a sentence
+(they are names of models, generators, modes, profiles). The owner's console
+view adds prose (`trust.doubts`, `score_label`) that the stored card never
+carries, also tested. See [08-card.md](08-card.md).
 
 ## 4. The database is protected like the corpus
 
@@ -67,5 +66,5 @@ export carry the same content; see [07-audit.md](07-audit.md).
 
 ## 5. There are no SyftHub credentials here
 
-The test checks that the settings have no `hub_*` fields and that no code calls
-the hub's quality route. The Space publishes under its own account.
+The settings have no `hub_*` fields and no code calls the SyftHub quality
+route; a test checks both. Results stay inside the Space.

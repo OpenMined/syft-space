@@ -25,8 +25,11 @@ depend on the settings of the moment.
   `audit_max_chars`);
 * `context_source`;
 * `call` — `finish_reason`, `truncated`, `length_retry`, `length_retries`,
-  `attempts`, `reused`, web search fields, `cost_usd`; with web search also
-  `citations` and `web_search_unused`;
+  `attempts`, `reused`, `cost_usd`, and the web search fields `web_search`,
+  `web_search_via`, `web_search_forced`, `web_search_requests`,
+  `web_search_retry` (why the call was asked again with the Exa plugin); with
+  web search also `citations`, `web_search_unused` and
+  `web_search_unused_reason`;
 * `judge_system`, `judge_prompt`, `judge_raw` (the reply before parsing),
   `judge_call` (cost, latency);
 * `judged_without_model: true` when no judge was called (regex abstention,
@@ -78,4 +81,4 @@ source. So:
 | `audit_log` | `true` | Write prompts and judge replies beside every answer |
 | `audit_max_chars` | `20000` | Ceiling on the stored arm C `context` |
 
-Next — [stage 8: publishing](08-publish.md).
+Next — [stage 8: the card](08-card.md).

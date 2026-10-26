@@ -80,7 +80,6 @@ export interface RunRequest {
   filter?: boolean | null;
   evaluate?: boolean | null;
   defer_judging?: boolean;
-  publish?: boolean;
   limit?: number | null;
 }
 

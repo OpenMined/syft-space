@@ -1,12 +1,10 @@
 """The storage schema of the benchmark.
 
-A port of the SQLite prototype (`OMSyft/scripts/qa_store.py`) to Postgres with two
-substantial additions: ``runs.context_mode`` — without it runs A and B are
-indistinguishable, and the whole construction rests on comparing them; and
+Two columns carry the construction: ``runs.context_mode`` — without it the arms
+are indistinguishable, and the whole construction rests on comparing them; and
 ``qa_pairs.status`` — the result of gold-answer screening.
 
-The types are brought to native ones: time as ``timestamptz``, structures as
-``jsonb``. In SQLite both had to be kept as strings.
+Time is ``timestamptz``, structures are ``jsonb``.
 
 An important point about sensitivity: ``qa_pairs.answer`` not infrequently quotes
 the source verbatim, ``results.retrieved`` stores the chunks that were found, and
@@ -209,10 +207,9 @@ class Run(Base):
         String(32), nullable=False, default="none"
     )
 
-    # The methodology profile and the settings snapshot the run was obtained with. As
-    # soon as the thresholds, prompts and retrieval parameters became configurable,
-    # the report became obliged to know how a row was obtained: otherwise it will
-    # silently add runs with different similarity thresholds into one share.
+    # The methodology profile and the settings snapshot the run was obtained with:
+    # the thresholds, prompts and retrieval parameters are configurable, and the
+    # report must not add runs with different similarity thresholds into one share.
     profile: Mapped[str] = mapped_column(
         String(64), nullable=False, default="default", index=True
     )
@@ -488,7 +485,7 @@ class Job(Base):
     The ``runs`` table is not fit for this and must not be: its row is "arm x block x
     model", there are dozens of them per measurement, and not one of them answers the
     owner question "is my launch still going?". A job stands a layer above and lives
-    from the press of a button to the last published card.
+    from the press of a button to its card.
 
     There is deliberately no reference to ``targets``: a target gets deleted, the
     history of measurements does not. A cascade would carry off the answer to "what
@@ -542,12 +539,9 @@ class Job(Base):
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     trigger: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
 
-    # The card assembled right after measuring, in the shape the Space accepts
-    # it in — set regardless of whether ``request.publish`` was ticked or the
-    # Space took it: "how did this run go" is answered from here, not from
-    # whether the card ever left the perimeter. Replaced by each card of the job
-    # that is published (or built with ``record``): the baseline of
-    # ``card_outdated``.
+    # The card assembled right after measuring (``report.card.payload_for``):
+    # "how did this run go" is answered from here. Replaced by a card rebuilt
+    # with ``record``: the baseline of ``card_outdated``.
     card: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True, default=None
     )
@@ -567,23 +561,6 @@ class Job(Base):
     )
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
-    )
-
-
-class RunExclusion(Base):
-    """A question the owner left out of one run's figures."""
-
-    __tablename__ = "run_exclusions"
-
-    job_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
-    )
-    qa_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("qa_pairs.id", ondelete="CASCADE"), primary_key=True
-    )
-    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

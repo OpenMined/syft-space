@@ -1,15 +1,5 @@
 <script setup lang="ts">
-/**
- * A model's name, always in the same lemon-green chip.
- *
- * Whoever it is — the model under test, a grader, the one that wrote the
- * questions — a name is a name, and giving each role its own styling would
- * make the reader learn a colour code to read what the text already says. The
- * colour is light: a name carries no verdict, so it stays quieter than one.
- *
- * The house that serves it is dropped from the chip and kept on hover: the
- * vendor decides independence, not identity.
- */
+/** A model name chip, the same for every role; the vendor prefix shows on hover. */
 import { Badge } from '@/components/ui/badge'
 import { shortModel } from './labels'
 

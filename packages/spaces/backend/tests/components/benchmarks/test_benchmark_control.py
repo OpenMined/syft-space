@@ -1,11 +1,4 @@
-"""Wiring a benchmark up and setting it going.
-
-A Space ships without a benchmark. What is covered here is what would be
-expensive to get wrong: a key silently revoked by renaming a connection, a
-setting stored here and never reaching the service that measures, a benchmark
-being down taking the settings page with it, and an endpoint nobody opted in
-reading as one that scored zero.
-"""
+"""Benchmark connections, targets, runs and the console proxy."""
 
 from __future__ import annotations
 
@@ -69,7 +62,6 @@ class _Client:
     def __init__(self, reachable: bool = True) -> None:
         self.reachable = reachable
         self.targets: dict[str, dict] = {}
-        self.deleted: list[str] = []
         self.runs: list[tuple[str, dict]] = []
         self.known_jobs: list[dict] = []
         self.known_next_run: str | None = None
@@ -84,8 +76,6 @@ class _Client:
             reachable=self.reachable,
             detail="" if self.reachable else "benchmark is not answering",
             capabilities={"arms": ["closed_book"]} if self.reachable else {},
-            # What the benchmark says about its fields today. A field that grew
-            # a catalogue is the case this whole refresh exists for.
             fields=(
                 {
                     "probe": [],
@@ -102,10 +92,6 @@ class _Client:
             return Reply(ok=False, detail="down")
         self.targets[key] = spec
         return Reply(ok=True, data=spec)
-
-    async def delete_target(self, key: str) -> Reply:
-        self.deleted.append(key)
-        return Reply(ok=True)
 
     async def check_target(self, key: str) -> Reply:
         return Reply(ok=True, data={"ok": True, "corpus": True, "endpoint": True})
@@ -142,14 +128,6 @@ class _Client:
         return Reply(
             ok=True, data={"id": job_id, "state": "cancelled", "phase": "done"}
         )
-
-    async def delete_job(self, job_id: str) -> Reply:
-        if job_id == "still-running":
-            return Reply(ok=False, status=409, detail="job is still queued or running")
-        if job_id not in {row["id"] for row in self.known_jobs}:
-            return Reply(ok=False, status=404, detail=f"there is no job {job_id}")
-        self.known_jobs = [row for row in self.known_jobs if row["id"] != job_id]
-        return Reply(ok=True)
 
     async def models(self, query: dict) -> Reply:
         self.asked_for_models = query
@@ -294,11 +272,7 @@ def _handler(
 
 @pytest.mark.asyncio
 async def test_the_first_benchmark_becomes_the_default_without_being_asked() -> None:
-    """A Space with one benchmark should never be told which one to use.
-
-    A default nobody set is the commonest way to end up with endpoints that
-    quietly measure nothing.
-    """
+    """The first connection becomes the default."""
     handler, _ = _handler()
     made = await handler.connect(
         TENANT, ConnectionRequest(name="Local", url="http://benchmark:8200")
@@ -307,25 +281,8 @@ async def test_the_first_benchmark_becomes_the_default_without_being_asked() -> 
 
 
 @pytest.mark.asyncio
-async def test_connecting_a_benchmark_is_read_as_consent_to_report() -> None:
-    """Only the owner can reach this route, and using it already says yes.
-
-    Asking him to also find `benchmarks_mode` on a settings page and flip it
-    by hand would be the same consent asked for twice — once loudly, by
-    wiring a benchmark up, and once again in fine print he may never read.
-    """
-    settings_repo = AsyncMock()
-    settings_repo.get_public_url = AsyncMock(return_value="")
-    handler, _ = _handler(settings_repo=settings_repo)
-    await handler.connect(
-        TENANT, ConnectionRequest(name="Local", url="http://benchmark:8200")
-    )
-    settings_repo.enable_benchmarks_if_untouched.assert_awaited_once()
-
-
-@pytest.mark.asyncio
 async def test_the_control_key_never_comes_back_out() -> None:
-    """Only whether there is one. The form has no business knowing it."""
+    """The response says whether a key is set, never the key."""
     handler, _ = _handler(connections=[_connection()])
     view = (await handler.list_connections(TENANT))[0]
     assert view.has_token is True
@@ -334,11 +291,7 @@ async def test_the_control_key_never_comes_back_out() -> None:
 
 @pytest.mark.asyncio
 async def test_renaming_a_connection_does_not_revoke_its_key() -> None:
-    """The form was never told the key and cannot send it back.
-
-    Without this rule, renaming would silently take the benchmark's access
-    away, and it would be found out at the next nightly run.
-    """
+    """An update without a token keeps the stored one."""
     row = _connection()
     handler, _ = _handler(connections=[row])
     await handler.update_connection(
@@ -351,7 +304,7 @@ async def test_renaming_a_connection_does_not_revoke_its_key() -> None:
 
 @pytest.mark.asyncio
 async def test_a_benchmark_that_is_down_still_connects_and_says_why() -> None:
-    """The page must open and say what is wrong, not refuse to exist."""
+    """An unreachable benchmark is reported, not raised."""
     handler, _ = _handler(client=_Client(reachable=False))
     made = await handler.connect(
         TENANT, ConnectionRequest(name="Local", url="http://benchmark:8200")
@@ -362,11 +315,7 @@ async def test_a_benchmark_that_is_down_still_connects_and_says_why() -> None:
 
 @pytest.mark.asyncio
 async def test_saving_settings_pushes_them_to_every_endpoint_it_measures() -> None:
-    """Settings reach the benchmark only through targets, and every one carries them.
-
-    Stored here and not there, a setting would take effect on the next manual
-    run and never on the nightly one.
-    """
+    """Saving connection settings re-pushes every target."""
     row = _connection()
     target = BenchmarkTarget(
         tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
@@ -388,7 +337,7 @@ async def test_saving_settings_pushes_them_to_every_endpoint_it_measures() -> No
 
 @pytest.mark.asyncio
 async def test_an_endpoint_nobody_opted_in_is_not_measured_rather_than_zero() -> None:
-    """``measured: false`` is not a score and must never be rendered as one."""
+    """An endpoint without a target reports ``measured: false``."""
     handler, _ = _handler(connections=[_connection()])
     view = await handler.get_target(TENANT, "support-kb")
     assert view.measured is False
@@ -397,11 +346,7 @@ async def test_an_endpoint_nobody_opted_in_is_not_measured_rather_than_zero() ->
 
 @pytest.mark.asyncio
 async def test_the_endpoint_layer_lies_on_top_of_the_space_wide_one() -> None:
-    """Three layers, and the nearest to the node wins.
-
-    Whoever set the endpoint's value knew more about that endpoint than
-    whoever set the Space-wide one.
-    """
+    """Endpoint settings override the connection's."""
     row = _connection(probe={"retrieval_top_k": 5, "similarity_threshold": 0.3})
     handler, client = _handler(connections=[row])
     await handler.save_target(
@@ -413,11 +358,7 @@ async def test_the_endpoint_layer_lies_on_top_of_the_space_wide_one() -> None:
 
 @pytest.mark.asyncio
 async def test_the_collection_is_resolved_rather_than_typed() -> None:
-    """The owner picked a dataset, not a collection.
-
-    Making him find the name in ChromaDB would be asking him to know an
-    implementation detail of his own Space.
-    """
+    """The collection is resolved from the endpoint's dataset."""
     handler, client = _handler(connections=[_connection()])
     await handler.save_target(TENANT, "support-kb", TargetRequest())
     assert client.targets["support-kb"]["collection"] == "Collection_support_kb"
@@ -425,7 +366,7 @@ async def test_the_collection_is_resolved_rather_than_typed() -> None:
 
 @pytest.mark.asyncio
 async def test_a_collection_named_by_hand_wins_over_the_resolved_one() -> None:
-    """Resolution can be wrong, and then the owner must be able to say so."""
+    """An explicit collection overrides the resolved one."""
     handler, client = _handler(connections=[_connection()])
     await handler.save_target(
         TENANT, "support-kb", TargetRequest(collection="Collection_legacy")
@@ -435,10 +376,7 @@ async def test_a_collection_named_by_hand_wins_over_the_resolved_one() -> None:
 
 @pytest.mark.asyncio
 async def test_a_benchmark_that_is_down_does_not_block_saving() -> None:
-    """The owner has already made the decision; he needs somewhere to record it.
-
-    ``synced_at`` is what says whether it got through, and the page says so.
-    """
+    """A target is saved while the benchmark is down; ``synced_at`` stays empty."""
     handler, _ = _handler(client=_Client(reachable=False), connections=[_connection()])
     await handler.save_target(TENANT, "support-kb", TargetRequest())
     handler.targets.mark_synced.assert_not_called()  # type: ignore[attr-defined]
@@ -447,7 +385,7 @@ async def test_a_benchmark_that_is_down_does_not_block_saving() -> None:
 
 @pytest.mark.asyncio
 async def test_measuring_needs_a_benchmark_to_be_connected_first() -> None:
-    """Refusing with a reason, rather than storing a target nothing will measure."""
+    """Saving a target with no connection is refused with a reason."""
     handler, _ = _handler(connections=[])
     with pytest.raises(HTTPException) as refused:
         await handler.save_target(TENANT, "support-kb", TargetRequest())
@@ -455,24 +393,12 @@ async def test_measuring_needs_a_benchmark_to_be_connected_first() -> None:
     assert "Connect one" in refused.value.detail
 
 
-@pytest.mark.asyncio
-async def test_dropping_an_endpoint_drops_it_at_the_benchmark_too() -> None:
-    """Otherwise it keeps measuring on schedule, and nothing here would show it."""
-    row = _connection()
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
-    )
-    handler, client = _handler(connections=[row], target=target)
-    await handler.stop_measuring(TENANT, "support-kb")
-    assert client.deleted == ["support-kb"]
-
-
 # --- runs -------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_a_paused_endpoint_is_not_measured_on_request_either() -> None:
-    """Paused means paused — otherwise the button quietly overrides the switch."""
+    """A paused target cannot be run."""
     row = _connection()
     target = BenchmarkTarget(
         tenant_id=TENANT.id,
@@ -488,7 +414,7 @@ async def test_a_paused_endpoint_is_not_measured_on_request_either() -> None:
 
 @pytest.mark.asyncio
 async def test_a_run_is_started_against_settings_the_benchmark_has_been_told() -> None:
-    """Otherwise the run measures with the previous settings and reports as new."""
+    """Settings are pushed before a run starts."""
     row = _connection(probe={"retrieval_top_k": 5})
     target = BenchmarkTarget(
         tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
@@ -496,68 +422,12 @@ async def test_a_run_is_started_against_settings_the_benchmark_has_been_told() -
     handler, client = _handler(connections=[row], target=target)
     await handler.start_run(TENANT, "support-kb", RunRequest(limit=2))
     assert client.targets["support-kb"]["probe"] == {"retrieval_top_k": 5}
-    assert client.runs == [
-        ("support-kb", {"publish": True, "limit": 2, "defer_judging": False})
-    ]
-
-
-# --- the console session ------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a_console_session_is_a_link_into_the_stored_connection_url() -> None:
-    """The Space hands back a ready-to-open link, not the token on its own."""
-    row = _connection(url="http://benchmark:8200")
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
-    )
-    handler, _ = _handler(connections=[row], target=target)
-    session = await handler.start_console_session(TENANT, "support-kb")
-    assert session.url == "http://benchmark:8200/ui/?token=token-for-support-kb"
-
-
-@pytest.mark.asyncio
-async def test_a_paused_endpoint_gets_no_console_session_either() -> None:
-    row = _connection()
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id,
-        endpoint_id=ENDPOINT_ID,
-        connection_id=row.id,
-        enabled=False,
-    )
-    handler, _ = _handler(connections=[row], target=target)
-    with pytest.raises(HTTPException) as refused:
-        await handler.start_console_session(TENANT, "support-kb")
-    assert refused.value.status_code == 409
-
-
-@pytest.mark.asyncio
-async def test_a_benchmark_that_is_down_refuses_a_console_session_cleanly() -> None:
-    row = _connection()
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
-    )
-    handler, _ = _handler(
-        client=_Client(reachable=False), connections=[row], target=target
-    )
-    with pytest.raises(HTTPException) as refused:
-        await handler.start_console_session(TENANT, "support-kb")
-    assert refused.value.status_code == 502
-
-
-@pytest.mark.asyncio
-async def test_measuring_needs_a_benchmark_to_be_connected_before_a_session_too() -> (
-    None
-):
-    handler, _ = _handler(connections=[])
-    with pytest.raises(HTTPException) as refused:
-        await handler.start_console_session(TENANT, "support-kb")
-    assert refused.value.status_code == 409
+    assert client.runs == [("support-kb", {"limit": 2, "defer_judging": False})]
 
 
 @pytest.mark.asyncio
 async def test_the_endpoint_layer_lies_on_top_of_the_space_wide_instrument() -> None:
-    """Same rule as ``probe``: the nearer layer wins, the rest still applies."""
+    """Endpoint instrument settings override the connection's, field by field."""
     row = _connection(
         instrument={"judge_model": "gemma3-4b-gpu", "arms": ["open_book"]}
     )
@@ -586,9 +456,8 @@ async def test_the_endpoint_instrument_round_trips_through_get_target() -> None:
 
 @pytest.mark.asyncio
 async def test_the_endpoint_page_gets_the_connections_capabilities_too() -> None:
-    """So it can list the generators without a second request."""
-    # A recent checked_at, or _if_stale asks the (fake) benchmark afresh and
-    # overwrites capabilities with whatever snapshot() answers instead.
+    """The target response carries the connection's capabilities."""
+    # A recent checked_at keeps _if_stale from refreshing the capabilities.
     row = _connection(
         capabilities={"generators": ["mcq", "qa"]},
         checked_at=datetime.now(timezone.utc),
@@ -601,60 +470,12 @@ async def test_the_endpoint_page_gets_the_connections_capabilities_too() -> None
     assert view.capabilities["generators"] == ["mcq", "qa"]
 
 
-# --- job history -------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a_finished_job_can_be_discarded() -> None:
-    """Deleting it removes it from the history the benchmark hands back."""
-    row = _connection()
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
-    )
-    handler, client = _handler(connections=[row], target=target)
-    client.known_jobs = [{"id": "job-1", "state": "succeeded", "phase": "done"}]
-
-    await handler.delete_job(TENANT, "support-kb", "job-1")
-
-    assert await handler.list_jobs(TENANT, "support-kb") == []
-
-
-@pytest.mark.asyncio
-async def test_a_job_still_running_is_not_discarded() -> None:
-    """The benchmark itself refuses it (409); this must not swallow that."""
-    row = _connection()
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
-    )
-    handler, _ = _handler(connections=[row], target=target)
-
-    with pytest.raises(HTTPException) as refused:
-        await handler.delete_job(TENANT, "support-kb", "still-running")
-    assert refused.value.status_code == 409
-
-
-@pytest.mark.asyncio
-async def test_deleting_a_job_that_does_not_exist_answers_404() -> None:
-    row = _connection()
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
-    )
-    handler, _ = _handler(connections=[row], target=target)
-
-    with pytest.raises(HTTPException) as refused:
-        await handler.delete_job(TENANT, "support-kb", "no-such-job")
-    assert refused.value.status_code == 404
-
-
 # --- memory of the last run --------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_a_benchmark_that_is_down_does_not_erase_the_last_run() -> None:
-    """A page that empties out while the service is down reads as "never measured".
-
-    That is a different claim, and a false one.
-    """
+    """While the benchmark is down, the remembered job is shown."""
     row = _connection()
     target = BenchmarkTarget(
         tenant_id=TENANT.id,
@@ -693,12 +514,7 @@ async def test_a_job_carries_its_progress_plan() -> None:
 
 @pytest.mark.asyncio
 async def test_a_run_the_benchmark_has_forgotten_leaves_the_page_too() -> None:
-    """An explicit "no jobs" is an answer, not silence.
-
-    The cache exists for when the service does not reply. Outliving the
-    service's own "there are none" would leave a measurement on the page with
-    nothing behind it — and leave it there forever.
-    """
+    """An empty job list clears the remembered job."""
     row = _connection()
     target = BenchmarkTarget(
         tenant_id=TENANT.id,
@@ -716,12 +532,7 @@ async def test_a_run_the_benchmark_has_forgotten_leaves_the_page_too() -> None:
 
 @pytest.mark.asyncio
 async def test_a_schedule_set_here_reaches_the_benchmark() -> None:
-    """The Space stores it, but it is the benchmark that fires it.
-
-    A schedule that stayed in this database would be a form the owner fills in
-    and a measurement that never happens — which is what it was until the
-    benchmark grew a scheduler.
-    """
+    """The schedule is pushed to the benchmark, which runs it."""
     handler, client = _handler(connections=[_connection()], endpoint=_endpoint())
     await handler.save_target(
         TENANT,
@@ -735,8 +546,7 @@ async def test_a_schedule_set_here_reaches_the_benchmark() -> None:
 
 @pytest.mark.asyncio
 async def test_when_it_next_runs_is_asked_of_the_benchmark_not_invented_here() -> None:
-    """Two computations of one moment part company on exactly the question this
-    is shown to answer — "why has it not run yet"."""
+    """``next_run_at`` comes from the benchmark."""
     client = _Client()
     client.known_next_run = "2026-09-18T03:00:00Z"
     handler, _ = _handler(
@@ -759,8 +569,7 @@ async def test_when_it_next_runs_is_asked_of_the_benchmark_not_invented_here() -
 
 @pytest.mark.asyncio
 async def test_a_benchmark_that_cannot_answer_leaves_the_moment_empty() -> None:
-    """Rather than guessing it from the interval. An invented moment would be
-    indistinguishable from a real one and wrong whenever it mattered."""
+    """Without an answer from the benchmark, ``next_run_at`` is empty."""
     handler, _ = _handler(
         client=_Client(reachable=False),
         connections=[_connection()],
@@ -783,12 +592,7 @@ async def test_a_benchmark_that_cannot_answer_leaves_the_moment_empty() -> None:
 
 @pytest.mark.asyncio
 async def test_the_catalogue_is_passed_through_unshaped() -> None:
-    """The Space does not model what a benchmark knows about a model.
-
-    Every field named on this side is a field that would need a release here
-    before the benchmark may grow one — the same rule that keeps /schema from
-    being repeated in this codebase.
-    """
+    """The model catalogue is passed through unchanged."""
     connection = _connection()
     handler, client = _handler(connections=[connection])
 
@@ -801,7 +605,7 @@ async def test_the_catalogue_is_passed_through_unshaped() -> None:
 
 
 def test_the_picker_filters_reach_the_benchmark() -> None:
-    """Search and temperature filters are the benchmark's to apply."""
+    """Catalogue filters are forwarded to the benchmark."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -826,8 +630,7 @@ def test_the_picker_filters_reach_the_benchmark() -> None:
 
 @pytest.mark.asyncio
 async def test_a_benchmark_that_is_down_does_not_look_like_an_empty_catalogue() -> None:
-    """An empty list reads as "there are no models", and the owner would go
-    looking for the mistake in their own configuration."""
+    """A failed catalogue call is an error, not an empty list."""
     connection = _connection()
     handler, _ = _handler(client=_Client(reachable=False), connections=[connection])
 
@@ -839,9 +642,7 @@ async def test_a_benchmark_that_is_down_does_not_look_like_an_empty_catalogue() 
 
 @pytest.mark.asyncio
 async def test_a_refused_refresh_keeps_the_benchmarks_own_words() -> None:
-    """A refresh is a call outside the benchmark's perimeter, and a benchmark
-    that forbids it answers with the host to open. Flattening that into 502
-    would replace an instruction with "something went wrong"."""
+    """A refused refresh keeps the benchmark's status and detail."""
     connection = _connection()
     handler, _ = _handler(client=_Client(reachable=False), connections=[connection])
 
@@ -857,13 +658,7 @@ async def test_a_refused_refresh_keeps_the_benchmarks_own_words() -> None:
 
 @pytest.mark.asyncio
 async def test_a_stale_description_is_refreshed_when_the_page_opens() -> None:
-    """The reason /schema exists is that a benchmark can grow a field.
-
-    Cached for ever, that promise quietly fails: the benchmark is upgraded, the
-    form keeps drawing yesterday's fields, and nobody knows to press Check. It
-    cost exactly that once — a settings field that had grown a model catalogue
-    on the benchmark side went on being drawn as a text box here.
-    """
+    """An expired self-description is refreshed."""
     from datetime import datetime, timedelta, timezone
 
     stale = _connection(
@@ -880,7 +675,7 @@ async def test_a_stale_description_is_refreshed_when_the_page_opens() -> None:
 
 @pytest.mark.asyncio
 async def test_a_fresh_description_is_not_asked_for_again() -> None:
-    """A page that opens fine without a round trip should not pay for one."""
+    """A fresh self-description is not refetched."""
     from datetime import datetime, timezone
 
     fresh = _connection(
@@ -896,12 +691,7 @@ async def test_a_fresh_description_is_not_asked_for_again() -> None:
 
 @pytest.mark.asyncio
 async def test_a_naive_timestamp_does_not_take_the_page_down() -> None:
-    """SQLite hands the moment back without a zone, and it was written in UTC.
-
-    Compared against an aware "now" that raises — and it would raise inside the
-    call that draws the settings page, which is the one place this cache exists
-    to keep openable.
-    """
+    """A naive ``checked_at`` from SQLite is read as UTC."""
     from datetime import datetime, timezone
 
     naive = _connection(
@@ -918,14 +708,12 @@ async def test_a_naive_timestamp_does_not_take_the_page_down() -> None:
 
 @pytest.mark.asyncio
 async def test_a_benchmark_that_is_down_leaves_the_page_standing() -> None:
-    """Keeping the cache current must not cost what the cache is for."""
+    """A failed refresh keeps the cached description."""
     stale = _connection(fields={"instrument": [{"name": "judge_models"}]})
     handler, _ = _handler(client=_Client(reachable=False), connections=[stale])
 
     listed = await handler.list_connections(TENANT)
 
-    # The description it had, not an empty form: a benchmark being down is a
-    # reason to say so on the page, not to forget how it is configured.
     assert listed[0].fields["instrument"][0]["name"] == "judge_models"
     assert listed[0].reachable is False
 
@@ -1023,14 +811,9 @@ async def test_the_web_check_is_a_provider_role_of_its_own() -> None:
 # --- the console, embedded ----------------------------------------------------
 
 
-def test_the_console_client_reaches_the_benchmark_by_its_own_address() -> None:
-    """Never `console_url`: that address is for a browser to open directly,
-    and on a rig where the two run in separate containers it is not reachable
-    from this backend's own process — `url` is what every other call in this
-    file already uses to reach the benchmark, and this one is no different.
-    """
+def test_the_console_client_reaches_the_benchmark_by_its_url() -> None:
     handler = BenchmarkHandler(None, None, None, None, None)  # type: ignore[arg-type]
-    row = _connection(url="http://benchmark:8200", console_url="http://localhost:8200")
+    row = _connection(url="http://benchmark:8200")
 
     client = handler._console_client(row, "session-token")
 
@@ -1066,24 +849,6 @@ async def test_deleting_a_pair_proxies_through_the_console() -> None:
 
 
 @pytest.mark.asyncio
-async def test_filtering_a_paused_endpoint_is_refused_like_starting_a_run() -> None:
-    row = _connection()
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id,
-        endpoint_id=ENDPOINT_ID,
-        connection_id=row.id,
-        enabled=False,
-    )
-    handler, client = _handler(connections=[row], target=target)
-
-    with pytest.raises(HTTPException) as refused:
-        await handler.run_filter(TENANT, "support-kb", {})
-
-    assert refused.value.status_code == 409
-    assert client.console_calls == []
-
-
-@pytest.mark.asyncio
 async def test_overriding_a_verdict_proxies_the_body_untouched() -> None:
     row = _connection()
     target = BenchmarkTarget(
@@ -1103,19 +868,6 @@ async def test_overriding_a_verdict_proxies_the_body_untouched() -> None:
             {},
         )
     ]
-
-
-@pytest.mark.asyncio
-async def test_retracting_the_report_proxies_through_the_console_too() -> None:
-    row = _connection()
-    target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
-    )
-    handler, client = _handler(connections=[row], target=target)
-
-    await handler.retract_report(TENANT, "support-kb")
-
-    assert client.console_calls == [("POST", "/console/retract", None, {})]
 
 
 @pytest.mark.asyncio
@@ -1140,7 +892,7 @@ CLASH = "Judge openai/gpt-5.1 and tested model openai/gpt-5.1 are from the same 
 
 
 class _StrictClient(_Client):
-    """A benchmark under `strict` that refuses a judge from a tested model's company."""
+    """A benchmark that refuses a judge from a tested model's company with 422."""
 
     def __init__(self, *, refuse_run: bool = False) -> None:
         super().__init__()
@@ -1159,7 +911,7 @@ class _StrictClient(_Client):
 
 @pytest.mark.asyncio
 async def test_a_refused_save_reaches_the_browser_and_is_not_stored() -> None:
-    """Under `strict` the page cannot save a clash, and neither can the API."""
+    """The benchmark's 422 is passed on and the target is not stored."""
     handler, client = _handler(client=_StrictClient(), connections=[_connection()])
     with pytest.raises(HTTPException) as refused:
         await handler.save_target(
@@ -1255,7 +1007,7 @@ def test_a_validation_refusal_reads_as_field_and_reason() -> None:
 
 @pytest.mark.asyncio
 async def test_the_window_count_is_the_benchmarks_not_computed_here() -> None:
-    """The page's count comes from the rule generation uses, with its window."""
+    """The window count comes from the benchmark."""
     row = _connection()
     target = BenchmarkTarget(
         tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id

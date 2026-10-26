@@ -187,7 +187,7 @@ uv run syft-benchmark settings set judge_models '["anthropic/claude-sonnet-4","o
 * **The counted verdict** of an answer is the owner override, else the
   primary judge's freshest verdict, else the next judge's in panel order. The
   primary is the launch's first panel judge that graded it (outside a launch,
-  the first configured one). Every headline and published figure counts it;
+  the first configured one). Every headline figure counts it;
   the card names the primary in `instrument.judge`.
 * The other judges' verdicts feed judge agreement and the per-judge report
   ([06-report.md](06-report.md)); an owner override is not a judge there.

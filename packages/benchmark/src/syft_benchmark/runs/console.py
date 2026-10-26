@@ -23,8 +23,7 @@ the implementation but in the very nature of manual testing:
     hand, and over ten a five-percent difference is noise.
 
 So the console path is fit for reconnaissance: seeing how a model behaves that
-cannot be reached otherwise. It is not intended for the report that goes out to
-the storefront.
+cannot be reached otherwise. It is not intended for the report.
 
 **The second path is a console JUDGE**, and its limitations are different. A
 judge holds no dialogue and needs no temperature: it reads the question, the gold

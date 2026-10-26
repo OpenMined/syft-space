@@ -4,8 +4,8 @@ The order is exactly this. The table has priority, because it is edited from
 the UI and the edits have to be visible in a running process. The file
 ``config/spaces.json`` stays and keeps working: an installation configured by
 it comes up and measures, knowing nothing about the UI. A target from the file
-becomes a table row at the very first use — after that it can be configured,
-and the file no longer overrides it.
+becomes a table row at the very first use; after that the row is what is
+configured, and the file does not override it.
 
 There is deliberately no way back: changes from the UI are not written to the
 file. A service that rewrites a human's configuration file sooner or later
@@ -132,21 +132,6 @@ def update_probe(session: Session, key: str, probe: Probe) -> Target | None:
     row.updated_at = datetime.now(UTC)
     session.flush()
     return row
-
-
-def drop(session: Session, key: str, settings: Settings | None = None) -> bool:
-    """Remove a target. Its measurement history stays: it is about the endpoint.
-
-    The token goes with it. Keeping a sealed secret for a target nobody can
-    name any more would be keeping a secret nobody will ever use and nobody
-    will think to remove.
-    """
-    row = session.get(Target, key)
-    if row is None:
-        return False
-    session.delete(row)
-    store.clear_secret(settings or get_settings(), store.target_secret(key), session)
-    return True
 
 
 def has_token(session: Session, key: str) -> bool:

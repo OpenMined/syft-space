@@ -11,10 +11,6 @@ import type {
   UpdateEndpointRequest,
   EndpointQueryRequest,
   EndpointQueryResponse,
-  EndpointQualityResponse,
-  PublishQualityCardResponse,
-  QualityHistoryResponse,
-  RetractQualityResponse,
 } from '../types'
 
 export const endpointsApi = {
@@ -64,61 +60,6 @@ export const endpointsApi = {
 
   unpublish: async (slug: string): Promise<UnpublishResult[]> => {
     const response = await apiClient.delete<UnpublishResult[]>(`/endpoints/${slug}/unpublish`)
-    return response.data
-  },
-
-  /**
-   * The benchmark card stored for this endpoint.
-   *
-   * Always available to the owner, whatever the benchmarks setting says: he
-   * must be able to read what is said in his name even after closing the door
-   * on new reports.
-   */
-  getQuality: async (slug: string): Promise<EndpointQualityResponse> => {
-    const response = await apiClient.get<EndpointQualityResponse>(
-      `/endpoints/${slug}/quality`,
-    )
-    return response.data
-  },
-
-  /**
-   * Withdraw the published card, here and at every marketplace showing it.
-   *
-   * Idempotent: an endpoint with no card comes back `cleared: false`, which is
-   * not an error.
-   */
-  retractQuality: async (slug: string): Promise<RetractQualityResponse> => {
-    const response = await apiClient.delete<RetractQualityResponse>(
-      `/endpoints/${slug}/quality`,
-    )
-    return response.data
-  },
-
-  /**
-   * Every card this endpoint has collected, newest run first.
-   *
-   * Withdrawn runs are in it: a share is only readable next to the shares
-   * before it, and a history with the awkward runs left out is not one.
-   */
-  getQualityHistory: async (slug: string): Promise<QualityHistoryResponse> => {
-    const response = await apiClient.get<QualityHistoryResponse>(
-      `/endpoints/${slug}/quality/history`,
-    )
-    return response.data
-  },
-
-  /**
-   * Put an earlier run back on top of a later one.
-   *
-   * A newer run is not automatically the truer one — it can rest on a question
-   * set that turned out to be wrong. Nothing is deleted: the runs measured
-   * after the chosen one are marked withdrawn, so the move is reversible by
-   * choosing the newer one again.
-   */
-  publishQualityCard: async (slug: string, cardId: string): Promise<PublishQualityCardResponse> => {
-    const response = await apiClient.post<PublishQualityCardResponse>(
-      `/endpoints/${slug}/quality/cards/${cardId}/publish`,
-    )
     return response.data
   },
 

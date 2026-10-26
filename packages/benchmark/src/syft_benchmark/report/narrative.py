@@ -13,11 +13,10 @@ not be taken on trust. So it is kept apart: it goes as a separate paragraph with
 note saying what wrote it, and the absence of a model does not break the report —
 the section simply does not appear.
 
-The perimeter: what goes out is the same aggregated numbers that go to the
-storefront. Neither a question, nor a gold answer, nor a corpus chunk gets into
-the prompt — there is nowhere here to take them from, ``Metrics`` contains no
-text, and this module does not touch the database (locked down by the invariants
-test).
+The perimeter: what goes out is aggregated numbers only. Neither a question,
+nor a gold answer, nor a corpus chunk gets into the prompt — there is nowhere
+here to take them from, ``Metrics`` contains no text, and this module does not
+touch the database (locked down by the invariants test).
 """
 
 from __future__ import annotations
@@ -330,7 +329,7 @@ def findings(
 
 
 def numbers_block(results: list[Metrics]) -> str:
-    """The same aggregated numbers that go to the storefront — as lines.
+    """The aggregated numbers — as lines.
 
     This is the only thing the analyst model sees. There is no corpus text here and
     there cannot be: ``Metrics`` does not contain it.

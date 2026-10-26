@@ -12,7 +12,7 @@ import { duration, hasTiming, phaseLabel, roleLabel } from './timing'
 import { usdText } from './report/selectors'
 import { customerCost, keySpend, runDuration } from './report/timeCost'
 
-const props = defineProps<{ slug: string; job: string; refreshKey?: number }>()
+const props = defineProps<{ slug: string; job: string }>()
 
 const timing = ref<BenchmarkRunTiming | null>(null)
 // From the run's own timestamps, for runs recorded without timing.
@@ -40,7 +40,7 @@ async function load(): Promise<void> {
 
 const totalS = computed(() => timing.value?.total_s || spanS.value)
 
-watch([() => props.job, () => props.refreshKey], load, { immediate: true })
+watch(() => props.job, load, { immediate: true })
 
 const limits = computed(() => {
   const c = timing.value?.concurrency

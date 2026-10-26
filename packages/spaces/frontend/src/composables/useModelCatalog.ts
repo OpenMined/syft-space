@@ -1,13 +1,4 @@
-/**
- * The model catalogue of one benchmark, fetched once and shared.
- *
- * Whole rather than queried per keystroke: the list changes only when its owner
- * asks the benchmark to refresh, and a request between the typing and the list
- * is the delay that sends people back to writing model names by hand.
- *
- * The cache is module-level and keyed by connection, so four pickers on one
- * form ask once and it survives the popover opening and closing.
- */
+/** The model catalogue of one benchmark, fetched whole once and cached per connection. */
 import { ref } from 'vue'
 
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
@@ -23,7 +14,7 @@ const EMPTY: BenchmarkModelCatalog = {
 }
 
 const cache = new Map<string, BenchmarkModelCatalog>()
-// The request in flight, so that four pickers opening at once make one call.
+// Shared in-flight request, so pickers opening together make one call.
 const inFlight = new Map<string, Promise<BenchmarkModelCatalog>>()
 
 export function useModelCatalog() {
@@ -74,8 +65,7 @@ export function useModelCatalog() {
       catalog.value = data
       return true
     } catch (err) {
-      // The benchmark's own words: a perimeter that forbids the call names
-      // the host to open, which is an instruction, not a failure message.
+      // Shown as the benchmark words it (e.g. which host to allow).
       error.value = apiErrorDetail(err, 'The model list could not be refreshed')
       return false
     } finally {

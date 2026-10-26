@@ -120,8 +120,8 @@
         <h2 class="text-base font-semibold">7. What left your organization</h2>
         <p class="text-muted-foreground">
           Questions were written inside your Syft Space. The excerpts from your archive were sent to
-          the models being tested, only to answer these questions. Scores leave only if you publish
-          them, and questions and articles never do.
+          the models being tested, only to answer these questions. Scores, questions and articles
+          stay in your Syft Space.
         </p>
       </section>
     </div>

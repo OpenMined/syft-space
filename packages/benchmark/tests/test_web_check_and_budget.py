@@ -87,14 +87,17 @@ class _Response:
     text = ""
 
     def json(self) -> dict[str, Any]:
-        return {"choices": [{"message": {"content": "Paris"}, "finish_reason": "stop"}]}
+        # The answer cites a page: it shows its search.
+        cited = {"type": "url_citation", "url_citation": {"url": "https://a.test/"}}
+        message = {"content": "Paris", "annotations": [cited]}
+        return {"choices": [{"message": message, "finish_reason": "stop"}]}
 
 
 def _capture(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     bodies: list[dict[str, Any]] = []
 
     def fake_post(url: str, *, json: dict[str, Any], **_: Any) -> _Response:
-        bodies.append(json)
+        bodies.append(dict(json))
         return _Response()
 
     monkeypatch.setattr("syft_benchmark.llm.ollama.httpx.post", fake_post)
@@ -435,7 +438,7 @@ def test_every_passage_in_the_window_is_eligible(
     assert len(read) == 20
     assert report.by_generator == {"qa": 40}
     # Round-robin: the first pass touches every document before going deeper.
-    assert all(f"Doc {d}" in read[d] for d in range(5))
+    assert all(any(f"Doc {d}" in unit for unit in read[:5]) for d in range(5))
 
 
 @needs_db

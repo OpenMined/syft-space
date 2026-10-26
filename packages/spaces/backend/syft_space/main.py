@@ -673,7 +673,6 @@ publish_endpoint_handler = PublishEndpointHandler(
     model_registry=MODEL_TYPE_REGISTRY,
     wallet_repository=wallet_repository,
     wallet_providers=wallet_providers,
-    settings_repository=settings_repository,
 )
 tenant_handler = TenantHandler(tenant_repository)
 
@@ -689,8 +688,7 @@ settings_handler = SettingsHandler(
 )
 feedback_handler = FeedbackHandler(marketplace_repository)
 
-# A Space ships without a benchmark: with no connection made, these routes
-# answer "nothing is connected" and nothing measures anything.
+# With no benchmark connection, these routes report that nothing is connected.
 benchmark_handler = BenchmarkHandler(
     connection_repository=BenchmarkConnectionRepository(database),
     target_repository=BenchmarkTargetRepository(database),
@@ -698,7 +696,6 @@ benchmark_handler = BenchmarkHandler(
     dataset_repository=dataset_repository,
     dataset_registry=DATASET_TYPE_REGISTRY,
     settings_repository=settings_repository,
-    publish_handler=publish_endpoint_handler,
 )
 
 # Initialize ingestion manager and handler
@@ -796,15 +793,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Compress responses over the wire. The frontend's entry chunk is a couple of
-# megabytes uncompressed and shrinks to roughly a third of that gzipped, which
-# is the difference between a page that loads over a real network link and one
-# that spends its budget on a single asset. Added last, so it sits outermost
-# and also covers the static mount below.
-#
-# Level 6 rather than zlib's 9: on the 2 vCPU the Space is sized for, the last
-# three levels buy a couple of percent for several times the CPU, and the
-# compression runs on the event loop thread.
+# Gzip responses, including the static frontend. Added last so it is outermost.
+# Level 6: higher levels cost much more CPU on the event loop for little gain.
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 # Mount static files (if frontend exists)

@@ -525,23 +525,9 @@ export interface UpdateDiagnosticsRequest {
   enabled: boolean
 }
 
-// --- Benchmark reporting ---------------------------------------------------
-//
-// A benchmark measures this endpoint and hands the Space a card; the Space
-// publishes it to the marketplaces this endpoint is on. These types are what
-// the owner reads back — and what he decides a retraction from.
+// --- Benchmark cards: one per measuring job --------------------------------
 
-export type BenchmarksMode = 'off' | 'local'
-
-export interface BenchmarksModeResponse {
-  mode: BenchmarksMode
-}
-
-export interface UpdateBenchmarksModeRequest {
-  mode: BenchmarksMode
-}
-
-/** What kind of product was measured. The score cannot be read without it. */
+/** What kind of product was measured. */
 export type BenchmarkKind = 'answering' | 'retrieval'
 
 export interface BenchmarkAnswerable {
@@ -567,9 +553,9 @@ export interface BenchmarkModelRow {
   accuracy: number
   fabrication?: number | null
   lmi?: number | null
-  /** What this endpoint's material did to that model's honesty. */
+  /** Change in honesty with this endpoint's material. */
   context_gain?: number | null
-  /** What the same model scored with no material in front of it at all. */
+  /** Score of the same model without the material. */
   closed_accuracy?: number | null
 }
 
@@ -579,12 +565,7 @@ export interface BenchmarkSkillRow {
   accuracy: number
 }
 
-/**
- * What the figures rest on — and the owner's grounds to doubt them.
- *
- * `flags` are codes, not sentences: the benchmark does not write this UI's
- * words.
- */
+/** What the figures rest on; `flags` are codes. */
 export interface BenchmarkTrust {
   judges: number
   agreement?: number | null
@@ -602,12 +583,7 @@ export interface BenchmarkDataset {
   questions: number
 }
 
-/**
- * What the denial loop found: whether a right answer survives being pushed on.
- *
- * Absent where the block was never run — which is the ordinary state, and not
- * the same as an endpoint that never gave in.
- */
+/** Denial loop results: whether a right answer survives push-back. Absent when not run. */
 export interface BenchmarkPressure {
   samples: number
   flip_rate?: number | null
@@ -620,10 +596,7 @@ export interface BenchmarkTemperature {
   accuracy: number
 }
 
-/**
- * What the monte carlo block found: whether the same question gets the same
- * answer, and at which temperature that stops being true.
- */
+/** Monte Carlo results: answer consistency across repeats and temperatures. */
 export interface BenchmarkStability {
   samples: number
   consistency?: number | null
@@ -641,7 +614,7 @@ export interface BenchmarkCard {
   version: number
   kind: BenchmarkKind
   arm: string
-  /** The launch this card is of; empty where the run belongs to none. */
+  /** The job this card belongs to; empty when none. */
   job?: string
   checked_at: string
   score?: number | null
@@ -659,75 +632,6 @@ export interface BenchmarkCard {
   instrument?: BenchmarkInstrument | null
   pressure?: BenchmarkPressure | null
   stability?: BenchmarkStability | null
-}
-
-export interface EndpointQualityResponse {
-  endpoint_slug: string
-  /** False when nobody ever measured it — which is not a score of zero. */
-  reported: boolean
-  kind?: BenchmarkKind | null
-  score?: number | null
-  fabrication_rate?: number | null
-  samples?: number | null
-  reliable?: boolean | null
-  checked_at?: string | null
-  /** Marketplaces currently showing this card. */
-  published_to: string[]
-  report?: BenchmarkCard | null
-}
-
-export interface QualityMarketplaceResult {
-  marketplace_id: string
-  marketplace_name: string
-  success: boolean
-  supported: boolean
-  message?: string | null
-  error?: string | null
-}
-
-/**
- * One run in an endpoint's history: the badge figures, and what became of it.
- *
- * Exactly one card in a history is `standing` — the newest one nobody
- * withdrew, which is the card the marketplaces show.
- */
-export interface QualityCardSummary {
-  id: string
-  kind: BenchmarkKind
-  score?: number | null
-  fabrication_rate?: number | null
-  samples: number
-  reliable: boolean
-  /** When the benchmark that produced this card ran. */
-  checked_at: string
-  /** When this Space was handed it. */
-  reported_at: string
-  retracted_at?: string | null
-  standing: boolean
-  models: number
-  profile: string
-  /** The whole card, so the page can draw this run without a request of its own. */
-  report: BenchmarkCard
-}
-
-export interface QualityHistoryResponse {
-  endpoint_slug: string
-  /** Newest run first, withdrawn ones included. */
-  cards: QualityCardSummary[]
-}
-
-export interface PublishQualityCardResponse {
-  endpoint_slug: string
-  card_id: string
-  published: boolean
-  results: QualityMarketplaceResult[]
-}
-
-export interface RetractQualityResponse {
-  endpoint_slug: string
-  /** False means there was nothing to remove, which is not an error. */
-  cleared: boolean
-  results: QualityMarketplaceResult[]
 }
 
 // Endpoint query API types
@@ -847,11 +751,7 @@ export interface LedgerEntryPage {
 
 // --- Benchmarks -------------------------------------------------------------
 //
-// Settings travel as open documents. Naming their fields here would mean
-// editing this file every time the benchmark grows a knob, and a forgotten
-// edit would mean a form that silently cannot configure something that already
-// works. The benchmark describes its own fields — see BenchmarkField — and
-// this side supplies the words.
+// Settings are open documents; the benchmark describes its own fields (BenchmarkField).
 
 export type BenchmarkLayer = Record<string, unknown>
 
@@ -874,28 +774,19 @@ export interface BenchmarkField {
   type: string
   group: string
   choices?: (string | number)[]
-  // The name of a list too long to inline. `choices` carries its own values —
-  // three arms, four blocks — and the form draws them as they arrive. Three
-  // hundred models cannot travel that way and change on the benchmark's
-  // refresh rather than on a release here, so what arrives is the name of a
-  // catalogue and the form fetches it. Today there is one: 'models'.
+  // A catalogue the form fetches separately (currently only 'models').
   catalog?: string
   item_type?: string
   minimum?: number
   maximum?: number
 }
 
-// One model, as the benchmark knows it. The identifier is the benchmark's, not
-// a provider's: the same model is `anthropic/claude-sonnet-5` there and
-// `claude-sonnet-5` at Anthropic's own API, and which name goes on the wire is
-// decided where the call is made. Storing the provider's spelling here would
-// mean rewriting every setting the day the provider changes.
+// One model, identified by the benchmark's id (e.g. `anthropic/claude-sonnet-5`).
 export interface BenchmarkModel {
   id: string
   name: string
   vendor: string
-  // The dated build serving that name today. Reported, not part of the
-  // identity: a vendor refreshing a model must not fork its history.
+  // The dated build currently serving that name; not part of the identity.
   build: string
   context_length: number | null
   max_output_tokens: number | null
@@ -922,8 +813,7 @@ export interface BenchmarkCitation {
 export interface BenchmarkModelCatalog {
   models: BenchmarkModel[]
   vendors: string[]
-  // Moving names — `~anthropic/claude-sonnet-latest` — and what each resolves
-  // to right now. Shown, never stored: the benchmark pins them as it saves.
+  // Moving names (`~anthropic/claude-sonnet-latest`) and what each resolves to.
   pins: Record<string, string>
   // Source -> when it was last refreshed.
   fetched: Record<string, string>
@@ -949,9 +839,7 @@ export interface BenchmarkProvider {
   key_set: boolean
   external_hosts: string[]
   roles: BenchmarkRoleProvider[]
-  // Set by the benchmark, and false today: the provider is configured in that
-  // service's environment. The key never leaves it — not as a value, and not
-  // into any store on this side.
+  // Set by the benchmark; provider keys stay in its environment.
   editable: boolean
 }
 
@@ -972,7 +860,6 @@ export interface BenchmarkConnection {
   id: string
   name: string
   url: string
-  console_url: string
   has_token: boolean
   space_url: string
   chroma_host: string
@@ -994,13 +881,7 @@ export interface BenchmarkConnection {
 export interface BenchmarkConnectionRequest {
   name: string
   url: string
-  // Where a browser reaches the console, when that differs from `url` — a
-  // Docker-internal hostname resolves for this backend's own calls but not
-  // for the owner's browser. Blank falls back to `url`.
-  console_url?: string
-  // Omitted rather than blank when unchanged: the form is never told the key,
-  // so it cannot send it back, and without this rule renaming a connection
-  // would silently revoke its access.
+  // Omitted to keep the stored key.
   token?: string
   space_url?: string
   chroma_host?: string
@@ -1010,24 +891,16 @@ export interface BenchmarkConnectionRequest {
   is_active?: boolean
 }
 
-export interface BenchmarkSettingsRequest {
-  instrument: BenchmarkLayer
-  probe: BenchmarkLayer
-}
-
 export interface BenchmarkJob {
   id: string
   state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   phase: string
   /** pipeline, filter or judge — which operation this job is, not where it is. */
   kind: string
-  // Passes finished out of passes planned. Zero as the total means the scale is
-  // not known yet, not that there is nothing to do.
+  // Passes finished of passes planned; total 0 means not known yet.
   done: number
   total: number
-  // What is running right now, and how far into itself it is. Two counts rather
-  // than one: passes and the questions inside a pass are different units, and
-  // merged into a single bar they misreport both.
+  // The current pass and its progress (questions within the pass).
   arm: string
   block: string
   model: string
@@ -1036,12 +909,7 @@ export interface BenchmarkJob {
   message: string
   error: string
   trigger: string
-  /**
-   * The card assembled after measuring, in the shape a marketplace is handed
-   * — present whether or not this run was published. Absent when the run
-   * never asked a question at all (a launch that only refreshed the
-   * question set), or when nothing was graded.
-   */
+  /** The card assembled after measuring; absent when nothing was asked or graded. */
   card?: BenchmarkCard | null
   created_at: string | null
   started_at: string | null
@@ -1082,8 +950,7 @@ export interface BenchmarkTextMetricsRow {
 
 export interface BenchmarkTarget {
   endpoint_slug: string
-  // False means nobody opted this endpoint in. That is not a score of zero and
-  // must never be rendered as one.
+  // False: this endpoint is not measured (not a score of zero).
   measured: boolean
   connection_id: string | null
   connection_name: string
@@ -1094,7 +961,7 @@ export interface BenchmarkTarget {
   instrument: BenchmarkLayer
   schedule: string
   schedule_at: string
-  /** When the benchmark will next fire the schedule, UTC. It decides, not us. */
+  /** When the benchmark next runs the schedule, UTC. */
   next_run_at: string | null
   synced_at: string | null
   fields: BenchmarkFieldCatalogue
@@ -1150,21 +1017,6 @@ export interface BenchmarkWindow {
   window_days: number
 }
 
-export interface BenchmarkCheck {
-  ok: boolean
-  corpus: boolean
-  endpoint: boolean
-  transport: string
-  collection: string
-  available: string[]
-  chunks: number
-  usable: number
-  documents: number
-  response_type: string
-  blocked_arms: Record<string, string>
-  problems: string[]
-}
-
 export interface BenchmarkRunRequest {
   generate?: boolean | null
   /** Screen the pending pairs generation just built; empty — follow `generate`. */
@@ -1173,22 +1025,17 @@ export interface BenchmarkRunRequest {
   evaluate?: boolean | null
   /** Collect answers without calling a judge, leaving every verdict pending. */
   defer_judging?: boolean
-  publish?: boolean
   limit?: number | null
 }
 
 export type BenchmarkPairStatus = 'pending' | 'active' | 'rejected' | 'retired'
-/**
- * The outcomes, and the two states that are not outcomes. `web_sourced`: a control
- * question answered with facts its web search supports; not a hallucination.
- *
- * `pending` — no judge has looked yet. `technical` — nothing was measured:
- * the endpoint unreachable, the provider refusing, the judge silent. Neither
- * enters a share, and neither can be recorded by hand.
- */
 /** Fine outcome of a control answer; null on other kinds, overrides and old rows. */
 export type BenchmarkBehavior = 'declined' | 'corrected' | 'web_sourced' | 'made_up'
 
+/**
+ * Verdicts. `web_sourced`: facts its web search supports. `pending` (not graded yet) and
+ * `technical` (nothing measured) are not outcomes: they enter no share and cannot be set by hand.
+ */
 export type BenchmarkVerdict =
   | 'correct'
   | 'abstain'
@@ -1230,7 +1077,7 @@ export interface BenchmarkDenialRound {
 
 /** How the pressure on one answer ended (`denial_loop`). */
 export interface BenchmarkDenial {
-  /** Objections actually put — the loop stops at the one the model gives in on. */
+  /** Objections put; the loop stops when the model gives in. */
   rounds: number
   flipped: boolean
   flip_round: number | null
@@ -1266,32 +1113,25 @@ export interface BenchmarkFragment {
   file_name: string
   score: number
   content: string
-  /** The length before the ceiling. Longer than `content` — the model was
-   * shown a shortened chunk. */
+  /** Length before the ceiling; longer than `content` when the chunk was shortened. */
   chars?: number | null
 }
 
 /**
- * How the call that produced an answer ended.
- *
- * The budget doubles until the answer fits or reaches `answer_max_tokens`, so
- * `truncated` means it reached that number and still did not finish. It is
- * graded like any other. Absent with `audit_log` off, which is not "not cut".
+ * How the answering call ended. `truncated`: still unfinished at `answer_max_tokens`
+ * (graded as usual). Absent with `audit_log` off.
  */
 export interface BenchmarkCall {
   truncated: boolean
   finish_reason: string
-  /** The budget the call ended on, after any doubling — the number to raise. */
+  /** The token budget the call ended on, after any doubling. */
   max_tokens: number | null
   length_retries: number
 }
 
 /**
- * What was actually sent — for the answer, and for the verdict on it.
- *
- * Any field can be empty: nothing is kept with the benchmark's `audit_log`
- * off, and the judge fields are empty wherever the verdict cost no call —
- * which `judged_without_model` tells apart from a record never written.
+ * What was sent for the answer and its verdict. Empty with `audit_log` off; judge fields
+ * are empty when the verdict cost no call (`judged_without_model`).
  */
 export interface BenchmarkPrompts {
   responder_system: string
@@ -1319,32 +1159,17 @@ export interface BenchmarkResult {
   model: string
   created_at: string
   is_latest: boolean
-  /**
-   * What the block did, where it did anything beyond asking.
-   *
-   * Both blocks record the answer they STARTED from, so without these a
-   * pressure row and a repeat row are the direct row printed again — and the
-   * `hallucinate` on a pressure row, which means the answer was given up rather
-   * than wrong, reads as the judge contradicting itself.
-   */
+  /** What the denial loop or Monte Carlo block did beyond the starting answer. */
   denial?: BenchmarkDenial | null
   repeats?: BenchmarkRepeats | null
-  /**
-   * Whether the chunk the question grew from was found, and where. An
-   * abstention cannot be read without them: on a miss it is correct
-   * behaviour, on a hit it is blindness. Null where nothing was retrieved.
-   */
+  /** Whether the question's source chunk was retrieved, and where; null when nothing was. */
   retrieval_hit?: boolean | null
   retrieval_rank?: number | null
   call?: BenchmarkCall | null
   /** The run's two ceilings. Null where the run does not carry them. */
   context_docs?: number | null
   fragment_max_chars?: number | null
-  /**
-   * Only on a listing asked for with `prompts`: megabytes over a whole page,
-   * so fetched one question at a time. Null with `audit_log` off, and
-   * `fragments` null where nothing was retrieved at all.
-   */
+  /** Only with `prompts`; null with `audit_log` off. */
   prompts?: BenchmarkPrompts | null
   fragments?: BenchmarkFragment[] | null
   /** Pages cited by an answer given with web search. */
@@ -1402,7 +1227,7 @@ export interface BenchmarkReportTrust {
   failed: number
   pending: number
   flags: string[]
-  /** Present only on the owner's own console build — never on a published card. */
+  /** Only in the `/console/report` build, not on a stored card. */
   doubts?: string[]
 }
 
@@ -1420,16 +1245,12 @@ export interface BenchmarkReportInstrument {
   subjects: number
 }
 
-/**
- * One endpoint's measured quality — what `/console/report` (and, once
- * published, `/console/publish`) return. The owner's own build additionally
- * carries `score_label` and `trust.doubts`; a published card never does.
- */
+/** One endpoint's measured quality from `/console/report`; adds `score_label` and `trust.doubts`. */
 export interface BenchmarkReport {
   version: number
   kind: 'answering' | 'retrieval'
   arm: string
-  /** The launch this card is of; empty where the run belongs to none. */
+  /** The job this card belongs to; empty when none. */
   job?: string
   checked_at: string
   score: number | null
@@ -1448,17 +1269,6 @@ export interface BenchmarkReport {
   instrument?: BenchmarkReportInstrument
   pressure?: BenchmarkPressure | null
   stability?: BenchmarkStability | null
-}
-
-/**
- * A ready-to-open link into the benchmark's own console for one endpoint —
- * generation, filtering, execution, judging and the report, all in one
- * place. `url` already carries the session token; it is scoped to this one
- * endpoint and expires, minted fresh on every open rather than reused.
- */
-export interface BenchmarkSession {
-  url: string
-  expires_at: string
 }
 
 // --- Benchmark results: the per-run report ------------------------------------
@@ -1529,10 +1339,8 @@ export interface BenchmarkRunSummary {
   models: BenchmarkModelFigures[]
   lift_lo: number | null
   lift_hi: number | null
-  /** The published card differs from the live figures. */
+  /** The card stored on the job differs from the live figures. */
   card_outdated: boolean
-  published: boolean
-  card_id: string | null
   /** True: the job wrote or filtered questions but asked no model. */
   build_only?: boolean
   state?: 'succeeded' | 'failed' | 'cancelled'
@@ -1550,8 +1358,6 @@ export interface BenchmarkBuildCounts {
   failed: number
   skipped: number
 }
-
-export type BenchmarkRunStatusFilter = 'all' | 'published' | 'private'
 
 export interface BenchmarkRunList {
   /** Every queued or running job; never paged or filtered. */
@@ -1757,7 +1563,7 @@ export interface BenchmarkRunReport {
   text_metrics?: BenchmarkTextMetricsRow[]
 }
 
-export type BenchmarkTimingPhase = 'generate' | 'filter' | 'evaluate' | 'judge' | 'publish'
+export type BenchmarkTimingPhase = 'generate' | 'filter' | 'evaluate' | 'judge' | 'report'
 
 /** Where one job's time went; seconds rounded to 0.01. */
 export interface BenchmarkRunTiming {
@@ -1806,17 +1612,13 @@ export interface BenchmarkQuestionRow {
   verdict_with: BenchmarkVerdict | null
   group: BenchmarkQuestionGroup | null
   overridden: boolean
-  excluded: boolean
 }
-
-export type BenchmarkExcludedFilter = 'include' | 'only' | 'hide'
 
 export interface BenchmarkQuestionQuery {
   model: string
   group?: BenchmarkQuestionGroup
   generator?: string
   q?: string
-  excluded?: BenchmarkExcludedFilter
   limit?: number
   offset?: number
 }
@@ -1824,7 +1626,7 @@ export interface BenchmarkQuestionQuery {
 export interface BenchmarkQuestionPage {
   items: BenchmarkQuestionRow[]
   total: number
-  /** Respect `generator`, `q` and `excluded`, not `group`. */
+  /** Respect `generator` and `q`, not `group`. */
   counts: { all: number } & Record<BenchmarkQuestionGroup, number>
 }
 
@@ -1854,6 +1656,8 @@ export interface BenchmarkArmDetail {
   citations?: BenchmarkCitation[] | null
   /** Asked to search the web and cited nothing. */
   web_search_unused?: boolean | null
+  /** One sentence on why it shows no search; null where it searched. */
+  web_search_unused_reason?: string | null
   /** The counted fine outcome; null under an override. */
   behavior?: BenchmarkBehavior | null
 }
@@ -1870,11 +1674,6 @@ export interface BenchmarkQuestionJudge {
   with_behavior?: BenchmarkBehavior | null
 }
 
-export interface BenchmarkQuestionExclusion {
-  reason: string
-  created_at: string
-}
-
 export interface BenchmarkQuestionDetail {
   question: BenchmarkQuestionRow
   /** The gold source paragraph. */
@@ -1882,7 +1681,6 @@ export interface BenchmarkQuestionDetail {
   arms: { alone: BenchmarkArmDetail | null; with: BenchmarkArmDetail | null }
   judges: BenchmarkQuestionJudge[]
   judges_agreed: boolean | null
-  exclusion: BenchmarkQuestionExclusion | null
 }
 
 /** A passage sent with the with-data answer. */
@@ -1892,11 +1690,4 @@ export interface BenchmarkReportFragment {
   score: number
   content: string
   is_source: boolean
-}
-
-export interface BenchmarkRunPublishResponse {
-  published: boolean
-  card_id?: string | null
-  /** Marketplaces that did not accept the change. */
-  refused: QualityMarketplaceResult[]
 }

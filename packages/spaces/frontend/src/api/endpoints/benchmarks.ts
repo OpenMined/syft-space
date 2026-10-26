@@ -1,6 +1,5 @@
 import { apiClient } from '../client'
 import type {
-  BenchmarkCheck,
   BenchmarkConnection,
   BenchmarkConnectionRequest,
   BenchmarkFilterOutcome,
@@ -20,12 +19,8 @@ import type {
   BenchmarkResult,
   BenchmarkResultPage,
   BenchmarkRunList,
-  BenchmarkRunPublishResponse,
   BenchmarkRunReport,
   BenchmarkRunRequest,
-  BenchmarkRunStatusFilter,
-  BenchmarkSession,
-  BenchmarkSettingsRequest,
   BenchmarkTarget,
   BenchmarkTargetRequest,
   BenchmarkVerdict,
@@ -51,7 +46,6 @@ export function dispositionFileName(header: unknown): string | null {
 export const benchmarksApi = {
   // --- connections ---------------------------------------------------------
 
-  // Benchmarks this Space is wired to. An empty list is the shipped state.
   listConnections: async (): Promise<BenchmarkConnection[]> => {
     const response = await apiClient.get('/benchmarks/connections')
     return response.data
@@ -67,16 +61,6 @@ export const benchmarksApi = {
     data: BenchmarkConnectionRequest,
   ): Promise<BenchmarkConnection> => {
     const response = await apiClient.put(`/benchmarks/connections/${id}`, data)
-    return response.data
-  },
-
-  // Whole, not patched: the form shows the settings as one document, and with
-  // a patch a cleared field would be indistinguishable from one not sent.
-  saveSettings: async (
-    id: string,
-    data: BenchmarkSettingsRequest,
-  ): Promise<BenchmarkConnection> => {
-    const response = await apiClient.put(`/benchmarks/connections/${id}/settings`, data)
     return response.data
   },
 
@@ -125,17 +109,13 @@ export const benchmarksApi = {
 
   // --- the model catalogue ---------------------------------------------------
 
-  // The models this benchmark can be pointed at. Asked for whole and filtered
-  // here: the list is a few hundred entries that change only on a refresh, and
-  // a request per keystroke would put latency into the one control this whole
-  // feature exists to make pleasant.
+  // The whole catalogue; the picker filters it locally.
   listModels: async (connectionId: string): Promise<BenchmarkModelCatalog> => {
     const response = await apiClient.get(`/benchmarks/connections/${connectionId}/models`)
     return response.data
   },
 
-  // An explicit action: on the benchmark's side this is a call outside its
-  // perimeter, and a benchmark that forbids it says so with the host to open.
+  // Asks the benchmark to fetch its provider's model list again.
   refreshModels: async (connectionId: string): Promise<BenchmarkModelCatalog> => {
     const response = await apiClient.post(`/benchmarks/connections/${connectionId}/models/refresh`)
     return response.data
@@ -153,17 +133,7 @@ export const benchmarksApi = {
     return response.data
   },
 
-  stopMeasuring: async (slug: string): Promise<void> => {
-    await apiClient.delete(`/benchmarks/endpoints/${slug}`)
-  },
-
-  checkTarget: async (slug: string): Promise<BenchmarkCheck> => {
-    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/check`)
-    return response.data
-  },
-
-  // Articles in the time window. `days` counts with an unsaved window;
-  // without it the saved one is used.
+  // Articles in the time window; `days` overrides the saved window.
   getWindow: async (slug: string, days?: number): Promise<BenchmarkWindow> => {
     const response = await apiClient.get(`/benchmarks/endpoints/${slug}/window`, {
       params: days === undefined ? undefined : { days },
@@ -186,11 +156,7 @@ export const benchmarksApi = {
     return response.data
   },
 
-  deleteJob: async (slug: string, jobId: string): Promise<void> => {
-    await apiClient.delete(`/benchmarks/endpoints/${slug}/jobs/${jobId}`)
-  },
-
-  // --- the console, embedded: pairs, results, filtering, judging, report ---
+  // --- pairs, results, verdicts --------------------------------------------
 
   listPairs: async (
     slug: string,
@@ -198,7 +164,7 @@ export const benchmarksApi = {
       status?: string
       cohort?: string
       generator?: string
-      /** One launch's questions — what it generated, rejected ones included. */
+      /** One job's questions, rejected ones included. */
       job?: string
       limit?: number
       offset?: number
@@ -227,25 +193,16 @@ export const benchmarksApi = {
     await apiClient.delete(`/benchmarks/endpoints/${slug}/console/pairs/${pairId}`)
   },
 
-  runFilter: async (slug: string): Promise<BenchmarkJob> => {
-    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/console/filter`, {})
-    return response.data
-  },
-
   listResults: async (
     slug: string,
     filters: {
       verdict?: string
       qa_id?: string
-      /** One launch's answers — what it asked and what came back. */
+      /** One job's answers. */
       job?: string
       limit?: number
       offset?: number
-      /**
-       * Also bring back what was sent to the model and to each judge, and the
-       * chunks retrieval found. Heavy — ask for it with `qa_id`, never over a
-       * whole page.
-       */
+      /** Include prompts and retrieved chunks; heavy, so use with `qa_id`. */
       prompts?: boolean
     },
   ): Promise<BenchmarkResultPage> => {
@@ -268,20 +225,9 @@ export const benchmarksApi = {
     return response.data
   },
 
-  /**
-   * Take back a verdict recorded by hand — the panel's stands again.
-   *
-   * The one thing in this console that deletes rather than adds, and it removes
-   * nothing that was measured: an override is the owner's own statement, and a
-   * misclick has to be undoable to something.
-   */
+  /** Remove a manual verdict; the judges' verdict applies again. */
   withdrawVerdict: async (slug: string, resultId: string): Promise<void> => {
     await apiClient.delete(`/benchmarks/endpoints/${slug}/console/results/${resultId}/verdict`)
-  },
-
-  runJudge: async (slug: string): Promise<BenchmarkJob> => {
-    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/console/judge`, {})
-    return response.data
   },
 
   buildReport: async (slug: string): Promise<BenchmarkReport> => {
@@ -289,30 +235,13 @@ export const benchmarksApi = {
     return response.data
   },
 
-  publishReport: async (slug: string): Promise<BenchmarkReport> => {
-    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/console/publish`)
-    return response.data
-  },
-
-  retractReport: async (slug: string): Promise<void> => {
-    await apiClient.post(`/benchmarks/endpoints/${slug}/console/retract`)
-  },
-
-  // A link into the benchmark's own console for this endpoint — generation,
-  // filtering, execution, judging and the report, all in one place.
-  openConsoleSession: async (slug: string): Promise<BenchmarkSession> => {
-    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/session`)
-    return response.data
-  },
-
-  // --- results: one run's report, served aggregated --------------------------
+  // --- run reports -----------------------------------------------------------
 
   listReportRuns: async (
     slug: string,
     params: {
       from?: string
       to?: string
-      status?: BenchmarkRunStatusFilter
       limit?: number
       offset?: number
     } = {},
@@ -384,23 +313,6 @@ export const benchmarksApi = {
     return response.data
   },
 
-  excludeQuestion: async (
-    slug: string,
-    jobId: string,
-    qaId: string,
-    body: { reason: string; retire: boolean },
-  ): Promise<BenchmarkQuestionDetail> => {
-    const response = await apiClient.put(
-      `${reportPath(slug, jobId)}/questions/${qaId}/exclusion`,
-      body,
-    )
-    return response.data
-  },
-
-  restoreQuestion: async (slug: string, jobId: string, qaId: string): Promise<void> => {
-    await apiClient.delete(`${reportPath(slug, jobId)}/questions/${qaId}/exclusion`)
-  },
-
   // Fetched as a blob: the route needs the bearer token, which a plain link cannot carry.
   downloadRunSummary: async (
     slug: string,
@@ -429,20 +341,8 @@ export const benchmarksApi = {
     }
   },
 
-  /** Publishes the card of that run, whatever its age. */
-  publishRun: async (slug: string, jobId: string): Promise<BenchmarkRunPublishResponse> => {
-    const response = await apiClient.post(`${reportPath(slug, jobId)}/publish`)
-    return response.data
-  },
-
-  /** Deletes a finished run and its answers; questions are kept. A published run is made private first. */
+  /** Deletes a finished run and its answers; questions are kept. */
   deleteRun: async (slug: string, jobId: string): Promise<void> => {
     await apiClient.delete(reportPath(slug, jobId))
-  },
-
-  /** 409 when this run is not the published one. */
-  unpublishRun: async (slug: string, jobId: string): Promise<BenchmarkRunPublishResponse> => {
-    const response = await apiClient.post(`${reportPath(slug, jobId)}/unpublish`)
-    return response.data
   },
 }

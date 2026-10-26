@@ -593,7 +593,7 @@ def test_filter_decisions_keep_the_full_texts_once(
     assert entry["gate"]["user"] == asked[control._GATE_SYSTEM]
     assert entry["gate"]["reply"] == '{"answered": false}'
     assert filter_stage.GATE_CALL not in meta
-    assert "gate" in meta  # the gate note, as before
+    assert "gate" in meta  # the gate note stays
 
 
 # --- job times and the stored cost ---------------------------------------------

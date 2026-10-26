@@ -1,14 +1,7 @@
 """add console_url to benchmark_connections
 
-``url`` is the address THIS backend calls the benchmark's control API by —
-on a rig where the two run as separate containers, that is a Docker-internal
-hostname, resolvable container-to-container but not from a browser on the
-host. The console link handed to the owner's browser was built from `url`
-directly and broke wherever the two addresses differ.
-
-``console_url`` is the address a browser should use instead, set only where
-it differs from `url`; empty falls back to `url`, so a deployment where the
-backend and a browser reach the benchmark the same way needs nothing here.
+``console_url`` is the benchmark address for the browser, when it differs
+from ``url`` (e.g. a Docker-internal hostname). Empty falls back to ``url``.
 
 Revision ID: 427f6bfcda9e
 Revises: f612f5b93dbc

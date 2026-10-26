@@ -1,29 +1,21 @@
-/**
- * One look for every benchmark chart, in one place.
- *
- * The report block and the results tab draw the same figures, and a share
- * drawn on a 0-100 axis in one place and on an auto-scaled one in the other
- * reads as two different numbers. So the axis, the tick words and the colours
- * live here rather than in each component: an accuracy bar always runs the
- * full 0-100, and "correct" is the same green wherever it is drawn.
- */
+/** Shared chart styling: fixed 0–100 share axes and one colour per meaning. */
 import type { TooltipItem } from 'chart.js'
 
-/** Muted grey that stays legible on both themes — the charts have no theme of their own. */
+/** Muted grey, legible on both themes. */
 const AXIS_COLOR = '#9ca3af'
 
 export const CHART_COLORS = {
-  /** The answer broke down as: correct, abstained, invented, incomplete. */
+  /** Answer outcomes. */
   correct: '#10b981',
   abstain: AXIS_COLOR,
   hallucinate: '#ef4444',
   incomplete: '#8b5cf6',
-  /** A model under test, and a type of question — distinct, never compared to each other. */
+  /** Model bars and question-kind bars. */
   model: '#3b82f6',
   skill: '#2dd4bf',
-  /** The same model with nothing in front of it — paired against `model`, so a shade of it. */
+  /** The same model without data; a lighter shade of `model`. */
   alone: '#93c5fd',
-  /** What survived being argued with, and what survived a rising temperature. */
+  /** Held under push-back, and stable across temperatures. */
   held: '#a78bfa',
   temperature: '#f59e0b',
 } as const
@@ -38,12 +30,7 @@ const GRID = { color: 'rgba(255,255,255,0.08)' }
 
 const LABEL_TICKS = { color: AXIS_COLOR, font: { size: 11 } }
 
-/**
- * Horizontal bars of shares: always the whole 0-100, never auto-scaled.
- *
- * The legend is off unless a chart draws more than one series — with a single
- * series it only repeats the title above it.
- */
+/** Horizontal share bars on a fixed 0–100 axis; the legend only for several series. */
 export function pctBarOptions(legend = false) {
   return {
     indexAxis: 'y' as const,
@@ -65,13 +52,7 @@ export function pctBarOptions(legend = false) {
   }
 }
 
-/** A share over time: the same full axis, so a run cannot look better by being drawn alone. */
-
-/**
- * Chart.js takes a horizontal bar chart's height from its container, not from
- * how many rows it has — without this, nine models draw as nine slivers in the
- * box that fitted three.
- */
+/** Container height for a horizontal bar chart; Chart.js does not size it by row count. */
 export function barChartHeight(rows: number): number {
   return Math.max(120, rows * 32)
 }

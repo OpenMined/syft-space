@@ -110,7 +110,6 @@ def test_a_session_reaches_only_its_own_target(client: TestClient, clean: Any) -
     assert {row["id"] for row in listed.json()["items"]} == {"pair-a"}
 
     # ...but the other target's pair, by id, is not.
-    assert client.get("/console/pairs/pair-b", headers=session_a).status_code == 404
     patched = client.patch(
         "/console/pairs/pair-b",
         json={"status": "rejected"},
@@ -168,15 +167,12 @@ def test_patch_and_delete_round_trip(client: TestClient, clean: Any) -> None:
         client.delete("/console/pairs/pair-lonely", headers=session_a).status_code
         == 204
     )
-    assert (
-        client.get("/console/pairs/pair-lonely", headers=session_a).status_code == 404
-    )
-
     blocked = client.delete("/console/pairs/pair-measured", headers=session_a)
     assert blocked.status_code == 409
-    still_there = client.get("/console/pairs/pair-measured", headers=session_a)
-    assert still_there.status_code == 200
-    assert still_there.json()["has_results"] is True
+    listed = client.get("/console/pairs", headers=session_a).json()["items"]
+    assert [(row["id"], row["has_results"]) for row in listed] == [
+        ("pair-measured", True)
+    ]
 
 
 @needs_db
@@ -362,16 +358,6 @@ def test_console_report_with_nothing_graded_is_a_conflict(
     _register(client, KEY)
     session_a = _session_for(client, KEY)
     assert client.post("/console/report", headers=session_a).status_code == 409
-    assert client.post("/console/publish", headers=session_a).status_code == 409
-
-
-@needs_db
-def test_console_retract_against_an_unreachable_space_is_a_bad_gateway(
-    client: TestClient, clean: Any
-) -> None:
-    _register(client, KEY)
-    session_a = _session_for(client, KEY)
-    assert client.post("/console/retract", headers=session_a).status_code == 502
 
 
 @needs_db

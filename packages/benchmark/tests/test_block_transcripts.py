@@ -118,7 +118,71 @@ def test_a_transcript_keeps_the_whole_answer_and_the_calls(
     assert outcome.judge_system == "SYS"
 
 
+SEARCHED_USAGE = {
+    "cost_usd": 0.01,
+    "web_search": "native",
+    "web_search_via": "tool",
+    "web_search_forced": "required",
+    "web_search_requests": 2,
+    "citations": [{"url": "https://a.test/", "title": "A"}],
+}
+UNSEARCHED_USAGE = {
+    "cost_usd": 0.01,
+    "web_search": "native",
+    "web_search_via": "tool",
+    "web_search_forced": "required",
+    "citations": [],
+}
+
+
+def test_each_round_records_whether_it_searched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    usages = iter([SEARCHED_USAGE, UNSEARCHED_USAGE])
+    monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("5442", next(usages)))
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: _verdict(Verdict.CORRECT))
+
+    outcome = run_denial_loop(
+        PORT, "5442", subject=_subject(), settings=_settings(denial_rounds=2)
+    )
+
+    searched, unsearched = outcome.log
+    assert searched["web_search_requests"] == 2
+    assert searched["web_search_unused"] is False
+    assert searched["citations"] == [{"url": "https://a.test/", "title": "A"}]
+    assert unsearched["web_search_unused"] is True
+    assert unsearched["web_search_unused_reason"]
+
+
+def test_a_round_offered_no_search_records_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(blocks, "chat", lambda *a, **k: ("5442", {"cost_usd": 0.0}))
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: _verdict(Verdict.CORRECT))
+
+    outcome = run_denial_loop(
+        PORT, "5442", subject=_subject(), settings=_settings(denial_rounds=1)
+    )
+
+    assert "web_search" not in outcome.log[0]
+
+
 # --- repeats -----------------------------------------------------------------
+
+
+def test_each_repeat_records_whether_it_searched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(judge, "grade", lambda *a, **k: _verdict(Verdict.CORRECT))
+
+    outcome = run_monte_carlo(
+        PORT,
+        ask=lambda _q, _t: ("5442", dict(SEARCHED_USAGE)),
+        settings=_settings(monte_carlo_temperatures=[0.3], monte_carlo_trials=1),
+    )
+
+    assert outcome.log[0]["web_search_requests"] == 2
+    assert outcome.log[0]["web_search_unused"] is False
 
 
 def test_the_repeats_keep_every_trial_with_its_temperature(

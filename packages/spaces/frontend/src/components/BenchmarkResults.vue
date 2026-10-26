@@ -1,43 +1,22 @@
 <script setup lang="ts">
 /**
- * Every run this endpoint has behind it, newest first.
- *
- * The page answers one question the marketplace page never asks: **which of
- * these runs speaks for my endpoint, and do I want it to?** So a run is a card
- * with the same figures in the same places, the newest one open and the rest
- * shut, and each carries the single button that publishes it or takes it down.
- *
- * Publishing an earlier run over a later one is deliberate, not a repair: a
- * newer run can rest on a question set that turned out to be wrong, or on a
- * night when a model under test was answering badly for reasons of its own.
- * Nothing is deleted either way — the runs measured after the chosen one are
- * marked withdrawn, and choosing the newer one again puts it back.
- *
- * Running a measurement is the other tab's job. Nothing here starts one.
+ * The technical view: every run of this endpoint as a card, newest first and open.
+ * Finished jobs show their stored card; the newest measuring run shows a live rebuild.
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { toast } from 'vue-sonner'
 import { ChevronRight, FlaskConical } from 'lucide-vue-next'
 
 import RunCard from '@/components/benchmark/RunCard.vue'
 import RunDetail from '@/components/benchmark/RunDetail.vue'
 import { buildText } from '@/components/benchmark/filter'
-import type { RunMarketplace } from '@/components/benchmark/runs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
-import { endpointsApi } from '@/api/endpoints/endpoints'
-import { marketplacesApi } from '@/api/endpoints/marketplaces'
-import { settingsApi } from '@/api/endpoints/settings'
-import { apiErrorDetail } from '@/lib/errors'
 import type {
   BenchmarkCard,
+  BenchmarkJob,
   BenchmarkReport,
   BenchmarkRunSummary,
-  BenchmarksMode,
-  EndpointQualityResponse,
-  MarketplaceListItem,
-  QualityCardSummary,
 } from '@/api/types'
 
 const props = defineProps<{ slug: string }>()
@@ -46,29 +25,15 @@ const route = useRoute()
 const router = useRouter()
 
 const loading = ref(true)
-const quality = ref<EndpointQualityResponse | null>(null)
-const history = ref<QualityCardSummary[]>([])
-const marketplaces = ref<MarketplaceListItem[]>([])
-const mode = ref<BenchmarksMode>('off')
+/** Jobs as the benchmark lists them; the finished ones carry their card. */
+const jobs = ref<BenchmarkJob[]>([])
 /** Jobs that wrote or filtered questions but asked no model. */
 const buildOnly = ref<BenchmarkRunSummary[]>([])
 
-/**
- * The card as it would be built from what is graded right now.
- *
- * Stored by nobody: the benchmark recomputes it from its own database on every
- * ask. It is a run like any other — it simply has not been reported to this
- * Space yet, and its own Public button is what reports it.
- */
+/** The card built from what is graded right now, for the newest measuring run. */
 const latest = ref<BenchmarkReport | null>(null)
 
-/**
- * A stamp the way the Space stores it, read as what it is.
- *
- * The cards table keeps naive datetimes, and they are UTC. Handed to `Date`
- * without a zone a browser reads them as local time, which moves every run by
- * the reader's own offset — enough to reorder two runs of the same evening.
- */
+/** A stamp parsed as UTC when it carries no zone. */
 function moment(value: string | null | undefined): Date | null {
   if (!value) return null
   const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`
@@ -90,89 +55,63 @@ function formatMoment(value: string | null | undefined): string {
 
 interface RunView {
   key: string
-  /** Null for the run that has not been reported to this Space yet. */
-  cardId: string | null
   /** Null for a build-only job. */
   card: BenchmarkCard | BenchmarkReport | null
   jobId?: string
   build?: string | null
   measured: string
   at: number
-  published: boolean
 }
 
-/**
- * Where the published card can be seen, as links into the marketplaces.
- *
- * The hub addresses an endpoint the way GitHub addresses a repository —
- * `/{username}/{slug}` — so the Space can build the link itself from what it
- * already knows about each marketplace it publishes to.
- */
-const publishedAt = computed<RunMarketplace[]>(() => {
-  const ids = new Set(quality.value?.published_to ?? [])
-  return marketplaces.value
-    .filter((row) => ids.has(row.id))
-    .map((row) => ({
-      id: row.id,
-      name: row.name,
-      url: `${row.url.replace(/\/$/, '')}/${row.username}/${props.slug}`,
-    }))
-})
-
-const runs = computed<RunView[]>(() => {
-  const stored: RunView[] = history.value.map((card) => ({
-    key: card.id,
-    cardId: card.id,
-    card: card.report,
+function cardRun(key: string, card: BenchmarkCard | BenchmarkReport, jobId?: string): RunView {
+  return {
+    key,
+    card,
+    jobId,
     measured: formatMoment(card.checked_at),
     at: moment(card.checked_at)?.valueOf() ?? 0,
-    published: card.standing,
-  }))
+  }
+}
 
+const runs = computed<RunView[]>(() => {
   const build = latest.value
-  if (build) {
+  const list: RunView[] = []
+  let latestShown = false
+
+  for (const job of jobs.value) {
+    if (!job.card) continue
+    // The live build replaces the stored card of the run it is of.
+    const live = build && build.job && build.job === job.id ? build : null
+    if (live) latestShown = true
+    list.push(cardRun(job.id, live ?? job.card, job.id))
+  }
+
+  // A build no listed job owns: a run from the CLI, or one older than the list.
+  if (build && !latestShown) {
     const at = moment(build.checked_at)?.valueOf() ?? 0
-    // The same measurement, once it has been reported: the stored card and this
-    // build are one run, and showing it twice would invite publishing it twice.
-    const alreadyStored = stored.some((run) => Math.abs(run.at - at) < 1000)
-    if (!alreadyStored) {
-      stored.push({
-        key: 'latest',
-        cardId: null,
-        card: build,
-        measured: formatMoment(build.checked_at),
-        at,
-        published: false,
-      })
+    if (!list.some((run) => Math.abs(run.at - at) < 1000)) {
+      list.push(cardRun('latest', build, build.job || undefined))
     }
   }
 
   for (const job of buildOnly.value) {
-    stored.push({
+    list.push({
       key: `job-${job.job_id}`,
-      cardId: null,
       card: null,
       jobId: job.job_id,
       build: buildText(job.build),
       measured: formatMoment(job.created_at),
       at: moment(job.created_at)?.valueOf() ?? 0,
-      published: false,
     })
   }
 
-  return stored.sort((a, b) => b.at - a.at)
+  return list.sort((a, b) => b.at - a.at)
 })
 
 /** The newest run with figures: its card opens on first draw. */
 const newestCard = computed(() => runs.value.find((run) => run.card)?.key ?? null)
 
-/**
- * The run opened on its own, if any — in the address rather than in memory.
- *
- * The tab already lives there for the same reason: a reload, or a link sent to
- * somebody else, should land where the sender was rather than at the top of
- * the list.
- */
+/** The run opened in detail, kept in the URL. */
 const openedKey = computed(() => (typeof route.query.run === 'string' ? route.query.run : ''))
 
 const opened = computed(() => runs.value.find((run) => run.key === openedKey.value) ?? null)
@@ -192,27 +131,14 @@ function closeDetail(): void {
 async function load(): Promise<void> {
   loading.value = true
   try {
-    const [card, benchmarks, past, places, jobs] = await Promise.all([
-      endpointsApi.getQuality(props.slug),
-      settingsApi.getBenchmarksMode().catch(() => ({ mode: 'off' as BenchmarksMode })),
-      endpointsApi.getQualityHistory(props.slug).catch(() => ({ cards: [] })),
-      marketplacesApi.list().catch(() => []),
+    const [listed, reported] = await Promise.all([
+      benchmarksApi.listJobs(props.slug).catch(() => []),
       benchmarksApi.listReportRuns(props.slug, { limit: 100 }).catch(() => null),
     ])
-    quality.value = card
-    mode.value = benchmarks.mode
-    history.value = past.cards
-    marketplaces.value = places
-    buildOnly.value = (jobs?.items ?? []).filter((run) => run.build_only)
-    // Inside the load, not after it: drawn before this arrives, the list is
-    // one run short, the stored card stands at the top and opens as the newest
-    // — and when the unreported run then takes that place, the card below it
-    // is a component that already exists and stays open. Two runs open at
-    // once, and the lower one open again after every reload.
+    jobs.value = listed
+    buildOnly.value = (reported?.items ?? []).filter((run) => run.build_only)
+    // Awaited here so the list draws once, with the live build in place.
     await loadLatest()
-  } catch {
-    quality.value = null
-    history.value = []
   } finally {
     loading.value = false
   }
@@ -222,62 +148,8 @@ async function loadLatest(): Promise<void> {
   try {
     latest.value = await benchmarksApi.buildReport(props.slug)
   } catch {
-    // 409 — nothing gradable yet, the ordinary state of an endpoint nobody has
-    // measured; anything else — no benchmark to ask. Either way there is no
-    // unreported run, and neither is worth a toast on a page opened to read
-    // what is already there.
+    // 409 — nothing gradable yet; anything else — no benchmark to ask.
     latest.value = null
-  }
-}
-
-// --- what stands in the owner's name ---------------------------------------
-
-const working = ref<string | null>(null)
-
-async function publish(run: RunView): Promise<void> {
-  working.value = run.key
-  try {
-    if (run.cardId === null) {
-      // Not reported yet: the benchmark builds it again and hands it over, and
-      // the Space publishes it as it does any fresh card.
-      await benchmarksApi.publishReport(props.slug)
-      toast.success('Published')
-    } else {
-      const result = await endpointsApi.publishQualityCard(props.slug, run.cardId)
-      const refused = result.results.filter((row) => !row.success && row.supported)
-      if (refused.length) {
-        // Said plainly rather than swallowed: what stands here has changed, but
-        // the marketplaces are still showing the other run.
-        toast.warning(`Published here; ${refused.length} marketplace(s) refused`)
-      } else {
-        toast.success('Published')
-      }
-    }
-    await load()
-  } catch (error) {
-    toast.error(apiErrorDetail(error, 'Could not publish that run'))
-  } finally {
-    working.value = null
-  }
-}
-
-async function retract(run: RunView): Promise<void> {
-  working.value = run.key
-  try {
-    const result = await endpointsApi.retractQuality(props.slug)
-    const refused = result.results.filter((row) => !row.success && row.supported)
-    if (!result.cleared) {
-      toast.info('Nothing was published')
-    } else if (refused.length) {
-      toast.warning(`Withdrawn here; ${refused.length} marketplace(s) refused`)
-    } else {
-      toast.success('Withdrawn')
-    }
-    await load()
-  } catch {
-    toast.error('Could not withdraw the card')
-  } finally {
-    working.value = null
   }
 }
 
@@ -291,32 +163,24 @@ watch(() => props.slug, load)
     <Skeleton class="h-12 w-full" />
   </div>
 
-  <!-- Nobody measured this endpoint. Not a score of zero — the absence of a
-       claim, and it has to read that way. -->
+  <!-- Not measured (not a score of zero). -->
   <div v-else-if="!runs.length" class="border border-border/50 rounded-lg p-8 text-center">
     <FlaskConical class="h-8 w-8 text-muted-foreground/50 mx-auto mb-3" />
     <h3 class="text-sm font-medium text-foreground mb-1">Nothing measured yet</h3>
     <p class="text-xs text-muted-foreground max-w-md mx-auto">
       Not a score of zero — nobody has run the benchmark. Start on the
       <strong class="text-foreground">Benchmark setup</strong> tab.
-      <span v-if="mode === 'off'">Reporting is off in Settings.</span>
     </p>
   </div>
 
-  <!-- One run, in place of the list rather than beside it. -->
+  <!-- One run, in place of the list. -->
   <RunDetail
     v-else-if="opened"
     :slug="slug"
     :card="opened.card"
     :job-id="opened.jobId"
     :measured="opened.measured"
-    :published="opened.published"
-    :marketplaces="publishedAt"
-    :busy="working !== null"
-    :working="working === opened.key"
     @back="closeDetail"
-    @publish="publish(opened)"
-    @retract="retract(opened)"
   />
 
   <div v-else class="space-y-3">
@@ -325,13 +189,7 @@ watch(() => props.slug, load)
         v-if="run.card"
         :card="run.card"
         :measured="run.measured"
-        :published="run.published"
-        :marketplaces="publishedAt"
         :default-open="run.key === newestCard"
-        :busy="working !== null"
-        :working="working === run.key"
-        @publish="publish(run)"
-        @retract="retract(run)"
         @more="open(run)"
       />
       <section v-else class="border border-border/60 rounded-lg overflow-hidden">

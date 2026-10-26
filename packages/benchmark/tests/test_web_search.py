@@ -31,6 +31,7 @@ from syft_benchmark.llm.ollama import (
     citations_of,
     search_requests,
     search_unused,
+    unused_reason,
     web_plugin,
     web_search_tool,
 )
@@ -49,6 +50,16 @@ COLD = "openai/o9"  # takes no temperature
 LOCAL = "gemma3-4b-gpu"
 TOOL = "openrouter:web_search"
 NAMED = {"type": TOOL}
+# An answer that shows its search: one cited page.
+SEARCHED = {
+    "content": "Paris",
+    "annotations": [
+        {
+            "type": "url_citation",
+            "url_citation": {"url": "https://a.test/", "title": "A"},
+        }
+    ],
+}
 
 
 def _catalog() -> Catalog:
@@ -101,10 +112,10 @@ class _Recorder:
 
     def __init__(self, message: dict[str, Any] | None = None) -> None:
         self.bodies: list[dict[str, Any]] = []
-        self.message = message or {"content": "Paris"}
+        self.message = message or dict(SEARCHED)
 
     def __call__(self, url: str, **kwargs: Any) -> httpx.Response:
-        self.bodies.append(kwargs["json"])
+        self.bodies.append(dict(kwargs["json"]))
         payload = {"choices": [{"message": self.message, "finish_reason": "stop"}]}
         return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
 
@@ -212,7 +223,7 @@ class _Refuser:
         if len(self.bodies) <= self.refusals:
             error = {"error": {"code": 400, "message": self.message}}
             return httpx.Response(self.status, json=error, request=request)
-        message = {"content": "Paris"}
+        message = dict(SEARCHED)
         payload = {"choices": [{"message": message, "finish_reason": "stop"}]}
         return httpx.Response(200, json=payload, request=request)
 
@@ -240,7 +251,7 @@ def test_a_refused_forcing_steps_down_once_and_is_remembered(
     assert first["web_search_via"] == second["web_search_via"] == "tool"
 
 
-def test_both_forcings_refused_leave_the_tool_unforced(
+def test_both_forcings_refused_step_down_to_the_plugin_not_an_unforced_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The refusal a named search got on openai/gpt-4.1-nano.
@@ -251,20 +262,21 @@ def test_both_forcings_refused_leave_the_tool_unforced(
     _answer, usage = _search()
 
     assert [b.get("tool_choice") for b in provider.bodies] == ["required", NAMED, None]
+    assert "tools" not in provider.bodies[2]
+    assert provider.bodies[2]["plugins"] == [{"id": "web", "engine": "native"}]
     assert usage["web_search_forced"] is False
-    assert usage["web_search_via"] == "tool"
+    assert usage["web_search_via"] == "plugin"
 
 
 def test_a_model_refusing_tools_steps_down_to_the_plugin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    provider = _Refuser(3, "No endpoints found that support tool use", status=404)
+    provider = _Refuser(2, "No endpoints found that support tool use", status=404)
     monkeypatch.setattr(httpx, "post", provider)
 
     _answer, usage = _search()
 
     assert [("tools" in b, "plugins" in b) for b in provider.bodies] == [
-        (True, False),
         (True, False),
         (True, False),
         (False, True),
@@ -335,7 +347,7 @@ class _Wrapped:
         request = httpx.Request("POST", url)
         if "tool_choice" in kwargs["json"]:
             return httpx.Response(self.status, json=_WRAPPED_REFUSAL, request=request)
-        message = {"content": "Paris"}
+        message = dict(SEARCHED)
         payload = {"choices": [{"message": message, "finish_reason": "stop"}]}
         return httpx.Response(200, json=payload, request=request)
 
@@ -351,7 +363,7 @@ def test_a_wrapped_provider_refusal_steps_down(
 
     assert answer == "Paris"
     assert [b.get("tool_choice") for b in provider.bodies] == ["required", NAMED, None]
-    assert usage["web_search_via"] == "tool"
+    assert usage["web_search_via"] == "plugin"
     assert usage["web_search_forced"] is False
 
 
@@ -382,26 +394,39 @@ class _Bare:
         request = httpx.Request("POST", url)
         if "tool_choice" in kwargs["json"]:
             return httpx.Response(400, json=_BARE_REFUSAL, request=request)
-        message = {"content": "Paris"}
+        message = dict(SEARCHED)
         payload = {"choices": [{"message": message, "finish_reason": "stop"}]}
         return httpx.Response(200, json=payload, request=request)
 
 
-def test_a_bare_400_on_a_forced_tool_steps_down(
+def test_a_bare_400_on_a_forced_tool_steps_down_to_the_exa_plugin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = _Bare()
     monkeypatch.setattr(httpx, "post", provider)
 
-    answer, usage = _search()
+    answer, first = _search(PLUGIN_ONLY)
+    _answer, second = _search(PLUGIN_ONLY)
 
     assert answer == "Paris"
-    assert [b.get("tool_choice") for b in provider.bodies] == ["required", NAMED, None]
-    assert usage["web_search_via"] == "tool"
-    assert usage["web_search_forced"] is False
+    assert [b.get("tool_choice") for b in provider.bodies] == [
+        "required",
+        NAMED,
+        None,
+        None,
+    ]
+    # Remembered: the next call goes straight to the plugin.
+    exa = [{"id": "web", "engine": "exa", "max_results": 5}]
+    assert provider.bodies[2]["plugins"] == provider.bodies[3]["plugins"] == exa
+    assert "tools" not in provider.bodies[3]
+    for usage in (first, second):
+        assert usage["web_search_via"] == "plugin"
+        assert usage["web_search_forced"] is False
+        assert usage["web_search"] == "plugin"
+        assert "web_search_retry" not in usage
 
 
-def test_a_bare_400_on_an_unforced_tool_is_not_stepped_around(
+def test_a_bare_400_on_the_plugin_is_not_stepped_around(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = _Refuser(3, "Model call failed: invalid request (400)", status=400)
@@ -503,8 +528,34 @@ def test_max_results_comes_from_the_call_or_the_settings(
     assert found == [9, 2]
 
 
-def test_no_search_no_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_search_cap_binds_the_tested_models_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+    conf = _external(web_search_max_calls=4)
+
+    for role in ("subjects", "web_check"):
+        chat("s", "u", model=NATIVE, settings=conf, web_search=True, role=role)
+
+    capped, free = provider.bodies
+    assert capped["max_tool_calls"] == 4
+    assert capped["tools"][0]["parameters"] == {"engine": "native", "max_uses": 4}
+    assert "max_tool_calls" not in free
+    assert free["tools"][0]["parameters"] == {"engine": "native"}
+
+
+def test_no_search_cap_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+
+    chat("s", "u", model=NATIVE, settings=_external(), web_search=True, role="subjects")
+
+    assert "max_tool_calls" not in provider.bodies[0]
+
+
+def test_no_search_no_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _Recorder({"content": "Paris"})
     monkeypatch.setattr(httpx, "post", provider)
 
     _answer, usage = chat("s", "u", model=NATIVE, settings=_external())
@@ -776,6 +827,8 @@ def test_the_audit_keeps_citations_and_flags_unused_search() -> None:
     assert used["call"]["web_search"] == "native"
     assert unused["citations"] == []
     assert unused["web_search_unused"] is True
+    assert unused["web_search_unused_reason"]
+    assert "web_search_unused_reason" not in used
     assert "citations" not in off and "web_search_unused" not in off
     # It searched and cited nothing: the search was used.
     assert searched["web_search_unused"] is False
@@ -814,6 +867,154 @@ def test_the_question_detail_passes_the_evidence_on() -> None:
     assert alone["web_search_unused"] is False
     assert flagged["citations"] == []
     assert flagged["web_search_unused"] is True
+    assert alone["web_search_unused_reason"] is None
+    assert flagged["web_search_unused_reason"] == unused_reason({}, "Paris")
+
+
+# --- an answer that shows no search ----------------------------------------
+
+# How moonshotai/kimi-k2.6 answered a forced search on some hosts: the call as
+# text, never run.
+_LEAKED = (
+    "<|tool_calls_section_begin|><|tool_call_begin|>functions.openrouter_web_search:0"
+    '<|tool_call_argument_begin|>{"query": "x"}<|tool_call_end|>'
+)
+
+
+class _Answers:
+    """Hands out one message per request, in order; an int is an error status."""
+
+    def __init__(self, *replies: dict[str, Any] | int) -> None:
+        self.bodies: list[dict[str, Any]] = []
+        self.replies = list(replies)
+
+    def __call__(self, url: str, **kwargs: Any) -> httpx.Response:
+        self.bodies.append(dict(kwargs["json"]))
+        request = httpx.Request("POST", url)
+        reply = self.replies[len(self.bodies) - 1]
+        if isinstance(reply, int):
+            error = {"error": {"code": reply, "message": "Provider returned error"}}
+            return httpx.Response(reply, json=error, request=request)
+        payload = {"choices": [{"message": reply, "finish_reason": "stop"}]}
+        return httpx.Response(200, json=payload, request=request)
+
+
+EXA_PLUGIN = [{"id": "web", "engine": "exa", "max_results": 5}]
+
+
+@pytest.mark.parametrize(
+    ("first", "why"),
+    [({"content": "I don't know"}, "unused"), ({"content": _LEAKED}, "leaked")],
+)
+def test_an_answer_showing_no_search_is_asked_again_with_the_exa_plugin(
+    monkeypatch: pytest.MonkeyPatch, first: dict[str, Any], why: str
+) -> None:
+    provider = _Answers(first, dict(SEARCHED))
+    monkeypatch.setattr(httpx, "post", provider)
+
+    answer, usage = _search()
+
+    assert answer == "Paris"
+    assert provider.bodies[0]["tool_choice"] == "required"
+    assert provider.bodies[1]["plugins"] == EXA_PLUGIN
+    assert "tools" not in provider.bodies[1]
+    assert usage["web_search"] == "plugin"
+    assert usage["web_search_via"] == "plugin"
+    assert usage["web_search_retry"] == why
+    assert usage["attempts"] == 2
+    assert not search_unused(usage)
+
+
+def test_the_exa_retry_is_asked_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _Answers({"content": "A"}, {"content": "B"})
+    monkeypatch.setattr(httpx, "post", provider)
+
+    answer, usage = _search()
+
+    assert answer == "B"
+    assert len(provider.bodies) == 2
+    assert usage["web_search_retry"] == "unused"
+    assert search_unused(usage)
+    assert unused_reason(usage, answer) == (
+        "The web search ran but found no source the answer could cite."
+    )
+
+
+def test_a_failed_exa_retry_keeps_the_first_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Answers({"content": "I don't know"}, 400)
+    monkeypatch.setattr(httpx, "post", provider)
+
+    answer, usage = _search()
+
+    assert answer == "I don't know"
+    assert usage["web_search_via"] == "tool"
+    assert usage["web_search_forced"] == "required"
+    assert usage["web_search_retry"] == "unused"
+    assert search_unused(usage)
+
+
+def test_an_exa_plugin_answer_is_not_asked_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Answers({"content": "A"}, dict(SEARCHED))
+    monkeypatch.setattr(httpx, "post", provider)
+
+    answer, usage = _search(COLD)  # no tools, Exa
+
+    assert answer == "A"
+    assert len(provider.bodies) == 1
+    assert "web_search_retry" not in usage
+
+
+def test_a_native_plugin_answer_showing_no_search_falls_back_to_exa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Answers({"content": "A"}, dict(SEARCHED))
+    monkeypatch.setattr(httpx, "post", provider)
+
+    _answer, usage = _search(NO_TOOLS)  # no tools, native search
+
+    assert provider.bodies[0]["plugins"] == [{"id": "web", "engine": "native"}]
+    assert provider.bodies[1]["plugins"] == EXA_PLUGIN
+    assert usage["web_search"] == "plugin"
+
+
+def test_a_reported_search_is_not_asked_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reply(url: str, **kwargs: Any) -> httpx.Response:
+        payload = {
+            "choices": [{"message": {"content": "A"}, "finish_reason": "stop"}],
+            "usage": {"server_tool_use": {"web_search_requests": 2}},
+        }
+        return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", reply)
+
+    _answer, usage = _search()
+
+    assert usage["web_search_requests"] == 2
+    assert "web_search_retry" not in usage
+
+
+@pytest.mark.parametrize(
+    ("call", "answer", "says"),
+    [
+        ({"web_search_via": "tool", "web_search_forced": "required"}, _LEAKED, "text"),
+        ({"web_search_via": "tool", "web_search_forced": False}, "A", "not forced"),
+        ({"web_search_via": "plugin", "web_search": "plugin"}, "A", "found no source"),
+        ({"web_search_via": "plugin", "web_search": "native"}, "A", "own search"),
+        ({"web_search_via": "tool", "web_search_forced": "required"}, "A", "reported"),
+    ],
+)
+def test_an_unused_search_has_a_one_sentence_reason(
+    call: dict[str, Any], answer: str, says: str
+) -> None:
+    reason = unused_reason(call, answer)
+    assert says in reason
+    assert reason.endswith(".") and reason.count(".") == 1
 
 
 # --- the monte_carlo skip --------------------------------------------------

@@ -7,7 +7,6 @@ Keeping them in the README is not enough: a README does not fail on commit.
 from __future__ import annotations
 
 import ast
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,9 +18,7 @@ from syft_benchmark.config import (
     ExpectedBehavior,
     ExternalCallBlocked,
     Settings,
-    SpaceConfig,
 )
-from syft_benchmark.publish import owner_payload_for, payload_for, publish
 from syft_benchmark.report import Metrics
 from syft_benchmark.report.card import (
     ANSWERING,
@@ -34,6 +31,8 @@ from syft_benchmark.report.card import (
     SkillRow,
     Stability,
     Trust,
+    owner_payload_for,
+    payload_for,
 )
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "syft_benchmark"
@@ -140,7 +139,7 @@ def _leaves(value: object, path: str = "") -> list[tuple[str, object]]:
 
 
 def _card() -> Card:
-    """A card with everything there can be: nothing fuller ever gets published."""
+    """A card with everything there can be: no card is ever fuller."""
     answerable = Metrics(
         space="docs",
         context_mode=ContextMode.OPEN_BOOK,
@@ -223,11 +222,10 @@ def _card() -> Card:
     )
 
 
-def test_the_published_card_carries_only_aggregates() -> None:
-    """Invariant 3: shares, counters and names leave — and nothing else.
+def test_the_card_carries_only_aggregates() -> None:
+    """Invariant 3: the card holds shares, counters and names — and nothing else.
 
-    The composition of the payload is the boundary between internal analytics
-    and the outside world, and it cannot be widened by accident: the test breaks.
+    Its composition cannot be widened by accident: the test breaks.
     """
     payload = payload_for(_card())
 
@@ -235,8 +233,7 @@ def test_the_published_card_carries_only_aggregates() -> None:
         "version",
         "kind",
         "arm",
-        # The launch, so that whoever stores the card can ask what that
-        # measurement did. An identifier of ours, like the cohort.
+        # The launch. An identifier of ours, like the cohort.
         "job",
         "checked_at",
         "score",
@@ -268,11 +265,11 @@ def test_the_published_card_carries_only_aggregates() -> None:
     }
 
 
-def test_no_published_string_can_hold_a_sentence() -> None:
+def test_no_card_string_can_hold_a_sentence() -> None:
     """Invariant 3, the strong form: there is never any text in the payload.
 
     Checking for forbidden words is not enough — such a list is never complete.
-    What is checked here is the form: everything that leaves is a number, a flag
+    What is checked here is the form: every leaf is a number, a flag
     or ONE word — the identifier of a model, a generator, a mode, a profile, a
     cohort. A chunk of the corpus, a question or an answer always has spaces in
     it, and such a leaf will fail the check whatever it is called.
@@ -287,11 +284,10 @@ def test_no_published_string_can_hold_a_sentence() -> None:
         assert len(value) <= 120, f"{path}: too long for an identifier"
 
 
-def test_the_owner_payload_adds_prose_the_public_one_must_never_carry() -> None:
+def test_the_owner_payload_adds_prose_the_stored_card_never_carries() -> None:
     """The console route is the one place `Trust.doubts` — full sentences —
-    is allowed to appear: it never leaves the owner's own Space, unlike
-    `payload_for`'s shape, which `test_no_published_string_can_hold_a_sentence`
-    holds to one word per leaf.
+    appears, unlike `payload_for`'s shape, which
+    `test_no_card_string_can_hold_a_sentence` holds to one word per leaf.
     """
     owner_payload = owner_payload_for(_card())
 
@@ -304,37 +300,6 @@ def test_the_owner_payload_adds_prose_the_public_one_must_never_carry() -> None:
             continue
         assert owner_payload[key] == value
     assert owner_payload["trust"]["flags"] == public_payload["trust"]["flags"]
-
-
-def test_a_card_without_verdicts_is_not_published() -> None:
-    """An empty measurement is not published: zero questions is not zero quality."""
-    empty = replace(_card(), trust=None)
-    outcome = publish(
-        SpaceConfig(key="docs", url="http://localhost:0", endpoint="e"), empty
-    )
-    assert not outcome.ok
-    assert "nothing to publish" in outcome.detail
-
-
-def test_the_audit_trail_never_reaches_the_publish_path() -> None:
-    """The audit export and publishing are different sides of the perimeter.
-
-    The log holds whole prompts, that is, corpus text. It exists for the owner
-    and the auditor they bring in; only aggregates leave the perimeter. If the
-    publishing module ever reaches for the log, that will be visible here rather
-    than after a leak.
-    """
-    publish_sources = [
-        path for path in (SRC / "publish").rglob("*.py") if path.is_file()
-    ]
-    for path in publish_sources:
-        imports = _imports_of(path)
-        assert (
-            "syft_benchmark.report.audit" not in imports
-        ), f"{path.name} reaches for the audit log"
-        text = path.read_text(encoding="utf-8")
-        for leak in ("audit", "responder_prompt", "retrieved"):
-            assert leak not in text, f"{path.name} mentions {leak}"
 
 
 def test_the_document_report_sees_only_aggregates() -> None:
@@ -361,11 +326,7 @@ def test_the_document_report_sees_only_aggregates() -> None:
 
 
 def test_benchmark_holds_no_hub_credentials() -> None:
-    """Invariant 5: there are no SyftHub credentials here.
-
-    If they were needed, the construction is broken: metrics are put out by the
-    Space under its own account, not by the benchmark under someone else.
-    """
+    """Invariant 5: there are no SyftHub credentials here; results stay in the Space."""
     fields = set(Settings.model_fields)
     for forbidden in ("hub_url", "hub_email", "hub_password", "hub_token"):
         assert forbidden not in fields

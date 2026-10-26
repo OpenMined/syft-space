@@ -398,7 +398,7 @@ def test_a_launch_is_read_back_as_it_was(two_measurements: Any) -> None:
 def test_the_node_as_of_now_is_a_different_number(two_measurements: Any) -> None:
     """Unscoped, the September verdict wins and the retired question is gone.
 
-    This is the number that gets published, and it is not the August one. The
+    This is the number the card shows, and it is not the August one. The
     two being different is the whole reason a launch has to be nameable.
     """
     metrics = summarize(SPACE, ContextMode.OPEN_BOOK, EvalBlock.DIRECT, judge="judge-1")

@@ -7,7 +7,6 @@ import {
   readResultsView,
   runLocation,
   runsListLocation,
-  technicalLocation,
   withoutResultsQuery,
 } from '@/components/benchmark/report/routing'
 
@@ -22,10 +21,6 @@ describe('results routing', () => {
     })
     expect(checksLocation('j1', 'm1')).toEqual({
       query: { tab: 'results', job: 'j1', model: 'm1', screen: 'checks' },
-    })
-    expect(technicalLocation()).toEqual({ query: { tab: 'results', view: 'technical' } })
-    expect(technicalLocation('c1')).toEqual({
-      query: { tab: 'results', view: 'technical', run: 'c1' },
     })
   })
 

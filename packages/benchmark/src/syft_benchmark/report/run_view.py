@@ -10,7 +10,7 @@ of the job's primary judge (``primary_judge``, fixed per job), else the
 freshest verdict of the next judge in panel order.
 Only ``closed_book`` ("alone") and ``model_with_context`` ("with") count.
 ``pending`` and ``technical`` never enter a rate. Trick questions feed only the
-trick check. Excluded questions are left out of every figure.
+trick check.
 
 A finished job's figures are cached in ``run_aggregates`` under
 ``AGGREGATE_VERSION``; an in-progress job is always computed afresh.
@@ -47,7 +47,6 @@ from syft_benchmark.db.models import (
     Result,
     Run,
     RunAggregate,
-    RunExclusion,
 )
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation.article_dates import DATE_KEY
@@ -60,7 +59,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 10
+AGGREGATE_VERSION = 11
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -634,11 +633,6 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
         )
         .all()
     )
-    excluded = set(
-        session.execute(
-            select(RunExclusion.qa_id).where(RunExclusion.job_id == job.id)
-        ).scalars()
-    )
     run_params = session.execute(
         select(
             Run.context_mode,
@@ -658,8 +652,8 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     generator_of = {qa: gen for qa, gen, *_ in pairs}
     trick_ids = {qa for qa, gen in generator_of.items() if gen == TRICK_GENERATOR}
     main_ids = [qa for qa, *_ in pairs if qa not in trick_ids]
-    counted_main = {qa for qa in main_ids if qa not in excluded}
-    counted_trick = trick_ids - excluded
+    counted_main = set(main_ids)
+    counted_trick = trick_ids
 
     primary = primary_judge(session, job, configured=configured)
     judges = judge_order(
@@ -854,7 +848,6 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
                 "n": n,
                 "generator": generator_of[qa],
                 "title": titles[qa] or "",
-                "excluded": qa in excluded,
                 "models": verdicts,
             }
         )

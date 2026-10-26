@@ -936,64 +936,6 @@ class SyftHubClient:
         )
         return _handle_response_raw(response)
 
-    async def update_endpoint_quality(
-        self,
-        endpoint_quality: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """Send owner-reported benchmark cards to SyftHub.
-
-        The counterpart to update_endpoint_health, and deliberately not folded
-        into it. Health is a heartbeat every 30 seconds; a benchmark run is
-        occasional and expensive, and its result carries no TTL — it stands
-        until replaced or retracted. Sending them together would repeat the
-        same figures thousands of times a day and tangle two lifetimes.
-
-        Non-destructive: unknown slugs come back counted as ignored.
-
-        Args:
-            endpoint_quality: One card per endpoint, each a {"slug", ...} of
-                the benchmark card: kind, headline share, both halves of the
-                dataset, the spread across subject models, and what the
-                figures rest on. The hub validates the shape; this client does
-                not reshape it, so a card added to on the benchmark's side
-                reaches the hub without a change here
-
-        Returns:
-            dict[str, Any]: {"updated": int, "ignored": int}
-
-        Raises:
-            NotFoundError: The marketplace has no benchmark API. Callers should
-                treat this as "not supported here", not as a failure: a Space
-                may well be published to a hub that predates the feature.
-        """
-        self._require_auth()
-        response = await self._client.post(  # type: ignore[union-attr]
-            "/api/v1/endpoints/quality",
-            json={"endpoints": endpoint_quality},
-        )
-        return _handle_response_raw(response)
-
-    async def clear_endpoint_quality(self, slug: str) -> dict[str, Any]:
-        """Withdraw a published benchmark card from SyftHub.
-
-        Args:
-            slug: Endpoint whose card is withdrawn
-
-        Returns:
-            dict[str, Any]: {"cleared": bool}; False means there was nothing
-                to remove, which is not an error
-
-        Raises:
-            NotFoundError: Either the marketplace has no quality API, or it has
-                no such endpoint. Both mean the same thing to a caller trying
-                to take something down: there is nothing there to take down.
-        """
-        self._require_auth()
-        response = await self._client.delete(  # type: ignore[union-attr]
-            f"/api/v1/endpoints/quality/{slug}",
-        )
-        return _handle_response_raw(response)
-
     def _require_auth(self) -> None:
         if self._client is None:
             raise NotAuthenticatedError()

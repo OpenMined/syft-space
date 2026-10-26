@@ -1,21 +1,13 @@
-"""Wiring a benchmark up, configuring it, and setting it going.
+"""Benchmark connections, per-endpoint targets, runs and the console proxy.
 
-The Space is the place the owner decides things: which benchmark, which
-endpoints, how often, and with what. It stores those decisions and hands them
-over. It does not decide how a measurement works — judges, arms and thresholds
-are the benchmark's subject, and the Space passes them through without opening
-the envelope.
-
-Two copies exist on purpose. The Space keeps what the owner set, because it is
-the page he edits; the benchmark keeps the same thing, because it must keep
-measuring on schedule while this Space is restarting. Saving here pushes there,
-and the push is best-effort: a benchmark that is down must not make the
-settings page refuse to save.
+The Space stores the owner's settings and pushes them to the benchmark, which
+keeps its own copy so scheduled runs work while the Space is down. The push is
+best effort: a benchmark that is down does not block saving. Measurement
+settings (judges, arms, thresholds) are passed through unparsed.
 """
 
 import asyncio
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, TypeVar
 from urllib.parse import quote
@@ -45,34 +37,21 @@ from syft_space.components.benchmarks.schemas import (
     ProviderRole,
     ProviderUrls,
     RunRequest,
-    SessionResponse,
     TargetRequest,
     TargetResponse,
     WindowResponse,
 )
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint
-from syft_space.components.endpoints.publish_handler import PublishEndpointHandler
 from syft_space.components.endpoints.repository import EndpointRepository
-from syft_space.components.endpoints.schemas import ReportQualityRequest
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.tenants.entities import Tenant
 
-# How long a benchmark's description of itself is taken on trust.
-#
-# Asking the benchmark for the shape of its settings is what lets one that grows
-# a field get a form for it without a release on this side; cached for ever,
-# that only holds until the benchmark is upgraded. So the cache has an age.
-#
-# An hour: asking on every page load puts a round trip in front of a page that
-# opens fine without one, and asking once a day leaves a rig upgraded this
-# morning misconfigured until tomorrow.
+# How long a cached benchmark self-description (settings schema) is used.
 SNAPSHOT_MAX_AGE = timedelta(hours=1)
 
-# The five secret slots a provider role can occupy on the benchmark, as
-# `config.py` names them there. Checked here too, ahead of the benchmark's own
-# refusal, so a typo in a route reads as "not a provider key" rather than
-# a raw 422 from a service the owner never sees directly.
+# Provider key names the benchmark accepts (its `config.py`); checked here so a
+# wrong name is a clear 404 rather than the benchmark's 422.
 PROVIDER_KEY_NAMES = frozenset(
     {"llm_api_key", "generator_key", "subject_key", "judge_key", "filter_key"}
 )
@@ -81,11 +60,7 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 def _parsed(model: type[ModelT], data: Any) -> ModelT:
-    """Validate the benchmark's reply, turning a shape mismatch into a 502.
-
-    The benchmark is a separate service that can be upgraded independently;
-    a field it dropped or renamed must not surface here as an unhandled 500.
-    """
+    """Validate the benchmark's reply; a shape mismatch is a 502."""
     try:
         return model.model_validate(data)
     except ValidationError as exc:
@@ -106,7 +81,7 @@ def _console_dict(reply: Reply) -> dict[str, Any]:
 
 
 def _console_empty(reply: Reply) -> None:
-    """A console call with nothing to return — a delete, a retraction."""
+    """A console call with nothing to return — a delete."""
     if not reply.ok:
         raise HTTPException(
             status_code=reply.status if reply.status >= 400 else 502,
@@ -114,41 +89,9 @@ def _console_empty(reply: Reply) -> None:
         )
 
 
-RUN_STATUSES = frozenset({"all", "published", "private"})
-
-
 def _seg(value: str) -> str:
     """One path segment, escaped."""
     return quote(value, safe="")
-
-
-@dataclass
-class _RunCards:
-    """Which runs have a card here, and which run's card is published."""
-
-    standing_job: str | None = None
-    standing_card: UUID | None = None
-    by_job: dict[str, UUID] = field(default_factory=dict)
-
-    @classmethod
-    def from_rows(cls, rows: list[tuple[UUID, str, datetime | None]]) -> "_RunCards":
-        """From `quality_card_jobs` rows, newest first."""
-        out = cls()
-        for card_id, job, retracted_at in rows:
-            if out.standing_card is None and retracted_at is None:
-                out.standing_card = card_id
-                out.standing_job = job or None
-                if job:
-                    out.by_job[job] = card_id
-            if job:
-                out.by_job.setdefault(job, card_id)
-        return out
-
-    def mark(self, run: dict[str, Any]) -> None:
-        job = run.get("job_id")
-        run["published"] = bool(job) and job == self.standing_job
-        card = self.by_job.get(job) if job else None
-        run["card_id"] = str(card) if card else None
 
 
 class BenchmarkHandler:
@@ -162,7 +105,6 @@ class BenchmarkHandler:
         dataset_repository: DatasetRepository,
         dataset_registry: Any,
         settings_repository: SettingsRepository | None = None,
-        publish_handler: PublishEndpointHandler | None = None,
     ) -> None:
         self.connections = connection_repository
         self.targets = target_repository
@@ -170,19 +112,12 @@ class BenchmarkHandler:
         self.datasets = dataset_repository
         self.dataset_registry = dataset_registry
         self.settings = settings_repository
-        self.publisher = publish_handler
 
     # --- connections -------------------------------------------------------
 
     async def list_connections(self, tenant: Tenant) -> list[ConnectionResponse]:
-        """The benchmarks this Space is wired to, as the settings page shows them.
-
-        A description that has gone stale is refreshed here: this is the page
-        that draws a form out of it.
-        """
+        """Connected benchmarks; stale self-descriptions are refreshed."""
         rows = await self.connections.list_for_tenant(tenant.id)
-        # Together rather than in turn: a Space wired to three benchmarks
-        # should not open its settings page three timeouts late.
         rows = list(await asyncio.gather(*(self._if_stale(row) for row in rows)))
         out = []
         for row in rows:
@@ -193,27 +128,15 @@ class BenchmarkHandler:
     async def connect(
         self, tenant: Tenant, request: ConnectionRequest
     ) -> ConnectionResponse:
-        """Wire this Space to a benchmark and ask it what it can do.
+        """Connect a benchmark and fetch its self-description.
 
-        The first connection becomes the default without being asked. A Space
-        with exactly one benchmark should never have to be told which one to
-        use, and a default nobody set is the commonest way to end up with
-        endpoints that quietly measure nothing.
-
-        The first connection is also read as the owner's consent to let a
-        benchmark report in this Space's name: only he can reach this route,
-        and making the connection already says so. ``benchmarks_mode`` is
-        switched on with it — once, the first time, through
-        ``enable_benchmarks_if_untouched`` — so that consent is not asked for
-        twice, once here and once again on a settings page he may never open.
-        He can still turn it back off, and it stays off from then on.
+        The first connection becomes the default.
         """
         existing = await self.connections.list_for_tenant(tenant.id)
         row = BenchmarkConnection(
             tenant_id=tenant.id,
             name=request.name,
             url=request.url,
-            console_url=request.console_url,
             token=request.token or "",
             space_url=request.space_url or await self._own_url(),
             chroma_host=request.chroma_host,
@@ -225,8 +148,6 @@ class BenchmarkHandler:
         row = await self.connections.create(row)
         if row.is_default:
             await self.connections.clear_default(tenant.id, keep=row.id)
-        if self.settings is not None:
-            await self.settings.enable_benchmarks_if_untouched()
         row = await self._refresh(row)
         return self._connection_view(row)
 
@@ -236,9 +157,7 @@ class BenchmarkHandler:
         row = await self._connection_or_404(tenant, connection_id)
         row.name = request.name
         row.url = request.url
-        row.console_url = request.console_url
-        # The form was never told the key, so it cannot send it back. Without
-        # this rule, renaming a connection would silently revoke its access.
+        # The form never receives the token; an omitted token keeps the stored one.
         if request.token is not None:
             row.token = request.token
         row.space_url = request.space_url
@@ -252,21 +171,14 @@ class BenchmarkHandler:
         if row.is_default:
             await self.connections.clear_default(tenant.id, keep=row.id)
         row = await self._refresh(row)
-        # The benchmark is reached differently now, so every target it holds
-        # describes a road that may no longer exist.
+        # Targets carry connection details, so re-push them all.
         await self._resync(tenant, row)
         return self._connection_view(row)
 
     async def save_settings(
         self, tenant: Tenant, connection_id: UUID, settings: ConnectionSettings
     ) -> ConnectionResponse:
-        """Store how this benchmark should measure, and tell it.
-
-        Settings reach the benchmark only through the targets, and every target
-        carries them. That is why saving re-pushes all of them: a setting
-        stored here and not there would take effect on the next manual run and
-        never on the nightly one.
-        """
+        """Store connection-wide settings and re-push every target that carries them."""
         row = await self._connection_or_404(tenant, connection_id)
         row.instrument = settings.instrument or None
         row.probe = settings.probe or None
@@ -283,13 +195,7 @@ class BenchmarkHandler:
         return self._connection_view(row)
 
     async def disconnect(self, tenant: Tenant, connection_id: UUID) -> None:
-        """Forget a benchmark.
-
-        Its targets lose their connection and stop being measured, but keep
-        their settings: the owner is switching benchmarks, not starting over.
-        Cards already published are untouched — taking those down is a separate
-        decision, made per endpoint, and never a side effect of rewiring.
-        """
+        """Remove a connection; its targets keep their settings."""
         row = await self._connection_or_404(tenant, connection_id)
         await self.connections.delete(row.id)
 
@@ -298,11 +204,7 @@ class BenchmarkHandler:
     async def models(
         self, tenant: Tenant, connection_id: UUID, query: dict[str, Any]
     ) -> dict[str, Any]:
-        """The models this benchmark can offer, as it describes them.
-
-        Passed through unshaped, by the same rule as ``/schema``: a field named
-        on this side needs a release here before the benchmark may grow it.
-        """
+        """The benchmark's model catalogue, passed through unchanged."""
         row = await self._connection_or_404(tenant, connection_id)
         reply = await self._client(row).models(query)
         if not reply.ok:
@@ -315,11 +217,9 @@ class BenchmarkHandler:
     async def refresh_models(
         self, tenant: Tenant, connection_id: UUID
     ) -> dict[str, Any]:
-        """Have the benchmark fetch its provider's list afresh.
+        """Have the benchmark refetch its provider's model list.
 
-        The refusal keeps its own status: a benchmark whose perimeter forbids
-        the call answers 403 naming the host to open, and a blanket 502 would
-        replace that instruction with "something went wrong".
+        A refusal keeps its status (e.g. 403 naming the host to allow).
         """
         row = await self._connection_or_404(tenant, connection_id)
         reply = await self._client(row).refresh_models()
@@ -332,10 +232,7 @@ class BenchmarkHandler:
 
     # --- the model providers -------------------------------------------------
     #
-    # Installation-wide, not per connection: one benchmark process has one
-    # environment. An owner editing this from a Space it shares with others
-    # changes the bill for all of them — a deliberate trade against the
-    # alternative of a key nobody could ever enter from here at all.
+    # Provider URLs and keys are benchmark-wide, shared by every Space using it.
 
     async def get_provider(
         self, tenant: Tenant, connection_id: UUID
@@ -422,7 +319,6 @@ class BenchmarkHandler:
         endpoint = await self._endpoint_or_404(tenant, slug)
         target = await self.targets.for_endpoint(endpoint.id)
         connection = await self._connection_for(tenant, target)
-        # This page draws a form out of that description too.
         if connection is not None:
             connection = await self._if_stale(connection)
 
@@ -451,9 +347,6 @@ class BenchmarkHandler:
         out.schedule = target.schedule
         out.schedule_at = target.schedule_at
         out.synced_at = target.synced_at
-        # Both in one go: they are two calls to the same service, neither
-        # depends on the other, and a page that waited for them in turn would
-        # wait twice for no reason.
         out.last_job, out.next_run_at = await asyncio.gather(
             self._latest_job(target, connection, slug),
             self._next_run_at(connection, slug),
@@ -467,8 +360,7 @@ class BenchmarkHandler:
         endpoint = await self._endpoint_or_404(tenant, slug)
         connection = await self._pick_connection(tenant, request.connection_id)
 
-        # Pushed before it is stored: a configuration the benchmark refuses
-        # (a judge from a tested model's company, under `strict`) is not kept.
+        # Pushed before storing, so a configuration the benchmark refuses is not kept.
         spec = await self._spec(
             tenant,
             connection,
@@ -504,9 +396,7 @@ class BenchmarkHandler:
             try:
                 target = await self.targets.create(new_target)
             except IntegrityError:
-                # A concurrent save for the same endpoint (a double press of
-                # "Save") won the race and created the row first; update it
-                # instead of failing this call.
+                # A concurrent save created the row first; update it.
                 existing = await self.targets.for_endpoint(endpoint.id)
                 assert existing is not None
                 target = await self.targets.update(apply(existing))
@@ -514,31 +404,11 @@ class BenchmarkHandler:
         await self._synced(target, endpoint, reply)
         return await self.get_target(tenant, slug)
 
-    async def stop_measuring(self, tenant: Tenant, slug: str) -> None:
-        """Take this endpoint out of the benchmark entirely.
-
-        The target goes from the benchmark too — otherwise it would keep
-        measuring on schedule an endpoint the owner has taken off the list, and
-        nothing here would show it. Questions and verdicts stay there: they are
-        the history of what was measured, and history is not a setting.
-        """
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        target = await self.targets.for_endpoint(endpoint.id)
-        if target is None:
-            return
-        connection = await self._connection_for(tenant, target)
-        if connection is not None:
-            reply = await self._client(connection).delete_target(slug)
-            if not reply.ok and not reply.missing:
-                logger.warning(f"benchmark kept target {slug}: {reply.detail}")
-        await self.targets.delete(target.id)
-
     async def check_target(self, tenant: Tenant, slug: str) -> CheckResponse:
         """Ask the benchmark whether it can actually reach this endpoint."""
         endpoint = await self._endpoint_or_404(tenant, slug)
         target, connection = await self._pair_or_404(tenant, endpoint, slug)
-        # Push first: checking settings the benchmark has not been told about
-        # would answer a question about the previous ones.
+        # Push first so the check uses the current settings.
         await self._push(tenant, connection, target, endpoint)
         reply = await self._client(connection).check_target(slug)
         if not reply.ok:
@@ -550,7 +420,7 @@ class BenchmarkHandler:
     async def window(
         self, tenant: Tenant, slug: str, days: int | None = None
     ) -> WindowResponse:
-        """How many articles the endpoint's time window holds now."""
+        """How many articles the endpoint's time window holds."""
         endpoint = await self._endpoint_or_404(tenant, slug)
         _, connection = await self._pair_or_404(tenant, endpoint, slug)
         reply = await self._client(connection).window(slug, days)
@@ -587,56 +457,10 @@ class BenchmarkHandler:
         await self.targets.remember_job(target.id, job.model_dump(mode="json"))
         return job
 
-    async def start_console_session(self, tenant: Tenant, slug: str) -> SessionResponse:
-        """A link into the benchmark's own console for this one endpoint.
-
-        The benchmark mints the token — this Space never sees the installation
-        key that would let it mint one itself, and never validates the token
-        it hands back either; it only asks for one and appends it to the
-        address a browser can reach the console at. That is `console_url`
-        when the owner set one, and `url` otherwise: `url` is what THIS
-        backend calls the benchmark by, which on a rig where the two run in
-        separate containers is a Docker-internal hostname a browser on the
-        host cannot resolve.
-        """
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        target, connection = await self._pair_or_404(tenant, endpoint, slug)
-        if not target.enabled:
-            raise HTTPException(
-                status_code=409,
-                detail="Measuring is paused for this endpoint",
-            )
-        reply = await self._client(connection).mint_session(slug)
-        if not reply.ok:
-            raise HTTPException(
-                status_code=502,
-                detail=reply.detail or "the benchmark would not open a console session",
-            )
-        token = reply.data.get("token") if isinstance(reply.data, dict) else None
-        expires_at = (
-            reply.data.get("expires_at") if isinstance(reply.data, dict) else None
-        )
-        if not token or not expires_at:
-            raise HTTPException(
-                status_code=502,
-                detail="the benchmark sent an unreadable session",
-            )
-        base = connection.console_url or connection.url
-        return SessionResponse(
-            url=f"{base.rstrip('/')}/ui/?token={token}",
-            expires_at=expires_at,
-        )
-
     async def _console(
         self, connection: BenchmarkConnection, target_key: str
     ) -> BenchmarkClient:
-        """A client authenticated with a session token scoped to one target.
-
-        Minted fresh for every call rather than cached: verifying it costs a
-        signature check on the benchmark's side, not a database row, so
-        there is nothing to gain by keeping one around and a stale one
-        served past its hour would only fail later, harder to explain.
-        """
+        """A client with a fresh session token scoped to one target."""
         reply = await self._client(connection).mint_session(target_key)
         token = reply.data.get("token") if isinstance(reply.data, dict) else None
         if not reply.ok or not token:
@@ -648,12 +472,8 @@ class BenchmarkHandler:
 
     # --- the console: pairs, results, filtering, judging, the report -------
     #
-    # Proxied through the session-token door the benchmark's own standalone
-    # console already opens through (`_console` above) — this Space's UI
-    # just never sends the owner's browser there itself. Passed through
-    # unshaped, by the same rule as `/schema`: naming every field here is the
-    # coupling that leaves this page unable to show something the benchmark
-    # already returns.
+    # Proxied to the benchmark's console API with a session token; replies are
+    # passed through unchanged.
 
     async def list_pairs(
         self, tenant: Tenant, slug: str, query: dict[str, Any]
@@ -662,12 +482,6 @@ class BenchmarkHandler:
         _, connection = await self._pair_or_404(tenant, endpoint, slug)
         console = await self._console(connection, slug)
         return _console_dict(await console.raw("GET", "/console/pairs", params=query))
-
-    async def get_pair(self, tenant: Tenant, slug: str, pair_id: str) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        return _console_dict(await console.raw("GET", f"/console/pairs/{pair_id}"))
 
     async def update_pair(
         self, tenant: Tenant, slug: str, pair_id: str, body: dict[str, Any]
@@ -683,16 +497,6 @@ class BenchmarkHandler:
         _, connection = await self._pair_or_404(tenant, endpoint, slug)
         console = await self._console(connection, slug)
         _console_empty(await console.raw("DELETE", f"/console/pairs/{pair_id}"))
-
-    async def run_filter(
-        self, tenant: Tenant, slug: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        target, connection = await self._pair_or_404(tenant, endpoint, slug)
-        if not target.enabled:
-            raise HTTPException(409, "Measuring is paused for this endpoint")
-        console = await self._console(connection, slug)
-        return _console_dict(await console.raw("POST", "/console/filter", body=body))
 
     async def list_results(
         self, tenant: Tenant, slug: str, query: dict[str, Any]
@@ -719,80 +523,29 @@ class BenchmarkHandler:
         console = await self._console(connection, slug)
         await console.raw("DELETE", f"/console/results/{result_id}/verdict")
 
-    async def run_judge(
-        self, tenant: Tenant, slug: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        target, connection = await self._pair_or_404(tenant, endpoint, slug)
-        if not target.enabled:
-            raise HTTPException(409, "Measuring is paused for this endpoint")
-        console = await self._console(connection, slug)
-        return _console_dict(await console.raw("POST", "/console/judge", body=body))
-
     async def build_report(self, tenant: Tenant, slug: str) -> dict[str, Any]:
         endpoint = await self._endpoint_or_404(tenant, slug)
         _, connection = await self._pair_or_404(tenant, endpoint, slug)
         console = await self._console(connection, slug)
         return _console_dict(await console.raw("POST", "/console/report"))
 
-    async def publish_report(self, tenant: Tenant, slug: str) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        return _console_dict(await console.raw("POST", "/console/publish"))
-
-    async def retract_report(self, tenant: Tenant, slug: str) -> None:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        _console_empty(await console.raw("POST", "/console/retract"))
-
-    # --- benchmark results: runs, their reports, publishing ------------------
-    #
-    # The benchmark knows the runs; this Space knows which of them is published,
-    # because the quality cards are stored here. Every run summary leaving these
-    # routes carries both.
+    # --- benchmark results: runs and their reports ---------------------------
 
     async def list_report_runs(
-        self, tenant: Tenant, slug: str, status: str, query: dict[str, Any]
+        self, tenant: Tenant, slug: str, query: dict[str, Any]
     ) -> dict[str, Any]:
-        if status not in RUN_STATUSES:
-            raise HTTPException(
-                status_code=422,
-                detail=f"status must be one of {', '.join(sorted(RUN_STATUSES))}",
-            )
-        endpoint, console = await self._report_console(tenant, slug)
-        cards = await self._run_cards(tenant, endpoint)
-        params = dict(query)
-        nothing_published = status == "published" and cards.standing_job is None
-        if status == "published" and cards.standing_job is not None:
-            params["job_ids"] = cards.standing_job
-        elif status == "private" and cards.standing_job is not None:
-            params["exclude_job_ids"] = cards.standing_job
-        elif nothing_published:
-            # Still asked: `in_progress` is shown whatever the filter.
-            params["limit"] = 1
-            params["offset"] = 0
-        data = _console_dict(
-            await console.raw("GET", "/console/report/runs", params=params)
+        _, console = await self._report_console(tenant, slug)
+        return _console_dict(
+            await console.raw("GET", "/console/report/runs", params=dict(query))
         )
-        if nothing_published:
-            data["items"] = []
-            data["total"] = 0
-        for run in data.get("items") or []:
-            cards.mark(run)
-        return data
 
     async def get_report_run(
         self, tenant: Tenant, slug: str, job_id: str
     ) -> dict[str, Any]:
-        endpoint, console = await self._report_console(tenant, slug)
-        data = _console_dict(
+        _, console = await self._report_console(tenant, slug)
+        return _console_dict(
             await console.raw("GET", f"/console/report/runs/{_seg(job_id)}")
         )
-        if isinstance(data.get("run"), dict):
-            (await self._run_cards(tenant, endpoint)).mark(data["run"])
-        return data
 
     async def list_run_questions(
         self, tenant: Tenant, slug: str, job_id: str, query: dict[str, Any]
@@ -825,23 +578,8 @@ class BenchmarkHandler:
         _console_empty(reply)
         return reply.data if isinstance(reply.data, list) else []
 
-    async def exclude_run_question(
-        self, tenant: Tenant, slug: str, job_id: str, qa_id: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
-        _, console = await self._report_console(tenant, slug)
-        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}/exclusion"
-        return _console_dict(await console.raw("PUT", path, body=body))
-
-    async def restore_run_question(
-        self, tenant: Tenant, slug: str, job_id: str, qa_id: str
-    ) -> None:
-        _, console = await self._report_console(tenant, slug)
-        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}/exclusion"
-        _console_empty(await console.raw("DELETE", path))
-
     async def delete_report_run(self, tenant: Tenant, slug: str, job_id: str) -> None:
-        """Delete a finished run; the benchmark makes a published one private
-        first and keeps its questions."""
+        """Delete a finished run; the benchmark keeps its questions."""
         _, console = await self._report_console(tenant, slug)
         _console_empty(
             await console.raw("DELETE", f"/console/report/runs/{_seg(job_id)}")
@@ -871,96 +609,12 @@ class BenchmarkHandler:
             raise HTTPException(status_code=502, detail="the export came back empty")
         return body, reply.headers
 
-    async def publish_run(
-        self, tenant: Tenant, slug: str, job_id: str
-    ) -> dict[str, Any]:
-        """Make this run's card the published one, whatever the run's age.
-
-        Always built afresh by the benchmark from the run's live figures, so
-        overrides and exclusions since the last card are in it. The new card is
-        stored as a reported card is and put on top: newer cards are withdrawn
-        and the marketplaces get it once.
-        """
-        publisher = self._publisher()
-        endpoint, console = await self._report_console(tenant, slug)
-        built = _console_dict(
-            await console.raw(
-                "POST",
-                "/console/report",
-                # Both: the job is named whichever way the benchmark reads it.
-                # `record`: this card becomes the run's published baseline.
-                params={"job": job_id, "record": "true"},
-                body={"job": job_id, "record": True},
-            )
-        )
-        if built.get("job") != job_id:
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    f"the benchmark built a card of run {built.get('job')!r} "
-                    f"instead of {job_id!r}"
-                ),
-            )
-        # Only the fields a published card has: the owner's extras
-        # (`score_label`, `trust.doubts`) are dropped here.
-        report = _parsed(ReportQualityRequest, built)
-        stored = await publisher.store_quality(endpoint, tenant, report)
-        if stored is None:
-            raise HTTPException(status_code=404, detail="Endpoint not found")
-        result = await publisher.publish_quality_card(slug, stored.id, tenant)
-        return {
-            "published": True,
-            "card_id": str(result.card_id),
-            "refused": [
-                item.model_dump(mode="json")
-                for item in result.results
-                if not item.success
-            ],
-        }
-
-    async def unpublish_run(
-        self, tenant: Tenant, slug: str, job_id: str
-    ) -> dict[str, Any]:
-        """Withdraw the published card, if it is this run's."""
-        publisher = self._publisher()
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        cards = await self._run_cards(tenant, endpoint)
-        if cards.standing_job != job_id:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "This run is not the published one"
-                    if cards.standing_job
-                    else "No run of this endpoint is published"
-                ),
-            )
-        result = await publisher.retract_quality(slug, tenant)
-        return {
-            "published": False,
-            "refused": [
-                item.model_dump(mode="json")
-                for item in result.results
-                if not item.success
-            ],
-        }
-
     async def _report_console(
         self, tenant: Tenant, slug: str
     ) -> tuple[Endpoint, BenchmarkClient]:
         endpoint = await self._endpoint_or_404(tenant, slug)
         _, connection = await self._pair_or_404(tenant, endpoint, slug)
         return endpoint, await self._console(connection, slug)
-
-    async def _run_cards(self, tenant: Tenant, endpoint: Endpoint) -> _RunCards:
-        rows = await self.endpoints.quality_card_jobs(endpoint.id, tenant.id)
-        return _RunCards.from_rows(rows)
-
-    def _publisher(self) -> PublishEndpointHandler:
-        if self.publisher is None:
-            raise HTTPException(
-                status_code=503, detail="Publishing is not available in this Space"
-            )
-        return self.publisher
 
     async def list_jobs(self, tenant: Tenant, slug: str) -> list[JobResponse]:
         endpoint = await self._endpoint_or_404(tenant, slug)
@@ -970,13 +624,10 @@ class BenchmarkHandler:
             return []
         reply = await self._client(connection).jobs(slug)
         if not reply.ok:
-            # The remembered one rather than nothing: a page that empties out
-            # while the benchmark is down reads as "no run ever happened".
+            # Benchmark unreachable: show the last remembered job.
             return [_parsed(JobResponse, target.last_job)] if target.last_job else []
         jobs = [_parsed(JobResponse, item) for item in reply.data or []]
-        # "There are none" is an answer, not silence. The cache exists for a
-        # benchmark that cannot reply; outliving its own reply, it would leave a
-        # run on this page with nothing behind it, and leave it there for good.
+        # An empty list clears the remembered job too.
         await self.targets.remember_job(
             target.id, jobs[0].model_dump(mode="json") if jobs else None
         )
@@ -992,22 +643,6 @@ class BenchmarkHandler:
             )
         return _parsed(JobResponse, reply.data)
 
-    async def delete_job(self, tenant: Tenant, slug: str, job_id: str) -> None:
-        """Discard a finished run: its own row, its passes and their verdicts.
-
-        Not the question set — that belongs to the target and is shared by
-        every run that ever measured it. A run still queued or running is
-        refused by the benchmark itself (409): stop it first, on its own terms.
-        """
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        reply = await self._client(connection).delete_job(job_id)
-        if not reply.ok:
-            raise HTTPException(
-                status_code=reply.status or 502,
-                detail=reply.detail or "the run could not be discarded",
-            )
-
     # --- inside ------------------------------------------------------------
 
     def _client(self, connection: BenchmarkConnection) -> BenchmarkClient:
@@ -1016,24 +651,13 @@ class BenchmarkHandler:
     def _console_client(
         self, connection: BenchmarkConnection, token: str
     ) -> BenchmarkClient:
-        """A client for THIS backend's own calls to the console — never the
-        browser's. `console_url`, when the owner set one, is deliberately
-        not used here: it exists for `start_console_session` to hand a
-        browser a reachable address, and this process reaches the benchmark
-        the same way every other call in this file does, by `url`.
-        """
+        """A client carrying a console session token."""
         return BenchmarkClient(connection.url, token)
 
     async def _if_stale(self, row: BenchmarkConnection) -> BenchmarkConnection:
-        """Refresh a description that has aged out, and never fail over it.
-
-        On failure the row comes back as it stands: a benchmark that is down
-        must not make the settings page unopenable, which is why the description
-        is cached at all.
-        """
+        """Refresh an expired self-description; on failure return the row unchanged."""
         if row.checked_at is not None:
-            # SQLite hands the moment back without a zone; it was written in
-            # UTC, and comparing it to an aware "now" would raise.
+            # SQLite returns naive datetimes; they are stored in UTC.
             seen = row.checked_at
             if seen.tzinfo is None:
                 seen = seen.replace(tzinfo=timezone.utc)
@@ -1068,7 +692,6 @@ class BenchmarkHandler:
             id=row.id,
             name=row.name,
             url=row.url,
-            console_url=row.console_url,
             has_token=bool(row.token),
             space_url=row.space_url,
             chroma_host=row.chroma_host,
@@ -1088,7 +711,7 @@ class BenchmarkHandler:
         )
 
     async def _own_url(self) -> str:
-        """This Space's address, as far as it knows it."""
+        """This Space's public URL, or empty."""
         if self.settings is None:
             return ""
         try:
@@ -1097,12 +720,7 @@ class BenchmarkHandler:
             return ""
 
     async def _collection_for(self, tenant: Tenant, endpoint: Endpoint) -> str:
-        """What the endpoint's index collection is called.
-
-        Resolved rather than typed: the owner picked a dataset, not a
-        collection, and making him find the name in ChromaDB would be asking
-        him to know an implementation detail of his own Space.
-        """
+        """The endpoint's index collection name, resolved from its dataset."""
         if not endpoint.dataset_id:
             return ""
         try:
@@ -1123,13 +741,9 @@ class BenchmarkHandler:
         target: BenchmarkTarget,
         endpoint: Endpoint,
     ) -> Reply:
-        """Hand this target's settings to the benchmark.
+        """Push this target's settings to the benchmark, best effort.
 
-        Best effort by design. A benchmark that is down must not make the
-        settings page refuse to save — the owner would then have nowhere to
-        record the decision he has already made. ``synced_at`` says whether it
-        got through, and the page says so plainly. A refusal of the settings
-        themselves comes back in the reply for the caller to pass on.
+        ``synced_at`` records success; a refusal is returned for the caller.
         """
         spec = await self._spec(
             tenant,
@@ -1180,9 +794,7 @@ class BenchmarkHandler:
             "chroma_host": connection.chroma_host or "localhost",
             "chroma_port": connection.chroma_port,
             "collection": collection or await self._collection_for(tenant, endpoint),
-            # Two layers flattened into one: the benchmark merges what it is
-            # given over its own defaults, and the order between Space-wide and
-            # per-endpoint is settled here, where both are known.
+            # Per-endpoint values override connection-wide ones.
             "instrument": {**(connection.instrument or {}), **instrument},
             "probe": {**(connection.probe or {}), **probe},
             "enabled": enabled,
@@ -1202,15 +814,7 @@ class BenchmarkHandler:
     async def _next_run_at(
         self, connection: BenchmarkConnection | None, slug: str
     ) -> datetime | None:
-        """When the benchmark says it will next measure this endpoint.
-
-        Not computed here from the interval. The benchmark is what decides, and
-        it also decides what a schedule saved a minute ago means and what a
-        window slept through means; a second computation would part company
-        with it on exactly the question the owner asks this to answer.
-
-        A benchmark that cannot answer leaves this empty rather than guessing.
-        """
+        """The benchmark's next scheduled run for this endpoint, or None."""
         if connection is None:
             return None
         reply = await self._client(connection).target(slug)
@@ -1235,16 +839,12 @@ class BenchmarkHandler:
             return _parsed(JobResponse, target.last_job) if target.last_job else None
         reply = await self._client(connection).jobs(slug)
         if reply.ok:
-            # The cache is for a benchmark that cannot answer, not for one that
-            # answers "there are none": a run it has forgotten would otherwise
-            # stay on this page forever with nothing behind it.
             job = _parsed(JobResponse, reply.data[0]) if reply.data else None
             await self.targets.remember_job(
                 target.id, job.model_dump(mode="json") if job else None
             )
             return job
-        # Unreachable, so the remembered one stands — dated by its own
-        # timestamps rather than pretending to be current.
+        # Unreachable: fall back to the remembered job.
         return _parsed(JobResponse, target.last_job) if target.last_job else None
 
     async def _connection_for(
@@ -1305,11 +905,6 @@ class BenchmarkHandler:
 
 
 def _raise_if_refused(reply: Reply) -> None:
-    """Pass the benchmark's refusal of the settings on to the browser.
-
-    422 is the benchmark saying the configuration itself is wrong — a judge
-    from a tested model's company under ``strict``, say. Anything else (down,
-    no key) stays best effort.
-    """
+    """Raise the benchmark's 422 (invalid configuration); other failures pass."""
     if reply.status == 422:
         raise HTTPException(status_code=422, detail=reply.detail)

@@ -1,13 +1,13 @@
 """A client for the local LLM (Ollama).
 
-Ported from `OMSyft/scripts/qa_llm.py`. Ollama serves an OpenAI-compatible API
+Ollama serves an OpenAI-compatible API
 on /v1, and it is the same model that serves the Space's endpoints: the dataset
 is built by "our own" LLM, and neither a chunk of the corpus nor a single
 question goes outwards.
 
 This is also the one place where invariant 2 is enforced: before every call the
 address is checked for membership of the perimeter. The check lives in the
-client rather than in the callers, because there will be many callers and
+client rather than in the callers, because there are many callers and
 forgetting the check once is enough.
 
 A 4B model in 4-bit quantisation regularly wraps its answer in ```json, adds
@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import json
 import random
+import re
 import threading
 import time
 from email.utils import parsedate_to_datetime
@@ -43,11 +44,9 @@ class LLMError(RuntimeError):
 class LLMFatalError(LLMError):
     """A refusal a retry does not cure: the key, access, the model name, credits.
 
-    Ported from LiveTruth's P2 taxonomy. Without it three different refusals
-    were caught by one ``except`` and went into a retry: the run spun its wheels
-    and paid for every pointless attempt. On an external provider with a
-    900-second timeout a wrong key would have cost forty-five minutes of waiting
-    instead of an instant hint about what to check.
+    Retrying one would only pay for every pointless attempt: on an external
+    provider with a 900-second timeout a wrong key would cost forty-five
+    minutes of waiting instead of an instant hint about what to check.
     """
 
     # The HTTP status (or the body's error code) it came with; 0 — none.
@@ -240,16 +239,22 @@ def web_plugin(engine: str, max_results: int) -> dict[str, Any]:
     return {"id": "web", "engine": "exa", "max_results": max_results}
 
 
-def web_search_tool(engine: str, max_results: int) -> dict[str, Any]:
+def web_search_tool(
+    engine: str, max_results: int, max_calls: int = 0
+) -> dict[str, Any]:
     """The ``openrouter:web_search`` tool entry for one engine.
 
     "native" is the provider's own search (OpenRouter falls back to Exa where
     there is none); anything else is Exa. ``max_results`` applies to Exa only.
+    ``max_calls`` (zero — none) goes as ``max_uses``, which OpenRouter forwards
+    to Anthropic's native search; the request's ``max_tool_calls`` caps the rest.
     """
     if engine == "native":
         parameters: dict[str, Any] = {"engine": "native"}
     else:
         parameters = {"engine": "exa", "max_results": max_results}
+    if max_calls:
+        parameters["max_uses"] = max_calls
     return {"type": WEB_SEARCH_TOOL, "parameters": parameters}
 
 
@@ -266,16 +271,21 @@ def search_mechanism(model: str, conf: Settings) -> str:
 
 # One step of web search: (mechanism, forcing). "required" makes the model call
 # a tool, and search is its only one; "named" names the tool in tool_choice,
-# which OpenRouter maps to the provider's own tool and some refuse; "" leaves
-# the choice to the model.
+# which OpenRouter maps to the provider's own tool and some refuse. An unforced
+# tool is never offered: the model may skip it. The plugin is the last step.
 _Step = tuple[str, str]
 _TOOL_STEPS: tuple[_Step, ...] = (
     ("tool", "required"),
     ("tool", "named"),
-    ("tool", ""),
     ("plugin", ""),
 )
 _PLUGIN_STEPS: tuple[_Step, ...] = (("plugin", ""),)
+# The engine whose plugin always searches: OpenRouter runs Exa before the model.
+EXA = "plugin"
+
+# A search call the model wrote as text instead of making it (seen on
+# moonshotai/kimi-k2.6): the provider never ran it.
+_LEAKED_CALL = re.compile(r"<\|tool_calls?_(?:section_)?begin\|>|<\|tool_call")
 
 # (wire model, engine) -> how many steps its refusals have already cost. Kept
 # for the process, so a refused step is paid for once, not on every call.
@@ -300,15 +310,20 @@ def _step_down(wire: str, engine: str, steps: list[_Step]) -> None:
         _STEPPED_DOWN[key] = max(_STEPPED_DOWN.get(key, 0), skipped)
 
 
-def _apply_search(body: dict[str, Any], step: _Step, engine: str, results: int) -> None:
-    """Put one web search step into the request body."""
-    for key in ("tools", "tool_choice", "plugins"):
+def _apply_search(
+    body: dict[str, Any], step: _Step, engine: str, results: int, calls: int = 0
+) -> None:
+    """Put one web search step into the request body; ``calls`` caps the
+    searches of the tool (zero — the provider's own limit)."""
+    for key in ("tools", "tool_choice", "plugins", "max_tool_calls"):
         body.pop(key, None)
     mechanism, forcing = step
     if mechanism == "plugin":
         body["plugins"] = [web_plugin(engine, results)]
         return
-    body["tools"] = [web_search_tool(engine, results)]
+    body["tools"] = [web_search_tool(engine, results, calls)]
+    if calls:
+        body["max_tool_calls"] = calls
     if forcing == "required":
         body["tool_choice"] = "required"
     elif forcing == "named":
@@ -350,6 +365,61 @@ def search_unused(usage: dict[str, Any]) -> bool:
         and not usage.get("citations")
         and not usage.get("web_search_requests")
     )
+
+
+def leaked_call(text: str) -> bool:
+    """The answer is a search call written as text, which nobody ran."""
+    return bool(_LEAKED_CALL.search(text or ""))
+
+
+def _search_missed(usage: dict[str, Any], message: dict[str, Any]) -> str:
+    """Why an answer offered search shows none: "leaked", "unused" or ""."""
+    if message.get("tool_calls") or leaked_call(str(message.get("content") or "")):
+        return "leaked"
+    return "unused" if search_unused(usage) else ""
+
+
+def unused_reason(call: dict[str, Any], answer: str = "") -> str:
+    """One sentence on why a call offered web search shows no search.
+
+    ``call`` is the audit's record of the call (web_search, web_search_via,
+    web_search_forced, web_search_retry).
+    """
+    if leaked_call(answer):
+        return "The model wrote its search call as text, so the search never ran."
+    via, forced = call.get("web_search_via"), call.get("web_search_forced")
+    # Stored calls that offered the tool without forcing it.
+    if via == "tool" and not forced:
+        return "Search was offered but not forced, and the model chose not to search."
+    if via == "plugin" and call.get("web_search") == EXA:
+        return "The web search ran but found no source the answer could cite."
+    if via == "plugin":
+        return "The provider's own search was offered, and the model did not use it."
+    return "The provider reported no search for this call, and nothing was cited."
+
+
+# The usage keys that say how a call searched, as the audit keeps them.
+SEARCH_KEYS = (
+    "web_search",
+    "web_search_via",
+    "web_search_forced",
+    "web_search_requests",
+    "web_search_retry",
+)
+
+
+def search_trail(usage: dict[str, Any] | None, answer: str = "") -> dict[str, Any]:
+    """How one answer searched: the search keys, its citations, and whether the
+    search went unused (with the reason). Empty — search was not offered."""
+    usage = usage or {}
+    if not usage.get("web_search"):
+        return {}
+    trail = {key: usage[key] for key in SEARCH_KEYS if key in usage}
+    trail["citations"] = list(usage.get("citations") or [])
+    trail["web_search_unused"] = search_unused(usage)
+    if trail["web_search_unused"]:
+        trail["web_search_unused_reason"] = unused_reason(trail, answer)
+    return trail
 
 
 def _engine_for(asked: str, model: str, conf: Settings) -> str:
@@ -479,11 +549,12 @@ def chat(
             dialogue
         web_search: Let the model search the web. Only OpenRouter offers it:
             the ``openrouter:web_search`` tool, forced by tool_choice
-            "required", then by naming it, then unforced, then the ``web`` plugin,
-            stepping down
-            when the provider refuses a step (and straight to the plugin for a
-            model without tool calling). Elsewhere the call goes without it and
-            usage says ``web_search: False``
+            "required", then by naming it, then the ``web`` plugin, stepping
+            down when the provider refuses a step (and straight to the plugin
+            for a model without tool calling). An answer that shows no search
+            is asked once more with the Exa plugin, which always searches.
+            Elsewhere the call goes without it and usage says
+            ``web_search: False``
         web_search_engine: "native", "plugin" (Exa) or "auto" (native when the
             catalogue says the model has it, else Exa)
         max_results: Results per search for Exa; None — the settings
@@ -500,8 +571,9 @@ def chat(
         (the engine used, or False), citations ([{url, title}]), latency_s
         (wall seconds of the whole call, retries included) and, when
         searching, web_search_via (tool or plugin), web_search_forced
-        ("required", "named" or False) and
-        web_search_requests (the provider's count, or None)
+        ("required", "named" or False), web_search_requests (the provider's
+        count, or None) and web_search_retry (why the call was asked again
+        with the Exa plugin: "leaked" or "unused"; absent — it was not)
 
     Raises:
         ExternalCallBlocked: the model's address is outside the perimeter
@@ -544,10 +616,12 @@ def chat(
     searched: str | bool = False
     steps: list[_Step] = []
     results = conf.web_search_max_results if max_results is None else max_results
+    # The search cap is the tested models': the web check searches unbounded.
+    calls = conf.web_search_max_calls if cost.role_of(role) == cost.SUBJECTS else 0
     if web_search and supports_web_search(base_url):
         searched = _engine_for(web_search_engine, chosen, conf)
         steps = _search_steps(search_mechanism(chosen, conf), wire, searched)
-        _apply_search(body, steps[0], searched, results)
+        _apply_search(body, steps[0], searched, results, calls)
     url = f"{_api_root(base_url)}/v1/chat/completions"
 
     last: Exception | None = None
@@ -568,6 +642,17 @@ def chat(
     # USD over every priced response of this call, cut-offs included; None —
     # the provider priced none of them.
     spent: float | None = None
+    # Why the call was asked again with the Exa plugin; "" — it was not. The
+    # answer before that retry is returned if the retry fails.
+    retry = ""
+    before: tuple[str, dict[str, Any]] | None = None
+
+    def fallback() -> tuple[str, dict[str, Any]] | None:
+        if before is None:
+            return None
+        latency = round(time.monotonic() - started, 3)
+        return before[0], {**before[1], "cost_usd": spent, "latency_s": latency}
+
     while True:
         attempts += 1
         try:
@@ -639,14 +724,26 @@ def chat(
                     web_search_forced=steps[0][1] or False,
                     web_search_requests=search_requests(usage),
                 )
+                if retry:
+                    usage["web_search_retry"] = retry
+                missed = _search_missed(usage, choice.get("message") or {})
+                exa = steps[0][0] == "plugin" and searched == EXA
+                if missed and not retry and not exa:
+                    # No search shown: once more with the Exa plugin, which
+                    # always searches. The first answer stays as a fallback.
+                    retry = missed
+                    if content:
+                        before = (content, {**usage, "web_search_retry": missed})
+                    searched = EXA
+                    steps = [("plugin", "")]
+                    _apply_search(body, steps[0], EXA, results, calls)
+                    continue
 
             if finish == "length" and int(body["max_tokens"]) < ceiling:
                 # A reasoning model spends output tokens on reasoning BEFORE it
                 # prints the answer, and hits the cap on that. Retry with a
-                # doubled budget — ported from LiveTruth's P1, where
-                # measurements reached 3269 tokens of reasoning and one case
-                # burned 4096. No pause is needed here: the provider answered,
-                # just briefly.
+                # doubled budget. No pause is needed here: the provider
+                # answered, just briefly.
                 #
                 # The doubling repeats until the answer fits or the budget
                 # reaches the ceiling every other call in the service uses: a
@@ -683,8 +780,12 @@ def chat(
                 if steps[0][0] == "tool":
                     _step_down(wire, str(searched), steps)
                 steps.pop(0)
-                _apply_search(body, steps[0], str(searched), results)
+                _apply_search(body, steps[0], str(searched), results, calls)
                 continue
+            # The Exa retry failed: the answer before it, marked as unsearched.
+            kept = fallback()
+            if kept is not None:
+                return kept
             # There is nothing to retry: it is the key, access, the model name
             # or the money. We fail at once so the cause is visible.
             raise
@@ -708,6 +809,9 @@ def chat(
             # the retry, not an instant one back into the same busy queue.
             time.sleep(5 * failures)
 
+    kept = fallback()
+    if kept is not None:
+        return kept
     raise LLMError(f"{chosen}: {last}")
 
 

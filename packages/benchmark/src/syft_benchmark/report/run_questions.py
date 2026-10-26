@@ -14,13 +14,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from syft_benchmark.config import EvalBlock
-from syft_benchmark.db.models import Job, QaPair, Result, Run, RunExclusion
+from syft_benchmark.db.models import Job, QaPair, Result, Run
+from syft_benchmark.llm.ollama import unused_reason
 from syft_benchmark.report import run_view
 from syft_benchmark.report.run_view import ALONE, ARM_OF, GROUPS, OUTCOMES, WITH
 from syft_benchmark.runs.judge_stage import behavior_of
 
 MAX_PAGE = 100
-EXCLUDED_FILTERS = ("include", "only", "hide")
 
 
 class UnknownModel(LookupError):
@@ -48,7 +48,6 @@ def _row(entry: dict[str, Any], model: str, pair: QaPair) -> dict[str, Any]:
         "verdict_with": with_,
         "group": group,
         "overridden": bool(overridden),
-        "excluded": bool(entry["excluded"]),
     }
 
 
@@ -64,7 +63,6 @@ def list_questions(
     group: str | None = None,
     generator: str | None = None,
     q: str | None = None,
-    excluded: str = "include",
     limit: int = 25,
     offset: int = 0,
     configured: run_view.Panel = (),
@@ -83,10 +81,6 @@ def list_questions(
     entries = [e for e in index if model in e["models"]]
     if generator:
         entries = [e for e in entries if e["generator"] == generator]
-    if excluded == "only":
-        entries = [e for e in entries if e["excluded"]]
-    elif excluded == "hide":
-        entries = [e for e in entries if not e["excluded"]]
     if q and q.strip() and entries:
         pattern = f"%{_escape(q.strip())}%"
         matched = set(
@@ -236,9 +230,20 @@ def _arm(
         # Web search evidence of the counted answer; empty where it did not search.
         "citations": list((counted.audit or {}).get("citations") or []),
         "web_search_unused": bool((counted.audit or {}).get("web_search_unused")),
+        "web_search_unused_reason": _unused_reason(counted.audit or {}, counted.answer),
         # A control answer's outcome; None under an owner override.
         "behavior": None if override is not None else behavior_of(counted.extra),
     }
+
+
+def _unused_reason(audit: dict[str, Any], answer: str) -> str | None:
+    """Why an answer offered web search shows none; None — it searched."""
+    if not audit.get("web_search_unused"):
+        return None
+    stored = audit.get("web_search_unused_reason")
+    if stored:
+        return str(stored)
+    return unused_reason(audit.get("call") or {}, answer)
 
 
 def _judges(
@@ -303,7 +308,6 @@ def question_detail(
         if not rows and not run_view.took_part(session, job.id, qa_id):
             return None
         entry = _entry_of(rows, pair, judges)
-    exclusion = session.get(RunExclusion, (job.id, qa_id))
     panel = [*judges, ""]
     judge_rows, agreed = _judges(rows, judges)
     return {
@@ -312,11 +316,6 @@ def question_detail(
         "arms": {ALONE: _arm(rows, ALONE, panel), WITH: _arm(rows, WITH, panel)},
         "judges": judge_rows,
         "judges_agreed": agreed,
-        "exclusion": (
-            {"reason": exclusion.reason, "created_at": exclusion.created_at.isoformat()}
-            if exclusion is not None
-            else None
-        ),
     }
 
 
@@ -346,7 +345,6 @@ def _entry_of(
         "n": 0,
         "generator": pair.generator,
         "title": pair.document_title,
-        "excluded": False,
         "models": {
             model: [
                 verdicts[ALONE],

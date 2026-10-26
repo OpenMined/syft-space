@@ -58,7 +58,7 @@ from syft_benchmark.llm import (
     judge_providers,
     subject_providers,
 )
-from syft_benchmark.llm.ollama import search_unused
+from syft_benchmark.llm.ollama import search_unused, unused_reason
 from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.runs.blocks import (
     DenialOutcome,
@@ -217,9 +217,9 @@ class Asked:
     context_source: ContextSource
     context: str = ""
     # What the provider said about the call itself: finish_reason, whether the answer
-    # was truncated at the token ceiling, how many attempts were needed. A port of P11
-    # from LiveTruth: a truncation is visible in the record, not only in strange
-    # figures in a finished report.
+    # was truncated at the token ceiling, how many attempts were needed: a
+    # truncation is visible in the record, not only in strange figures in a
+    # finished report.
     usage: dict[str, Any] = field(default_factory=dict)
     # There is no answer because the call did not happen — not because there was
     # nothing to answer about. The difference matters: an empty context at a high
@@ -872,12 +872,14 @@ def audit_record(asked: Asked, verdict: Grade, settings: Settings) -> dict[str, 
                 # the call described by the neighbouring fields did not happen here.
                 "reused",
                 # The engine the answer searched with, or False; how search was
-                # given (tool or plugin), whether the tool was forced, and how
-                # many searches the provider reports.
+                # given (tool or plugin), whether the tool was forced, how
+                # many searches the provider reports, and why the call was
+                # asked again with the Exa plugin.
                 "web_search",
                 "web_search_via",
                 "web_search_forced",
                 "web_search_requests",
+                "web_search_retry",
                 # USD of the call (None: not priced); with ``reused`` the call
                 # was made earlier in the launch.
                 "cost_usd",
@@ -889,6 +891,10 @@ def audit_record(asked: Asked, verdict: Grade, settings: Settings) -> dict[str, 
             record["citations"] = citations
             # Search was offered, nothing searched and nothing cited.
             record["web_search_unused"] = search_unused(asked.usage)
+            if record["web_search_unused"]:
+                record["web_search_unused_reason"] = unused_reason(
+                    record["call"], asked.answer
+                )
     if asked.context:
         record["context"] = asked.context[:cut]
     if verdict.judge_user:

@@ -92,7 +92,7 @@ reachable; the compose file mounts no docker socket.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `BENCH_SPACE_NETWORK` | `syft-space-network` | The rig's docker network to join (`docker network ls`) |
-| `BENCH_CONTROL_PORT` | `8200` | The port published to the host |
+| `BENCH_CONTROL_PORT` | `8200` | The host port, bound to 127.0.0.1 only |
 | `BENCH_OLLAMA_URL` | `http://host.docker.internal:11434` | A local Ollama on the host; set it in `.env` for an external provider |
 
 The `metrics` extra (torch, for BERTScore) is not in the image; build with
@@ -131,20 +131,17 @@ All routes except `/health` require `BENCH_CONTROL_TOKEN`.
 | `PUT/DELETE /credentials/{name}` | Store a secret, sealed; remove one |
 | `POST /credentials/rotate` | Re-seal every secret under the active master key |
 | `GET /targets` | All targets, each with its last job |
-| `GET/PUT/DELETE /targets/{key}` | Read, create or replace whole, remove (measurements stay) |
+| `GET/PUT /targets/{key}` | Read, create or replace whole |
 | `POST /targets/{key}/check` | Are the index, the node and every configured model reachable |
 | `GET /targets/{key}/window?days=` | How many articles the freshness window holds |
 | `POST /targets/{key}/runs` | Queue a measurement (202) |
 | `POST /targets/{key}/filter` | Queue a filter pass over pending pairs (202) |
 | `POST /targets/{key}/judge` | Queue a judging pass over pending verdicts (202) |
 | `POST /targets/{key}/report` | Build the card of the newest measuring launch — synchronous |
-| `POST /targets/{key}/publish` | Build that card and hand it to the Space — synchronous |
-| `POST /targets/{key}/retract` | Retract the published card through the Space |
 | `POST /targets/{key}/session` | Mint a console session token — see [The console](#the-console) |
 | `GET /targets/{key}/jobs` | The target's last 20 jobs |
 | `GET /jobs/{id}` | One job: state, progress, card |
 | `POST /jobs/{id}/cancel` | Ask a queued or running job to stop |
-| `DELETE /jobs/{id}` | Discard a finished job, its runs and verdicts; 409 while live |
 
 Launches on a disabled target answer 409. `PUT /targets/{key}` and
 `POST /targets/{key}/runs` answer 422 when a judge and a tested model share a
@@ -198,17 +195,17 @@ texts, reasoning, block details (`denial`, `repeats` from `Result.extra`).
 | --- | --- |
 | `GET/PUT /console/probe` | This target's probe layer, its fields, the inherited values. The instrument is not editable here |
 | `GET /console/pairs` | This target's pairs, filterable by status, cohort, generator |
-| `GET/PATCH/DELETE /console/pairs/{id}` | Read a pair; override its status; delete it if no result references it |
+| `PATCH/DELETE /console/pairs/{id}` | Override a pair's status; delete it if no result references it |
 | `GET /console/results` | This target's results, filterable by verdict, pair, launch |
 | `POST/DELETE /console/results/{id}/verdict` | Record a verdict by hand (inserted, not a rewrite); withdraw it |
 | `POST /console/runs` / `filter` / `judge` | The same launches as the service routes |
 | `GET /console/jobs` | This target's job history |
-| `POST /console/report` / `publish` / `retract` | Card actions; `job` names the launch, default the newest measuring one |
+| `POST /console/report` | Build the card; `job` names the launch, default the newest measuring one |
 
 `POST /console/report` returns the owner's view of the card: it adds
-`score_label` and `trust.doubts` (prose), which a published card never carries
-(`owner_payload_for` in `publish/space.py`). With `record`, the card is kept as
-the job's published card.
+`score_label` and `trust.doubts` (prose), which the stored card never carries
+(`owner_payload_for` in `report/card.py`). With `record`, the rebuilt card is
+stored on the job.
 
 Run reports, under `/console/report`:
 
@@ -216,13 +213,12 @@ Run reports, under `/console/report`:
 | --- | --- |
 | `GET /runs` | Active jobs and a page of finished runs |
 | `GET /runs/{job}` | One run's report, without per-question rows |
-| `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, exclusions, cached figures and its records on the questions. Questions stay. A published run is made private first; 502 if that fails, 409 while queued or running |
+| `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, cached figures and its records on the questions. Questions stay. 409 while queued or running |
 | `GET /runs/{job}/generated` | The questions the job wrote, and its build per kind (`topped_up`: written by the top-up) |
 | `GET /runs/{job}/filter` | The job's filter decisions |
 | `GET /runs/{job}/questions` | One model's questions in the run, paged |
 | `GET /runs/{job}/questions/{qa}` | One question in full |
 | `GET /runs/{job}/questions/{qa}/fragments` | The passages sent with the arm C answer |
-| `PUT/DELETE /runs/{job}/questions/{qa}/exclusion` | Leave a question out of this run's figures (`retire` also retires the pair); put it back |
 | `GET /runs/{job}/summary.docx` | The run's summary document: figures only |
 | `GET /runs/{job}/export.xlsx` | Everything in the run, full texts |
 
@@ -230,7 +226,8 @@ Run reports, under `/console/report`:
 
 `/capabilities` describes the provider without the key: address, app name,
 whether a key is set, open external hosts, and per role (generator, subject,
-judge) its address, whether a key is set and whether it has its own provider.
+judge, filter — the web check) its address, whether a key is set and whether
+it has its own provider.
 The key is changed in the benchmark's settings or secrets, never through the
 Space.
 
@@ -242,7 +239,7 @@ job per target: launching while one is queued or running returns that job.
 | State | Meaning |
 | --- | --- |
 | `queued` | Waiting |
-| `running` | In progress; `phase` (`generate`, `filter`, `evaluate`, `judge`, `report`, `publish`) says where |
+| `running` | In progress; `phase` (`generate`, `filter`, `evaluate`, `judge`, `report`) says where |
 | `succeeded` | Finished; a non-empty `error` means partly |
 | `failed` | Did not reach the end |
 | `cancelled` | Stopped; what was measured stays |
@@ -262,7 +259,6 @@ earlier launch. Runs started from the CLI have no job.
 | `no_questions` | There was nothing to ask |
 | `nothing_graded: …` | Questions were asked, no verdict came out |
 | `no_card` | Nothing to report |
-| `publish_refused: …` | The Space did not accept the card |
 | `over_budget: …` | The spending cap stopped the job |
 | `target_gone` | The target no longer exists |
 | `service_restarted` | The process restarted mid-job |
@@ -277,7 +273,6 @@ earlier launch. Runs started from the CLI have no job.
 | `filter` | Screen the pending pairs just built. `null` — follow `generate` |
 | `evaluate` | Ask and grade. `null` — yes |
 | `defer_judging` | Collect answers without a judge, leaving verdicts `pending`; no card. Default `false` |
-| `publish` | Hand the card to the Space at the end. Default `true` |
 | `limit` | Items **per generator**, for a trial run; the card flags `few_samples` |
 | `instrument`, `probe` | Layers for this launch only |
 
@@ -286,17 +281,14 @@ earlier launch. Runs started from the CLI have no job.
 
 ### The card
 
-`job.card` holds the card built at the end of a measurement, in the shape the
-Space receives, whether or not it was published. `publish` decides only whether
-it is also sent to the Space (`POST {space}/api/v1/endpoints/{slug}/quality`).
+`job.card` holds the card built at the end of a measurement (`phase`
+`report`). The Space reads it through the job routes for its Benchmark results
+tab. `card_outdated` on a run report says the live figures differ from it.
 
 A card is of one launch: the job of the newest run. Filtering and judging open
 no runs, so they improve that launch's card rather than start a new one. When
 the newest run has no job (started from the CLI), the card is the node as of
 now.
-
-`DELETE /jobs/{id}` removes the job, its runs and verdicts; `qa_pairs` belong
-to the target and stay.
 
 ## The target registry
 

@@ -535,7 +535,7 @@ def text_metric_lines(results: list[Metrics]) -> list[str]:
         "Mechanical measures of word overlap. They do NOT know correctness: a",
         "retelling in one own words gets a low score with a correct answer,",
         "while a verbatim quotation off the point gets a high one. They enter no",
-        "share of the report and are not published; they are needed as a view of",
+        "share of the report; they are needed as a view of",
         "the same answers that is independent of the judge. Comparing them makes",
         "sense within one report, not against other people numbers.",
         "",

@@ -1,10 +1,5 @@
 """benchmark connections and targets
 
-Two tables and nothing else. Autogenerate also offered a pile of unrelated
-drift — wallet and invoice column types, index shapes on ingestion jobs — that
-predates this change; carrying it along would mean a migration nobody can read
-and a rollback nobody can reason about.
-
 Revision ID: f612f5b93dbc
 Revises: a3f7c15e9b42
 Create Date: 2026-09-14 18:47:18.599204
@@ -36,9 +31,6 @@ def upgrade() -> None:
         sa.Column("chroma_host", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("chroma_port", sa.Integer(), nullable=False),
         sa.Column("container", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        # Settings, and what the benchmark last said about itself. All
-        # nullable: NULL throughout is the honest state — nothing was set and
-        # nobody has asked.
         sa.Column("instrument", sa.JSON(none_as_null=True), nullable=True),
         sa.Column("probe", sa.JSON(none_as_null=True), nullable=True),
         sa.Column("capabilities", sa.JSON(none_as_null=True), nullable=True),
@@ -76,9 +68,7 @@ def upgrade() -> None:
         sa.Column("synced_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        # The endpoint goes, its benchmark settings go with it. The connection
-        # only loosens: switching benchmarks must not throw away what the owner
-        # configured per endpoint.
+        # Deleting a connection keeps the endpoint's target and its settings.
         sa.ForeignKeyConstraint(["endpoint_id"], ["endpoints.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
             ["connection_id"], ["benchmark_connections.id"], ondelete="SET NULL"

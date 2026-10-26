@@ -170,7 +170,10 @@
                 <span
                   v-if="armOf(detail, arm)?.web_search_unused"
                   class="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                  title="Asked to search the web, but cited nothing."
+                  :title="
+                    armOf(detail, arm)?.web_search_unused_reason ||
+                    'Asked to search the web, but cited nothing.'
+                  "
                   data-testid="searched-no"
                   >Searched: no</span
                 >
@@ -445,7 +448,6 @@ async function fetchPage(): Promise<void> {
       group: group.value === 'all' ? undefined : group.value,
       generator: kind.value === 'all' ? undefined : kind.value,
       q: query.value || undefined,
-      excluded: 'hide',
       limit: PAGE_SIZE,
       offset: page.value * PAGE_SIZE,
     })

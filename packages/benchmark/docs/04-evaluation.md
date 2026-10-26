@@ -77,7 +77,7 @@ runs.
 | `monte_carlo` | resistance to randomness | temperatures × trials per question |
 
 Only `direct` goes into the card's headline numbers; the other two contribute
-`pressure` and `stability` ([08-publish.md](08-publish.md)). `denial_loop`
+`pressure` and `stability` ([08-card.md](08-card.md)). `denial_loop`
 and `monte_carlo` are graded by the first judge only.
 
 ### `denial_loop`
@@ -238,7 +238,7 @@ questions by behaviour) and recorded as a manual run.
 
 Limits: no temperature (no `monte_carlo`), no driven dialogue (no
 `denial_loop`), the chat's own system prompt and tools are in play, and the
-sample is small. Fit for reconnaissance, not for the storefront. A console
+sample is small. Fit for reconnaissance, not for the report. A console
 **judge** has none of these limits — [05-judging.md](05-judging.md).
 
 ---
@@ -275,7 +275,12 @@ sample is small. Fit for reconnaissance, not for the storefront. A console
 | `audit_max_chars` | `20000` | Ceiling on the stored arm C context |
 
 Web search applies only to models the catalogue can search with
-([01-setup.md](01-setup.md)). Judging settings — [05-judging.md](05-judging.md).
+([01-setup.md](01-setup.md)). A model that takes tools gets OpenRouter's
+`web_search` tool, forced: `tool_choice: required`, then the named tool if the
+provider refuses that; a model without tools, or one that refuses both, gets
+the web plugin. An answer that shows no search (nothing cited, no searches
+reported, or a search call written as text) is asked once more with the Exa
+plugin, which always searches. Judging settings — [05-judging.md](05-judging.md).
 
 **The similarity threshold is an axis of the measurement.** At `0.0` the
 endpoint returns top-k for any question, including one the corpus cannot

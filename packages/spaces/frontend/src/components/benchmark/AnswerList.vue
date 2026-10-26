@@ -1,29 +1,8 @@
 <script setup lang="ts">
 /**
- * What one launch asked, and what came back — under the question, which is the
- * one thing in it that does not repeat.
- *
- * The same question is put to every arm, under every check, to every model
- * under test, and graded by every judge on the panel. A list cut by arm and
- * check first therefore printed the whole generator list once per cell, the
- * question once per cell, and the answer once per grader — not duplicated data,
- * but one fact shown from nine angles with the fact repeated each time.
- *
- * So the question is written once; under it a tile per model per arm, which is
- * the comparison the arms exist for — the model without this endpoint's
- * material against the model with it, side by side; and inside the tile, the
- * panel as a table, judges down the side and checks across the top.
- *
- * The table is what lets the checks stop repeating the answer. `denial_loop`
- * and `monte_carlo` both record the answer they STARTED from, so printed as
- * rows they were the direct answer twice more. As cells they are what they
- * measured: the rounds held of the rounds put, the share of repeats that came
- * back right — each with the exchange behind it on hover, for a reader
- * checking rather than reading.
- *
- * Fetched in full rather than paged: grouping needs every row in hand.
- * `MAX_FETCH` is a safety stop, not a design limit — past it the list says so
- * instead of quietly truncating.
+ * One job's answers and verdicts, grouped by generator and question: a tile per
+ * model per arm, and in each tile a judges-by-checks table. Fetched in full, up
+ * to `MAX_FETCH`, because grouping needs every row; the list says when it is cut.
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { AlertTriangle, Check, ChevronRight, Minus, RotateCcw, UserRound, X } from 'lucide-vue-next'
@@ -65,8 +44,7 @@ import type {
 
 const props = defineProps<{
   slug: string
-  refreshKey: number
-  /** One launch's answers; empty — everything this endpoint has. */
+  /** One job's answers; empty for all of this endpoint's. */
   job?: string
 }>()
 
@@ -109,29 +87,19 @@ async function load(): Promise<void> {
   }
 }
 
-watch([() => props.refreshKey, () => props.job], load, { immediate: true })
+watch(() => props.job, load, { immediate: true })
 
 const ARM_ORDER = Object.keys(ARMS)
 const BLOCK_ORDER = Object.keys(BLOCKS)
 const DIRECT = 'direct'
 
-/**
- * The verdicts from worst to best, which is the order a tie is broken in.
- *
- * Two graders split evenly have not decided anything, and a figure has to say
- * something. It says the worse of the two: "the panel could not agree that this
- * was right" is the honest reading, and rounding a disagreement up would make a
- * published number depend on which grader was asked first.
- */
+/** Verdicts from worst to best; a tied panel takes the worse one. */
 const WORST_FIRST = ['hallucinate', 'web_sourced', 'abstain', 'incomplete', 'correct']
 
 /** The order the shares are read in. */
 const SHARE_ORDER = ['abstain', 'incomplete', 'hallucinate', 'web_sourced', 'correct']
 
-/**
- * Nothing was measured: the row is about the rig, not about the model. It
- * takes no part in a share, and it is not a vote in the panel.
- */
+/** Nothing was measured; excluded from shares and from the panel vote. */
 const TECHNICAL = 'technical'
 
 /** The kind graded by key facts, the only one with an incomplete verdict. */
@@ -150,7 +118,7 @@ interface JudgeRow {
 /** One model in one arm: what it answered, and what the panel made of it. */
 interface Tile {
   key: string
-  /** The question this tile answers — what the audit trail is fetched by. */
+  /** The question id; the audit trail is fetched by it. */
   qaId: string
   contextMode: string
   model: string
@@ -159,14 +127,14 @@ interface Tile {
   judges: JudgeRow[]
   /** The panel's decision, by majority, the worse of the two on a split. */
   verdict: string
-  /** The owner's own row, where he has already said otherwise. */
+  /** The owner's override row, if any. */
   overrideId: string | null
-  /** The row an override is recorded against — the direct check's. */
+  /** The direct check's row; overrides are recorded against it. */
   actionId: string
-  /** How the call ended: a cut-off answer is graded like a whole one. */
+  /** How the call ended. */
   call: BenchmarkCall | null
   generator: string
-  /** The fine outcome the API gave for the standing verdict, if any. */
+  /** The fine outcome of the standing verdict, if any. */
   behavior: string | null
   /** BLEU / ROUGE / BERTScore of the direct answer; empty when not computed. */
   metrics: string
@@ -175,21 +143,14 @@ interface Tile {
 interface Question {
   key: string
   question: string
-  /** The arms this question was put through — the tile columns. */
+  /** The arms this question was asked in: the tile columns. */
   arms: string[]
   models: { model: string; tiles: (Tile | null)[] }[]
-  /**
-   * Whether anything was retrieved for this question, and how it went. On the
-   * question because retrieval is a function of it, not of the tile.
-   */
+  /** Whether anything was retrieved for this question, and how it went. */
   retrieved: boolean
   retrievalHit: boolean | null
   retrievalRank: number | null
-  /**
-   * How many of what was found went into the prompt, and the ceiling one
-   * chunk's text was cut at. `retrieval_top_k` and `context_docs` are two
-   * different numbers, and the gap is invisible in the row.
-   */
+  /** Chunks put in the prompt (`context_docs`), and the per-chunk character cap. */
   contextDocs: number | null
   fragmentMaxChars: number | null
 }
@@ -205,7 +166,7 @@ function group<T>(rows: T[], keyOf: (row: T) => string): Map<string, T[]> {
   return out
 }
 
-/** The row that speaks for a (judge, check) pair: the one that stands. */
+/** The standing row for a (judge, check) pair. */
 function standing(rows: BenchmarkResult[]): BenchmarkResult | null {
   const latest = rows.filter((row) => row.is_latest)
   const pick = (latest.length ? latest : rows)
@@ -218,10 +179,8 @@ function standing(rows: BenchmarkResult[]): BenchmarkResult | null {
 function decide(rows: BenchmarkResult[]): string {
   const voices = rows.filter((row) => row.is_latest && row.verdict !== 'pending')
   if (!voices.length) return 'pending'
-  // Not a split decision to resolve: the majority rule below would read it
-  // as agreement about the answer.
   if (voices.every((row) => row.verdict === TECHNICAL)) return TECHNICAL
-  // An override is not a vote in the panel; it stands over the whole of it.
+  // An owner override wins over the panel.
   const owner = voices.find((row) => row.judge_model === OWNER)
   if (owner) return owner.verdict
 
@@ -242,7 +201,7 @@ function tileOf(key: string, rows: BenchmarkResult[]): Tile {
   const overridden = direct.some((row) => row.is_latest && row.judge_model === OWNER)
 
   const names = [...new Set(rows.map((row) => row.judge_model).filter(Boolean))].sort((a, b) => {
-    // The owner last: the panel is the measurement, his word is what came after.
+    // The owner last.
     if (a === OWNER) return 1
     if (b === OWNER) return -1
     return a.localeCompare(b)
@@ -255,7 +214,7 @@ function tileOf(key: string, rows: BenchmarkResult[]): Tile {
     qaId: rows[0]!.qa_id,
     contextMode: rows[0]!.context_mode,
     model: rows[0]!.model,
-    // Every check started from the direct answer, so this is all of them.
+    // Every check starts from the direct answer.
     answer: direct[0]!.answer,
     blocks,
     judges: names.map((name) => ({
@@ -267,7 +226,7 @@ function tileOf(key: string, rows: BenchmarkResult[]): Tile {
     })),
     call: direct[0]!.call ?? null,
     generator: rows[0]!.generator,
-    // An override has no fine outcome of its own; it is derived from the verdict.
+    // An override has no fine outcome of its own.
     behavior: overridden
       ? null
       : (direct.find((row) => row.is_latest && row.verdict === verdict && row.behavior)?.behavior ??
@@ -285,9 +244,7 @@ function questionOf(key: string, rows: BenchmarkResult[]): Question {
   )
   const byModel = group(rows, (row) => row.model)
   const byArmModel = group(rows, (row) => `${row.context_mode}||${row.model}`)
-  // The closed book retrieves nothing and reports null, which is a different
-  // fact from a search that came back empty — so the first row that searched
-  // at all is the one that speaks for the question.
+  // Closed-book rows report null; the first row that searched speaks for the question.
   const searched = rows.find((row) => row.retrieval_hit !== null && row.retrieval_hit !== undefined)
 
   return {
@@ -301,9 +258,7 @@ function questionOf(key: string, rows: BenchmarkResult[]): Question {
     fragmentMaxChars: searched?.fragment_max_chars ?? null,
     models: [...byModel.keys()].sort().map((model) => ({
       model,
-      // One tile per arm, in arm order, so a model's answers line up in columns
-      // with every other model's — and a blank where an arm was not measured
-      // keeps that alignment rather than shifting the row.
+      // One slot per arm, null when not measured, so columns stay aligned.
       tiles: arms.map((arm) => {
         const own = byArmModel.get(`${arm}||${model}`)
         return own ? tileOf(`${key}||${arm}||${model}`, own) : null
@@ -312,14 +267,7 @@ function questionOf(key: string, rows: BenchmarkResult[]): Question {
   }
 }
 
-/**
- * How this generator's questions went, per arm, on the group's own header.
- *
- * Ten generators shut is ten identical rows, and the one worth opening is the
- * one that went badly — which is invisible until it is opened. So the shares
- * that would be read inside are read on the outside, which is also the
- * comparison: the same questions with and without this endpoint's material.
- */
+/** Verdict shares of a generator's questions in one arm, for the group header. */
 function sharesOf(
   questions: Question[],
   arm: string,
@@ -341,13 +289,7 @@ function sharesOf(
       }
     }
   }
-  // Only what happened, in a fixed order. The width is held by the column
-  // around them rather than by a reserved place per verdict: a gap where
-  // nothing happened is not a fact, and a row of chips with a hole in the
-  // middle is harder to read than the same chips packed.
-  //
-  // The technical ones are a count, never a share: they are out of the
-  // denominator, and a percentage would put them back in as an outcome.
+  // Non-zero shares in a fixed order; technical rows are a separate count.
   const shares = counted
     ? SHARE_ORDER.filter((verdict) => tally.get(verdict)).map((verdict) => ({
         verdict,
@@ -357,7 +299,7 @@ function sharesOf(
   return { shares, technical }
 }
 
-/** The arms this listing covers at all — the columns every row is built to. */
+/** Every arm in the listing: the summary columns. */
 const armsSeen = computed(() =>
   [...new Set(items.value.map((row) => row.context_mode))].sort(
     (a, b) => ARM_ORDER.indexOf(a) - ARM_ORDER.indexOf(b),
@@ -374,8 +316,7 @@ const groups = computed(() => {
     return {
       generator,
       questions,
-      // Over the arms of the WHOLE listing, not this generator's own: a
-      // generator that missed one would otherwise shift every column after it.
+      // Over all arms in the listing so columns align across generators.
       summary: armsSeen.value.map((arm) => ({ arm, ...sharesOf(questions, arm) })),
     }
   })
@@ -386,7 +327,7 @@ const answerCount = computed(
   () => new Set(items.value.map((row) => `${row.qa_id}|${row.context_mode}|${row.model}`)).size,
 )
 
-/** Spelled out rather than built: Tailwind reads its classes out of the source. */
+/** Literal class names so Tailwind finds them. */
 const COLUMNS = ['sm:grid-cols-1', 'sm:grid-cols-2', 'sm:grid-cols-3'] as const
 
 function columnsFor(count: number): string {
@@ -430,14 +371,7 @@ function share(value: number): string {
   return `${Math.round(value * 100)}%`
 }
 
-/**
- * How much pressure the answer took, of how much was put.
- *
- * The loop stops at the objection the model gives in on, so the round it gave
- * in on is not a round it held. Read against the number configured rather than
- * the number put: 4 of 4 is a model that held out, 4 of 12 is a run that
- * stopped early, and as a bare "4" they are the same figure.
- */
+/** Rounds held of the configured limit, e.g. `4 of 12`; the round it gave in on is not held. */
 function heldRounds(row: BenchmarkResult): string {
   const denial = row.denial
   if (!denial) return ''
@@ -445,42 +379,20 @@ function heldRounds(row: BenchmarkResult): string {
   return `${held} of ${denial.limit || denial.rounds}`
 }
 
-/**
- * Why a check that ran has no figure.
- *
- * Pressure is only ever put on a correct answer — there is nothing to take away
- * from a wrong one, still less from an abstention — so a model that abstained
- * has a row for the check and nothing in it. A bare dash reads as a fault; it
- * is the measurement working as designed.
- */
+/** Tooltip for a check that ran but has no figure. */
 function emptyWhy(block: string): string {
   if (block === 'denial_loop') return 'Nothing to push at — this answer was not correct'
   if (block === 'monte_carlo') return 'The repeats recorded no figure'
   return ''
 }
 
-/**
- * Whether the answer to one objection was still the right one.
- *
- * Not recorded per round, and it does not need to be: the loop stops at the
- * first round it loses, so every round before the one it gave in on was held,
- * and if it never gave in, all of them were.
- */
+/** Whether a round was held: every round before the flip round. */
 function heldAt(row: BenchmarkResult, round: number): boolean {
   const denial = row.denial
   if (!denial?.flipped) return true
   return round < (denial.flip_round ?? round + 1)
 }
-/**
- * Record what the owner says this answer was.
- *
- * Against the direct check, which is what the panel's decision above is about:
- * giving an answer up under pressure and getting it right when asked once are
- * verdicts on two different things. Which of the panel's rows it is sent with
- * makes no difference — the benchmark's override stands over the whole panel.
- * The list is read again afterwards because an override is a new row, not a
- * change to the one it was sent with.
- */
+/** Record an owner verdict on the direct check, then reload (an override is a new row). */
 async function override(tile: Tile, verdict: BenchmarkVerdict): Promise<void> {
   const reasoning = window.prompt('Why? (shown next to the verdict)', '') ?? ''
   busyKey.value = tile.key
@@ -494,14 +406,7 @@ async function override(tile: Tile, verdict: BenchmarkVerdict): Promise<void> {
   }
 }
 
-/**
- * Take back what the owner said, leaving the panel's own decision standing.
- *
- * Two buttons that each only ever add a further override would make a misclick
- * permanent: whatever he pressed next would stand over the panel just as the
- * first press did, and there would be no way back to "what the graders
- * decided". This is that way back.
- */
+/** Remove the owner's override; the panel's verdict applies again. */
 async function undo(tile: Tile): Promise<void> {
   if (!tile.overrideId) return
   busyKey.value = tile.key
@@ -515,13 +420,7 @@ async function undo(tile: Tile): Promise<void> {
   }
 }
 
-/* --------------------------------------------------------------------------
- * What was actually sent.
- *
- * Too heavy for the listing — each field runs to tens of thousands of
- * characters — so fetched a question at a time, the first time something asks,
- * and kept. One request serves both the chunks band and every tile's prompt.
- * ------------------------------------------------------------------------ */
+// --- Prompts and chunks: fetched per question on first use, then cached ------
 const detail = reactive<Record<string, BenchmarkResult[]>>({})
 const detailBusy = reactive<Record<string, boolean>>({})
 const openContext = reactive<Record<string, boolean>>({})
@@ -555,10 +454,7 @@ function showPrompt(tile: Tile): void {
   void loadDetail(tile.qaId)
 }
 
-/**
- * The chunks the search returned for a question. The search runs on the
- * question, so the first row that kept them speaks for all of them.
- */
+/** The chunks the search returned for a question, from the first row that kept them. */
 function fragmentsOf(question: Question): BenchmarkFragment[] {
   for (const row of detail[question.key] ?? []) {
     if (row.fragments?.length) return row.fragments
@@ -573,17 +469,11 @@ interface JudgeExchange {
   system: string
   prompt: string
   raw: string
-  /** The verdict cost no call — nothing was asked, rather than nothing kept. */
+  /** The verdict needed no judge call. */
   none: boolean
 }
 
-/**
- * One tile's exchanges: what the model was asked, and what each judge was.
- *
- * The answerer's side is identical on every row of a tile — one call, copied
- * to each grader's record — so it is written once. A grader never called says
- * so rather than showing an empty box.
- */
+/** One tile's exchanges: the model's prompt once, then each judge's. */
 const promptPanel = computed<{ answerer: BenchmarkPrompts | null; judges: JudgeExchange[] } | null>(
   () => {
     const tile = promptFor.value
@@ -600,8 +490,7 @@ const promptPanel = computed<{ answerer: BenchmarkPrompts | null; judges: JudgeE
         const own = cell.row ? kept.get(cell.row.id) : null
         if (!own) continue
         if (!answerer && cell.block === DIRECT && own.responder_prompt) answerer = own
-        // An owner's override is a row with an audit record and no judging in
-        // it. Skipped rather than printed as a grader who was asked nothing.
+        // Skip owner overrides: they have no judging.
         if (!own.judge_prompt && !own.judged_without_model) continue
         judges.push({
           key: `${judge.name}||${cell.block}`,
@@ -618,10 +507,7 @@ const promptPanel = computed<{ answerer: BenchmarkPrompts | null; judges: JudgeE
   },
 )
 
-/**
- * The prompt, split so the part the search put into it can be marked in
- * place — rather than printed a second time below it.
- */
+/** The prompt split around the retrieved context, so it can be highlighted in place. */
 function promptParts(prompts: BenchmarkPrompts): { text: string; fromData: boolean }[] {
   const text = prompts.responder_prompt
   const context = prompts.context
@@ -634,10 +520,7 @@ function promptParts(prompts: BenchmarkPrompts): { text: string; fromData: boole
   return parts
 }
 
-/**
- * The search material, where it could not be marked inside the prompt: both
- * are cut at their own ceiling, so a long prompt can end before this does.
- */
+/** The retrieved context when it is not found inside the (truncated) prompt. */
 function strayContext(prompts: BenchmarkPrompts): string {
   if (!prompts.context) return ''
   return prompts.responder_prompt.includes(prompts.context) ? '' : prompts.context
@@ -653,7 +536,7 @@ function cutOffWhy(call: BenchmarkCall): string {
   return `Cut off at the ceiling${ceiling}; the verdict covers what fitted.`
 }
 
-/** Whether this chunk was shortened before the model was shown it. */
+/** Whether this chunk was shortened before the prompt. */
 function shortened(fragment: BenchmarkFragment): boolean {
   return typeof fragment.chars === 'number' && fragment.chars > fragment.content.length
 }
@@ -664,20 +547,13 @@ function shortenedWhy(question: Question, fragment: BenchmarkFragment): string {
   return `${fragment.chars} characters, cut to ${to} before the prompt.`
 }
 
-/**
- * Whether the model was shown this chunk: only the first `context_docs` are
- * mixed in. Null where the run did not record the number.
- */
+/** Whether this chunk is within the first `context_docs`; null when unknown. */
 function wentIntoPrompt(question: Question, index: number): boolean | null {
   if (question.contextDocs === null) return null
   return index < question.contextDocs
 }
 
-/**
- * Whether the chunk this question grew from reached the model — three
- * answers, not two: the search returns `retrieval_top_k`, the prompt takes
- * `context_docs`, and a chunk past that cut is neither a hit nor a miss.
- */
+/** Whether the source chunk reached the prompt; null on a miss or when unknown. */
 function goldShown(question: Question): boolean | null {
   if (!question.retrievalHit || question.contextDocs === null) return null
   return (question.retrievalRank ?? 0) <= question.contextDocs
@@ -737,10 +613,7 @@ function goldWhy(question: Question): string {
           </span>
           <span class="text-xs text-muted-foreground">{{ group.questions.length }}</span>
 
-          <!-- How it went, before it is opened: which of ten rows is worth
-               opening is otherwise invisible until each one has been. Fixed
-               widths throughout, so the same figure sits at the same place on
-               every row and the rows can be read down rather than one by one. -->
+          <!-- Per-arm shares, fixed width so rows align. -->
           <span class="ml-auto hidden md:flex shrink-0 items-start gap-8">
             <span v-for="side in group.summary" :key="side.arm" class="w-[21rem]">
               <span class="block text-xs text-muted-foreground" :title="armWords(side.arm)">
@@ -759,7 +632,7 @@ function goldWhy(question: Question): string {
                 <span
                   v-if="side.technical"
                   class="rounded bg-muted px-1.5 py-0.5 text-[11px] whitespace-nowrap text-muted-foreground"
-                  title="Calls that did not happen. Out of the shares above."
+                  title="Calls that did not happen; not counted in the shares."
                 >
                   {{ side.technical }} not measured
                 </span>
@@ -777,16 +650,12 @@ function goldWhy(question: Question): string {
             :key="question.key"
             class="bg-muted/60 p-2.5 space-y-2"
           >
-            <!-- Written once: every tile below is an answer to this. The band
-                 is grey and the tiles on it are not — the question belongs to
-                 the row, an answer to one model and one arm. -->
             <div class="flex gap-2 text-sm">
               <span class="font-semibold text-foreground shrink-0">Question:</span>
               <ClampText :text="question.question" :lines="3" />
             </div>
 
-            <!-- What the search found, once for the row: the same chunks go
-                 to every arm that searches and every model under test. -->
+            <!-- Retrieved chunks, shared by every arm that searches. -->
             <div v-if="question.retrieved">
               <button
                 type="button"
@@ -815,8 +684,7 @@ function goldWhy(question: Question): string {
                   Not kept: this run measured with its audit log off.
                 </p>
                 <ol v-else class="space-y-1.5">
-                  <!-- Everything found is kept; only the top of it reached
-                       the model. The rest are dimmed, not hidden. -->
+                  <!-- Chunks past `context_docs` are dimmed. -->
                   <li
                     v-for="(fragment, index) in fragmentsOf(question)"
                     :key="index"
@@ -880,9 +748,6 @@ function goldWhy(question: Question): string {
                       <ModelChip :name="tile.model" class="ml-auto" />
                     </div>
 
-                    <!-- The one figure in the tile everything else explains, so
-                         it is read before any of them rather than found among
-                         them. -->
                     <div class="flex items-center gap-2 text-base">
                       <span class="font-semibold text-foreground">Verdict:</span>
                       <span
@@ -896,8 +761,6 @@ function goldWhy(question: Question): string {
                       >
                         <UserRound v-if="tile.overrideId" class="h-4 w-4" />
                         {{ verdictWords(tile.generator, tile.verdict, tile.behavior) }}
-                        <!-- On the verdict: the answer was cut off and graded
-                             anyway, so the verdict covers part of a sentence. -->
                         <AlertTriangle
                           v-if="tile.call?.truncated"
                           class="h-4 w-4 text-warning"
@@ -1003,8 +866,6 @@ function goldWhy(question: Question): string {
                               :key="cell.block"
                               class="px-1 py-0.5 text-center"
                             >
-                              <!-- Nothing from this grader on this check: it was
-                                   recused, or the check ran without it. -->
                               <span
                                 v-if="!cell.row"
                                 class="text-muted-foreground"
@@ -1013,7 +874,6 @@ function goldWhy(question: Question): string {
                                 ×
                               </span>
 
-                              <!-- Asked once: the verdict, and why on hover. -->
                               <span
                                 v-else-if="cell.block === 'direct'"
                                 class="rounded px-1.5 py-0.5"
@@ -1025,10 +885,7 @@ function goldWhy(question: Question): string {
                                 }}
                               </span>
 
-                              <!-- Pushed back on: how much it took, and the
-                                   exchange itself — an argument reads as an
-                                   argument, and the turn it lost is the one
-                                   that changes colour. -->
+                              <!-- Denial loop: rounds held; the exchange on hover. -->
                               <template v-else-if="cell.row.denial">
                                 <HoverPanel v-if="cell.row.denial.log.length">
                                   <template #trigger>
@@ -1066,8 +923,7 @@ function goldWhy(question: Question): string {
                                 </span>
                               </template>
 
-                              <!-- Repeated: the share that came back right, and
-                                   every repeat behind it. -->
+                              <!-- Monte carlo: share right; the repeats on hover. -->
                               <template v-else-if="cell.row.repeats">
                                 <HoverPanel v-if="cell.row.repeats.log.length">
                                   <template #trigger>
@@ -1125,8 +981,6 @@ function goldWhy(question: Question): string {
       </div>
     </div>
 
-    <!-- The exchange behind one tile. A dialog, not a panel in the tile: in
-         the grid a prompt would push the arm it is compared against off. -->
     <Dialog
       :open="promptFor !== null"
       @update:open="

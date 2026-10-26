@@ -72,6 +72,7 @@ GROUPS: dict[str, str] = {
     "web_search_closed_book": ARMS,
     "web_search_with_context": ARMS,
     "web_search_max_results": ARMS,
+    "web_search_max_calls": ARMS,
     "web_search_generator": DATASET,
     "entity_check": DATASET,
     "web_search_judge": JUDGING,
@@ -84,6 +85,7 @@ GROUPS: dict[str, str] = {
     "text_metrics": JUDGING,
     "methodology_profile": RUN,
     "max_consecutive_failures": RUN,
+    "max_job_usd": RUN,
     "reuse_answers": RUN,
     "audit_log": RUN,
     # --- the node probe

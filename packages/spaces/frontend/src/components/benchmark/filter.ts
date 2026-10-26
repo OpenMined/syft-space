@@ -52,7 +52,7 @@ export function reasonText(d: Pick<BenchmarkFilterDecision, 'reason' | 'reason_c
   const code = d.reason_code && d.reason_code !== 'other' ? d.reason_code : isCode ? note : null
   if (!code) return note
   const label = removedReasonLabel(code)
-  // `ambiguous entity: Mariam` says the code again before the detail.
+  // Drop a repeated code prefix, e.g. `ambiguous entity: Mariam`.
   const lead = `${code.replace(/_/g, ' ')}:`
   if (note.toLowerCase().startsWith(lead)) note = note.slice(lead.length).trim()
   const repeats = note.toLowerCase() === label.toLowerCase()

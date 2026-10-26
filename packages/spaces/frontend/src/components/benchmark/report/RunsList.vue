@@ -28,19 +28,6 @@
           data-testid="filter-to"
         />
       </div>
-      <div class="space-y-1.5">
-        <Label for="runs-status" class="text-xs text-muted-foreground">Status</Label>
-        <Select v-model="report.filters.status">
-          <SelectTrigger id="runs-status" class="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="o in STATUS_OPTIONS" :key="o.value" :value="o.value">
-              {{ o.label }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
     </div>
 
     <Alert v-if="report.error.value" variant="destructive" data-testid="runs-error">
@@ -171,17 +158,6 @@
               >
                 {{ runStateLabel(run) }}
               </Badge>
-              <Badge
-                v-else
-                variant="outline"
-                :class="
-                  run.published
-                    ? 'border-transparent bg-primary/10 text-primary'
-                    : 'border-transparent bg-muted text-muted-foreground'
-                "
-              >
-                {{ run.published ? 'Published' : 'Private' }}
-              </Badge>
             </td>
             <td class="pr-3 text-muted-foreground">
               <div class="flex items-center justify-end gap-1">
@@ -276,13 +252,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { apiErrorDetail } from '@/lib/errors'
 import { useReport } from './context'
@@ -303,16 +272,9 @@ import { RUNS_PAGE } from './useRunReport'
 
 defineProps<{ slug: string }>()
 
-const STATUS_OPTIONS = [
-  { value: 'all', label: 'All runs' },
-  { value: 'private', label: 'Private' },
-  { value: 'published', label: 'Published' },
-] as const
-
 const BUILD_ONLY_TIP = 'Questions were written and filtered; no model was asked.'
 const DELETE_TEXT =
-  'The run and its answers will be deleted; its questions are kept. ' +
-  'A published run is made private first. This cannot be undone.'
+  'The run and its answers will be deleted; its questions are kept. This cannot be undone.'
 
 const report = useReport()
 const router = useRouter()

@@ -19,8 +19,7 @@
       <Skeleton class="h-64 w-full" />
     </div>
 
-    <!-- Nothing connected. A Space ships this way, and the page has to say so
-         rather than showing an empty form. -->
+    <!-- Nothing connected (the shipped state). -->
     <div
       v-else-if="!connections.length && !connecting"
       class="border border-border/50 rounded-lg p-8 text-center"
@@ -28,10 +27,9 @@
       <FlaskConical class="h-8 w-8 text-muted-foreground/50 mx-auto mb-3" />
       <h3 class="text-sm font-medium text-foreground mb-1">No benchmark is connected</h3>
       <p class="text-xs text-muted-foreground max-w-lg mx-auto mb-5">
-        Nothing is measuring your endpoints. A benchmark is a separate service:
-        it builds questions from an endpoint's own index, asks them back, grades
-        the answers, and hands this Space a card. It can be yours, running beside
-        this Space, or one you share with others.
+        Nothing is measuring your endpoints. A benchmark is a separate service
+        that builds questions from an endpoint's index, asks them and grades the
+        answers. It normally runs on this machine, next to this Space.
       </p>
       <Button size="sm" @click="startConnecting">
         <Plus class="h-4 w-4 mr-1.5" />
@@ -39,14 +37,13 @@
       </Button>
     </div>
 
-    <!-- The connection form: where it is, and how it reaches this Space. -->
+    <!-- Connection form -->
     <section v-if="connecting" class="border border-border/50 rounded-lg p-5 space-y-6">
       <h2 class="heading-3 text-foreground">
         {{ editing ? 'Connection' : 'Connect a benchmark' }}
       </h2>
 
-      <!-- Group 1: reaching the benchmark itself — the three fields every
-           connection needs, regardless of how it is deployed. -->
+      <!-- Reaching the benchmark -->
       <div class="space-y-4">
         <p class="text-xs font-medium text-foreground">The benchmark</p>
         <div class="grid sm:grid-cols-2 gap-4">
@@ -55,7 +52,14 @@
             <Input id="bm-name" v-model="form.name" placeholder="Local benchmark" class="h-9" />
           </div>
           <div class="space-y-1.5">
-            <Label for="bm-url">Benchmark URL</Label>
+            <div class="flex items-center justify-between gap-2">
+              <Label for="bm-url">Benchmark URL</Label>
+              <LocalityChip
+                v-if="form.url.trim()"
+                :local="staysLocal(form.url)"
+                :tip="localityTip(form.url, 'The control key and provider keys go to')"
+              />
+            </div>
             <Input id="bm-url" v-model="form.url" placeholder="http://benchmark:8200" class="h-9" />
             <p class="text-xs text-muted-foreground">
               Where this Space reaches the benchmark's API — a Docker-internal
@@ -72,36 +76,25 @@
               class="h-9"
             />
             <p class="text-xs text-muted-foreground">
-              The benchmark refuses everything without it. A run costs hours and
-              money, so an open port would mean anyone who can reach the network
-              can spend your budget.
-            </p>
-          </div>
-          <div class="space-y-1.5 sm:col-span-2">
-            <Label for="bm-console-url">Console URL (optional)</Label>
-            <Input
-              id="bm-console-url"
-              v-model="form.console_url"
-              placeholder="Same as Benchmark URL"
-              class="h-9"
-            />
-            <p class="text-xs text-muted-foreground">
-              Only when a browser cannot reach the address above — e.g.
-              <code>http://localhost:8200</code> for a port published to the host
-              while the address above is a Docker-internal one.
+              The benchmark refuses every request without it.
             </p>
           </div>
         </div>
       </div>
 
-      <!-- Group 2: reaching this Space and its index — needed because the
-           benchmark reads the corpus directly rather than through this
-           Space's API, which has no route for it. -->
+      <!-- Reaching this Space and its index; the benchmark reads the index directly. -->
       <div class="space-y-4 border-t border-border/50 pt-5">
         <p class="text-xs font-medium text-foreground">Reaching this Space's index</p>
         <div class="grid sm:grid-cols-2 gap-4">
           <div class="space-y-1.5 sm:col-span-2">
-            <Label for="bm-space-url">This Space's own address</Label>
+            <div class="flex items-center justify-between gap-2">
+              <Label for="bm-space-url">This Space's own address</Label>
+              <LocalityChip
+                v-if="form.space_url.trim()"
+                :local="staysLocal(form.space_url)"
+                :tip="localityTip(form.space_url, 'The benchmark calls this Space at')"
+              />
+            </div>
             <Input
               id="bm-space-url"
               v-model="form.space_url"
@@ -109,9 +102,8 @@
               class="h-9"
             />
             <p class="text-xs text-muted-foreground">
-              Where the benchmark reaches this Space's API, to ask an endpoint a
-              question and hand back the card. Filled in for you when the address
-              is known; change it only if this Space answers elsewhere.
+              Where the benchmark reaches this Space's API to query an endpoint.
+              Filled in when known; change it only if this Space answers elsewhere.
             </p>
           </div>
           <div class="space-y-1.5">
@@ -132,7 +124,7 @@
               placeholder="8100"
               class="h-9"
             />
-            <p class="text-xs text-muted-foreground">0 — not published; use the container name below instead.</p>
+            <p class="text-xs text-muted-foreground">0: not published; the container name below is used.</p>
           </div>
           <div class="space-y-1.5 sm:col-span-2">
             <Label for="bm-container">Container name</Label>
@@ -151,14 +143,32 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <Button size="sm" :disabled="saving || !form.name || !form.url" @click="submit">
+        <Button size="sm" :disabled="saving || !form.name || !form.url" @click="requestSubmit">
           {{ saving ? 'Connecting…' : editing ? 'Save' : 'Connect' }}
         </Button>
         <Button variant="ghost" size="sm" @click="connecting = false">Cancel</Button>
       </div>
     </section>
 
-    <!-- What the benchmark said about itself when last asked. -->
+    <!-- A benchmark off this machine receives the control key and provider keys. -->
+    <Dialog v-model:open="confirmOpen">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Benchmark outside this machine</DialogTitle>
+          <DialogDescription>
+            The control key and provider keys will be sent to {{ hostOf(form.url) }}.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" @click="confirmOpen = false">Cancel</Button>
+          <Button data-testid="confirm-remote" @click="confirmSubmit">
+            {{ editing ? 'Save anyway' : 'Connect anyway' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Connection status as last reported by the benchmark -->
     <section v-if="current && !connecting" class="border border-border/50 rounded-lg p-5">
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div class="space-y-1">
@@ -222,9 +232,7 @@
       </div>
     </section>
 
-    <!-- The providers: installation-wide rather than per endpoint — one
-         benchmark process has one environment — so an edit here changes the
-         bill for every Space that shares this benchmark. -->
+    <!-- Providers are installation-wide: an edit applies to every Space sharing this benchmark. -->
     <section v-if="providerView && !connecting" class="border border-border/50 rounded-lg p-5 space-y-5">
       <div>
         <h2 class="heading-3 text-foreground flex items-center gap-2">
@@ -267,14 +275,7 @@
 </template>
 
 <script setup lang="ts">
-/**
- * Model access: connecting a benchmark, and who it asks and grades with.
- *
- * The order on this page is the order of the decisions: **where is it**, then
- * **can it reach me**, then **who does the counting**. How a measurement is
- * built and run — models, arms, judges — lives on each endpoint's Benchmark
- * setup tab.
- */
+/** Model access: the benchmark connection and the model providers it calls. */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { toast } from 'vue-sonner'
@@ -288,16 +289,27 @@ import {
 } from 'lucide-vue-next'
 
 import InfoTip from '@/components/benchmark/InfoTip.vue'
+import LocalityChip from '@/components/benchmark/LocalityChip.vue'
 import {
   MODEL_ACCESS_ROLES,
   effectiveUrl,
+  hostOf,
   keySource,
+  localityTip,
   staysLocal,
   type ProviderKey,
 } from '@/components/benchmark/modelAccess'
 import ProviderRow from '@/components/benchmark/ProviderRow.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -317,7 +329,6 @@ const current = computed(() => connections.value[0] ?? null)
 const form = ref({
   name: '',
   url: '',
-  console_url: '',
   token: '',
   space_url: '',
   chroma_host: '',
@@ -325,7 +336,6 @@ const form = ref({
   container: '',
 })
 
-// Compared rather than flagged: a flag has to be cleared in every path that
 async function load() {
   loading.value = true
   try {
@@ -364,8 +374,7 @@ function typedUrls(): Record<ProviderKey, string> {
   return out
 }
 
-// The address each role calls, from what is typed, so the stays/leaves chip
-// follows an edit before it is saved.
+// Each role's effective address from the typed values, so the locality chip follows unsaved edits.
 const targets = computed(() => {
   const out = {} as Record<ProviderKey, string>
   const view = providerView.value
@@ -465,10 +474,8 @@ async function startConnecting() {
   form.value = {
     name: '',
     url: '',
-    console_url: '',
     token: '',
-    // A sensible first guess at how the benchmark sees us, so the commonest
-    // case needs no typing at all.
+    // Prefill with this Space's public URL.
     space_url: await ownUrl(),
     chroma_host: '',
     chroma_port: 0,
@@ -483,9 +490,7 @@ function startEditing() {
   form.value = {
     name: current.value.name,
     url: current.value.url,
-    console_url: current.value.console_url,
-    // Never prefilled: the key is not sent to this form, and a blank box here
-    // means "keep the stored one" rather than "clear it".
+    // Never prefilled; blank keeps the stored key.
     token: '',
     space_url: current.value.space_url,
     chroma_host: current.value.chroma_host,
@@ -504,13 +509,28 @@ async function ownUrl(): Promise<string> {
   }
 }
 
+const confirmOpen = ref(false)
+
+/** Saves, after a confirmation when the benchmark is outside this machine. */
+function requestSubmit() {
+  if (staysLocal(form.value.url)) {
+    void submit()
+  } else {
+    confirmOpen.value = true
+  }
+}
+
+function confirmSubmit() {
+  confirmOpen.value = false
+  void submit()
+}
+
 async function submit() {
   saving.value = true
   try {
     const body = {
       name: form.value.name,
       url: form.value.url,
-      console_url: form.value.console_url,
       space_url: form.value.space_url,
       chroma_host: form.value.chroma_host,
       chroma_port: form.value.chroma_port || 0,
@@ -553,7 +573,7 @@ async function disconnect() {
   try {
     await benchmarksApi.disconnect(current.value.id)
     await load()
-    toast.success('Disconnected. Nothing already published was taken down.')
+    toast.success('Disconnected')
   } catch {
     toast.error('Could not disconnect')
   }

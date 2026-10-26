@@ -227,8 +227,7 @@ def test_panel_runs_every_judge() -> None:
         "openai/gpt-4o",
         "google/gemini-2.5-pro",
     ]
-    # The first judge is the one the expensive blocks are computed by and the
-    # one that goes to the storefront.
+    # The first judge is the one the expensive blocks and the card are computed by.
     assert judge_provider(conf).model == "anthropic/claude-sonnet-4"
 
 

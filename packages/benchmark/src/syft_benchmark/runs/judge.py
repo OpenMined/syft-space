@@ -156,7 +156,7 @@ def is_technical(verdict: str, answer: str) -> bool:
 
     Two arms: rows carrying the verdict, and older rows carrying
     ``hallucinate`` with an ``ERROR:`` answer. Counting only one of them would
-    move every published figure without anything being remeasured.
+    move every headline figure without anything being remeasured.
     """
     return verdict == Verdict.TECHNICAL.value or is_error(answer)
 

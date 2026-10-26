@@ -131,7 +131,7 @@ gold answer is the correction; an abstention does not count as correct.
 flowchart TB
     CH[("the Space's ChromaDB")] --> LOAD["load_documents:<br/>chunks → documents"]
     LOAD --> WIN["freshness window<br/>(document_window_days)"]
-    WIN --> PICK["per-generator queue of unparsed units,<br/>round-robin over documents"]
+    WIN --> PICK["per-generator queue of unparsed units,<br/>shuffled per cohort, round-robin over documents"]
     PICK --> SPLIT{"generator<br/>class"}
 
     SPLIT -- "extractive" --> LLMX["LLM: one call<br/>for three categories"]
@@ -157,6 +157,10 @@ flowchart TB
   every unparsed unit in the window, round-robin across documents, until its
   budget is spent or the material runs out. Each unit gives at most
   `pairs_per_chunk` items per generator (`tiered_explanation`: one).
+- **Order:** the documents are shuffled once per cohort (the cohort label is
+  the seed) and each generator starts at its own point of that order, so
+  generators stopped by their budget together cover the whole window. Each
+  generator takes a document's passages in its own shuffled order.
 - A generator stops early after `max_consecutive_failures` units in a row
   that wrote nothing.
 - Units run `concurrency` at a time across generators.

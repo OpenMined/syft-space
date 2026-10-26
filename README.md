@@ -166,17 +166,16 @@ syft-space/
     │   ├── Dockerfile       # Container build
     │   └── docker-compose.yml
     ├── station/             # the Syft Station package
-    └── benchmark/           # the honesty benchmark, a service of its own
+    └── benchmark/           # the benchmark service
         ├── src/             # syft_benchmark: CLI and control API
-        ├── frontend/        # its standalone console
-        ├── alembic/         # its own schema, its own database
-        ├── docs/            # the pipeline, stage by stage
+        ├── frontend/        # standalone console
+        ├── alembic/         # its own database schema
+        ├── docs/            # pipeline docs
         └── docker-compose.yml
 ```
 
-The benchmark is deployed separately from a Space and holds no hub credentials
-— it measures, the Space publishes. It shares this repository, not a process:
-neither package imports the other, they speak over HTTP.
+The benchmark runs as a separate service: it measures an endpoint and the Space
+shows the results. The two packages share no code and talk over HTTP.
 
 ## 📚 Documentation
 
@@ -203,7 +202,7 @@ A Space connects to **[SyftHub](https://syfthub.openmined.org)** — a decentral
 - 🔍 **Querying**: Users can search and query across multiple Spaces
 - 📝 **Attribution**: Every contribution is tracked and credited automatically
 - 🏗️ **Open Architecture**: Built on open protocols — no single point of control
-- 📊 **Proven answers**: Publish how good your endpoint is, as measured by a benchmark you run yourself
+- 📊 **Benchmarks**: Measure your endpoint with a benchmark you run yourself; results stay in your Space
 
 The network grows stronger as more Spaces join, but each Space maintains full autonomy over its data and policies.
 

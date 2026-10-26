@@ -491,7 +491,7 @@ def test_a_reused_answer_keeps_the_time_it_actually_cost() -> None:
     from syft_benchmark.runs.execute import _elapsed
 
     assert _elapsed({"elapsed": 12.5}, started=0.0) == 12.5
-    # Without a recorded time we count as before — by the caller clock.
+    # Without a recorded time: the caller's clock.
     assert _elapsed({}, started=0.0) > 0
 
 

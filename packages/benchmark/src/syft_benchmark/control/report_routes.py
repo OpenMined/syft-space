@@ -20,10 +20,9 @@ from starlette.background import BackgroundTask
 
 from syft_benchmark.config import JobState
 from syft_benchmark.control.app import ConsoleAuth, ConsoleGuard
-from syft_benchmark.control.compose import merge, settings_for
+from syft_benchmark.control.compose import merge
 from syft_benchmark.control.jobs import OVER_BUDGET, PROGRESS_PLAN, discard_run
 from syft_benchmark.control.schemas import (
-    ExclusionRequest,
     Instrument,
     PairResponse,
     Probe,
@@ -31,10 +30,7 @@ from syft_benchmark.control.schemas import (
 from syft_benchmark.db import Job, Run, Target, session_scope
 from syft_benchmark.generation import decisions, list_pairs
 from syft_benchmark.generation.pairs import MAX_PAGE as PAIRS_MAX_PAGE
-from syft_benchmark.publish import published_job
-from syft_benchmark.publish import retract as retract_card
 from syft_benchmark.report import (
-    exclusions,
     export_xlsx,
     filter_view,
     run_questions,
@@ -256,28 +252,9 @@ def _refuse_active(job: Job) -> None:
 
 @router.delete("/runs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_run(job_id: str, auth: ConsoleGuard) -> None:
-    """Delete a finished run and its answers; its questions stay. A published
-    run is made private first."""
+    """Delete a finished run and its answers; its questions stay."""
     with session_scope(auth.settings) as session:
-        target = _target(session, auth)
-        _refuse_active(_job(session, auth, job_id))
-        _, space = settings_for(target, auth.settings)
-
-    checked, standing = published_job(space)
-    if not checked.ok:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            f"could not check whether the run is published: {checked.detail}",
-        )
-    if standing == job_id:
-        retracted = retract_card(space)
-        if not retracted.ok:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY,
-                f"the published run could not be made private: {retracted.detail}",
-            )
-
-    with session_scope(auth.settings) as session:
+        _target(session, auth)
         job = _job(session, auth, job_id)
         _refuse_active(job)
         discard_run(session, job)
@@ -350,7 +327,6 @@ def list_run_questions(
     group: str | None = None,
     generator: str | None = None,
     q: str | None = None,
-    excluded: str = "include",
     limit: Annotated[int, Query(ge=1, le=run_questions.MAX_PAGE)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict[str, Any]:
@@ -360,11 +336,6 @@ def list_run_questions(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"group must be one of {', '.join(run_view.GROUPS)}",
-        )
-    if excluded not in run_questions.EXCLUDED_FILTERS:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"excluded must be one of {', '.join(run_questions.EXCLUDED_FILTERS)}",
         )
     with session_scope(auth.settings) as session:
         target = _target(session, auth)
@@ -377,7 +348,6 @@ def list_run_questions(
                 group=group,
                 generator=generator,
                 q=q,
-                excluded=excluded,
                 limit=limit,
                 offset=offset,
                 configured=lambda: _panel(target, auth),
@@ -438,48 +408,6 @@ def get_run_question_fragments(
                 f"question {qa_id} did not take part in job {job_id}",
             )
         return found
-
-
-@router.put("/runs/{job_id}/questions/{qa_id}/exclusion")
-def exclude_question(
-    job_id: str,
-    qa_id: str,
-    body: ExclusionRequest,
-    auth: ConsoleGuard,
-    model: str | None = None,
-) -> dict[str, Any]:
-    """Leave a question out of this run's figures; `retire` also takes it out
-    of future runs. Returns the question detail."""
-    view = exclusions.exclude(
-        job_id,
-        qa_id,
-        target_key=auth.target_key,
-        reason=body.reason,
-        retire=body.retire,
-        settings=auth.settings,
-    )
-    if view is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"question {qa_id} did not take part in job {job_id}",
-        )
-    with session_scope(auth.settings) as session:
-        return _detail(session, auth, job_id, qa_id, model)
-
-
-@router.delete(
-    "/runs/{job_id}/questions/{qa_id}/exclusion",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def restore_question(job_id: str, qa_id: str, auth: ConsoleGuard) -> None:
-    """Put the question back into this run's figures; its status stays."""
-    if not exclusions.restore(
-        job_id, qa_id, target_key=auth.target_key, settings=auth.settings
-    ):
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"question {qa_id} did not take part in job {job_id}",
-        )
 
 
 @router.get("/runs/{job_id}/summary.docx")

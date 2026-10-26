@@ -17,7 +17,7 @@ vi.mock('@/api/endpoints/benchmarks', async (importOriginal) => ({
     getRunQuestion: vi.fn(),
     listQuestionFragments: vi.fn(),
     downloadRunSummary: vi.fn(),
-    publishRun: vi.fn(),
+    deleteRun: vi.fn(),
   },
 }))
 
@@ -107,7 +107,6 @@ describe('useRunReport', () => {
     expect(api.listReportRuns).toHaveBeenLastCalledWith('s', {
       from: undefined,
       to: undefined,
-      status: undefined,
       limit: RUNS_PAGE,
       offset: 0,
     })
@@ -121,13 +120,11 @@ describe('useRunReport', () => {
       ),
     )
 
-    report.filters.status = 'published'
     report.filters.from = '2026-09-01'
     await vi.waitFor(() =>
       expect(api.listReportRuns).toHaveBeenLastCalledWith('s', {
         from: '2026-09-01',
         to: undefined,
-        status: 'published',
         limit: RUNS_PAGE,
         offset: 0,
       }),
@@ -163,14 +160,15 @@ describe('useRunReport', () => {
     scope.stop()
   })
 
-  it('caches a run’s report until publishing invalidates it', async () => {
+  it('caches a run’s report until the run is deleted', async () => {
     api.getRunReport.mockResolvedValue(runReport())
-    api.publishRun.mockResolvedValue({ published: true, card_id: 'c1', refused: [] })
+    api.listReportRuns.mockResolvedValue(list())
+    api.deleteRun.mockResolvedValue()
     const { report, scope } = start()
     await report.loadReport('j1')
     await report.loadReport('j1')
     expect(api.getRunReport).toHaveBeenCalledTimes(1)
-    await report.publish('j1')
+    await report.deleteRun('j1')
     await report.loadReport('j1')
     expect(api.getRunReport).toHaveBeenCalledTimes(2)
     scope.stop()
@@ -182,23 +180,6 @@ describe('useRunReport', () => {
     await report.loadQuestion('j1', 'q1', 'm')
     await report.loadQuestion('j1', 'q1', 'm')
     expect(api.getRunQuestion).toHaveBeenCalledTimes(1)
-    scope.stop()
-  })
-
-  it('publishes a run by job, returning refusals', async () => {
-    const refused = [
-      {
-        marketplace_id: 'm',
-        marketplace_name: 'Hub',
-        success: false,
-        supported: true,
-        error: 'down',
-      },
-    ]
-    api.publishRun.mockResolvedValue({ published: true, card_id: 'c1', refused })
-    const { report, scope } = start()
-    await expect(report.publish('j1')).resolves.toEqual({ refused })
-    expect(api.publishRun).toHaveBeenCalledWith('s', 'j1')
     scope.stop()
   })
 

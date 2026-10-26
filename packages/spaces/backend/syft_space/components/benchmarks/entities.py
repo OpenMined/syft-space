@@ -1,24 +1,8 @@
-"""Benchmark wiring: which benchmark measures this Space, and how.
+"""Benchmark tables.
 
-A Space ships without a benchmark. Measuring is somebody else's job — a
-separate service, run by whoever the owner trusts — and the Space's part is to
-say *which* one, *how* it should measure, and *what* it is allowed to measure.
-
-Two tables, because they answer two different questions.
-
-``benchmark_connections`` is **where the benchmark lives and how it measures**.
-Modelled on ``marketplaces``: an address, a key, a default flag. It also carries
-the settings, and that is deliberate — settings that outlived the connection
-they were written for would be settings for a benchmark that grades differently,
-silently applied.
-
-``benchmark_targets`` is **which endpoints are measured**. One row per endpoint
-that opted in. Absent row means not measured, which is the honest default: a
-Space that has not been asked to measure anything should measure nothing.
-
-Nothing here stores questions, reference answers, or corpus text. The Space
-never sees them — they live in the benchmark, and they quote the owner's
-documents almost verbatim.
+``benchmark_connections``: where a benchmark is, its key, and the connection-wide
+settings. ``benchmark_targets``: one row per endpoint opted into measuring; no
+row means not measured. Questions, answers and corpus text stay in the benchmark.
 """
 
 from datetime import datetime, timezone
@@ -41,28 +25,13 @@ class BenchmarkConnection(SQLModel, table=True):
     )
     name: str = Field(..., description="What the owner calls this benchmark")
     url: str = Field(..., description="Base URL of the benchmark's control API")
-    console_url: str = Field(
-        default="",
-        description=(
-            "Base URL a browser can reach the console at, when it differs "
-            "from `url` — a Docker-internal hostname resolves for this "
-            "backend's own calls but not for the owner's browser. Empty "
-            "falls back to `url`"
-        ),
-    )
     token: str = Field(
         default="",
-        description=(
-            "Key for the control API. The benchmark refuses everything without "
-            "it — a run costs hours and money, so an open port would mean "
-            "anyone who can reach the network can spend the owner's budget"
-        ),
+        description=("Key for the control API; the benchmark refuses calls without it"),
     )
 
-    # How the benchmark reaches this Space. It needs two roads, and they are
-    # different: the API by URL, and the index directly — ChromaDB's own port
-    # or `docker exec` into the container. There is no route through this
-    # Space's API for corpus text and there is not meant to be one.
+    # How the benchmark reaches this Space: the API by URL, and the index
+    # directly (ChromaDB port, or `docker exec` into the container).
     space_url: str = Field(
         default="",
         description="This Space's address as the benchmark sees it",
@@ -73,9 +42,7 @@ class BenchmarkConnection(SQLModel, table=True):
     )
     container: str = Field(default="", description="Container name, the fallback road")
 
-    # What the owner set. Partial by design: unset means "the benchmark's own
-    # default", and a full snapshot would freeze those defaults on the day the
-    # connection was made.
+    # Partial settings; unset fields use the benchmark's defaults.
     instrument: dict | None = Field(
         default=None,
         sa_column=Column(JSON(none_as_null=True)),
@@ -87,9 +54,7 @@ class BenchmarkConnection(SQLModel, table=True):
         description="How to question a node: dataset shape, search, answer limits",
     )
 
-    # What this installation can do, as it last told us. Cached so the settings
-    # form can be drawn without a round trip, and stale on purpose: a benchmark
-    # that is down should not make the page unopenable.
+    # The benchmark's cached self-description.
     capabilities: dict | None = Field(
         default=None, sa_column=Column(JSON(none_as_null=True))
     )
@@ -101,7 +66,7 @@ class BenchmarkConnection(SQLModel, table=True):
     defaults: dict | None = Field(
         default=None,
         sa_column=Column(JSON(none_as_null=True)),
-        description="What an unset setting turns into. Shown as placeholders",
+        description="Values unset settings take; shown as placeholders",
     )
     checked_at: datetime | None = Field(default=None)
     reachable: bool = Field(default=False)
@@ -115,18 +80,10 @@ class BenchmarkConnection(SQLModel, table=True):
 
 
 class BenchmarkTarget(SQLModel, table=True):
-    """An endpoint this Space has opted into measuring, and how it differs.
+    """An endpoint opted into measuring, with its own settings.
 
-    Separate from the endpoint row because it is optional and belongs to a
-    different conversation: an endpoint exists to serve, and this table says
-    whether anyone is also grading it.
-
-    ``probe`` and ``instrument`` are both override layers here. Unset fields
-    fall back to the connection's, and those to the benchmark's own defaults.
-    A card declares the instrument it was measured with, so two endpoints
-    graded under different instruments are still readable on their own
-    terms — comparing them is then a question the reader answers by reading
-    both cards, not one this table enforces by construction.
+    ``probe`` and ``instrument`` override the connection's, which override the
+    benchmark's defaults.
     """
 
     __tablename__ = "benchmark_targets"
@@ -153,29 +110,21 @@ class BenchmarkTarget(SQLModel, table=True):
 
     enabled: bool = Field(
         default=True,
-        description="Paused rather than deleted: settings and history survive",
+        description="False pauses measuring; settings and history are kept",
     )
     collection: str = Field(
         default="",
-        description=(
-            "Collection name in the index. Empty — resolved from the dataset. "
-            "Stored because resolution can be wrong: the owner may have pointed "
-            "the endpoint at a dataset whose collection is named by hand"
-        ),
+        description=("Collection name in the index. Empty — resolved from the dataset"),
     )
     probe: dict | None = Field(default=None, sa_column=Column(JSON(none_as_null=True)))
     instrument: dict | None = Field(
         default=None, sa_column=Column(JSON(none_as_null=True))
     )
 
-    # Schedule lives per endpoint, not per Space: a news corpus wants nightly,
-    # a manual kept for reference wants monthly, and one answer for both would
-    # be wrong for one of them.
     schedule: str = Field(default="", description="Interval like 24h; empty — manual")
     schedule_at: str = Field(default="", description="Hour HH:MM, if fixed")
 
-    # What the benchmark said last time we asked. A cached answer, so the page
-    # opens while the benchmark is down, and plainly marked with its age.
+    # Last job seen, shown while the benchmark is unreachable.
     last_job: dict | None = Field(
         default=None, sa_column=Column(JSON(none_as_null=True))
     )

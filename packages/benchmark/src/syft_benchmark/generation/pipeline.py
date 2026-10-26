@@ -1,4 +1,4 @@
-"""Stage 1: build items from new chunks and documents.
+"""Stage 2: build items from new chunks and documents.
 
 Incrementally. A run is interruptible and repeatable, and therefore:
 
@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import random
 import threading
 import time
 import uuid
@@ -234,7 +235,10 @@ def document_text(doc: Document) -> str:
 
 
 def pick_chunks(
-    documents: list[Document], processed: set[str], limit: int | None = None
+    documents: list[Document],
+    processed: set[str],
+    limit: int | None = None,
+    seed: str = "",
 ) -> list[tuple[Document, Chunk]]:
     """What to parse in this run, in the order to parse it.
 
@@ -246,15 +250,26 @@ def pick_chunks(
         documents: The documents in play
         processed: Chunks this queue has already parsed
         limit: How many to pick; None — every unparsed chunk
+        seed: Shuffle each document's passages with this seed, so a walk
+            stopped early does not read only the opening ones; empty — in order
     """
+    order = {
+        doc.doc_id: (
+            random.Random(f"{seed}:{doc.doc_id}").sample(doc.chunks, len(doc.chunks))
+            if seed
+            else doc.chunks
+        )
+        for doc in documents
+    }
     picked: list[tuple[Document, Chunk]] = []
     depth = 0
     while limit is None or len(picked) < limit:
         added = False
         for doc in documents:
-            if depth >= len(doc.chunks):
+            chunks = order[doc.doc_id]
+            if depth >= len(chunks):
                 continue
-            chunk = doc.chunks[depth]
+            chunk = chunks[depth]
             added = True
             if chunk.chunk_id in processed:
                 continue
@@ -420,7 +435,6 @@ def _store(
     collection: str,
     report: GenerationReport,
     *,
-    conf: Settings,
     cohort: str = "",
     job: str = "",
     cap: int | None = None,
@@ -829,11 +843,32 @@ def _queues(
     one parse, which is why they are marked under one key. The rest have a
     queue OF THEIR OWN each: a shared batch would mean that a generator
     plugged in second skips everything the first has already parsed.
+
+    The documents are shuffled once per cohort, and each queue starts at its
+    own point of that order, so kinds that stop on their budget together
+    cover the whole window instead of all reading its first articles. Each
+    queue also takes every article's passages in its own shuffled order.
     """
+    keys = ([extractive[0]] if extractive else []) + [
+        spec.key for spec in specs if spec.key not in EXTRACTIVE_KEYS
+    ]
+    shuffled = random.Random(cohort).sample(documents, len(documents))
+    report.notes.append(
+        f"articles shuffled (seed: cohort {cohort}), each kind starting at its "
+        f"own point"
+    )
+
+    def start(key: str) -> list[Document]:
+        """The shuffled documents, rotated to this queue's starting point."""
+        at = keys.index(key) * len(shuffled) // max(1, len(keys))
+        return shuffled[at:] + shuffled[:at]
+
     queues: list[_Queue] = []
     if extractive:
         processed = _processed_ids(space, extractive[0], cohort)
-        batch = pick_chunks(documents, processed)
+        batch = pick_chunks(
+            start(extractive[0]), processed, seed=f"{cohort}:{extractive[0]}"
+        )
         if not batch:
             report.notes.append("masking: there are no new chunks")
         else:
@@ -852,13 +887,19 @@ def _queues(
             continue
         processed = _processed_ids(space, spec.key, cohort)
         units: list[tuple[Document, Chunk | None]]
+        mine = start(spec.key)
         if spec.scope == "document":
-            units = [(doc, None) for doc in documents if doc.doc_id not in processed]
+            units = [(doc, None) for doc in mine if doc.doc_id not in processed]
             if not units:
                 report.notes.append(f"{spec.key}: there are no new documents")
                 continue
         else:
-            units = [(doc, chunk) for doc, chunk in pick_chunks(documents, processed)]
+            units = [
+                (doc, chunk)
+                for doc, chunk in pick_chunks(
+                    mine, processed, seed=f"{cohort}:{spec.key}"
+                )
+            ]
             if not units:
                 report.notes.append(f"{spec.key}: there are no new chunks")
                 continue
@@ -1320,7 +1361,6 @@ def generate_for_space(
                 outcome.model,
                 name,
                 report,
-                conf=conf,
                 cohort=cohort,
                 job=job,
                 cap=caps[key],
