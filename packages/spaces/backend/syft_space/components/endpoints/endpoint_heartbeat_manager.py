@@ -62,6 +62,10 @@ class EndpointHeartbeatManager(LifecycleService):
     # absorbed by the hub needing 3 consecutive stale sweeps, not by this margin.
     TTL_MULTIPLIER = 2.0
     POLL_INTERVAL = 5.0  # While waiting for public_url to be set
+    # Local provisioners (e.g. ChromaDB) boot in the background; reporting
+    # before they are up marks every local dataset unhealthy once per boot.
+    # Bounded so a provisioner that never comes up is still reported.
+    PROVISIONER_WAIT_TIMEOUT = 60.0
 
     # Transport failure backoff (only when the SyftHub POST fails)
     TRANSPORT_BACKOFF_FACTOR = 2.0
@@ -103,6 +107,11 @@ class EndpointHeartbeatManager(LifecycleService):
         self._heartbeat_task: asyncio.Task | None = None
         self._tenant: Tenant | None = None
         self._tenant_id: UUID | None = None
+        self._provisioner_ready_event: asyncio.Event | None = None
+
+    def set_provisioner_ready_event(self, event: asyncio.Event) -> None:
+        """Event set once provisioner startup finishes (success or failure)."""
+        self._provisioner_ready_event = event
 
     def set_tenant(self, tenant: Tenant) -> None:
         """Set the tenant for endpoint health queries.
@@ -169,6 +178,8 @@ class EndpointHeartbeatManager(LifecycleService):
             )
             return
 
+        await self._wait_for_provisioners()
+
         logger.info("Public URL available, beginning endpoint heartbeat cycle")
         self._had_public_url = True
 
@@ -226,6 +237,22 @@ class EndpointHeartbeatManager(LifecycleService):
                 pass
 
         return False
+
+    async def _wait_for_provisioners(self) -> None:
+        """Wait for provisioner startup, at most PROVISIONER_WAIT_TIMEOUT."""
+        if self._provisioner_ready_event is None:
+            return
+        try:
+            await asyncio.wait_for(
+                self._provisioner_ready_event.wait(),
+                timeout=self.PROVISIONER_WAIT_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Provisioner startup not complete after "
+                f"{self.PROVISIONER_WAIT_TIMEOUT:.0f}s, reporting endpoint "
+                "health anyway"
+            )
 
     async def _send_endpoint_heartbeats_to_all(self) -> None:
         """Send endpoint health to all active marketplaces concurrently."""

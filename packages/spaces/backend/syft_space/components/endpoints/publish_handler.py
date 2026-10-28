@@ -189,6 +189,16 @@ class PublishEndpointHandler:
         if not endpoints:
             return []
 
+        def _describe(e: Exception) -> str:
+            if isinstance(e, asyncio.TimeoutError):
+                return f"health check timed out after {health_timeout:.0f}s"
+            return f"{type(e).__name__}: {e}"
+
+        def _log_unhealthy(endpoint: Endpoint, part: str, reason: str | None) -> None:
+            logger.warning(
+                f"Endpoint {endpoint.slug} reported unhealthy ({part}): {reason}"
+            )
+
         async def _check_endpoint_health(endpoint: Endpoint) -> dict[str, Any]:
             checked_at = datetime.now(timezone.utc).isoformat()
             is_healthy = True
@@ -208,10 +218,13 @@ class PublishEndpointHandler:
                         )
                         if response.status != HealthcheckStatus.HEALTHY:
                             is_healthy = False
+                            _log_unhealthy(endpoint, "dataset", response.message)
                     else:
                         is_healthy = False
-                except Exception:
+                        _log_unhealthy(endpoint, "dataset", "dataset not found")
+                except Exception as e:
                     is_healthy = False
+                    _log_unhealthy(endpoint, "dataset", _describe(e))
 
             if endpoint.model_id:
                 try:
@@ -226,10 +239,13 @@ class PublishEndpointHandler:
                         )
                         if response.status != HealthcheckStatus.HEALTHY:
                             is_healthy = False
+                            _log_unhealthy(endpoint, "model", response.message)
                     else:
                         is_healthy = False
-                except Exception:
+                        _log_unhealthy(endpoint, "model", "model not found")
+                except Exception as e:
                     is_healthy = False
+                    _log_unhealthy(endpoint, "model", _describe(e))
 
             return {
                 "slug": endpoint.slug,

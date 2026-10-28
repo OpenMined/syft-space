@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
 from pydantic import ValidationError
 
 from syft_space.components.shared.domain_types import (
@@ -225,37 +226,43 @@ class WeaviateVectorStore:
 
         return SearchResult(documents=documents, metadata={"count": len(documents)})
 
+    HEALTHCHECK_TIMEOUT = 5.0
+
+    def _ready_url(self) -> str:
+        return f"{str(self.config.http_url).rstrip('/')}/v1/.well-known/ready"
+
     async def healthcheck(self) -> HealthcheckResponse:
-        """Check if the Weaviate server is reachable."""
+        """Check if the Weaviate server is ready.
+
+        A single GET of Weaviate's readiness probe. Opening a full client
+        just to ask this costs an HTTP + gRPC handshake under the client's
+        2 s init timeout, which fails at random under concurrent checks.
+        """
         if not enabled:
             return HealthcheckResponse(
                 status=HealthcheckStatus.UNHEALTHY,
                 message="Weaviate dependencies not installed",
             )
 
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            **(self.config.headers or {}),
+        }
         try:
-            async with weaviate.use_async_with_custom(
-                http_host=self.config.http_url.host,
-                http_port=self.config.http_url.port,
-                http_secure=self.config.http_url.scheme == "https",
-                grpc_host=self.config.grpc_url.host,
-                grpc_port=self.config.grpc_url.port,
-                grpc_secure=self.config.grpc_url.scheme == "https",
-                auth_credentials=Auth.api_key(self.config.api_key),
-                headers=self.config.headers,
-            ) as client:
-                if await client.is_ready():
-                    return HealthcheckResponse(
-                        status=HealthcheckStatus.HEALTHY,
-                        message="Weaviate is healthy",
-                    )
+            async with httpx.AsyncClient(timeout=self.HEALTHCHECK_TIMEOUT) as client:
+                response = await client.get(self._ready_url(), headers=headers)
         except Exception as e:
             return HealthcheckResponse(
                 status=HealthcheckStatus.UNHEALTHY,
                 message=f"Weaviate is unhealthy: {str(e)}",
             )
 
+        if response.status_code == 200:
+            return HealthcheckResponse(
+                status=HealthcheckStatus.HEALTHY,
+                message="Weaviate is healthy",
+            )
         return HealthcheckResponse(
             status=HealthcheckStatus.UNHEALTHY,
-            message="Weaviate is unhealthy",
+            message=f"Weaviate is unhealthy: ready probe returned {response.status_code}",
         )

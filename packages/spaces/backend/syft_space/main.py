@@ -374,6 +374,7 @@ async def lifespan(app: FastAPI):
     provisioner_ready_event = asyncio.Event()
     provisioner_manager.set_startup_complete_event(provisioner_ready_event)
     ingestion_manager.set_provisioner_ready_event(provisioner_ready_event)
+    endpoint_heartbeat_manager.set_provisioner_ready_event(provisioner_ready_event)
 
     # 4.1. Create coordination event for proxy → sync tasks ordering
     # This event ensures sync tasks wait for proxy connection attempt to complete
