@@ -49,15 +49,34 @@ class FakeWeaviateClient:
         self.closed = True
 
 
+class FakeConnectionError(Exception):
+    pass
+
+
+class FakeClosedClientError(Exception):
+    pass
+
+
 @pytest.fixture
 def fake_weaviate(monkeypatch):
+    """Stand in for every name the store takes from ``weaviate``.
+
+    ``raising=False`` because CI runs without the optional package, so the
+    store module has none of these attributes there.
+    """
     FakeWeaviateClient.instances = []
-    monkeypatch.setattr(ws_module, "enabled", True)
-    monkeypatch.setattr(
-        ws_module,
-        "weaviate",
-        SimpleNamespace(use_async_with_custom=FakeWeaviateClient),
-    )
+    stubs = {
+        "enabled": True,
+        "weaviate": SimpleNamespace(use_async_with_custom=FakeWeaviateClient),
+        "Auth": SimpleNamespace(api_key=lambda key: ("api_key", key)),
+        "AdditionalConfig": lambda timeout: SimpleNamespace(timeout=timeout),
+        "Timeout": lambda init: SimpleNamespace(init=init),
+        "MetadataQuery": lambda **kwargs: kwargs,
+        "WeaviateConnectionError": FakeConnectionError,
+        "WeaviateClosedClientError": FakeClosedClientError,
+    }
+    for name, value in stubs.items():
+        monkeypatch.setattr(ws_module, name, value, raising=False)
     return FakeWeaviateClient
 
 
