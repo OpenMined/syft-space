@@ -25,9 +25,18 @@ from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.marketplaces.entities import Marketplace  # noqa: F401
 from syft_space.components.models.entities import Model  # noqa: F401
 from syft_space.components.policies.entities import Policy  # noqa: F401
+from syft_space.components.shared import client_cache
 from syft_space.components.shared.database import AsyncDatabase, SQLiteConfig
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet  # noqa: F401
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clear_client_cache():
+    """Cached clients bind to the loop that built them; each test gets a new one."""
+    yield
+    await client_cache.close_all()
+
 
 # ============== Databases ==============
 
