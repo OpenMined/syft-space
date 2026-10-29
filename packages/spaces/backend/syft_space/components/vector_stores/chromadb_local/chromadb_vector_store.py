@@ -21,6 +21,7 @@ from syft_space.components.chunking import (
     DocumentChunker,
     build_image_urls,
 )
+from syft_space.components.shared import client_cache
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
@@ -171,7 +172,9 @@ class ChromaDBLocalVectorStore:
     PROVISIONER_CLS = _resolve_provisioner_cls()
     METADATA_FIELDS = ChromaDBMetadataFields
 
-    # Class-level lock for thread-safe lazy embedding-model init.
+    # One embedding model per process: the ONNX session is costly to build
+    # and store instances are short-lived.
+    _embedding_fn: Any = None
     _embedding_fn_lock = threading.Lock()
 
     def __init__(self, config: dict[str, Any]) -> None:
@@ -184,10 +187,6 @@ class ChromaDBLocalVectorStore:
         self.raw_config = config
         self.config = ChromaDBLocalVectorStoreConfiguration.model_validate(config)
 
-        # Lazy initialization (instance-level)
-        self._embedding_fn = None
-        self._client: chromadb.AsyncClientAPI | None = None  # noqa: F821
-        self._client_lock = asyncio.Lock()
         self._document_chunker = DocumentChunker()
 
     @classmethod
@@ -250,19 +249,21 @@ class ChromaDBLocalVectorStore:
         return f"Collection_{self.config.collection_name}"
 
     async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
-        """Get or create the cached ChromaDB async client."""
-        chromadb = _import_chromadb()
+        """The shared ChromaDB async client for this store's connection."""
+        # Keyed by ``connection_fields`` (the port): host, ssl and database
+        # come from settings and are fixed for the process. AsyncHttpClient
+        # holds nothing to close.
+        key = client_cache.key_from(self.config, self.connection_fields())
+        return await client_cache.get_client(self.NAME, key, connect=self._connect)
 
-        if self._client is None:
-            async with self._client_lock:
-                if self._client is None:
-                    self._client = await chromadb.AsyncHttpClient(
-                        host=self.host(),
-                        port=self.config.http_port,
-                        ssl=app_settings.chromadb_ssl,
-                        database=app_settings.chromadb_database,
-                    )
-        return self._client
+    async def _connect(self) -> chromadb.AsyncClientAPI:  # noqa: F821
+        chromadb = _import_chromadb()
+        return await chromadb.AsyncHttpClient(
+            host=self.host(),
+            port=self.config.http_port,
+            ssl=app_settings.chromadb_ssl,
+            database=app_settings.chromadb_database,
+        )
 
     def _generate_embeddings(self, texts: list[str]) -> list:
         """Generate embeddings for texts (runs in thread pool).
@@ -272,11 +273,12 @@ class ChromaDBLocalVectorStore:
         """
         ONNXMiniLM_L6_V2 = _import_embedding_fn()
 
-        if self._embedding_fn is None:
-            with self._embedding_fn_lock:
-                if self._embedding_fn is None:
-                    self._embedding_fn = ONNXMiniLM_L6_V2()
-        return self._embedding_fn(texts)
+        cls = type(self)
+        if cls._embedding_fn is None:
+            with cls._embedding_fn_lock:
+                if cls._embedding_fn is None:
+                    cls._embedding_fn = ONNXMiniLM_L6_V2()
+        return cls._embedding_fn(texts)
 
     async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
         """Ingest files into the collection as embedded chunks.

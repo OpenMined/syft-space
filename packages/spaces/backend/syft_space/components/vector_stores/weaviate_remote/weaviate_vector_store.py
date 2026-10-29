@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
+from syft_space.components.shared import client_cache
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
@@ -34,8 +35,9 @@ from syft_space.components.vector_stores.weaviate_remote.schemas import (
 
 try:
     import weaviate
-    from weaviate.classes.init import Auth
+    from weaviate.classes.init import AdditionalConfig, Auth, Timeout
     from weaviate.classes.query import Filter, MetadataQuery
+    from weaviate.exceptions import WeaviateBaseError, WeaviateInvalidInputError
     from weaviate.outputs.query import Object, WeaviateProperties
 
     enabled = True
@@ -155,8 +157,8 @@ class WeaviateVectorStore:
 
     @classmethod
     def connection_fields(cls) -> list[str]:
-        """Configuration fields shared across datasets of this type."""
-        return ["http_url", "grpc_url", "api_key", "collection_name"]
+        """Configuration fields that identify the server connection."""
+        return ["http_url", "grpc_url", "api_key", "headers"]
 
     @property
     def collection_name(self) -> str:
@@ -181,19 +183,11 @@ class WeaviateVectorStore:
 
         documents = []
 
-        async with weaviate.use_async_with_custom(
-            http_host=self.config.http_url.host,
-            http_port=self.config.http_url.port,
-            http_secure=self.config.http_url.scheme == "https",
-            grpc_host=self.config.grpc_url.host,
-            grpc_port=self.config.grpc_url.port,
-            grpc_secure=self.config.grpc_url.scheme == "https",
-            auth_credentials=Auth.api_key(self.config.api_key),
-            headers=self.config.headers,
-        ) as client:
-            collection = client.collections.get(self.collection_name)
-            weaviate_filters = self._build_weaviate_filters()
+        client = await self.get_client()
+        collection = client.collections.get(self.collection_name)
+        weaviate_filters = self._build_weaviate_filters()
 
+        try:
             results = await collection.query.near_text(
                 query=query,
                 limit=params.limit,
@@ -203,30 +197,70 @@ class WeaviateVectorStore:
                     distance=True, certainty=True, creation_time=True
                 ),
             )
-            for result in results.objects:
-                if self.config.content_property:
-                    content = str(
-                        result.properties.get(self.config.content_property, "")
-                    )
-                else:
-                    content = json.dumps(result.properties, default=str)
+        except WeaviateInvalidInputError:
+            raise  # bad query, the client is fine
+        except WeaviateBaseError:
+            # Anything else may be a dead connection (closed client, gRPC
+            # channel down, timeout, wrapped transport error): drop the
+            # client so the next query reconnects. Over-evicting costs one
+            # handshake; under-evicting keeps a poisoned client forever.
+            await client_cache.evict(self.NAME, self._client_key())
+            raise
 
-                metadata = _document_metadata(result, self.config)
+        for result in results.objects:
+            if self.config.content_property:
+                content = str(result.properties.get(self.config.content_property, ""))
+            else:
+                content = json.dumps(result.properties, default=str)
 
-                documents.append(
-                    SearchedDocument(
-                        document_id=str(result.uuid),
-                        content=content,
-                        metadata=metadata,
-                        # ``certainty`` is Weaviate's own 1 - distance/2 similarity;
-                        # ``score`` is only set for BM25/hybrid, so it was always 0.0.
-                        similarity_score=result.metadata.certainty or 0.0,
-                    )
+            metadata = _document_metadata(result, self.config)
+
+            documents.append(
+                SearchedDocument(
+                    document_id=str(result.uuid),
+                    content=content,
+                    metadata=metadata,
+                    # ``certainty`` is Weaviate's own 1 - distance/2 similarity;
+                    # ``score`` is only set for BM25/hybrid, so it was always 0.0.
+                    similarity_score=result.metadata.certainty or 0.0,
                 )
+            )
 
         return SearchResult(documents=documents, metadata={"count": len(documents)})
 
+    CONNECT_TIMEOUT = 10.0
     HEALTHCHECK_TIMEOUT = 5.0
+
+    def _client_key(self) -> tuple:
+        # Keyed by ``connection_fields``, so a changed URL, key or header is
+        # a miss rather than a stale client.
+        return client_cache.key_from(self.config, self.connection_fields())
+
+    async def get_client(self) -> Any:
+        """The shared connected client for this store's connection config."""
+        return await client_cache.get_client(
+            self.NAME,
+            self._client_key(),
+            connect=self._connect,
+            close=lambda client: client.close(),
+        )
+
+    async def _connect(self) -> Any:
+        client = weaviate.use_async_with_custom(
+            http_host=self.config.http_url.host,
+            http_port=self.config.http_url.port,
+            http_secure=self.config.http_url.scheme == "https",
+            grpc_host=self.config.grpc_url.host,
+            grpc_port=self.config.grpc_url.port,
+            grpc_secure=self.config.grpc_url.scheme == "https",
+            auth_credentials=Auth.api_key(self.config.api_key),
+            headers=self.config.headers,
+            additional_config=AdditionalConfig(
+                timeout=Timeout(init=self.CONNECT_TIMEOUT)
+            ),
+        )
+        await client.connect()
+        return client
 
     def _ready_url(self) -> str:
         return f"{str(self.config.http_url).rstrip('/')}/v1/.well-known/ready"
