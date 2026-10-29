@@ -55,8 +55,13 @@ async def close_all() -> None:
 
 
 def key_from(config: BaseModel, fields: list[str]) -> tuple:
-    """Cache key: the named config fields (alias names), frozen to hash."""
-    dump = config.model_dump(by_alias=True, mode="json")
+    """Cache key: the named config fields (alias names), frozen to hash.
+
+    Python mode, not JSON: a JSON dump masks every ``SecretStr`` as
+    asterisks, which would make differently-keyed hosts collide.
+    ``SecretStr`` and ``HttpUrl`` hash and compare on their real values.
+    """
+    dump = config.model_dump(by_alias=True, mode="python")
     return tuple(_freeze(dump.get(f)) for f in fields)
 
 

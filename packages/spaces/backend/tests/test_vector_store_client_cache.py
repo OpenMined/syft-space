@@ -9,7 +9,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from syft_space.components.shared import client_cache
 from syft_space.components.vector_stores.chromadb_local import (
@@ -49,12 +49,16 @@ class FakeWeaviateClient:
         self.closed = True
 
 
-class FakeConnectionError(Exception):
-    pass
+class FakeWeaviateError(Exception):
+    """Stands in for WeaviateBaseError."""
 
 
-class FakeClosedClientError(Exception):
-    pass
+class FakeInvalidInputError(FakeWeaviateError):
+    """Stands in for WeaviateInvalidInputError."""
+
+
+class FakeGRPCUnavailableError(FakeWeaviateError):
+    """Any other subclass: the kind a dead connection surfaces as."""
 
 
 @pytest.fixture
@@ -72,8 +76,8 @@ def fake_weaviate(monkeypatch):
         "AdditionalConfig": lambda timeout: SimpleNamespace(timeout=timeout),
         "Timeout": lambda init: SimpleNamespace(init=init),
         "MetadataQuery": lambda **kwargs: kwargs,
-        "WeaviateConnectionError": FakeConnectionError,
-        "WeaviateClosedClientError": FakeClosedClientError,
+        "WeaviateBaseError": FakeWeaviateError,
+        "WeaviateInvalidInputError": FakeInvalidInputError,
     }
     for name, value in stubs.items():
         monkeypatch.setattr(ws_module, name, value, raising=False)
@@ -98,14 +102,34 @@ def test_key_from_uses_alias_names_and_freezes_nested_values():
     hash(key)
 
 
-def test_key_from_renders_urls_as_strings():
-    cfg = ws_module.RemoteWeaviateVectorStoreConfiguration.model_validate(
-        WEAVIATE_CONFIG
+def test_key_from_compares_urls_by_value():
+    make = ws_module.RemoteWeaviateVectorStoreConfiguration.model_validate
+
+    same = client_cache.key_from(make(WEAVIATE_CONFIG), ["http_url"])
+    again = client_cache.key_from(make(dict(WEAVIATE_CONFIG)), ["http_url"])
+    other = client_cache.key_from(
+        make({**WEAVIATE_CONFIG, "http_url": "https://other.example.com"}),
+        ["http_url"],
     )
 
-    key = client_cache.key_from(cfg, ["http_url"])
+    assert same == again and hash(same) == hash(again)
+    assert same != other
+    assert str(same[0]) == "https://weaviate.example.com:8443/"
 
-    assert key == ("https://weaviate.example.com:8443/",)
+
+def test_key_from_keeps_secret_values_distinct_but_masked():
+    """A JSON dump would turn every SecretStr into asterisks and collide."""
+
+    class Cfg(BaseModel):
+        api_key: SecretStr
+
+    k1 = client_cache.key_from(Cfg(api_key="one"), ["api_key"])
+    k2 = client_cache.key_from(Cfg(api_key="two"), ["api_key"])
+    k1_again = client_cache.key_from(Cfg(api_key="one"), ["api_key"])
+
+    assert k1 != k2
+    assert k1 == k1_again and hash(k1) == hash(k1_again)
+    assert "one" not in repr(k1)  # safe if a key ever reaches a log line
 
 
 # ── Weaviate ────────────────────────────────────────────────────────────
@@ -147,25 +171,43 @@ async def test_weaviate_connection_change_is_a_new_client(fake_weaviate, change)
     assert len(fake_weaviate.instances) == 2
 
 
-async def test_weaviate_search_evicts_a_dead_client(fake_weaviate):
-    class DeadCollection:
-        query = SimpleNamespace()
+def _failing_collection(error: Exception):
+    async def near_text(**kwargs):
+        raise error
 
-        @staticmethod
-        async def near_text(**kwargs):
-            raise ws_module.WeaviateConnectionError("gone")
+    return SimpleNamespace(query=SimpleNamespace(near_text=near_text))
 
-    DeadCollection.query.near_text = DeadCollection.near_text
+
+@pytest.mark.parametrize(
+    "error",
+    [FakeWeaviateError("connection lost"), FakeGRPCUnavailableError("channel down")],
+)
+async def test_weaviate_search_evicts_the_client_on_weaviate_errors(
+    fake_weaviate, error
+):
     store = WeaviateVectorStore(WEAVIATE_CONFIG)
     first = await store.get_client()
-    first.collections = SimpleNamespace(get=lambda name: DeadCollection)
+    first.collections = SimpleNamespace(get=lambda name: _failing_collection(error))
 
-    with pytest.raises(ws_module.WeaviateConnectionError):
+    with pytest.raises(type(error)):
         await store.search(SimpleNamespace(), "q")
 
     assert first.closed
-    second = await store.get_client()
-    assert second is not first
+    assert await store.get_client() is not first
+
+
+async def test_weaviate_search_keeps_the_client_on_invalid_input(fake_weaviate):
+    store = WeaviateVectorStore(WEAVIATE_CONFIG)
+    first = await store.get_client()
+    first.collections = SimpleNamespace(
+        get=lambda name: _failing_collection(FakeInvalidInputError("bad filter"))
+    )
+
+    with pytest.raises(FakeInvalidInputError):
+        await store.search(SimpleNamespace(), "q")
+
+    assert not first.closed
+    assert await store.get_client() is first
 
 
 async def test_close_all_closes_weaviate_clients(fake_weaviate):

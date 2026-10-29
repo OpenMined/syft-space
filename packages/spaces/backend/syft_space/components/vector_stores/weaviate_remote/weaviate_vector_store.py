@@ -37,7 +37,7 @@ try:
     import weaviate
     from weaviate.classes.init import AdditionalConfig, Auth, Timeout
     from weaviate.classes.query import Filter, MetadataQuery
-    from weaviate.exceptions import WeaviateClosedClientError, WeaviateConnectionError
+    from weaviate.exceptions import WeaviateBaseError, WeaviateInvalidInputError
     from weaviate.outputs.query import Object, WeaviateProperties
 
     enabled = True
@@ -197,8 +197,13 @@ class WeaviateVectorStore:
                     distance=True, certainty=True, creation_time=True
                 ),
             )
-        except (WeaviateConnectionError, WeaviateClosedClientError):
-            # Dead client: drop it so the next query reconnects.
+        except WeaviateInvalidInputError:
+            raise  # bad query, the client is fine
+        except WeaviateBaseError:
+            # Anything else may be a dead connection (closed client, gRPC
+            # channel down, timeout, wrapped transport error): drop the
+            # client so the next query reconnects. Over-evicting costs one
+            # handshake; under-evicting keeps a poisoned client forever.
             await client_cache.evict(self.NAME, self._client_key())
             raise
 
