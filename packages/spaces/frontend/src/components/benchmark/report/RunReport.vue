@@ -1,6 +1,9 @@
 <template>
   <div class="space-y-6">
-    <ReportCrumbs :crumbs="crumbs" />
+    <div class="flex items-center justify-between gap-4">
+      <ReportCrumbs :crumbs="crumbs" />
+      <DetailsToggle />
+    </div>
     <Alert v-if="running" data-testid="run-running">
       <AlertDescription
         >This run is still in progress. Results appear here when it finishes.</AlertDescription
@@ -39,6 +42,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { apiErrorDetail } from '@/lib/errors'
 import ChecksPage from './ChecksPage.vue'
+import DetailsToggle from './DetailsToggle.vue'
 import ModelPage from './ModelPage.vue'
 import QuestionsPage from './QuestionsPage.vue'
 import ReportCrumbs from './ReportCrumbs.vue'

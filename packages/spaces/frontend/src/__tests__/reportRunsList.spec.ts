@@ -188,4 +188,10 @@ describe('RunsList', () => {
     const wrapper = mountList(fakeReport([], [], { schedule: '', next_run_at: null, probe: {} }))
     expect(wrapper.find('[data-testid="schedule"]').exists()).toBe(false)
   })
+
+  it('puts the Details toggle on the title row', () => {
+    const wrapper = mountList(fakeReport([]))
+    const titleRow = wrapper.get('#runs-title').element.parentElement!
+    expect(titleRow.querySelector('[data-testid="details-toggle"]')).not.toBeNull()
+  })
 })

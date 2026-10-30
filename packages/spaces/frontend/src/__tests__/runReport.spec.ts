@@ -26,5 +26,7 @@ describe('RunReport', () => {
       'This model is not part of this run.',
     )
     expect(wrapper.find('[data-testid="screen-ChecksPage"]').exists()).toBe(false)
+    const crumbsRow = wrapper.get('nav[aria-label="Breadcrumb"]').element.parentElement!
+    expect(crumbsRow.querySelector('[data-testid="details-toggle"]')).not.toBeNull()
   })
 })

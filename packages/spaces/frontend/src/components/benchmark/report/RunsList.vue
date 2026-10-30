@@ -1,7 +1,10 @@
 <template>
   <section class="space-y-5" aria-labelledby="runs-title">
     <div class="space-y-1">
-      <h1 id="runs-title" class="heading-3">Benchmark runs</h1>
+      <div class="flex items-center justify-between gap-4">
+        <h1 id="runs-title" class="heading-3">Benchmark runs</h1>
+        <DetailsToggle />
+      </div>
       <p v-if="schedule" class="text-sm text-muted-foreground" data-testid="schedule">
         {{ schedule }}
       </p>
@@ -256,6 +259,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { apiErrorDetail } from '@/lib/errors'
 import Hint from '../Hint.vue'
 import AlertBadge from './AlertBadge.vue'
+import DetailsToggle from './DetailsToggle.vue'
 import { useReport } from './context'
 import { barWidth, count, DASH, dayTime, pointsRange, scheduleText, utcStamp } from './figures'
 import { modelName } from './labels'

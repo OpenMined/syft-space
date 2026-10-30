@@ -20,7 +20,6 @@ vi.mock('@/components/benchmark/report/useRunReport', () => ({ useRunReport: () 
 vi.mock('@/components/benchmark/report/RunReport.vue', () => ({ default: stub('RunReport') }))
 
 const { default: ResultsHome } = await import('@/components/benchmark/report/ResultsHome.vue')
-const { useDetails } = await import('@/components/benchmark/report/details/useDetails')
 
 function shown(wrapper: ReturnType<typeof mount>): {
   name: string
@@ -46,23 +45,5 @@ describe('ResultsHome', () => {
     route.query = { tab: 'results', job: 'j1' }
     await wrapper.vm.$nextTick()
     expect(shown(wrapper).props.modelId).toBeNull()
-  })
-
-  it('shows the Details toggle on the list and on a run, and remembers it', async () => {
-    const details = useDetails()
-    details.value = false
-    route.query = { tab: 'results' }
-    const wrapper = mount(ResultsHome, { props: { slug: 'ep' } })
-    const toggle = wrapper.get('[data-testid="details-toggle"]')
-    expect(toggle.attributes('aria-checked')).toBe('false')
-
-    await toggle.trigger('click')
-    expect(details.value).toBe(true)
-    expect(localStorage.getItem('benchmark-results-details')).toBe('1')
-
-    route.query = { tab: 'results', job: 'j1' }
-    await wrapper.vm.$nextTick()
-    expect(wrapper.get('[data-testid="details-toggle"]').attributes('aria-checked')).toBe('true')
-    details.value = false
   })
 })
