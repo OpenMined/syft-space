@@ -458,7 +458,11 @@ class QueryEndpointHandler:
             DocumentResponse(
                 document_id=doc.document_id,
                 content=doc.content,
-                metadata=doc.metadata,
+                metadata=(
+                    dataset_instance.public_metadata(doc.metadata)
+                    if request.include_metadata
+                    else {}
+                ),
                 similarity_score=doc.similarity_score,
             )
             for doc in search_result.documents
@@ -466,7 +470,10 @@ class QueryEndpointHandler:
 
         return ReferencesResponse(
             documents=documents,
-            provider_info=ProviderInfo(search_engine=dataset.dtype),
+            provider_info=ProviderInfo(
+                search_engine=dataset.dtype,
+                metadata_fields=dataset_instance.metadata.public_names(),
+            ),
         )
 
     async def _chat_with_model(
@@ -522,15 +529,12 @@ class QueryEndpointHandler:
                 messages.insert(0, override)
 
         if references and references.documents:
-            context_content = "\\n\\n".join(
-                [
-                    f"[{doc.document_id}] {doc.content}"
-                    for doc in references.documents[:3]
-                ]
+            context_content = "\n\n".join(
+                f"[{doc.document_id}] {doc.content}" for doc in references.documents
             )
             context_message = ChatMessage(
                 role="system",
-                content=f"Use the following context to answer:\\n{context_content}",
+                content=f"Use the following context to answer:\n{context_content}",
             )
             messages.insert(0, context_message)
 

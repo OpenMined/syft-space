@@ -21,11 +21,13 @@ from syft_space.components.chunking import (
     DocumentChunker,
     build_image_urls,
 )
+from syft_space.components.shared import client_cache
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
 )
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
@@ -78,8 +80,6 @@ def _chromadb_available() -> bool:
         return False
 
 
-DEFAULT_SIMILARITY_THRESHOLD = 0.5
-
 # Embedding model — same as Weaviate (all-MiniLM-L6-v2).
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
@@ -125,6 +125,40 @@ def _chroma_scalars(metadata: dict[str, Any]) -> dict[str, Any]:
     return scalars
 
 
+class ChromaDBMetadataFields(MetadataFields):
+    """Keys this store writes at ingest and adds at search time.
+
+    Chunk pointers, neighbour text, picture ids and the source's external id
+    (the on-disk path for local files) stay inside the space.
+    """
+
+    fields = (
+        MetadataField(name="doc_id"),
+        MetadataField(name="chunk_index"),
+        MetadataField(name="file_name"),
+        MetadataField(name="file_type", hidden=True),
+        MetadataField(name="file_size", hidden=True),
+        MetadataField(name="page_numbers"),
+        MetadataField(name="headings"),
+        MetadataField(name="image_urls"),
+        MetadataField(name="external_id", hidden=True),
+        MetadataField(name="prev_chunk_id", hidden=True),
+        MetadataField(name="next_chunk_id", hidden=True),
+        MetadataField(name="picture_ids", hidden=True),
+        MetadataField(name="prev_context", hidden=True),
+        MetadataField(name="next_context", hidden=True),
+    )
+
+    def derived(self, source: MetadataFields) -> tuple[MetadataField, ...]:
+        # _chroma_scalars writes ``{key}_ts`` beside every datetime value;
+        # declaring one per source field over-declares harmlessly.
+        return tuple(
+            MetadataField(name=f"{f.name}_ts")
+            for f in source.declared()
+            if not f.hidden
+        )
+
+
 class ChromaDBLocalVectorStore:
     """ChromaDB vector store.
 
@@ -136,8 +170,11 @@ class ChromaDBLocalVectorStore:
 
     NAME = "chromadb_local"
     PROVISIONER_CLS = _resolve_provisioner_cls()
+    METADATA_FIELDS = ChromaDBMetadataFields
 
-    # Class-level lock for thread-safe lazy embedding-model init.
+    # One embedding model per process: the ONNX session is costly to build
+    # and store instances are short-lived.
+    _embedding_fn: Any = None
     _embedding_fn_lock = threading.Lock()
 
     def __init__(self, config: dict[str, Any]) -> None:
@@ -150,10 +187,6 @@ class ChromaDBLocalVectorStore:
         self.raw_config = config
         self.config = ChromaDBLocalVectorStoreConfiguration.model_validate(config)
 
-        # Lazy initialization (instance-level)
-        self._embedding_fn = None
-        self._client: chromadb.AsyncClientAPI | None = None  # noqa: F821
-        self._client_lock = asyncio.Lock()
         self._document_chunker = DocumentChunker()
 
     @classmethod
@@ -216,19 +249,21 @@ class ChromaDBLocalVectorStore:
         return f"Collection_{self.config.collection_name}"
 
     async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
-        """Get or create the cached ChromaDB async client."""
-        chromadb = _import_chromadb()
+        """The shared ChromaDB async client for this store's connection."""
+        # Keyed by ``connection_fields`` (the port): host, ssl and database
+        # come from settings and are fixed for the process. AsyncHttpClient
+        # holds nothing to close.
+        key = client_cache.key_from(self.config, self.connection_fields())
+        return await client_cache.get_client(self.NAME, key, connect=self._connect)
 
-        if self._client is None:
-            async with self._client_lock:
-                if self._client is None:
-                    self._client = await chromadb.AsyncHttpClient(
-                        host=self.host(),
-                        port=self.config.http_port,
-                        ssl=app_settings.chromadb_ssl,
-                        database=app_settings.chromadb_database,
-                    )
-        return self._client
+    async def _connect(self) -> chromadb.AsyncClientAPI:  # noqa: F821
+        chromadb = _import_chromadb()
+        return await chromadb.AsyncHttpClient(
+            host=self.host(),
+            port=self.config.http_port,
+            ssl=app_settings.chromadb_ssl,
+            database=app_settings.chromadb_database,
+        )
 
     def _generate_embeddings(self, texts: list[str]) -> list:
         """Generate embeddings for texts (runs in thread pool).
@@ -238,11 +273,12 @@ class ChromaDBLocalVectorStore:
         """
         ONNXMiniLM_L6_V2 = _import_embedding_fn()
 
-        if self._embedding_fn is None:
-            with self._embedding_fn_lock:
-                if self._embedding_fn is None:
-                    self._embedding_fn = ONNXMiniLM_L6_V2()
-        return self._embedding_fn(texts)
+        cls = type(self)
+        if cls._embedding_fn is None:
+            with cls._embedding_fn_lock:
+                if cls._embedding_fn is None:
+                    cls._embedding_fn = ONNXMiniLM_L6_V2()
+        return cls._embedding_fn(texts)
 
     async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
         """Ingest files into the collection as embedded chunks.
@@ -339,10 +375,12 @@ class ChromaDBLocalVectorStore:
         results: dict,
         dataset_id: str,
         similarity_threshold: float,
+        limit: int,
     ) -> tuple[list[SearchedDocument], set[str]]:
         """Convert raw ChromaDB query results into SearchedDocuments.
 
-        Applies similarity threshold filtering and builds image URLs.
+        Applies the similarity threshold and builds image URLs. Results arrive
+        nearest-first, so the survivors are the top ``limit`` or fewer.
 
         Returns:
             Tuple of (matched documents, set of matched chunk IDs).
@@ -354,6 +392,8 @@ class ChromaDBLocalVectorStore:
             return documents, matched_ids
 
         for i, doc_id in enumerate(results["ids"][0]):
+            if len(documents) >= limit:
+                break
             distance = results["distances"][0][i] if results["distances"] else 0.0
             # ChromaDB cosine distance: 0 = identical, 2 = opposite.
             similarity_score = 1.0 - (distance / 2.0)
@@ -429,12 +469,6 @@ class ChromaDBLocalVectorStore:
         if params is None:
             params = SearchParameters()
 
-        similarity_threshold = (
-            params.similarity_threshold
-            if params.similarity_threshold is not None
-            else DEFAULT_SIMILARITY_THRESHOLD
-        )
-
         try:
             client = await self.get_client()
 
@@ -457,7 +491,7 @@ class ChromaDBLocalVectorStore:
             )
 
             documents, matched_ids = self._process_query_results(
-                results, ctx.dataset_id, similarity_threshold
+                results, ctx.dataset_id, params.similarity_threshold, params.limit
             )
 
             if documents:

@@ -31,6 +31,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.article import article_html, html_to_text
@@ -248,6 +249,30 @@ def _embedded_author(post: dict[str, Any]) -> str | None:
     return authors[0].get("name") if authors else None
 
 
+def _post_metadata(
+    post: dict[str, Any], *, post_type: str, post_id: int, title: str, slug: str
+) -> dict[str, Any]:
+    """Searchable facts about a post; every key is in WordPressMetadataFields."""
+    return {
+        "source": WordPressProvider.NAME,
+        "title": title,
+        "url": post.get("link"),
+        "author": _embedded_author(post),
+        # Datetimes, not raw strings: the vector store turns each
+        # into an ISO value plus a filterable epoch int.
+        "published": parse_datetime(post.get("date_gmt")),
+        "updated": parse_datetime(post.get("modified_gmt")),
+        # Categories and tags are both topical labels; the
+        # canonical field flattens them.
+        "tags": _embedded_terms(post),
+        "post_type": post_type,
+        "post_id": post_id,
+        "slug": slug,
+        "status": post.get("status"),
+        "author_id": post.get("author"),
+    }
+
+
 def _embedded_terms(post: dict[str, Any]) -> list[str]:
     """Category and tag names from ``_embed=wp:term``, which returns ids."""
     groups = (post.get("_embedded") or {}).get("wp:term") or []
@@ -430,24 +455,9 @@ class WordPressSource:
         if modified_gmt:
             self._fingerprints[external_id] = modified_gmt
 
-        metadata = {
-            "source": WordPressProvider.NAME,
-            "title": title,
-            "url": post.get("link"),
-            "author": _embedded_author(post),
-            # Datetimes, not raw strings: the vector store turns each
-            # into an ISO value plus a filterable epoch int.
-            "published": parse_datetime(post.get("date_gmt")),
-            "updated": parse_datetime(modified_gmt),
-            # Categories and tags are both topical labels; the
-            # canonical field flattens them.
-            "tags": _embedded_terms(post),
-            "post_type": post_type,
-            "post_id": post_id,
-            "slug": slug,
-            "status": post.get("status"),
-            "author_id": post.get("author"),
-        }
+        metadata = _post_metadata(
+            post, post_type=post_type, post_id=post_id, title=title, slug=slug
+        )
 
         fd, tmp_str = tempfile.mkstemp(
             prefix=f"wp_{post_type}_{post_id}_", suffix=".html"
@@ -566,6 +576,25 @@ class WordPressSource:
                 )
 
 
+class WordPressMetadataFields(MetadataFields):
+    """Keys ``WordPressSource.fetch`` writes for every post."""
+
+    fields = (
+        MetadataField(name="source"),
+        MetadataField(name="title"),
+        MetadataField(name="url"),
+        MetadataField(name="author"),
+        MetadataField(name="published"),
+        MetadataField(name="updated"),
+        MetadataField(name="tags"),
+        MetadataField(name="post_type"),
+        MetadataField(name="post_id"),
+        MetadataField(name="slug"),
+        MetadataField(name="status", hidden=True),
+        MetadataField(name="author_id"),
+    )
+
+
 class WordPressProvider:
     """Registry description and factories for the WordPress source.
 
@@ -576,6 +605,7 @@ class WordPressProvider:
     """
 
     NAME = "wordpress"
+    METADATA_FIELDS = WordPressMetadataFields
 
     @classmethod
     def name(cls) -> str:

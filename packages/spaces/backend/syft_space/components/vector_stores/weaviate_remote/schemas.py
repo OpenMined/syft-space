@@ -4,8 +4,6 @@ from pydantic import BaseModel, Field, HttpUrl
 
 from syft_space.components.vector_stores.weaviate_remote.filters import WeaviateFilter
 
-DEFAULT_SIMILARITY_THRESHOLD = 0.5
-
 
 class RemoteWeaviateVectorStoreConfiguration(BaseModel):
     """Configuration for the remote Weaviate vector store.
@@ -27,7 +25,7 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
         json_schema_extra={"secret": True},
     )
     default_similarity_threshold: float = Field(
-        default=DEFAULT_SIMILARITY_THRESHOLD,
+        default=0.5,
         description="The default similarity threshold for the Weaviate collection",
     )
     content_property: str | None = Field(
@@ -40,8 +38,9 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
     metadata_properties: list[str] | None = Field(
         default=None,
         description=(
-            "Properties to include in metadata (e.g., ['title', 'author']). "
-            "If not specified, all properties are included."
+            "Properties returned as document metadata and declared on the "
+            "endpoint (e.g., ['title', 'author']). If not specified, no "
+            "property is returned; only creation_time is."
         ),
     )
     filters: WeaviateFilter | None = Field(

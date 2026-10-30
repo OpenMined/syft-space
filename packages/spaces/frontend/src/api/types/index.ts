@@ -449,9 +449,9 @@ export interface SlugAvailabilityResponse {
   local_available: boolean
   marketplaces?: Array<{
     marketplace_id: string
-    marketplace_name: string
     available: boolean | null
-    error?: string
+    reason?: string | null
+    error?: string | null
   }> | null
 }
 

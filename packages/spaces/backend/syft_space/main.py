@@ -129,6 +129,7 @@ from syft_space.components.settings.handlers import SettingsHandler
 # Import settings components
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.routes import build_settings_routes
+from syft_space.components.shared import client_cache
 
 # Import async utilities
 from syft_space.components.shared.async_utils import run_after_event
@@ -381,6 +382,7 @@ async def lifespan(app: FastAPI):
     provisioner_ready_event = asyncio.Event()
     provisioner_manager.set_startup_complete_event(provisioner_ready_event)
     ingestion_manager.set_provisioner_ready_event(provisioner_ready_event)
+    endpoint_heartbeat_manager.set_provisioner_ready_event(provisioner_ready_event)
 
     # 4.1. Create coordination event for proxy → sync tasks ordering
     # This event ensures sync tasks wait for proxy connection attempt to complete
@@ -420,6 +422,9 @@ async def lifespan(app: FastAPI):
             await service.shutdown()
         except Exception as e:
             logger.exception(f"Error shutting down {name}: {e}")
+
+    # 8.0. Close the vector stores' long-lived clients.
+    await client_cache.close_all()
 
     # 8.1. Drain any in-flight analytics capture tasks. Bounded so a slow
     # SQLite write doesn't hang shutdown; events past the timeout are dropped

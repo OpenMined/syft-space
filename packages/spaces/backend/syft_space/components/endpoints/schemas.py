@@ -88,8 +88,8 @@ class CreateEndpointRequest(BaseModel):
         _slug = v.lower()
         if len(_slug) < 3:
             raise ValueError("Slug must be at least 3 characters long")
-        if len(_slug) > 64:
-            raise ValueError("Slug must be at most 64 characters long")
+        if len(_slug) > 63:
+            raise ValueError("Slug must be at most 63 characters long")
         if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", _slug):
             raise ValueError(
                 "Slug must contain only lowercase letters, numbers, and hyphens "
@@ -338,7 +338,13 @@ class QueryEndpointRequest(BaseModel):
         ..., description="Messages or conversation string"
     )
     similarity_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="Similarity threshold for matching"
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum similarity score (0 to 1) a document needs to be "
+            "returned. Higher is stricter."
+        ),
     )
     limit: int = Field(
         default=5, ge=1, description="Maximum number of results to return"
@@ -445,6 +451,10 @@ class ProviderInfo(BaseModel):
         default=None, description="Response time in milliseconds"
     )
     search_engine: str | None = Field(default=None, description="Search engine used")
+    metadata_fields: list[str] | None = Field(
+        default=None,
+        description="Metadata keys a reference document may carry, in full",
+    )
 
 
 class SummaryResponse(BaseModel):
@@ -647,7 +657,10 @@ class MarketplaceAvailabilityResult(BaseModel):
 
     marketplace_id: UUID = Field(..., description="Marketplace ID")
     available: bool | None = Field(
-        ..., description="True if available, False if exists, None if check failed"
+        ..., description="True if available, False if not, None if check failed"
+    )
+    reason: str | None = Field(
+        default=None, description="The marketplace's explanation when unavailable"
     )
     error: str | None = Field(default=None, description="Error message if check failed")
 

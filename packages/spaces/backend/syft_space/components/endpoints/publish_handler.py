@@ -191,6 +191,16 @@ class PublishEndpointHandler:
         if not endpoints:
             return []
 
+        def _describe(e: Exception) -> str:
+            if isinstance(e, asyncio.TimeoutError):
+                return f"health check timed out after {health_timeout:.0f}s"
+            return f"{type(e).__name__}: {e}"
+
+        def _log_unhealthy(endpoint: Endpoint, part: str, reason: str | None) -> None:
+            logger.warning(
+                f"Endpoint {endpoint.slug} reported unhealthy ({part}): {reason}"
+            )
+
         async def _check_endpoint_health(endpoint: Endpoint) -> dict[str, Any]:
             checked_at = datetime.now(timezone.utc).isoformat()
             is_healthy = True
@@ -210,10 +220,13 @@ class PublishEndpointHandler:
                         )
                         if response.status != HealthcheckStatus.HEALTHY:
                             is_healthy = False
+                            _log_unhealthy(endpoint, "dataset", response.message)
                     else:
                         is_healthy = False
-                except Exception:
+                        _log_unhealthy(endpoint, "dataset", "dataset not found")
+                except Exception as e:
                     is_healthy = False
+                    _log_unhealthy(endpoint, "dataset", _describe(e))
 
             if endpoint.model_id:
                 try:
@@ -228,10 +241,13 @@ class PublishEndpointHandler:
                         )
                         if response.status != HealthcheckStatus.HEALTHY:
                             is_healthy = False
+                            _log_unhealthy(endpoint, "model", response.message)
                     else:
                         is_healthy = False
-                except Exception:
+                        _log_unhealthy(endpoint, "model", "model not found")
+                except Exception as e:
                     is_healthy = False
+                    _log_unhealthy(endpoint, "model", _describe(e))
 
             return {
                 "slug": endpoint.slug,
@@ -487,9 +503,12 @@ class PublishEndpointHandler:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
-                exists = await client.endpoint_exists(slug)
+                verdict = await client.slug_availability(slug)
                 return MarketplaceAvailabilityResult(
-                    marketplace_id=marketplace.id, available=not exists, error=None
+                    marketplace_id=marketplace.id,
+                    available=verdict.available,
+                    reason=verdict.reason,
+                    error=None,
                 )
         except SyftHubError as e:
             return MarketplaceAvailabilityResult(
@@ -499,6 +518,24 @@ class PublishEndpointHandler:
             return MarketplaceAvailabilityResult(
                 marketplace_id=marketplace.id, available=None, error=str(e)
             )
+
+    async def _metadata_fields(self, endpoint: Endpoint) -> list[str]:
+        """Public metadata keys of the endpoint's dataset; empty without one."""
+        if endpoint.dataset_id is None:
+            return []
+        dataset = await self.dataset_repository.get_by_id(
+            endpoint.dataset_id, endpoint.tenant_id
+        )
+        if dataset is None:
+            return []
+        try:
+            dataset_type_cls = self.dataset_registry.get_dataset_type(dataset.dtype)
+            return dataset_type_cls.metadata_for(dataset.configuration).public_names()
+        except Exception as e:  # publishing must not fail on the schema
+            logger.warning(
+                f"metadata_fields unavailable for endpoint {endpoint.slug}: {e}"
+            )
+            return []
 
     async def _build_publish_payload(self, endpoint: Endpoint) -> dict[str, Any]:
         """Build the publish payload for an endpoint.
@@ -590,6 +627,12 @@ class PublishEndpointHandler:
             "readme": endpoint.description or "",
             "slug": endpoint.slug,
             "policies": policies,
+            # What a query returns. The hub stores it beside the listing so
+            # callers can pick sources before spending; the hub ignores the
+            # key until it knows it.
+            "query_schema": {
+                "metadata_fields": await self._metadata_fields(endpoint),
+            },
             "connect": [
                 {
                     "type": "https",

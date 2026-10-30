@@ -10,12 +10,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
 from pydantic import ValidationError
 
+from syft_space.components.shared import client_cache
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
 )
+from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
@@ -27,18 +30,55 @@ from syft_space.components.vector_stores.weaviate_remote.filters import (
     build_filter_node,
 )
 from syft_space.components.vector_stores.weaviate_remote.schemas import (
-    DEFAULT_SIMILARITY_THRESHOLD,
     RemoteWeaviateVectorStoreConfiguration,
 )
 
 try:
     import weaviate
-    from weaviate.classes.init import Auth
+    from weaviate.classes.init import AdditionalConfig, Auth, Timeout
     from weaviate.classes.query import Filter, MetadataQuery
+    from weaviate.exceptions import WeaviateBaseError, WeaviateInvalidInputError
+    from weaviate.outputs.query import Object, WeaviateProperties
 
     enabled = True
 except ImportError:
     enabled = False
+
+
+def _document_metadata(
+    result: Object[WeaviateProperties, None],
+    config: RemoteWeaviateVectorStoreConfiguration,
+) -> dict[str, Any]:
+    """Metadata of one searched document: the store's own keys plus the
+    properties the owner allowlisted in ``metadata_properties``. No
+    allowlist, no properties."""
+    allowed = config.metadata_properties or ()
+    return {
+        "creation_time": (
+            str(result.metadata.creation_time)
+            if result.metadata.creation_time
+            else None
+        ),
+        "distance": result.metadata.distance,
+        **{k: v for k, v in result.properties.items() if k in allowed},
+    }
+
+
+class WeaviateMetadataFields(MetadataFields):
+    """Keys the owner allowlisted in ``metadata_properties``, plus the
+    store's own ``creation_time``. ``distance`` and the content property are
+    internal. With no allowlist nothing else is declared, so nothing else
+    leaves.
+    """
+
+    def declared(self) -> tuple[MetadataField, ...]:
+        public = tuple(
+            MetadataField(name=n) for n in self.config.get("metadata_properties") or ()
+        ) + (MetadataField(name="creation_time"),)
+        hidden = [MetadataField(name="distance", hidden=True)]
+        if content := self.config.get("content_property"):
+            hidden.append(MetadataField(name=content, hidden=True))
+        return public + tuple(hidden)
 
 
 class WeaviateVectorStore:
@@ -51,6 +91,7 @@ class WeaviateVectorStore:
 
     NAME = "weaviate_remote"
     PROVISIONER_CLS = None
+    METADATA_FIELDS = WeaviateMetadataFields
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate remote vector store.
@@ -116,8 +157,8 @@ class WeaviateVectorStore:
 
     @classmethod
     def connection_fields(cls) -> list[str]:
-        """Configuration fields shared across datasets of this type."""
-        return ["http_url", "grpc_url", "api_key", "collection_name"]
+        """Configuration fields that identify the server connection."""
+        return ["http_url", "grpc_url", "api_key", "headers"]
 
     @property
     def collection_name(self) -> str:
@@ -142,13 +183,70 @@ class WeaviateVectorStore:
 
         documents = []
 
-        similarity_threshold = (
-            params.similarity_threshold
-            if params.similarity_threshold is not None
-            else DEFAULT_SIMILARITY_THRESHOLD
+        client = await self.get_client()
+        collection = client.collections.get(self.collection_name)
+        weaviate_filters = self._build_weaviate_filters()
+
+        try:
+            results = await collection.query.near_text(
+                query=query,
+                limit=params.limit,
+                certainty=params.similarity_threshold,
+                filters=weaviate_filters,
+                return_metadata=MetadataQuery(
+                    distance=True, certainty=True, creation_time=True
+                ),
+            )
+        except WeaviateInvalidInputError:
+            raise  # bad query, the client is fine
+        except WeaviateBaseError:
+            # Anything else may be a dead connection (closed client, gRPC
+            # channel down, timeout, wrapped transport error): drop the
+            # client so the next query reconnects. Over-evicting costs one
+            # handshake; under-evicting keeps a poisoned client forever.
+            await client_cache.evict(self.NAME, self._client_key())
+            raise
+
+        for result in results.objects:
+            if self.config.content_property:
+                content = str(result.properties.get(self.config.content_property, ""))
+            else:
+                content = json.dumps(result.properties, default=str)
+
+            metadata = _document_metadata(result, self.config)
+
+            documents.append(
+                SearchedDocument(
+                    document_id=str(result.uuid),
+                    content=content,
+                    metadata=metadata,
+                    # ``certainty`` is Weaviate's own 1 - distance/2 similarity;
+                    # ``score`` is only set for BM25/hybrid, so it was always 0.0.
+                    similarity_score=result.metadata.certainty or 0.0,
+                )
+            )
+
+        return SearchResult(documents=documents, metadata={"count": len(documents)})
+
+    CONNECT_TIMEOUT = 10.0
+    HEALTHCHECK_TIMEOUT = 5.0
+
+    def _client_key(self) -> tuple:
+        # Keyed by ``connection_fields``, so a changed URL, key or header is
+        # a miss rather than a stale client.
+        return client_cache.key_from(self.config, self.connection_fields())
+
+    async def get_client(self) -> Any:
+        """The shared connected client for this store's connection config."""
+        return await client_cache.get_client(
+            self.NAME,
+            self._client_key(),
+            connect=self._connect,
+            close=lambda client: client.close(),
         )
 
-        async with weaviate.use_async_with_custom(
+    async def _connect(self) -> Any:
+        client = weaviate.use_async_with_custom(
             http_host=self.config.http_url.host,
             http_port=self.config.http_url.port,
             http_secure=self.config.http_url.scheme == "https",
@@ -157,88 +255,48 @@ class WeaviateVectorStore:
             grpc_secure=self.config.grpc_url.scheme == "https",
             auth_credentials=Auth.api_key(self.config.api_key),
             headers=self.config.headers,
-        ) as client:
-            collection = client.collections.get(self.collection_name)
-            weaviate_filters = self._build_weaviate_filters()
+            additional_config=AdditionalConfig(
+                timeout=Timeout(init=self.CONNECT_TIMEOUT)
+            ),
+        )
+        await client.connect()
+        return client
 
-            results = await collection.query.near_text(
-                query=query,
-                limit=params.limit,
-                certainty=similarity_threshold,
-                filters=weaviate_filters,
-                return_metadata=MetadataQuery(
-                    distance=True, score=True, creation_time=True
-                ),
-            )
-            for result in results.objects:
-                if self.config.content_property:
-                    content = str(
-                        result.properties.get(self.config.content_property, "")
-                    )
-                else:
-                    content = json.dumps(result.properties, default=str)
-
-                if self.config.metadata_properties is not None:
-                    custom_metadata = {
-                        k: v
-                        for k, v in result.properties.items()
-                        if k in self.config.metadata_properties
-                    }
-                else:
-                    custom_metadata = dict(result.properties)
-
-                metadata = {
-                    "creation_time": (
-                        str(result.metadata.creation_time)
-                        if result.metadata.creation_time
-                        else None
-                    ),
-                    "distance": result.metadata.distance,
-                    **custom_metadata,
-                }
-
-                documents.append(
-                    SearchedDocument(
-                        document_id=str(result.uuid),
-                        content=content,
-                        metadata=metadata,
-                        similarity_score=result.metadata.score or 0.0,
-                    )
-                )
-
-        return SearchResult(documents=documents, metadata={"count": len(documents)})
+    def _ready_url(self) -> str:
+        return f"{str(self.config.http_url).rstrip('/')}/v1/.well-known/ready"
 
     async def healthcheck(self) -> HealthcheckResponse:
-        """Check if the Weaviate server is reachable."""
+        """Check if the Weaviate server is ready.
+
+        A single GET of Weaviate's readiness probe. Opening a full client
+        just to ask this costs an HTTP + gRPC handshake under the client's
+        2 s init timeout, which fails at random under concurrent checks.
+        """
         if not enabled:
             return HealthcheckResponse(
                 status=HealthcheckStatus.UNHEALTHY,
                 message="Weaviate dependencies not installed",
             )
 
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            **(self.config.headers or {}),
+        }
         try:
-            async with weaviate.use_async_with_custom(
-                http_host=self.config.http_url.host,
-                http_port=self.config.http_url.port,
-                http_secure=self.config.http_url.scheme == "https",
-                grpc_host=self.config.grpc_url.host,
-                grpc_port=self.config.grpc_url.port,
-                grpc_secure=self.config.grpc_url.scheme == "https",
-                auth_credentials=Auth.api_key(self.config.api_key),
-                headers=self.config.headers,
-            ) as client:
-                if await client.is_ready():
-                    return HealthcheckResponse(
-                        status=HealthcheckStatus.HEALTHY,
-                        message="Weaviate is healthy",
-                    )
+            async with httpx.AsyncClient(timeout=self.HEALTHCHECK_TIMEOUT) as client:
+                response = await client.get(self._ready_url(), headers=headers)
         except Exception as e:
             return HealthcheckResponse(
                 status=HealthcheckStatus.UNHEALTHY,
                 message=f"Weaviate is unhealthy: {str(e)}",
             )
 
+        if response.status_code == 200:
+            return HealthcheckResponse(
+                status=HealthcheckStatus.HEALTHY,
+                message="Weaviate is healthy",
+            )
         return HealthcheckResponse(
             status=HealthcheckStatus.UNHEALTHY,
-            message="Weaviate is unhealthy",
+            message=f"Weaviate is unhealthy: ready probe returned {response.status_code}",
         )
