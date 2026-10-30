@@ -13,17 +13,31 @@ pipeline is a system of its own that you would rather not move.
 
 ## Settings
 
-| Field | Required | What it does |
-| --- | --- | --- |
-| `http_url` | **yes** | The cluster's HTTP endpoint |
-| `grpc_url` | **yes** | The cluster's gRPC endpoint — Weaviate needs both |
-| `api_key` | **yes** | API key for the cluster |
-| `collection_name` | **yes** | The collection to search |
-| `headers` | no | Extra headers, e.g. a vectoriser module's own API key |
-| `content_property` | no | Which property holds the text to return as the hit |
-| `metadata_properties` | no | Which other properties to return alongside |
-| `default_similarity_threshold` | no | Minimum score for a hit to count |
-| `filters` | no | A filter always applied to every query |
+| Field | Required | Change later | What it does |
+| --- | --- | --- | --- |
+| `http_url` | **yes** | yes | The cluster's HTTP endpoint |
+| `grpc_url` | **yes** | yes | The cluster's gRPC endpoint — Weaviate needs both |
+| `api_key` | **yes** | yes, never read back | API key for the cluster |
+| `collection_name` | **yes** | no | The collection to search |
+| `headers` | no | yes, values never read back | Extra headers, e.g. a vectoriser module's own API key |
+| `content_property` | no | yes | Which property holds the text to return as the hit |
+| `metadata_properties` | no | yes | Which other properties to return alongside |
+| `default_similarity_threshold` | no | no | Minimum score for a hit to count |
+| `filters` | no | no | A filter always applied to every query |
+
+A changed connection takes effect on the next query. Reading the dataset
+shows which header *names* are set, never their values, and you edit them one
+at a time. To rotate the Cohere key and drop an OpenAI one, send every header
+you want to keep, `null` meaning "keep its current value":
+
+```http
+PATCH /api/v1/datasets/product-docs
+{"configuration": {"headers": {"X-Cohere-Api-Key": "new-key"}}}
+```
+
+A header left out of the object is removed; `"X-Other": null` keeps it as is.
+Changing `metadata_properties` changes what attached endpoints advertise, so
+republish them afterwards.
 
 ## How it works
 

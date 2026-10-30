@@ -8,13 +8,13 @@ post it publishes afterwards is indexed too.
 
 ## Settings
 
-| Field | Required | Default | What it does |
-| --- | --- | --- | --- |
-| `blogUrls` | **yes** | — | One or more blog URLs, comma-separated, each with its scheme |
-| `apiKey` | **yes** | — | A Google API key with the Blogger API enabled |
-| `pollIntervalSeconds` | no | `300` | How often to re-check |
-| `collectionName` | auto | generated | ChromaDB collection to write into |
-| `httpPort` | no | auto | Port of the local ChromaDB server |
+| Field | Required | Default | Change later | What it does |
+| --- | --- | --- | --- | --- |
+| `blogUrls` | **yes** | — | yes | One or more blog URLs, comma-separated, each with its scheme |
+| `apiKey` | **yes** | — | yes, never read back | A Google API key with the Blogger API enabled |
+| `pollIntervalSeconds` | no | `300` | yes | How often to re-check |
+| `collectionName` | auto | generated | no | ChromaDB collection to write into |
+| `httpPort` | no | auto | no | Port of the local ChromaDB server |
 
 The API key is stripped from the dataset's configuration whenever it is read
 back over the API. The blog URLs stay visible — they are public addresses, and
