@@ -169,6 +169,14 @@ class BaseVectorStore(Protocol):
         """
         ...
 
+    def client_key(self) -> tuple:
+        """The ``shared.client_cache`` key of this store's connection.
+
+        Derived from ``connection_fields``: two stores with the same
+        connection share one client, and a changed connection is a miss.
+        """
+        ...
+
     async def search(
         self, ctx: SearchContext, query: str, params: SearchParameters | None = None
     ) -> SearchResult:

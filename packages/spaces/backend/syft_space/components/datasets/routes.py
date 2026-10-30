@@ -14,6 +14,7 @@ from syft_space.components.datasets.schemas import (
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
+    HealthcheckRequest,
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
@@ -24,6 +25,9 @@ from syft_space.components.datasets.schemas import (
     SourceBrowseRequest,
     SourceBrowseResponse,
     UpdateDatasetRequest,
+)
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse as ConnectionHealth,
 )
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
@@ -226,7 +230,10 @@ def build_dataset_routes(
     ) -> DatasetResponse:
         """Update a dataset (partial update).
 
-        Allows updating name, summary, and/or tags. Name must remain unique per tenant.
+        Allows updating name, summary, tags and the editable configuration
+        keys. Name must remain unique per tenant. The response's
+        ``connected_endpoints`` carry ``published`` so the client can
+        republish them after a configuration change.
 
         Args:
             name: Current dataset name
@@ -237,9 +244,11 @@ def build_dataset_routes(
             Updated dataset details
 
         Raises:
-            422 Unprocessable Entity: If no fields provided (Pydantic validation)
+            422 Unprocessable Entity: If no fields provided, or the merged
+                configuration is refused by the dataset type
             404 Not Found: If dataset not found
             409 Conflict: If new name already exists
+            400 Bad Request: If a configuration key is not editable
         """
         return await handler.update_dataset(name, request, tenant)
 
@@ -395,6 +404,24 @@ def build_dataset_routes(
             Healthcheck response
         """
         return await handler.healthcheck(name, tenant)
+
+    @router.post("/{name}/health", response_model=ConnectionHealth)
+    async def healthcheck_with(
+        name: str,
+        request: HealthcheckRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> ConnectionHealth:
+        """Test the stored configuration with edits applied, without saving.
+
+        Owner-only, unlike the public ``GET``. Same merge rules as ``PATCH``.
+
+        Raises:
+            404 Not Found: If dataset not found
+            400 Bad Request: If a key is not editable
+            422 Unprocessable Entity: If the merged configuration is invalid
+        """
+        return await handler.healthcheck_with(name, request, tenant)
 
     # ============== Admin Provisioner Endpoints ==============
 

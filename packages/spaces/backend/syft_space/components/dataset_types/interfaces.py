@@ -116,6 +116,15 @@ class BaseDatasetType:
         return halves["source"], halves["vector_store"]
 
     @classmethod
+    def canonical_configuration(cls, configuration: dict[str, Any]) -> dict[str, Any]:
+        """``configuration`` with every key spelled as the schema prints it.
+
+        Keys no axis declares are kept as they are.
+        """
+        printed = _axes(cls).printed
+        return {printed.get(k, k): v for k, v in configuration.items()}
+
+    @classmethod
     def editable_fields(cls) -> list[str]:
         """Keys an owner may change after creation, as the schema prints them."""
         return editable_fields(cls.configuration_schema())
@@ -237,6 +246,8 @@ class _Axes(NamedTuple):
     owner: dict[str, str]
     # Printed key -> all spellings the axis model accepts for it.
     spellings: dict[str, frozenset[str]]
+    # Every accepted spelling -> the printed key.
+    printed: dict[str, str]
 
 
 _AXES_BY_CLASS: dict[type[BaseDatasetType], _Axes] = {}
@@ -248,6 +259,7 @@ def _axes(dataset_type_cls: type[BaseDatasetType]) -> _Axes:
         return _AXES_BY_CLASS[dataset_type_cls]
     owner: dict[str, str] = {}
     spellings: dict[str, frozenset[str]] = {}
+    printed_of: dict[str, str] = {}
     models = (
         ("source", dataset_type_cls.SOURCE_PROVIDER_CLS.CONFIG_MODEL),
         ("vector_store", dataset_type_cls.VECTOR_STORE_CLS.CONFIG_MODEL),
@@ -261,8 +273,9 @@ def _axes(dataset_type_cls: type[BaseDatasetType]) -> _Axes:
                         f"configuration key {spelling!r} is declared by both axes"
                     )
                 owner[spelling] = axis
+                printed_of[spelling] = printed
             spellings[printed] = frozenset({printed, name})
-    _AXES_BY_CLASS[dataset_type_cls] = _Axes(owner, spellings)
+    _AXES_BY_CLASS[dataset_type_cls] = _Axes(owner, spellings, printed_of)
     return _AXES_BY_CLASS[dataset_type_cls]
 
 

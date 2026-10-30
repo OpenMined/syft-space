@@ -10,23 +10,12 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, Field
 
-from syft_space.components.dataset_types.blogspot_chromadb import (
-    BlogspotChromaDBDatasetType,
-)
+from syft_space.components.dataset_types import register_builtin_types
 from syft_space.components.dataset_types.interfaces import (
     BaseDatasetType,
     compose_schema,
 )
-from syft_space.components.dataset_types.local_file_chromadb import (
-    LocalFileChromaDBDatasetType,
-)
-from syft_space.components.dataset_types.remote_weaviate import (
-    RemoteWeaviateDatasetType,
-)
-from syft_space.components.dataset_types.rss_chromadb import RssChromaDBDatasetType
-from syft_space.components.dataset_types.wordpress_chromadb import (
-    WordPressChromaDBDatasetType,
-)
+from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.shared.config_flags import (
     Visibility,
     cfg_flags,
@@ -35,28 +24,12 @@ from syft_space.components.shared.config_flags import (
 )
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 
-BINDINGS: dict[str, type[BaseDatasetType]] = {
-    b.NAME: b
-    for b in (
-        RssChromaDBDatasetType,
-        WordPressChromaDBDatasetType,
-        BlogspotChromaDBDatasetType,
-        LocalFileChromaDBDatasetType,
-        RemoteWeaviateDatasetType,
-    )
-}
-
-
-class _Bindings:
-    """Stands in for the registry; its type tables are class-level state."""
-
-    def get_dataset_type(self, name: str) -> type[BaseDatasetType]:
-        return BINDINGS[name]
-
 
 @pytest.fixture(scope="module")
-def registry() -> _Bindings:
-    return _Bindings()
+def registry() -> DatasetTypeRegistry:
+    registry = DatasetTypeRegistry()
+    register_builtin_types(registry)
+    return registry
 
 
 # ── cfg_flags ────────────────────────────────────────────────────────────

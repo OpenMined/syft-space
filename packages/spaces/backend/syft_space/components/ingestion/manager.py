@@ -37,6 +37,7 @@ from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.components.sources.interfaces import BaseSource
 
 if TYPE_CHECKING:
+    from syft_space.components.datasets.events import DatasetConfigurationChanged
     from syft_space.components.datasets.repository import DatasetRepository
 
 
@@ -184,6 +185,20 @@ class IngestionManager(LifecycleService):
         if not dataset or not self._factory.has_source(dataset):
             return
         await self._scanner.restart(dataset)
+
+    async def on_configuration_changed(
+        self, event: "DatasetConfigurationChanged"
+    ) -> None:
+        """Restart the stream when the source half of the config changed.
+
+        The restarted stream rebuilds the source from the stored row, so
+        it polls the new URL / credentials; the store half does not touch
+        the stream.
+        """
+        if event.source.changed:
+            await self.restart_dataset_ingestion(
+                event.dataset.id, event.dataset.tenant_id
+            )
 
     async def apply_unselection(
         self, dataset_id: UUID, tenant_id: UUID, item_ids: list[str]
