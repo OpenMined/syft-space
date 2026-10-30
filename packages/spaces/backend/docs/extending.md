@@ -38,6 +38,8 @@ roughly `search()`, plus `ingest()` / `delete()` if it's writable
 ChromaDB subprocess), also provide a `BaseVectorStoreProvisioner`.
 
 1. Create `vector_stores/my_store/my_store.py` implementing the interface.
+   Point `CONFIG_MODEL` at its pydantic configuration model (see
+   [Configuration fields](#configuration-fields) below).
 2. Register it in `vector_stores/registry.py` → `register_builtin_vector_stores()`:
 
    ```python
@@ -56,7 +58,9 @@ A source defines where data comes from. A source contributes three classes
 optionally `subscribe()` for change-watching), and a `BaseSourceProvider` that
 describes the source and builds the other two.
 
-1. Create `sources/my_source/…` implementing the three classes.
+1. Create `sources/my_source/…` implementing the three classes. The
+   provider's `CONFIG_MODEL` names its dataset configuration model (see
+   [Configuration fields](#configuration-fields) below).
 2. Register the provider in `sources/registry.py` →
    `register_builtin_sources()`:
 
@@ -68,26 +72,69 @@ describes the source and builds the other two.
    )
    ```
 
+## Configuration fields
+
+A source and a vector store each own their configuration as one pydantic
+model, named by `CONFIG_MODEL` on the provider or store class. The binding
+composes the user-facing schema from the two, so **declare a field once, on
+the axis it belongs to**, and say two things about it with `cfg_flags`:
+
+- **Can the owner change it after creation?** `editable=True`. Anything
+  without the flag is locked.
+- **Who may see its value?** `visibility`: `PUBLIC` (default), `SECRET`
+  (never returned by the API) or `INTERNAL` (returned, not meant for a form,
+  such as a port the provisioner fills in). An internal field cannot be
+  editable; `cfg_flags` refuses the pair.
+
+```python
+from pydantic import BaseModel, Field, HttpUrl
+
+from syft_space.components.shared.config_flags import Visibility, cfg_flags
+
+
+class MyStoreConfiguration(BaseModel):
+    http_url: HttpUrl = Field(..., json_schema_extra=cfg_flags(editable=True))
+    api_key: str = Field(
+        ..., json_schema_extra=cfg_flags(editable=True, visibility=Visibility.SECRET)
+    )
+    index_name: str = Field(...)  # locked, shown
+    port: int = Field(..., json_schema_extra=cfg_flags(visibility=Visibility.INTERNAL))
+```
+
+That is the whole job. From those flags the platform derives, with nothing
+more to write on your side:
+
+| Derived | Where |
+| --- | --- |
+| The schema the frontend renders, each property tagged `axis`, `editable`, `visibility` | `GET /datasets/types/{name}/schema` |
+| Which keys `PATCH /datasets/{name}` accepts, and the 400 for the rest | `DatasetHandler` |
+| Redaction of every read: secret scalars dropped, a secret dict's values nulled | `BaseDatasetType.redact_configuration` |
+| Restarting ingestion when a source field changed; reconnecting when a connection field changed | the `DatasetConfigurationChanged` listeners |
+
+One rule, enforced the first time a binding is used: the two axes must not
+declare the same key, under either its alias or its Python name. The binding
+raises instead of letting one axis shadow the other.
+
 ## Add a dataset type (a binding)
 
-A dataset type **binds** a source to a vector store and exposes one config
-schema. This is usually all you need once the source and store exist —
-e.g. *"my_source files indexed in chromadb_local"*. Because `BaseDatasetType`
-delegates `search` / `ingest` / `healthcheck` to the two axes (see
+A dataset type **binds** a source to a vector store. This is usually all you
+need once the source and store exist — e.g. *"my_source files indexed in
+chromadb_local"*. Because `BaseDatasetType` composes the configuration schema
+from the two axes, splits a stored configuration by key ownership, redacts by
+the `visibility` flag and delegates `search` / `ingest` / `healthcheck` (see
 [Concepts › How the coupling works](./concepts.md#how-the-coupling-actually-works)),
-a binding is mostly **declaration**, not implementation:
+a binding is **declaration only**:
 
 1. Create `dataset_types/my_type.py` subclassing `BaseDatasetType` (or
    `IngestableDatasetType` if it ingests — see
    [`dataset_types/interfaces.py`](../syft_space/components/dataset_types/interfaces.py)).
-   You typically only provide:
-   - `SOURCE_PROVIDER_CLS` and `VECTOR_STORE_CLS` — the two axes to pair.
-   - `split_config(configuration)` — split the flat user config into
-     `(source_cfg, vector_store_cfg)`.
-   - `configuration_schema()` — the combined config schema shown to users.
+   You provide `NAME`, `SOURCE_PROVIDER_CLS`, `VECTOR_STORE_CLS`, `icon()` and
+   `description()`. A binding onto the local ChromaDB extends
+   `ChromaDBLocalBinding` instead, which already names the store and defaults
+   the collection name.
 
-   The base class instantiates both axes and delegates the rest. Override
-   `validate_configuration()` only for binding-level checks.
+   Override `validate_configuration()` only for binding-level checks; the base
+   validates each axis's half with that axis's own validator.
 2. Register it lazily in `dataset_types/__init__.py` →
    `register_builtin_types()`:
 
@@ -144,6 +191,8 @@ registry.register_policy_type(MyPolicy)
 After adding any type:
 
 - [ ] Implement the interface from the component's `interfaces.py`.
+- [ ] For a source or vector store: set `CONFIG_MODEL`, and flag the fields
+      owners may edit and the ones that are secret.
 - [ ] Add the registration call in the right `register_builtin_*` /
       `register_builtin_types` function.
 - [ ] If it needs infrastructure, implement and wire a provisioner.

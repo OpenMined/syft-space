@@ -17,6 +17,8 @@ have to implement ingest/delete:
 
 from typing import Any, ClassVar, Protocol
 
+from pydantic import BaseModel
+
 from syft_space.components.shared.domain_types import HealthcheckResponse
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
 from syft_space.components.shared.metadata_types import MetadataFields
@@ -112,6 +114,8 @@ class BaseVectorStore(Protocol):
     # Keys the store adds to a document's metadata, and which of them are
     # internal. The default declares nothing and hides nothing.
     METADATA_FIELDS: ClassVar[type[MetadataFields]] = MetadataFields
+    # The configuration model; its fields and flags are the store's contract.
+    CONFIG_MODEL: ClassVar[type[BaseModel]]
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize the vector store with configuration."""
@@ -162,6 +166,14 @@ class BaseVectorStore(Protocol):
 
         Shared across all datasets of a given dataset_type when using a
         shared provisioner. See ``BaseDatasetType.connection_fields``.
+        """
+        ...
+
+    def client_key(self) -> tuple:
+        """The ``shared.client_cache`` key of this store's connection.
+
+        Derived from ``connection_fields``: two stores with the same
+        connection share one client, and a changed connection is a miss.
         """
         ...
 

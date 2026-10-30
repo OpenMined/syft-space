@@ -163,11 +163,14 @@ class BaseSourceProvider(Protocol):
     the two factories that build a ``BaseBrowser`` or a ``BaseSource``
     from a configuration dict. The picker calls ``for_browse``;
     ingestion calls ``for_ingest``. ``METADATA_FIELDS`` declares the keys
-    the source writes into ``IngestFile.metadata``.
+    the source writes into ``IngestFile.metadata``. ``CONFIG_MODEL`` is the
+    dataset configuration model: its fields and flags
+    (``shared.config_flags``) are the source's whole configuration contract.
     """
 
     NAME: str
     METADATA_FIELDS: ClassVar[type[MetadataFields]]
+    CONFIG_MODEL: ClassVar[type[BaseModel]]
 
     @classmethod
     def name(cls) -> str:

@@ -44,7 +44,7 @@ flowchart TB
     subgraph DT["Dataset type (binding)"]
         direction TB
         DECL["declares SOURCE_PROVIDER_CLS<br/>+ VECTOR_STORE_CLS"]
-        SPLIT["split_config() →<br/>(source_cfg, vector_store_cfg)"]
+        SPLIT["split_config() by key ownership →<br/>(source_cfg, vector_store_cfg)"]
     end
     SRC["self.source<br/>= SOURCE_PROVIDER_CLS.for_ingest(source_cfg)"]
     VS["self.vector_store<br/>= VECTOR_STORE_CLS(vector_store_cfg)"]
@@ -59,11 +59,15 @@ from source to store at ingest time.*
 
 1. **Declaration.** A binding sets two class attributes — `SOURCE_PROVIDER_CLS`
    and `VECTOR_STORE_CLS` — naming exactly one source and one vector store.
-2. **One config, split per axis.** The user fills in a single flat
-   `configuration`. The binding's `split_config()` divides it into a source
-   config and a vector-store config. `configuration_schema()` returns the
-   combined schema; `validate_configuration()` validates the flat shape, then
-   delegates to each axis's own validator.
+2. **One config, owned per axis.** Each axis declares its own configuration
+   model (`CONFIG_MODEL`) and flags each field as editable, secret or internal
+   (`shared/config_flags`). The binding composes the flat
+   `configuration_schema()` from the two models, tagging every property with
+   its `axis`, and `split_config()` routes each stored key back to the axis
+   that declared it. `validate_configuration()` hands each half to that
+   axis's own validator, store first (shape only) then source (which may reach
+   the network). Redaction and the set of editable keys are read from the same
+   flags, so a binding declares nothing about them itself.
 3. **Instantiation.** `BaseDatasetType.__init__` builds `self.source` (via the
    provider's `for_ingest` factory) and `self.vector_store` from those configs.
 4. **Delegation.** The base class implements the dataset-type surface by
@@ -78,7 +82,16 @@ from source to store at ingest time.*
    | `enabled()` | **both** must be enabled |
    | change-watching (paths, extensions) | the **source** |
 
-5. **The neutral data contract.** When data flows from source to store, it
+5. **Editing after creation.** `PATCH /datasets/{name}` merges the editable
+   keys into the stored configuration, validates per axis and writes once.
+   After the commit the datasets component publishes
+   `DatasetConfigurationChanged` (`datasets/events.py`). Ingestion restarts
+   the source's stream when the source half changed; the vector-store layer
+   drops the cached client when the connection changed. The handler knows
+   only a listener protocol, so datasets imports neither of them. See
+   [Extending › Configuration fields](./extending.md#configuration-fields)
+   for how an axis opts a field in.
+6. **The neutral data contract.** When data flows from source to store, it
    travels as the shared `IngestContext` / `IngestRequest` types
    (`shared/ingest_types`) — not a source- or store-specific shape. Because every
    source emits that contract and every vector store accepts it, **any source can

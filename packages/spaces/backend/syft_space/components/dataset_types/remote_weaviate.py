@@ -8,10 +8,9 @@ ingest or delete path.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from syft_space.components.dataset_types.interfaces import BaseDatasetType
-from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.noop_source import NoOpProvider
 from syft_space.components.vector_stores.weaviate_remote.schemas import (
     RemoteWeaviateVectorStoreConfiguration,
@@ -37,13 +36,6 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
     VECTOR_STORE_CLS: ClassVar[type[WeaviateVectorStore]] = WeaviateVectorStore
 
     @classmethod
-    def split_config(
-        cls, configuration: dict[str, Any]
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Send the whole configuration to the vector store; the source needs none."""
-        return {}, dict(configuration)
-
-    @classmethod
     def description(cls) -> str:
         """Get the description of the binding."""
         return (
@@ -57,13 +49,6 @@ class RemoteWeaviateDatasetType(BaseDatasetType):
     def icon(cls) -> str:
         """Get the icon for the binding."""
         return "🌐"
-
-    @classmethod
-    def configuration_schema(cls) -> dict[str, Any]:
-        """Return the vector store's configuration schema."""
-        return RemoteWeaviateVectorStoreConfiguration.model_json_schema(
-            schema_generator=ConfigSchemaGenerator
-        )
 
     @property
     def collection_name(self) -> str:

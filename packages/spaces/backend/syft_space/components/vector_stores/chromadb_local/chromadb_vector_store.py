@@ -171,6 +171,7 @@ class ChromaDBLocalVectorStore:
     NAME = "chromadb_local"
     PROVISIONER_CLS = _resolve_provisioner_cls()
     METADATA_FIELDS = ChromaDBMetadataFields
+    CONFIG_MODEL = ChromaDBLocalVectorStoreConfiguration
 
     # One embedding model per process: the ONNX session is costly to build
     # and store instances are short-lived.
@@ -248,13 +249,17 @@ class ChromaDBLocalVectorStore:
         """Get the (prefixed) name of the ChromaDB collection."""
         return f"Collection_{self.config.collection_name}"
 
+    def client_key(self) -> tuple:
+        """Keyed by ``connection_fields`` (the port); host, ssl and database
+        come from settings and are fixed for the process."""
+        return client_cache.key_from(self.config, self.connection_fields())
+
     async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
         """The shared ChromaDB async client for this store's connection."""
-        # Keyed by ``connection_fields`` (the port): host, ssl and database
-        # come from settings and are fixed for the process. AsyncHttpClient
-        # holds nothing to close.
-        key = client_cache.key_from(self.config, self.connection_fields())
-        return await client_cache.get_client(self.NAME, key, connect=self._connect)
+        # AsyncHttpClient holds nothing to close.
+        return await client_cache.get_client(
+            self.NAME, self.client_key(), connect=self._connect
+        )
 
     async def _connect(self) -> chromadb.AsyncClientAPI:  # noqa: F821
         chromadb = _import_chromadb()

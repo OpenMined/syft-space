@@ -78,6 +78,44 @@ is cheap. What the token is made of decides whether edits are noticed:
 > record over their API, so there is nothing to react to. Remove the pick to
 > take an item out of the index.
 
+## Changing a setting on an existing dataset
+
+Credentials rotate, feeds move, a Weaviate cluster gets a new address. You can
+change those without recreating the dataset. What is changeable depends on
+the type; what identifies the indexed data (the collection) never is.
+
+| Type | You can change | Fixed after creation |
+| --- | --- | --- |
+| `local_file` | nothing (the *selection* still changes any time) | file types, collection |
+| `rss` | feed URLs, poll interval | collection |
+| `wordpress` | site URL, username, application password, poll interval | user agent, collection |
+| `blogspot` | blog URLs, API key, poll interval | collection |
+| `remote_weaviate` | both URLs, API key, headers, content property, metadata properties | collection, filters |
+
+Send only the keys you want to change:
+
+```http
+PATCH /api/v1/datasets/newsroom
+{"configuration": {"feedUrls": "https://example.com/feed/, https://other.example/rss"}}
+```
+
+What happens next, so you know what to expect:
+
+1. The change is checked the same way as at creation (a feed is fetched, a
+   site is logged into). If it fails, nothing is saved and you get a `422`.
+2. A changed **source** setting restarts that dataset's watch with the new
+   values. A changed **connection** reconnects on the next query.
+3. A secret you did not send stays as it was. Secrets are never returned by
+   the API, so there is nothing to copy back.
+4. Endpoints attached to the dataset keep what they advertised. If the change
+   affects that (for Weaviate, `metadata_properties`), republish them.
+
+To try a connection before saving it, send the same body to
+`POST /datasets/{name}/health`; it reports `healthy` or `unhealthy` and
+writes nothing. Each type's page marks its own fields; the full rules
+(removing a key, editing one header at a time) are in the
+[API reference](../api-reference.md#49-patch-datasetsname).
+
 ## Related reading
 
 - [Core Concepts](../concepts.md) — how sources, vector stores, and bindings fit together

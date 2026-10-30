@@ -14,6 +14,8 @@ from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 
+from pydantic import BaseModel
+
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.metadata_types import MetadataFields
 from syft_space.components.sources.interfaces import (
@@ -62,6 +64,10 @@ class NoOpSource:
             yield  # type: ignore[unreachable]
 
 
+class NoOpConfig(BaseModel):
+    """The no-op source has no configuration."""
+
+
 class NoOpProvider:
     """Description of the no-op source for the registry.
 
@@ -72,6 +78,7 @@ class NoOpProvider:
 
     NAME = "noop"
     METADATA_FIELDS = MetadataFields
+    CONFIG_MODEL = NoOpConfig
     IS_NOOP = True
 
     @classmethod

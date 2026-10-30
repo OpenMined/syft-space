@@ -92,6 +92,7 @@ class WeaviateVectorStore:
     NAME = "weaviate_remote"
     PROVISIONER_CLS = None
     METADATA_FIELDS = WeaviateMetadataFields
+    CONFIG_MODEL = RemoteWeaviateVectorStoreConfiguration
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate remote vector store.
@@ -204,7 +205,7 @@ class WeaviateVectorStore:
             # channel down, timeout, wrapped transport error): drop the
             # client so the next query reconnects. Over-evicting costs one
             # handshake; under-evicting keeps a poisoned client forever.
-            await client_cache.evict(self.NAME, self._client_key())
+            await client_cache.evict(self.NAME, self.client_key())
             raise
 
         for result in results.objects:
@@ -231,16 +232,15 @@ class WeaviateVectorStore:
     CONNECT_TIMEOUT = 10.0
     HEALTHCHECK_TIMEOUT = 5.0
 
-    def _client_key(self) -> tuple:
-        # Keyed by ``connection_fields``, so a changed URL, key or header is
-        # a miss rather than a stale client.
+    def client_key(self) -> tuple:
+        """Keyed by ``connection_fields``: a changed URL, key or header is a miss."""
         return client_cache.key_from(self.config, self.connection_fields())
 
     async def get_client(self) -> Any:
         """The shared connected client for this store's connection config."""
         return await client_cache.get_client(
             self.NAME,
-            self._client_key(),
+            self.client_key(),
             connect=self._connect,
             close=lambda client: client.close(),
         )

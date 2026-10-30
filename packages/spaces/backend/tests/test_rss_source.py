@@ -890,8 +890,8 @@ class TestBinding:
                 "pollIntervalSeconds": 900,
             }
         )
-        assert source_cfg == {"feed_urls": FEED_URL, "poll_interval_seconds": 900}
-        assert store_cfg == {"collection_name": "feeds", "http_port": 8123}
+        assert source_cfg == {"feedUrls": FEED_URL, "pollIntervalSeconds": 900}
+        assert store_cfg == {"collectionName": "feeds", "httpPort": 8123}
 
     def test_the_schema_offers_both_axes(self):
         properties = RssChromaDBDatasetType.configuration_schema()["properties"]

@@ -92,22 +92,50 @@ class CreateDatasetRequest(BaseModel):
 
 
 class UpdateDatasetRequest(BaseModel):
-    """Request model for updating a dataset (partial update)."""
+    """Request model for updating a dataset (partial update).
+
+    ``configuration`` holds only the keys to change, spelled as the type's
+    schema prints them, and only keys the schema flags ``editable``. A key
+    set to ``null`` is removed; a key left out keeps its stored value. A
+    secret dict (Weaviate ``headers``) is merged per entry: ``null`` keeps
+    that entry, a string replaces it, a missing entry is removed.
+    """
 
     name: str | None = Field(
         None, description="New dataset name (must be unique per tenant)"
     )
     summary: str | None = Field(None, description="Updated summary")
     tags: str | None = Field(None, description="Updated tags (e.g., 'legal,documents')")
+    configuration: dict[str, Any] | None = Field(
+        None, description="Editable configuration keys to change"
+    )
 
     @model_validator(mode="after")
     def validate_at_least_one_field(self) -> "UpdateDatasetRequest":
         """Ensure at least one field is provided for update."""
-        if self.name is None and self.summary is None and self.tags is None:
+        if (
+            self.name is None
+            and self.summary is None
+            and self.tags is None
+            and self.configuration is None
+        ):
             raise ValueError(
-                "At least one field (name, summary, or tags) must be provided"
+                "At least one field (name, summary, tags, or configuration) "
+                "must be provided"
             )
         return self
+
+
+class HealthcheckRequest(BaseModel):
+    """Dry-run healthcheck: the stored configuration with these edits applied.
+
+    Same merge rules as ``UpdateDatasetRequest.configuration``. Nothing is
+    persisted; the response says whether the merged configuration connects.
+    """
+
+    configuration: dict[str, Any] = Field(
+        default_factory=dict, description="Editable configuration keys to try"
+    )
 
     class Config:
         """Pydantic config."""
@@ -139,11 +167,19 @@ class ProvisionerStateResponse(BaseModel):
 
 
 class EndpointListItem(BaseModel):
-    """Response model for endpoint in list view."""
+    """Response model for endpoint in list view.
+
+    ``published`` and ``published_to`` let a client republish the endpoints
+    attached to a dataset after its configuration changed.
+    """
 
     id: UUID = Field(..., description="Unique identifier")
     name: str = Field(..., description="Endpoint name")
     slug: str = Field(..., description="Unique URL slug")
+    published: bool = Field(default=False, description="Whether it is published")
+    published_to: list[str] = Field(
+        default_factory=list, description="Marketplace ids it is published to"
+    )
 
     class Config:
         """Pydantic config."""

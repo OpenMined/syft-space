@@ -8,12 +8,12 @@ there is nothing separate to ask for.
 
 ## Settings
 
-| Field | Required | Default | What it does |
-| --- | --- | --- | --- |
-| `feedUrls` | **yes** | — | One or more feed URLs, comma-separated. **HTTPS only** |
-| `pollIntervalSeconds` | no | `3600` | How often to check. One of 15 min / 1 hour / 6 hours / daily |
-| `collectionName` | auto | generated | ChromaDB collection to write into |
-| `httpPort` | no | auto | Port of the local ChromaDB server |
+| Field | Required | Default | Change later | What it does |
+| --- | --- | --- | --- | --- |
+| `feedUrls` | **yes** | — | yes | One or more feed URLs, comma-separated. **HTTPS only** |
+| `pollIntervalSeconds` | no | `3600` | yes | How often to check. One of 15 min / 1 hour / 6 hours / daily |
+| `collectionName` | auto | generated | no | ChromaDB collection to write into |
+| `httpPort` | no | auto | no | Port of the local ChromaDB server |
 
 Both the setup check and every fetch reject anything but `https`, on the
 original URL *and* on each redirect hop. With certificate verification, that

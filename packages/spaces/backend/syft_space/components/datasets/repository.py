@@ -1,6 +1,7 @@
 """Dataset repository for database operations."""
 
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -172,6 +173,7 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
         name_new: str | None = None,
         summary: str | None = None,
         tags: str | None = None,
+        configuration: dict[str, Any] | None = None,
     ) -> Dataset | None:
         """Update a dataset by name within a tenant.
 
@@ -185,6 +187,7 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
             name_new: New dataset name (must be unique per tenant)
             summary: Updated summary
             tags: Updated tags
+            configuration: The full new configuration (replaces the stored one)
 
         Returns:
             Updated dataset if found, None otherwise
@@ -238,6 +241,8 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
                 dataset.summary = summary
             if tags is not None:
                 dataset.tags = tags
+            if configuration is not None:
+                dataset.configuration = configuration
 
             # Update timestamp
             dataset.updated_at = datetime.now(timezone.utc)
