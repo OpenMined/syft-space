@@ -232,7 +232,12 @@ import { useFileIcon } from '@/composables/useFileIcon'
 import { toast } from 'vue-sonner'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { sourcePresentation } from '@/config/sources'
-import type { CreateDatasetRequest, SelectionItemRequest, UpdateDatasetRequest } from '@/api/types'
+import type {
+  CreateDatasetRequest,
+  DatasetResponse,
+  SelectionItemRequest,
+  UpdateDatasetRequest,
+} from '@/api/types'
 
 interface EditDataset {
   id: string
@@ -335,7 +340,7 @@ const datasetConfiguration = computed<Record<string, unknown>>(() => {
 const emit = defineEmits<{
   'update:open': [value: boolean]
   'dataset-created': []
-  'dataset-updated': []
+  'dataset-updated': [dataset: DatasetResponse]
 }>()
 
 const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
@@ -428,9 +433,9 @@ const handleCreate = async () => {
         tags: formData.value.tags.join(','),
       }
 
-      await datasetsApi.update(props.dataset.name, updateRequest)
-      emit('dataset-updated')
-      toast.success(`"${props.dataset.name}" updated`)
+      const updated = await datasetsApi.update(props.dataset.name, updateRequest)
+      emit('dataset-updated', updated)
+      toast.success(`"${updated.name}" updated`)
     } else {
       const createRequest: CreateDatasetRequest = {
         dtype: sourceType.value,
