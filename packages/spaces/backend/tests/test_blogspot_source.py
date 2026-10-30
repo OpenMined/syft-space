@@ -680,9 +680,9 @@ class TestBinding:
         source_cfg, store_cfg = BlogspotChromaDBDatasetType.split_config(
             {**CONF, "collectionName": "blog_posts", "httpPort": 9000}
         )
-        assert source_cfg["blog_urls"] == BLOG_URL
-        assert source_cfg["api_key"] == API_KEY
-        assert store_cfg == {"collection_name": "blog_posts", "http_port": 9000}
+        assert source_cfg["blogUrls"] == BLOG_URL
+        assert source_cfg["apiKey"] == API_KEY
+        assert store_cfg == {"collectionName": "blog_posts", "httpPort": 9000}
 
     def test_redaction_drops_the_key_but_keeps_the_urls(self):
         redacted = BlogspotChromaDBDatasetType.redact_configuration(

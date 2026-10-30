@@ -171,6 +171,7 @@ class ChromaDBLocalVectorStore:
     NAME = "chromadb_local"
     PROVISIONER_CLS = _resolve_provisioner_cls()
     METADATA_FIELDS = ChromaDBMetadataFields
+    CONFIG_MODEL = ChromaDBLocalVectorStoreConfiguration
 
     # One embedding model per process: the ONNX session is costly to build
     # and store instances are short-lived.

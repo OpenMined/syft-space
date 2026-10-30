@@ -30,6 +30,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.timestamps import parse_datetime
@@ -83,11 +84,13 @@ class WordPressBrowseConfig(BaseModel):
         alias="siteUrl",
         title="Site URL",
         description="Base URL of the WordPress site (e.g. https://example.com)",
+        json_schema_extra=cfg_flags(editable=True),
     )
     username: str = Field(
         ...,
         title="Username",
         description="WordPress user_login or display name — used for Basic Auth",
+        json_schema_extra=cfg_flags(editable=True),
     )
     application_password: str = Field(
         ...,
@@ -97,7 +100,9 @@ class WordPressBrowseConfig(BaseModel):
             "WordPress Application Password (24 chars; generate under "
             "Users → Profile → Application Passwords in wp-admin)"
         ),
-        json_schema_extra={"format": "password"},
+        json_schema_extra=cfg_flags(
+            editable=True, visibility=Visibility.SECRET, format="password"
+        ),
     )
     user_agent: str = Field(
         default=DEFAULT_USER_AGENT,
@@ -135,6 +140,7 @@ class WordPressDatasetConfig(WordPressBrowseConfig):
         alias="pollIntervalSeconds",
         description="Seconds between change-stream polls",
         gt=0,
+        json_schema_extra=cfg_flags(editable=True),
     )
 
 
@@ -606,6 +612,7 @@ class WordPressProvider:
 
     NAME = "wordpress"
     METADATA_FIELDS = WordPressMetadataFields
+    CONFIG_MODEL = WordPressDatasetConfig
 
     @classmethod
     def name(cls) -> str:

@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, Field, HttpUrl
 
+from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.vector_stores.weaviate_remote.filters import WeaviateFilter
 
 
@@ -9,12 +10,26 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
     """Configuration for the remote Weaviate vector store.
 
     Weaviate is read-only from this process — config covers connection
-    + content/metadata mapping + optional query-time filters.
+    + content/metadata mapping + optional query-time filters. Connection
+    and mapping fields are editable after creation; the collection and
+    the filters are fixed.
     """
 
-    http_url: HttpUrl = Field(..., description="The HTTP URL of the Weaviate server")
-    grpc_url: HttpUrl = Field(..., description="The gRPC URL of the Weaviate server.")
-    api_key: str = Field(..., description="The API key for the Weaviate server")
+    http_url: HttpUrl = Field(
+        ...,
+        description="The HTTP URL of the Weaviate server",
+        json_schema_extra=cfg_flags(editable=True),
+    )
+    grpc_url: HttpUrl = Field(
+        ...,
+        description="The gRPC URL of the Weaviate server.",
+        json_schema_extra=cfg_flags(editable=True),
+    )
+    api_key: str = Field(
+        ...,
+        description="The API key for the Weaviate server",
+        json_schema_extra=cfg_flags(editable=True, visibility=Visibility.SECRET),
+    )
     collection_name: str = Field(..., description="The name of the Weaviate collection")
     headers: dict[str, str] | None = Field(
         default=None,
@@ -22,7 +37,7 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
             "Additional HTTP headers for third-party API keys "
             "(e.g., {'X-Cohere-Api-Key': 'key', 'X-OpenAI-Api-Key': 'key'})"
         ),
-        json_schema_extra={"secret": True},
+        json_schema_extra=cfg_flags(editable=True, visibility=Visibility.SECRET),
     )
     default_similarity_threshold: float = Field(
         default=0.5,
@@ -34,6 +49,7 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
             "Property name to use as main content (e.g., 'body', 'description'). "
             "If not specified, all properties are JSON-serialized as content."
         ),
+        json_schema_extra=cfg_flags(editable=True),
     )
     metadata_properties: list[str] | None = Field(
         default=None,
@@ -42,6 +58,7 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
             "endpoint (e.g., ['title', 'author']). If not specified, no "
             "property is returned; only creation_time is."
         ),
+        json_schema_extra=cfg_flags(editable=True),
     )
     filters: WeaviateFilter | None = Field(
         default=None,

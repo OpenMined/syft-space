@@ -92,6 +92,7 @@ class WeaviateVectorStore:
     NAME = "weaviate_remote"
     PROVISIONER_CLS = None
     METADATA_FIELDS = WeaviateMetadataFields
+    CONFIG_MODEL = RemoteWeaviateVectorStoreConfiguration
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate remote vector store.

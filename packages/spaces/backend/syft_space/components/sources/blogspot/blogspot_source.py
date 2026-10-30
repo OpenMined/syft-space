@@ -52,6 +52,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.timestamps import parse_datetime
@@ -112,6 +113,7 @@ class BlogspotBrowseConfig(BaseModel):
             "Public Blogger blog URLs, comma-separated "
             "(e.g. https://example.blogspot.com)"
         ),
+        json_schema_extra=cfg_flags(editable=True),
     )
     api_key: str = Field(
         ...,
@@ -121,7 +123,9 @@ class BlogspotBrowseConfig(BaseModel):
             "Google API key with the Blogger API enabled (APIs & Services → "
             "Credentials → Create credentials → API key)"
         ),
-        json_schema_extra={"format": "password"},
+        json_schema_extra=cfg_flags(
+            editable=True, visibility=Visibility.SECRET, format="password"
+        ),
     )
 
     model_config = {"populate_by_name": True}
@@ -154,6 +158,7 @@ class BlogspotDatasetConfig(BlogspotBrowseConfig):
         alias="pollIntervalSeconds",
         description="Seconds between change-stream polls",
         gt=0,
+        json_schema_extra=cfg_flags(editable=True),
     )
 
 
@@ -785,6 +790,7 @@ class BlogspotProvider:
 
     NAME = "blogspot"
     METADATA_FIELDS = BlogspotMetadataFields
+    CONFIG_MODEL = BlogspotDatasetConfig
 
     @classmethod
     def name(cls) -> str:

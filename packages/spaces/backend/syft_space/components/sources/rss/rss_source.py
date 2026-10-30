@@ -50,6 +50,7 @@ import feedparser
 import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from syft_space.components.shared.config_flags import cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.timestamps import parse_datetime
@@ -129,6 +130,7 @@ class RssBrowseConfig(BaseModel):
             "Public RSS or Atom feed URLs, comma-separated "
             "(e.g. https://example.com/feed/). HTTPS only"
         ),
+        json_schema_extra=cfg_flags(editable=True),
     )
 
     model_config = {"populate_by_name": True}
@@ -175,7 +177,7 @@ class RssDatasetConfig(RssBrowseConfig):
             "only shows its most recent items, so polling slower than it "
             "publishes loses the ones that fall off"
         ),
-        json_schema_extra={"enum": POLL_INTERVAL_CHOICES},
+        json_schema_extra=cfg_flags(editable=True, enum=POLL_INTERVAL_CHOICES),
     )
 
     @field_validator("poll_interval_seconds")
@@ -783,6 +785,7 @@ class RssProvider:
 
     NAME = "rss"
     METADATA_FIELDS = RssMetadataFields
+    CONFIG_MODEL = RssDatasetConfig
 
     @classmethod
     def name(cls) -> str:
