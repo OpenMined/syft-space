@@ -35,25 +35,13 @@ from syft_benchmark.runs.blocks import Trial, monte_carlo_plan, tally_monte_carl
 from syft_benchmark.runs.parallel import Progress, Streak
 from syft_benchmark.runs.timing import CallClock, JobClock, PassTime, p90
 
+from fakes import FakePair
+
 SPACE = SpaceConfig(key="pytest-concurrent", url="http://node.local", endpoint="kb")
 
 
 def _seat(role: str, model: str) -> Provider:
     return Provider(role=role, url="http://localhost:11434", api_key="", model=model)
-
-
-class _Pair:
-    def __init__(self, n: int) -> None:
-        self.id = f"pair-{n}"
-        self.question = f"What port does rig {n} use?"
-        self.answer = "5442"
-        self.context = "The port is published as 5442."
-        self.task_type = "open"
-        self.expected_behavior = "answer"
-        self.generator = "qa"
-        self.meta: dict[str, Any] = {}
-        self.doc_id = "doc-1"
-        self.file_name = "setup.md"
 
 
 class _Stand:
@@ -68,7 +56,7 @@ class _Stand:
         subjects: tuple[str, ...] = ("a/m1",),
         judges: tuple[str, ...] = ("j/one",),
     ) -> None:
-        self.pairs = [_Pair(i) for i in range(pairs)]
+        self.pairs = [FakePair.numbered(i, generator="qa") for i in range(pairs)]
         self.delay = delay
         self.lock = threading.Lock()
         self.calls: list[tuple[str, str]] = []
@@ -128,6 +116,10 @@ class _Stand:
         for module in (parallel, execute, judge, blocks):
             monkeypatch.setattr(module, "chat", chat)
         monkeypatch.setattr(execute, "endpoint_mode", lambda space: "both")
+        # Both readers of the set: the pass and the plan announced before it.
+        monkeypatch.setattr(
+            scheduler, "_active_pairs", lambda key, limit, conf: self.pairs
+        )
         monkeypatch.setattr(
             execute, "_active_pairs", lambda key, limit, conf=None: self.pairs
         )
@@ -245,7 +237,7 @@ def test_phases_are_kept_in_order_and_a_repeat_is_added_up() -> None:
 def test_the_job_row_sums_the_steps_of_passes_running_together(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reporter = jobs.Reporter("pytest-steps")
+    reporter = jobs.Reporter("pytest-steps", Settings())
     monkeypatch.setattr(reporter, "_write", lambda **k: None)
     first, second = reporter.watcher("p1"), reporter.watcher("p2")
 
@@ -347,6 +339,42 @@ def test_a_refused_judge_stands_down_and_the_panel_goes_on(
     assert any("bad/judge" in line for line in out.failures)
 
 
+def test_a_refused_first_judge_hands_the_repeats_to_the_next(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repeats take one judge: the first that still stands, not the first named."""
+    stand = _Stand(monkeypatch, pairs=2, judges=("bad/judge", "j/two"))
+    conf = _conf()
+    launch = parallel.Launch(conf)
+    launch.refused.add("bad/judge")
+
+    async def go() -> list[execute.RunReport]:
+        pool = parallel.Pool(conf)
+        try:
+            return await execute.arun_pass(
+                SPACE,
+                ContextMode.CLOSED_BOOK,
+                pool=pool,
+                cache=parallel.RunCache(enabled=False),
+                settings=conf,
+                subject=stand.subjects[0],
+                block=EvalBlock.MONTE_CARLO,
+                judges=stand.judges,
+                launch=launch,
+            )
+        finally:
+            pool.close()
+
+    reports = asyncio.run(go())
+
+    assert [(r.judge, bool(r.run_id), r.refused) for r in reports] == [
+        ("bad/judge", False, "bad/judge"),
+        ("j/two", True, ""),
+    ]
+    assert stand.asked("bad/judge") == 0
+    assert stand.asked("j/two") > 0
+
+
 def test_the_failure_streak_belongs_to_the_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -408,6 +436,8 @@ def test_a_cancel_stops_the_passes_in_flight(monkeypatch: pytest.MonkeyPatch) ->
     class Owner:
         def planned(self, passes: int) -> None: ...
 
+        def plan(self, plan: dict[str, Any]) -> None: ...
+
         def phase(self, phase: JobPhase, message: str = "") -> None: ...
 
         def pass_started(
@@ -434,22 +464,39 @@ def test_a_cancel_stops_the_passes_in_flight(monkeypatch: pytest.MonkeyPatch) ->
 def test_the_repeats_of_one_question_go_side_by_side(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    stand = _Stand(monkeypatch, pairs=1, delay=0.05)
+    """Every repeat of a question is in flight before any of them returns."""
+    stand = _Stand(monkeypatch, pairs=1)
+    repeats = 6
     conf = _conf(
         concurrency=16,
         blocks=[EvalBlock.MONTE_CARLO],
         monte_carlo_temperatures=[0.3, 0.9],
-        monte_carlo_trials=3,
+        monte_carlo_trials=repeats // 2,
     )
+    # The first answer goes through; each repeat waits until all of them are
+    # in flight. Repeats asked one after another never fill the barrier, and
+    # the wait times out instead of hanging.
+    gate = threading.Barrier(repeats, timeout=5)
+    answers = 0
+    inner = execute.chat
 
-    started = time.monotonic()
+    def gated(system: str, user: str, **kwargs: Any) -> Any:
+        nonlocal answers
+        if kwargs["provider"].role == "subject":
+            with stand.lock:
+                answers += 1
+                nth = answers
+            if nth > 1:
+                gate.wait()
+        return inner(system, user, **kwargs)
+
+    for module in (parallel, execute, judge, blocks):
+        monkeypatch.setattr(module, "chat", gated)
+
     out = scheduler.measure(SPACE, conf)
-    took = time.monotonic() - started
 
-    # One question: the first answer and judge, then six repeats of an answer
-    # and a grade each. In turn that is 14 calls; side by side about 4.
-    assert stand.peak >= 6
-    assert took < 14 * 0.05
+    assert not gate.broken, "the repeats went one after another"
+    assert out.failures == []
     assert out.graded == 1
 
 
@@ -477,18 +524,7 @@ def test_the_repeats_keep_the_plan_order() -> None:
 # --- rebuild: older cohorts' leftovers -------------------------------------------
 
 
-def _db_ready() -> bool:
-    from syft_benchmark.db import QaPair, session_scope
-
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE.key))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-@pytest.mark.skipif(not _db_ready(), reason="no benchmark database")
+@pytest.mark.needs_db
 @pytest.mark.parametrize("mode", [DatasetMode.REBUILD, DatasetMode.ROLLING])
 def test_a_rebuild_does_not_screen_older_cohorts(
     monkeypatch: pytest.MonkeyPatch, mode: DatasetMode

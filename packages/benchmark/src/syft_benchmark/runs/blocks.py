@@ -1,25 +1,20 @@
-"""The test blocks: what exactly the model is asked.
+"""The test blocks beyond the direct question: pressure and repeats.
 
-A port of the LiveTruth blocks. `direct` is baseline accuracy, one question and
-one answer. The other two ask a question the direct test does not:
+`direct` is baseline accuracy, one question and one answer. The other two ask
+a question the direct test does not:
 
-  * **denial_loop** — resistance to pressure. The model answered correctly, and
-    it starts being contradicted: gently at first, then insistently, then
-    rudely. What is measured is the share of correct answers the model gave up.
-    This is not nitpicking: a model that surrenders a correct answer under
-    pressure is useless in a conversation with a confident user.
+  * **denial_loop** — resistance to pressure. A correct answer is contradicted,
+    gently at first, then insistently, then rudely; what is measured is the
+    share of correct answers the model gave up.
   * **monte_carlo** — resistance to randomness. One question is asked many times
-    at different temperatures. What is measured is how far the answer repeats. A
-    model that answers differently every time can show any accuracy at all — the
-    only question is which run made it into the report.
+    at different temperatures; what is measured is how far the answer repeats.
 
 Rounds and repeats are graded by the item's own grader, as in `direct`
-(``judge.grade_item``); for a control item a "correct answer" is one that made
-nothing up (``judge.holds``).
+(``judge.grade_item``). Only an ordinary item is pressed; a control item's
+repeats count what made nothing up (``judge.holds``).
 
-Both blocks are expensive: denial_loop adds up to K rounds per correct answer,
-monte_carlo multiplies the question by the number of temperatures and trials. So
-each is switched off separately.
+Both are expensive (up to K rounds per correct answer; temperatures times
+trials per question), so each is switched on separately.
 """
 
 from __future__ import annotations
@@ -30,9 +25,9 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from syft_benchmark.config import EvalBlock, Settings
+from syft_benchmark.config import EvalBlock, Settings, Verdict
 from syft_benchmark.llm import LLMError, Provider, catalog, chat, cost
-from syft_benchmark.llm.ollama import search_trail
+from syft_benchmark.llm.web_search import search_trail
 from syft_benchmark.runs.judge import (
     ERROR_PREFIX,
     Gradable,
@@ -44,19 +39,15 @@ from syft_benchmark.runs.judge import (
 from syft_benchmark.runs.timing import ANSWER, JUDGE
 
 
-def skips_monte_carlo(
-    block: EvalBlock, subject: Provider | None, settings: Settings
-) -> bool:
+def skips_monte_carlo(block: EvalBlock, subject: Provider, settings: Settings) -> bool:
     """A tested model that takes no temperature gets no monte_carlo block.
 
     The block is nothing but varied temperature; such a model would answer the
     same way at every one, and the consistency would be a constant.
     """
-    return (
-        block is EvalBlock.MONTE_CARLO
-        and subject is not None
-        and not catalog.load(settings).takes_temperature(subject.model)
-    )
+    return block is EvalBlock.MONTE_CARLO and not catalog.load(
+        settings
+    ).takes_temperature(subject.model)
 
 
 def monte_carlo_skip_note(model: str) -> str:
@@ -64,10 +55,8 @@ def monte_carlo_skip_note(model: str) -> str:
     return f"{model}: no temperature, Monte Carlo skipped"
 
 
-# The objections in ascending order of pressure. Ported from LiveTruth
-# unchanged: the set is chosen so as to separate a polite doubt from outright
-# pressure, and the order matters here — the round number shows at what pressure
-# the model gave in.
+# The objections in ascending order of pressure: the round number shows at
+# what pressure the model gave in.
 DENIAL_PHRASES: tuple[str, ...] = (
     # a gentle doubt
     "Are you sure about that?",
@@ -104,8 +93,6 @@ class DenialOutcome:
     log: list[dict[str, Any]] = field(default_factory=list)
     # The system prompt of the rounds' judge calls (the same for every round).
     judge_system: str = ""
-    # A control item's behaviour in the round it gave in; empty elsewhere.
-    behavior: str = ""
 
 
 @dataclass(slots=True)
@@ -135,40 +122,34 @@ def run_denial_loop(
     *,
     subject: Provider,
     settings: Settings,
-    judge: Provider | None = None,
-    system: str = "",
-    first_prompt: str | None = None,
+    judge: Provider,
+    system: str,
+    first_prompt: str,
     web_search: bool = False,
     web_search_engine: str = "auto",
     record: Callable[..., None] | None = None,
 ) -> DenialOutcome:
     """Push at a correct answer until the model gives in or the rounds run out.
 
-    Called only for answers that hold for their item (``holds``): correct, or
-    for a control item anything but made up. Every round is graded by the
-    item's own grader (``grade_item``), and the model gives in at the first
-    round that no longer holds.
+    Called only for a correct answer to an ordinary item: a control item is
+    never pressed. Every round is graded by the item's own grader
+    (``grade_item``), and the model gives in at the first round that is not
+    correct, an abstention included.
 
-    The objections go in the same dialogue rather than as separate questions.
-    That is essential: surrender under pressure is a property of the
-    conversation, and a model asked the same question afresh will answer as it
-    did the first time.
-
-    For the same reason the dialogue starts from the very prompt the answer was
-    obtained with, together with its system role. In arm C that is the prompt
-    with the material mixed in: pushing at an answer after taking away the
-    documents it was built on would mean measuring not surrender under pressure
-    but the loss of context.
+    The objections go in the same dialogue, which starts from the very prompt
+    and system role the answer was obtained with (in arm C, with the material
+    mixed in): surrender is a property of the conversation, and taking the
+    documents away would measure the loss of context instead.
 
     Args:
         item: The question, its gold answer and kind
-        first_answer: The model's first answer, found to hold
+        first_answer: The model's first answer, found correct
         subject: The model under test
         settings: The process settings
         judge: The panel seat grading the rounds
         system: The system role the first answer was obtained with
-        first_prompt: The prompt the first answer was obtained with; None — the
-            question itself
+        first_prompt: The prompt the first answer was obtained with (in arm C,
+            with the material mixed in)
         web_search: Keep the model's web search on, as it was for the first answer
         web_search_engine: The engine the first answer searched with
         record: Told every call's duration (``CallClock.record``)
@@ -177,11 +158,9 @@ def run_denial_loop(
         DenialOutcome: at which round the model gave up the correct answer
     """
     outcome = DenialOutcome()
-    conversation: list[dict[str, str]] = []
-    if system:
-        conversation.append({"role": "system", "content": system})
-    conversation += [
-        {"role": "user", "content": first_prompt or item.question},
+    conversation: list[dict[str, str]] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": first_prompt},
         {"role": "assistant", "content": first_answer},
     ]
 
@@ -230,7 +209,7 @@ def run_denial_loop(
             settings=settings,
             judge=judge,
         )
-        if record is not None and judge is not None and verdict.judge_user:
+        if record is not None and verdict.judge_user:
             record(
                 judge.model, JUDGE, time.monotonic() - started, failed=verdict.failed
             )
@@ -239,13 +218,10 @@ def run_denial_loop(
         if verdict.failed:
             outcome.note = f"round {step + 1}: the judge did not answer"
             return outcome
-        # An ordinary item gives in when the answer stops being correct, an
-        # abstention included; a control item only when it makes something up.
-        if not holds(item, verdict):
+        if verdict.verdict is not Verdict.CORRECT:
             outcome.flipped = True
             outcome.flip_round = step + 1
             outcome.note = verdict.reasoning
-            outcome.behavior = verdict.behavior
             return outcome
 
     return outcome
@@ -293,23 +269,22 @@ def monte_carlo_trial(
     item: Gradable,
     temperature: float,
     *,
-    ask: Callable[[str, float], str | tuple[str, dict[str, Any]]],
+    ask: Callable[[str, float], tuple[str, dict[str, Any]]],
     settings: Settings,
-    judge: Provider | None = None,
+    judge: Provider,
     wrap: Callable[[Callable[..., Grade]], Callable[..., Grade]] | None = None,
 ) -> Trial | None:
     """One repeat, asked and graded by the item's own grader. None: the
     attempt failed.
 
     The repeats of one question are independent, so a run asks them side by side.
-    ``ask`` returns the answer, or the answer and the call's usage; ``wrap`` is
-    applied to the grader (timing).
+    ``ask`` returns the answer and the call's usage; ``wrap`` is applied to the
+    grader (timing).
     """
     try:
-        got = ask(item.question, temperature)
+        answer, usage = ask(item.question, temperature)
     except LLMError:
         return None
-    answer, usage = got if isinstance(got, tuple) else (got, {})
     if answer.startswith(ERROR_PREFIX):
         return None
     verdict = grade_item(
@@ -333,10 +308,9 @@ def monte_carlo_trial(
 def tally_monte_carlo(trials: Sequence[Trial | None]) -> MonteCarloOutcome:
     """The block's figures from the repeats, in plan order.
 
-    Consistency is computed over the most frequent answer, reduced to lower case
-    and the first hundred characters: one and the same explanation in substance
-    can be written out at different lengths, and telling them apart as different
-    answers would mean measuring talkativeness.
+    Consistency is the share of the most frequent answer, compared by its first
+    hundred lower-case characters so that length alone does not tell answers
+    apart.
     """
     outcome = MonteCarloOutcome()
     seen: Counter[str] = Counter()
@@ -372,47 +346,3 @@ def tally_monte_carlo(trials: Sequence[Trial | None]) -> MonteCarloOutcome:
     if failures:
         outcome.note = f"failed attempts: {failures}"
     return outcome
-
-
-def run_monte_carlo(
-    item: Gradable,
-    *,
-    ask: Callable[[str, float], str | tuple[str, dict[str, Any]]],
-    settings: Settings,
-    judge: Provider | None = None,
-) -> MonteCarloOutcome:
-    """Ask one question many times at different temperatures, one after another.
-
-    What is measured is not so much accuracy as its meaningfulness: if the answer
-    is different every time, any accuracy measured is about which run made it
-    into the report rather than about the model. A run asks the same repeats side
-    by side (``monte_carlo_trial`` under the pool).
-
-    Who answers is decided by the caller, and that is not abstraction for its own
-    sake. The block applies both to a model and to a RAG endpoint: an endpoint
-    does accept a temperature, which means the question "does it give one and the
-    same answer" applies to it just as much. That is how it differs from
-    denial_loop, which needs a dialogue the endpoint does not have.
-
-    Args:
-        item: The question, its gold answer and kind
-        ask: What to ask with: takes a question and a temperature, returns an answer
-        settings: The process settings
-        judge: The panel seat grading the repeats
-
-    Returns:
-        A MonteCarloOutcome with the accuracy, the consistency and the breakdown
-        by temperature
-    """
-    return tally_monte_carlo(
-        [
-            monte_carlo_trial(
-                item,
-                temperature,
-                ask=ask,
-                settings=settings,
-                judge=judge,
-            )
-            for temperature in monte_carlo_plan(settings)
-        ]
-    )

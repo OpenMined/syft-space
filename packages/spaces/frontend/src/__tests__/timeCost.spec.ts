@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   costLabel,
   costParts,
-  keySpend,
   runDuration,
   startFinishText,
   tookText,
@@ -21,8 +20,6 @@ const { saveRunExport } = await import('@/components/benchmark/report/useRunRepo
 
 const COST: BenchmarkRunCost = {
   usd: 18.52,
-  spend_before: 100,
-  spend_after: 118.52,
   usd_calls: 18.4,
   total_usd: 18.4,
   by_role: { writer: 5.1, web_check: 2.3, subjects: 7.6, judges: 3.4 },
@@ -71,17 +68,12 @@ describe('run cost', () => {
     )
   })
 
-  it('has no split for older runs or a run that spent nothing', () => {
+  it('has no split when the run has none or spent nothing', () => {
     expect(costParts(method(null))).toBeNull()
     expect(costParts(method({ ...COST, by_role: null }))).toBeNull()
     expect(
       costParts(method({ ...COST, by_role: { writer: 0, web_check: 0, subjects: 0, judges: 0 } })),
     ).toBeNull()
-  })
-
-  it('keeps the key spend for the technical view', () => {
-    expect(keySpend(method(COST))).toBe(18.52)
-    expect(keySpend(method({ ...COST, usd: null }))).toBeNull()
   })
 })
 

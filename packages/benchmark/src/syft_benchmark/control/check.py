@@ -1,21 +1,11 @@
 """Checking a target: can the benchmark reach the index, the node and the models.
 
-The same thing the ``doctor`` command does, but for one target and in machine
-form — so that the settings form can say "ChromaDB cannot be reached" at once,
-rather than an hour into a run, in a log the owner does not read.
+The ``doctor`` command for one target, in machine form, so the settings form
+can name a broken road at once rather than an hour into a run.
 
-Three roads, and they are different. To the index the benchmark goes past the
-Space API, over the internal network or through ``docker exec``; to the node, by
-ordinary HTTP with a token; to the models, out through the perimeter to whatever
-provider each role points at. Any one of them can work while another does not,
-and merging them into a single "the target is reachable" flag would hide exactly
-the part that is missing.
-
-The models are the road most easily left broken. They are named in the
-instrument, which is edited in a UI, while the address and key reaching them are
-the installation's own layer — so an instrument full of a gateway's model names
-on an installation with no gateway configured is a working configuration that
-cannot answer a single question.
+The three roads are reported apart: to the index past the Space API (internal
+network or ``docker exec``), to the node over HTTP with a token, to the models
+through the perimeter. A single "reachable" flag would hide the missing one.
 """
 
 from __future__ import annotations

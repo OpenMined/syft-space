@@ -1,37 +1,24 @@
-"""Stage 2: build items from new chunks and documents.
+"""Stage 2: build items from new chunks and documents, then recompute the set.
 
-Incrementally. A run is interruptible and repeatable, and therefore:
+A run is interruptible and repeatable: each parsed unit is marked as soon as
+it is stored, every item is written in its own transaction, and duplicates are
+cut off by a unique index over the question hash (the same question can come
+out of neighbouring chunks).
 
-  * what has been parsed is marked right away, not at the end — an interrupted
-    run does not force you to start over;
-  * every item is written in its own transaction — a failed LLM call does not
-    take what has already been generated with it;
-  * duplicates are cut off by a unique index over the question hash, not by a
-    check in the code: the same question out of neighbouring chunks is quite
-    possible.
+The dataset mode sets what generation sees. Incremental accumulates; rolling
+builds only from documents inside the freshness window; a rebuild builds a
+fresh question pool from the same material as a separate cohort, so that
+diverging metrics point at the questions rather than the material. What takes
+part in the measurement is recomputed in ``rotation.py``; cohorts are in
+``cohort.py``; the top-up after a build is sized in ``top_up.py``.
 
-The set comes in three kinds, and that is what sets WHAT generation sees at
-all. The incremental one accumulates: new material adds items, the earlier ones
-stay in the measurement. The rolling one moves with time — generation only
-looks at the documents inside the freshness window. A rebuild takes the same
-material and builds a fresh question pool from it, as a separate cohort, to
-answer the question "are the questions themselves any good": the material is
-one, the metrics diverged — so it is the questions.
-
-Recomputing what takes part in the measurement lives in ``rotation.py``, the
-notion of a cohort in ``cohort.py``.
-
-There are two kinds of model call:
-
-  * **a combined call** — the three masking categories. One call for all
-    three: there is no point calling the model three times over one chunk.
-  * **an ordinary call** — the remaining generators, each with its own prompt.
+The three masking kinds share one combined model call per chunk; every other
+generator has its own call and prompt.
 """
 
 from __future__ import annotations
 
 import hashlib
-import math
 import random
 import threading
 import time
@@ -43,7 +30,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from syft_benchmark.config import (
     DatasetMode,
@@ -55,7 +42,7 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import ProcessedUnit, QaPair, session_scope
 from syft_benchmark.generation import cohort as cohorts
-from syft_benchmark.generation import decisions, entities, recorded
+from syft_benchmark.generation import decisions, entities, recorded, writer_log
 from syft_benchmark.generation.article_dates import article_stamp, backfill
 from syft_benchmark.generation.control import Retriever
 from syft_benchmark.generation.extractive import (
@@ -73,19 +60,27 @@ from syft_benchmark.generation.generators import (
     EXTRACTIVE_KEYS,
     GENERATORS,
     MAX_DOCUMENT_CHARS,
-    MAX_FRAGMENT_CHARS,
     Generator,
-    document_header,
+    Scope,
+    document_prompt,
+    document_text,
     reasons,
     user_prompt,
+    writer_passage,
 )
 from syft_benchmark.generation.language import detect_language, written_text
-from syft_benchmark.generation.pair import Pair
+from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.recorded import new_call, writer_meta
 from syft_benchmark.generation.rotation import RotationReport, fresh_ids, rotate
 from syft_benchmark.generation.slots import Latch, model_slots
-from syft_benchmark.generation.web_check import filter_model
+from syft_benchmark.generation.top_up import (
+    TOP_UP_ROUNDS,
+    kind_targets,
+    survival_rates,
+    survivors,
+    top_up_plan,
+)
 from syft_benchmark.llm import (
     LLMError,
     Provider,
@@ -98,21 +93,11 @@ from syft_benchmark.llm import (
 from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.sources import ChromaClient, Chunk, Document, load_documents
 
-# Headroom on the answer cap over the computed length of the items.
-#
-# Generous for the same reason the judge's cap is generous: a reasoning model
-# spends output tokens on reasoning BEFORE it prints the JSON, and with a tight
-# cap the answer breaks off in the middle of an object. Such an answer cannot
-# be parsed — the items are lost whole, and they have already been paid for in
-# full.
-#
-# Seen on a live DemoSyft run: Opus cut tiered_explanation off on the very
-# first line with a cap of 1100. This adds nothing to the bill: max_tokens
-# bounds, it does not order.
-#
-# A starting point, not the last line of defence: a call that comes back cut off
-# is repeated with a doubled budget until it fits or reaches the shared answer
-# ceiling (`chat` in llm/ollama.py). Raising this saves a wasted call.
+# Headroom on the answer cap over the computed length of the items. A reasoning
+# model spends output tokens before it prints the JSON, and a reply cut off
+# mid-object is lost though paid for. max_tokens bounds rather than bills; a
+# cut-off call is also retried with a doubled budget up to the shared answer
+# ceiling (``chat`` in llm/client.py), so this only saves a wasted call.
 REASONING_HEADROOM = 800
 
 # How often the build's progress line is rewritten, at most.
@@ -124,13 +109,6 @@ OUT_OF_MATERIAL = "ran out of material"
 FAILURE_STREAK = "failure streak"
 CANCELLED = "cancelled"
 COST_LIMIT = "top-up cost limit"
-
-# Top-up rounds after the build, at most.
-TOP_UP_ROUNDS = 2
-# A kind's survival rate is read from its newest decided pairs on the target.
-SURVIVAL_WINDOW = 200
-# The lowest survival rate a top-up sizes its writes by.
-MIN_SURVIVAL = 0.1
 
 # Drop reasons the pipeline adds to the generators' own.
 DUPLICATE = "duplicate"
@@ -229,11 +207,6 @@ def question_hash(question: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
 
 
-def document_text(doc: Document) -> str:
-    """The whole document — the pool the endpoint answers from."""
-    return "\n\n".join(chunk.text for chunk in doc.chunks)
-
-
 def pick_chunks(
     documents: list[Document],
     processed: set[str],
@@ -282,13 +255,13 @@ def pick_chunks(
     return picked
 
 
-def _processed_ids(space: str, generator: str, cohort: str) -> set[str]:
+def _processed_ids(space: str, generator: str, cohort: str, conf: Settings) -> set[str]:
     """What THIS cohort has already parsed.
 
     The marks of earlier builds do not count: a rebuild is a fresh parse of the
     same material, and someone else's mark would stop it.
     """
-    with session_scope() as session:
+    with session_scope(conf) as session:
         rows = session.execute(
             select(ProcessedUnit.unit_id).where(
                 ProcessedUnit.space == space,
@@ -300,9 +273,15 @@ def _processed_ids(space: str, generator: str, cohort: str) -> set[str]:
 
 
 def _mark_processed(
-    space: str, generator: str, unit_id: str, kind: str, made: int, cohort: str
+    space: str,
+    generator: str,
+    unit_id: str,
+    kind: str,
+    made: int,
+    cohort: str,
+    conf: Settings,
 ) -> None:
-    with session_scope() as session:
+    with session_scope(conf) as session:
         session.merge(
             ProcessedUnit(
                 space=space,
@@ -319,7 +298,7 @@ def _row(
     space: SpaceConfig,
     doc: Document,
     chunk_id: str,
-    fragment: str,
+    context: str,
     pair: Pair,
     generator: Generator,
     model: str,
@@ -330,12 +309,15 @@ def _row(
     writer: dict[str, Any] | None,
     check: dict[str, Any] | None,
     rejected: _Rejected | None = None,
+    conf: Settings,
 ) -> QaPair | None:
     """Write one item; None — a duplicate, not stored.
 
-    ``writer`` and ``check`` are the unit's writer and entity check calls:
-    the first row stored from each keeps its texts, the rest its id. A
-    ``rejected`` item is stored rejected, with its decision stamped.
+    ``context`` is the text the writer was given (``writer_passage``), which
+    the grounding check reads back. ``writer`` and ``check`` are the unit's
+    writer and entity check calls: the first row stored from each keeps its
+    texts, the rest its id. A ``rejected`` item is stored rejected, with its
+    decision stamped.
     """
     meta: dict[str, Any] = {
         **pair.meta,
@@ -343,7 +325,7 @@ def _row(
         **article_stamp(doc),
     }
     if writer is not None:
-        meta[recorded.WRITER] = writer_meta(writer, fragment[:8000])
+        meta[recorded.WRITER] = writer_meta(writer, context)
     verdict = pair.meta.get(entities.META)
     if isinstance(verdict, dict):
         meta[entities.META] = recorded.check_meta(check or {}, verdict)
@@ -380,7 +362,7 @@ def _row(
                 )
             )
     try:
-        with session_scope() as session:
+        with session_scope(conf) as session:
             row = QaPair(
                 id=uuid.uuid4().hex,
                 space=space.key,
@@ -399,7 +381,7 @@ def _row(
                 question=pair.question,
                 answer=pair.answer,
                 distractors=pair.distractors,
-                context=fragment[:8000],
+                context=context,
                 expected_behavior=generator.expected.value,
                 meta=meta,
                 status=status,
@@ -428,27 +410,30 @@ def _store(
     space: SpaceConfig,
     doc: Document,
     chunk_id: str,
-    fragment: str,
+    context: str,
     pairs: Sequence[Pair],
     generator: Generator,
     model: str,
     collection: str,
     report: GenerationReport,
     *,
+    conf: Settings,
     cohort: str = "",
     job: str = "",
     cap: int | None = None,
     writer: dict[str, Any] | None = None,
     check: dict[str, Any] | None = None,
     rejected: Sequence[_Rejected] = (),
+    lost: list[Dropped] | None = None,
 ) -> list[QaPair]:
     """Write the items down as pending; returns the rows written.
 
-    ``writer`` is the model call that wrote them (``recorded.new_call``),
-    ``check`` the unit's entity check call (``_entity_check``): the first row
-    stored from each keeps its texts, the rest its id. ``rejected`` — the
-    items rejected as written: stored rejected, outside the kind's budget
-    and the returned rows.
+    ``context`` is the text the writer was given. ``writer`` is the model
+    call that wrote them (``recorded.new_call``), ``check`` the unit's entity
+    check call (``_entity_check``): the first row stored from each keeps its
+    texts, the rest its id. ``rejected`` — the items rejected as written:
+    stored rejected, outside the kind's budget and the returned rows. ``lost``
+    gets the items not stored: over the budget, or duplicates.
 
     Nothing here decides whether a pending item is fit to measure with — that
     is its own pass, ``filter_stage.filter_pending()``, which reads the
@@ -463,6 +448,11 @@ def _store(
         stats = report.kinds.get(generator.key)
         if stats is not None:
             stats.drop(OVER_BUDGET, len(pairs) - max(room, 0))
+        if lost is not None:
+            lost += [
+                Dropped(OVER_BUDGET, p.question, p.answer)
+                for p in pairs[max(room, 0) :]
+            ]
         pairs = pairs[: max(room, 0)]
 
     def one(pair: Pair, refused: _Rejected | None = None) -> QaPair | None:
@@ -470,7 +460,7 @@ def _store(
             space,
             doc,
             chunk_id,
-            fragment,
+            context,
             pair,
             generator,
             model,
@@ -480,6 +470,7 @@ def _store(
             writer=writer,
             check=check,
             rejected=refused,
+            conf=conf,
         )
 
     written: list[QaPair] = []
@@ -489,6 +480,8 @@ def _store(
             report.duplicates += 1
             if generator.key in report.kinds:
                 report.kinds[generator.key].drop(DUPLICATE)
+            if lost is not None:
+                lost.append(Dropped(DUPLICATE, pair.question, pair.answer))
             continue
         written.append(row)
         report.pairs_made += 1
@@ -505,14 +498,14 @@ def _store(
 
 def _masked_to_pairs(
     masked: list[Masked], document: str
-) -> tuple[list[Pair], list[str]]:
+) -> tuple[list[Pair], list[Dropped]]:
     """Reject the masked sentences that fail and turn the rest into items."""
     good: list[Pair] = []
-    rejected: list[str] = []
+    rejected: list[Dropped] = []
     for item in masked:
         reason = reject_reason(item.question, document, task_type="extractive")
         if reason:
-            rejected.append(reason)
+            rejected.append(Dropped(reason, item.question, item.answer))
             continue
         good.append(
             Pair(
@@ -675,7 +668,8 @@ def _extractive_for_chunk(
 ) -> _Extracted:
     """Build masked items from a chunk with one model call.
 
-    ``record``, when given, gets the model call (``recorded.new_call``).
+    ``record``, when given, gets the model call (``recorded.new_call``), a
+    failed one with an empty reply.
     """
     categories = tuple(
         category for category, key in EXTRACTIVE_CATEGORIES.items() if key in keys
@@ -686,7 +680,10 @@ def _extractive_for_chunk(
 
     searching, engine = web_search_for(conf, "generator", generator.model)
     system = COMBINED_SYSTEM.format(n=conf.pairs_per_chunk)
+    passage = writer_passage(doc, chunk)
     user = user_prompt(doc, chunk, conf.pairs_per_chunk)
+    raw = ""
+    usage: dict[str, Any] = {}
     try:
         with hold():
             raw, usage = chat(
@@ -699,17 +696,22 @@ def _extractive_for_chunk(
                 web_search_engine=engine or "auto",
                 role=cost.WRITER,
             )
-        if record is not None:
-            record.update(
-                new_call(
-                    model=generator.model,
-                    system=system,
-                    user=user,
-                    reply=raw,
-                    passage=chunk.text[:MAX_FRAGMENT_CHARS],
-                    usage=usage,
-                )
+    except LLMError as exc:
+        out.error = str(exc)
+    if record is not None:
+        record.update(
+            new_call(
+                model=generator.model,
+                system=system,
+                user=user,
+                reply=raw,
+                passage=passage,
+                usage=usage,
             )
+        )
+    if out.error:
+        return out
+    try:
         data = parse_json_object(raw)
     except LLMError as exc:
         out.error = str(exc)
@@ -730,32 +732,29 @@ def _run_llm_generator(
 ) -> tuple[list[dict[str, Any]], str | None]:
     """A single model call for one particular generator.
 
-    ``record``, when given, gets the call (``recorded.new_call``).
+    ``record``, when given, gets the call (``recorded.new_call``), a failed
+    one with an empty reply.
     """
-    tasks = 1 if generator.key == "tiered_explanation" else conf.pairs_per_chunk
-    if generator.scope == "document":
-        text = document_text(doc)[:MAX_DOCUMENT_CHARS]
-        header = "\n".join(document_header(doc))
-        prompt = f'{header}\n\nText:\n"""\n{text}\n"""\n\nGenerate {tasks}.'
+    tasks = 1 if generator.single_item else conf.pairs_per_chunk
+    if generator.scope is Scope.DOCUMENT:
+        prompt = document_prompt(doc, tasks)
     else:
         assert chunk is not None
-        text = chunk.text[:MAX_FRAGMENT_CHARS]
         prompt = user_prompt(doc, chunk, tasks)
+    passage = writer_passage(doc, chunk)
 
-    # The starting budget. tiered_explanation is the longest item there is by
-    # construction — three explanations of differing levels plus a list of facts
-    # in one object — and a reasoning model spends the budget on reasoning
-    # before it prints any of that. Starting it from a per-item constant costs
-    # two cut-off calls, billed in full and thrown away, before the doubling in
-    # the client arrives at a budget that holds. The shared answer ceiling is
-    # what every other call in the service already asks for, and max_tokens
-    # bounds rather than orders: a shorter item is no dearer for the room.
+    # A single long item starts from the shared answer ceiling: from a
+    # per-item estimate a reasoning model cuts it off, and the cut-off calls
+    # are billed before the client's doubling reaches a budget that holds.
     budget = generator.tokens_per_pair * tasks + REASONING_HEADROOM
-    if generator.key == "tiered_explanation":
+    if generator.single_item:
         budget = max(budget, conf.answer_max_tokens)
 
     searching, engine = web_search_for(conf, "generator", provider.model)
     system = generator.system.format(n=tasks)
+    raw = ""
+    usage: dict[str, Any] = {}
+    failed: str | None = None
     try:
         raw, usage = chat(
             system,
@@ -768,7 +767,7 @@ def _run_llm_generator(
             role=cost.WRITER,
         )
     except LLMError as exc:
-        return [], str(exc)
+        failed = str(exc)
     if record is not None:
         record.update(
             new_call(
@@ -776,16 +775,16 @@ def _run_llm_generator(
                 system=system,
                 user=prompt,
                 reply=raw,
-                passage=text,
+                passage=passage,
                 usage=usage,
             )
         )
+    if failed is not None:
+        return [], failed
 
     try:
-        # tiered answers with an object, the rest with an array; the object is
-        # parsed by a separate call, because looking for an array in such an
-        # answer is risky.
-        if generator.key == "tiered_explanation":
+        # Looking for an array inside a single-object reply is unreliable.
+        if generator.single_item:
             return [parse_json_object(raw)], None
         return parse_json_list(raw), None
     except LLMError as exc:
@@ -800,8 +799,8 @@ class _Queue:
     keys: tuple[str, ...]
     # The generator key its units are marked processed under.
     marker: str
-    scope: str
-    units: list[tuple[Document, Chunk | None]]
+    scope: Scope
+    units: Sequence[tuple[Document, Chunk | None]]
     # Questions one unit is asked for, per kind.
     per_unit: int
     # None — the extractive group.
@@ -816,10 +815,15 @@ class _Queue:
 class _Outcome:
     """What one unit gave back: questions per kind, or the error."""
 
+    # Per kind, the questions to store and the reasons the rest were dropped.
     pairs: dict[str, tuple[list[Pair], list[str]]] = field(default_factory=dict)
     # Per kind, the items rejected as written.
     rejected: dict[str, list[_Rejected]] = field(default_factory=dict)
+    # Per kind, the drafts thrown away as written.
+    drafts: dict[str, list[Dropped]] = field(default_factory=dict)
     model: str = ""
+    # Items the unit gave, after cleaning and the language check, every kind
+    # together; what the unit is marked processed with.
     parsed: int = 0
     error: str | None = None
     # The writer call (``recorded.new_call``).
@@ -839,15 +843,14 @@ def _queues(
 ) -> list[_Queue]:
     """Each kind's unparsed units, in the order to parse them.
 
-    The extractive ones are built in a single pass: three categories out of
-    one parse, which is why they are marked under one key. The rest have a
-    queue OF THEIR OWN each: a shared batch would mean that a generator
-    plugged in second skips everything the first has already parsed.
+    The extractive kinds are built in one pass and marked under one key. Every
+    other kind has its own queue: with a shared one, a kind added later would
+    skip everything an earlier kind has parsed.
 
-    The documents are shuffled once per cohort, and each queue starts at its
-    own point of that order, so kinds that stop on their budget together
-    cover the whole window instead of all reading its first articles. Each
-    queue also takes every article's passages in its own shuffled order.
+    The documents are shuffled once per cohort and each queue starts at its own
+    point of that order, so kinds that stop on their budget together cover the
+    whole window. Each queue also takes every article's passages in its own
+    shuffled order.
     """
     keys = ([extractive[0]] if extractive else []) + [
         spec.key for spec in specs if spec.key not in EXTRACTIVE_KEYS
@@ -865,7 +868,7 @@ def _queues(
 
     queues: list[_Queue] = []
     if extractive:
-        processed = _processed_ids(space, extractive[0], cohort)
+        processed = _processed_ids(space, extractive[0], cohort, conf)
         batch = pick_chunks(
             start(extractive[0]), processed, seed=f"{cohort}:{extractive[0]}"
         )
@@ -877,33 +880,28 @@ def _queues(
                     "masking",
                     extractive,
                     extractive[0],
-                    "chunk",
-                    [(doc, chunk) for doc, chunk in batch],
+                    Scope.CHUNK,
+                    batch,
                     conf.pairs_per_chunk,
                 )
             )
     for spec in specs:
         if spec.key in EXTRACTIVE_KEYS:
             continue
-        processed = _processed_ids(space, spec.key, cohort)
-        units: list[tuple[Document, Chunk | None]]
+        processed = _processed_ids(space, spec.key, cohort, conf)
+        units: Sequence[tuple[Document, Chunk | None]]
         mine = start(spec.key)
-        if spec.scope == "document":
+        if spec.scope is Scope.DOCUMENT:
             units = [(doc, None) for doc in mine if doc.doc_id not in processed]
             if not units:
                 report.notes.append(f"{spec.key}: there are no new documents")
                 continue
         else:
-            units = [
-                (doc, chunk)
-                for doc, chunk in pick_chunks(
-                    mine, processed, seed=f"{cohort}:{spec.key}"
-                )
-            ]
+            units = pick_chunks(mine, processed, seed=f"{cohort}:{spec.key}")
             if not units:
                 report.notes.append(f"{spec.key}: there are no new chunks")
                 continue
-        per_unit = 1 if spec.key == "tiered_explanation" else conf.pairs_per_chunk
+        per_unit = 1 if spec.single_item else conf.pairs_per_chunk
         queues.append(
             _Queue(spec.key, (spec.key,), spec.key, spec.scope, units, per_unit, spec)
         )
@@ -935,92 +933,394 @@ def _settle_kinds(
             stats.stopped = OUT_OF_MATERIAL
 
 
-def kind_targets(keys: Sequence[str], cap: int, conf: Settings) -> dict[str, int]:
-    """How many of each kind should pass the checks: its write budget, and
-    with a set cap (``dataset_max_pairs``) no more than an even share of it."""
-    share = cap
-    if conf.dataset_max_pairs and keys:
-        share = math.ceil(conf.dataset_max_pairs / len(keys))
-    return {key: min(cap, share) for key in keys}
-
-
-def survival_rates(space: str, keys: Sequence[str], conf: Settings) -> dict[str, float]:
-    """Each kind's share of decided pairs on this target that passed the checks.
-
-    Read from its newest ``SURVIVAL_WINDOW`` pairs that are active, retired
-    or rejected, an owner's rejection left out, as (kept + 1) / (decided + 2):
-    a kind with no history reads as one half.
-    """
-    decided = (
-        PairStatus.ACTIVE.value,
-        PairStatus.RETIRED.value,
-        PairStatus.REJECTED.value,
-    )
-    rates: dict[str, float] = {}
-    with session_scope(conf) as session:
-        for key in keys:
-            statuses = list(
-                session.execute(
-                    select(QaPair.status)
-                    .where(
-                        QaPair.space == space,
-                        QaPair.generator == key,
-                        QaPair.status.in_(decided),
-                        or_(
-                            QaPair.status_reason.is_(None),
-                            QaPair.status_reason != StatusReason.OWNER.value,
-                        ),
-                    )
-                    .order_by(QaPair.created_at.desc(), QaPair.id.desc())
-                    .limit(SURVIVAL_WINDOW)
-                ).scalars()
-            )
-            kept = sum(1 for status in statuses if status != PairStatus.REJECTED.value)
-            rates[key] = (kept + 1) / (len(statuses) + 2)
-    return rates
-
-
-def top_up_plan(
-    targets: Mapping[str, int],
-    survived: Mapping[str, int],
-    rates: Mapping[str, float],
-    cap: int,
-) -> dict[str, int]:
-    """How many more of each kind to write: its shortfall over its survival
-    rate (at least ``MIN_SURVIVAL``), at most ``cap``. Kinds at their target
-    are left out."""
-    plan: dict[str, int] = {}
-    for key, target in targets.items():
-        short = target - survived.get(key, 0)
-        if short > 0 and cap > 0:
-            rate = max(rates.get(key, 0.5), MIN_SURVIVAL)
-            plan[key] = min(cap, math.ceil(short / rate - 1e-9))
-    return plan
-
-
-def _survivors(written: Mapping[str, Sequence[str]], conf: Settings) -> dict[str, int]:
-    """Per kind, how many of the pairs written are active or still pending."""
-    ids = [pair_id for group in written.values() for pair_id in group]
-    if not ids:
-        return {}
-    with session_scope(conf) as session:
-        rows = session.execute(
-            select(QaPair.generator, QaPair.status).where(QaPair.id.in_(ids))
-        ).all()
-    alive = (PairStatus.ACTIVE.value, PairStatus.PENDING.value)
-    counts: dict[str, int] = {}
-    for generator, status in rows:
-        if status in alive:
-            counts[generator] = counts.get(generator, 0) + 1
-    return counts
-
-
 def _checked(screening: Screening, row: QaPair) -> None:
     """Screen one written question; a failure leaves it pending."""
     try:
         screening.screen(row)
     except Exception as exc:  # noqa: BLE001 - the next filter pass checks it again
         logger.warning(f"{row.id}: the check failed, left pending: {exc}")
+
+
+type _Unit = tuple[_Queue, Document, Chunk | None, tuple[str, ...]]
+
+
+class _Build:
+    """One build's walk over its queues: dispatching units to the model,
+    storing what they write, and handing it to the checks.
+
+    Every mutable counter (``report``, ``caps``, the queues) is touched only
+    from the dispatching thread; workers run ``_work`` and return an
+    ``_Outcome``.
+    """
+
+    def __init__(
+        self,
+        space: SpaceConfig,
+        conf: Settings,
+        *,
+        report: GenerationReport,
+        queues: list[_Queue],
+        caps: dict[str, int],
+        provider: Provider,
+        collection: str,
+        cohort: str,
+        job: str,
+        latch: Latch,
+        screen: bool,
+        retrieve: Retriever | None,
+        on_unit: Callable[[str, int, int, int], None] | None,
+        on_progress: Callable[[str], None] | None,
+    ) -> None:
+        self.space = space
+        self.conf = conf
+        self.report = report
+        self.queues = queues
+        self.caps = caps
+        self.provider = provider
+        self.collection = collection
+        self.cohort = cohort
+        self.job = job
+        self.writing = writer_log.WriterLog(job, conf)
+        self.latch = latch
+        self.on_unit = on_unit
+        self.on_progress = on_progress
+        self.width = max(1, conf.concurrency)
+        self.slots = model_slots(conf)
+        self._tell_lock = threading.Lock()
+        self._told = 0.0
+        # Checks run as soon as a question is written, sharing the model limit.
+        self.screening = (
+            Screening(
+                space.key,
+                conf,
+                retrieve=retrieve,
+                should_stop=latch,
+                slots=self.slots,
+                on_verdict=self.tell,
+                job_id=job,
+            )
+            if screen
+            else None
+        )
+        self.stopped = False
+        # Questions per kind already asked for by units in flight: a unit is
+        # dispatched only while its kind has room beyond them, so the walk
+        # reads no passage it does not need.
+        self.reserved: dict[str, int] = {}
+        # The ids of the questions written, per kind.
+        self.built: dict[str, list[str]] = {}
+        self._check_pool: ThreadPoolExecutor | None = None
+
+    def called_off(self) -> bool:
+        """Whether to stop before the next unit. Said once, in the report."""
+        if not self.stopped and self.latch():
+            self.stopped = True
+            self.report.notes.append("the build was stopped at the owner's request")
+            logger.info(f"{self.space.key}: generation stopped at the owner's request")
+        return self.stopped
+
+    def _gave_up(self, queue: _Queue) -> bool:
+        """Units in a row that wrote nothing (failed calls, or replies all
+        cleaned away) stop a kind that keeps paying for nothing."""
+        give_up = self.conf.max_consecutive_failures
+        if give_up and queue.streak >= give_up:
+            self.report.notes.append(
+                f"{queue.label}: {queue.streak} units in a row wrote nothing — "
+                f"stopped before its budget was spent"
+            )
+            return True
+        return False
+
+    def tell(self, final: bool = False) -> None:
+        """Report "written N · checked M · removed R", at most every
+        ``_PROGRESS_SECONDS`` unless ``final``."""
+        if self.on_progress is None:
+            return
+        with self._tell_lock:
+            now = time.monotonic()
+            if not final and now - self._told < _PROGRESS_SECONDS:
+                return
+            self._told = now
+            checked = self.screening.report.checked if self.screening else 0
+            removed = self.screening.report.rejected if self.screening else 0
+            self.on_progress(
+                f"written {self.report.pairs_made} · checked {checked} · "
+                f"removed {removed}"
+            )
+
+    def _wanted(self, queue: _Queue) -> tuple[str, ...]:
+        """The queue's kinds that still have room beyond the units in flight."""
+        return tuple(
+            key
+            for key in queue.keys
+            if self.report.by_generator.get(key, 0) + self.reserved.get(key, 0)
+            < self.caps[key]
+        )
+
+    def _work(
+        self, queue: _Queue, doc: Document, chunk: Chunk | None, keys: tuple[str, ...]
+    ) -> _Outcome:
+        """One unit on a worker thread: the model calls and the cleaning."""
+        conf = self.conf
+        whole = document_text(doc)
+        call: dict[str, Any] = {}
+        # Per kind: what passed the generator's own screening and the language
+        # check, the drafts dropped, and what is stored rejected.
+        made: dict[str, list[Pair]] = {}
+        bad: dict[str, list[Dropped]] = {}
+        refused: dict[str, list[_Rejected]] = {}
+        if queue.spec is None:
+            assert chunk is not None
+            extracted = _extractive_for_chunk(
+                doc, chunk, keys, conf, self.provider, hold=self.slots.hold, record=call
+            )
+            if extracted.error:
+                return _Outcome(error=extracted.error, call=call)
+            for key, masked in extracted.by_key.items():
+                good, bad[key] = _masked_to_pairs(masked, whole)
+                made[key], refused[key] = _drop_wrong_language(good, whole)
+        else:
+            with self.slots.hold():
+                items, error = _run_llm_generator(
+                    queue.spec, doc, chunk, conf, self.provider, record=call
+                )
+            if error:
+                return _Outcome(error=error, call=call)
+            key = queue.spec.key
+            good, bad[key] = queue.spec.clean(items, conf.pairs_per_chunk, whole)
+            made[key], refused[key] = _drop_wrong_language(good, whole)
+        parsed = sum(len(items) for items in made.values())
+        made, unclear, check = _screen_entities(
+            made, conf, self.provider, self.slots.hold
+        )
+        pairs: dict[str, tuple[list[Pair], list[str]]] = {}
+        for key, good in made.items():
+            refused[key] += unclear[key]
+            dropped = [d.reason for d in bad[key]] + [r.drop for r in refused[key]]
+            if queue.spec is None:
+                # The model may return more than asked, and one dense passage
+                # would spend a kind's budget.
+                surplus = [
+                    Dropped(OVER_UNIT_LIMIT, p.question, p.answer)
+                    for p in good[conf.pairs_per_chunk :]
+                ]
+                bad[key] += surplus
+                dropped += [d.reason for d in surplus]
+                good = good[: conf.pairs_per_chunk]
+            pairs[key] = (good, dropped)
+        return _Outcome(
+            pairs=pairs,
+            rejected=refused,
+            drafts=bad,
+            model=self.provider.model,
+            parsed=parsed,
+            call=call,
+            check=check,
+        )
+
+    def _settle(self, unit: _Unit, outcome: _Outcome) -> None:
+        """Store one unit's questions and hand them to the checks."""
+        queue, doc, chunk, keys = unit
+        report = self.report
+        context = writer_passage(doc, chunk)
+
+        def keep(dropped: dict[str, list[Dropped]], error: str | None = None) -> None:
+            self.writing.keep(
+                outcome.call,
+                dropped,
+                document_title=doc.title,
+                file_name=doc.file_name,
+                passage=context,
+                error=error,
+            )
+
+        for key in keys:
+            if key in report.kinds:
+                stats = report.kinds[key]
+                stats.units_read += 1
+                stats.failed_units += bool(outcome.error)
+        if outcome.error:
+            report.failures += 1
+            queue.streak += 1
+            if queue.spec is not None:
+                report.failure_sample = (
+                    report.failure_sample or f"{queue.label}: {outcome.error}"
+                )
+            where = chunk.chunk_id if chunk is not None else queue.label
+            logger.warning(f"{self.space.key}/{where}: {outcome.error}")
+            keep({key: [] for key in keys}, error=outcome.error)
+            return
+        before = report.pairs_made
+        unit_id = chunk.chunk_id if chunk is not None else doc.doc_id
+        shown = chunk.chunk_id[:10] if chunk is not None else doc.title[:24]
+        lost: dict[str, list[Dropped]] = {}
+        for key, (good, bad) in outcome.pairs.items():
+            lost[key] = list(outcome.drafts.get(key, ()))
+            if bad:
+                report.notes.append(f"{key} {shown}: {reasons(bad)}")
+                if key in report.kinds:
+                    for why in bad:
+                        report.kinds[key].drop(why)
+            rows = _store(
+                self.space,
+                doc,
+                unit_id if chunk is not None else f"doc:{doc.doc_id}",
+                context,
+                good,
+                GENERATORS[key],
+                outcome.model,
+                self.collection,
+                report,
+                conf=self.conf,
+                cohort=self.cohort,
+                job=self.job,
+                cap=self.caps[key],
+                writer=outcome.call or None,
+                check=outcome.check or None,
+                rejected=outcome.rejected.get(key, ()),
+                lost=lost[key],
+            )
+            self.built.setdefault(key, []).extend(row.id for row in rows)
+            if self.screening is not None and self._check_pool is not None:
+                for row in rows:
+                    self._check_pool.submit(_checked, self.screening, row)
+        keep({key: drafts for key, drafts in lost.items() if drafts})
+        _mark_processed(
+            self.space.key,
+            queue.marker,
+            unit_id,
+            queue.scope.value,
+            outcome.parsed,
+            self.cohort,
+            self.conf,
+        )
+        queue.streak = 0 if report.pairs_made > before else queue.streak + 1
+        self.tell()
+
+    def _next_unit(self, queue: _Queue) -> _Unit | None:
+        """The queue's next unit to dispatch, with the kinds it is for; None —
+        the queue has nothing to dispatch now."""
+        if queue.done or queue.pos >= len(queue.units):
+            return None
+        if self._gave_up(queue):
+            queue.done = True
+            queue.gave_up = True
+            return None
+        keys = self._wanted(queue)
+        if not keys:
+            return None
+        doc, chunk = queue.units[queue.pos]
+        queue.pos += 1
+        self.report.units_seen += 1
+        if self.on_unit is not None:
+            self.on_unit(
+                queue.label, queue.pos, len(queue.units), self.report.pairs_made
+            )
+        for key in keys:
+            self.reserved[key] = self.reserved.get(key, 0) + queue.per_unit
+        return queue, doc, chunk, keys
+
+    def walk(self, halt: Callable[[], bool] = lambda: False) -> None:
+        """Walk the queues until every kind has its cap, the material runs
+        out, the owner stops it or ``halt`` says so."""
+        running: dict[Future[_Outcome], _Unit] = {}
+        # The workers charge the current cost meter: the top-up's limit reads it.
+        self._check_pool = (
+            ThreadPoolExecutor(
+                max_workers=self.width, thread_name_prefix="check", **cost.pool_kwargs()
+            )
+            if self.screening is not None
+            else None
+        )
+        try:
+            with ThreadPoolExecutor(
+                max_workers=self.width, thread_name_prefix="gen", **cost.pool_kwargs()
+            ) as pool:
+                while True:
+                    # Round-robin over the kinds, one unit each per sweep.
+                    dispatched = True
+                    while (
+                        dispatched
+                        and len(running) < self.width
+                        and not self.called_off()
+                        and not halt()
+                    ):
+                        dispatched = False
+                        for queue in self.queues:
+                            if len(running) >= self.width:
+                                break
+                            unit = self._next_unit(queue)
+                            if unit is None:
+                                continue
+                            running[pool.submit(self._work, *unit)] = unit
+                            dispatched = True
+                    if not running:
+                        break
+                    finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                    for future in finished:
+                        unit = running.pop(future)
+                        queue, _, _, keys = unit
+                        for key in keys:
+                            self.reserved[key] -= queue.per_unit
+                        self._settle(unit, future.result())
+        finally:
+            if self._check_pool is not None:
+                # Written questions are checked before the build reports; on a
+                # stop the checks not started leave their questions pending.
+                self._check_pool.shutdown(wait=True)
+
+    def top_up(self, cap: int) -> bool:
+        """More of each kind the checks left short of its target, within
+        ``top_up_max_usd``; returns whether that cost limit was hit."""
+        conf = self.conf
+        report = self.report
+        current = cost.current()
+        metered: AbstractContextManager[cost.CostMeter] = (
+            nullcontext(current) if current is not None else cost.cost_meter()
+        )
+        with metered as meter:
+            start = meter.total_usd
+
+            def over() -> bool:
+                return meter.total_usd - start >= conf.top_up_max_usd
+
+            targets = kind_targets(list(report.kinds), cap, conf)
+            for turn in range(1, TOP_UP_ROUNDS + 1):
+                if self.called_off() or over():
+                    break
+                open_keys = {
+                    key
+                    for queue in self.queues
+                    if not queue.done and queue.pos < len(queue.units)
+                    for key in queue.keys
+                }
+                rates = survival_rates(self.space.key, list(targets), conf)
+                plan = {
+                    key: extra
+                    for key, extra in top_up_plan(
+                        targets, survivors(self.built, conf), rates, cap
+                    ).items()
+                    if key in open_keys
+                }
+                if not plan:
+                    break
+                report.notes.append(
+                    f"top-up round {turn}: "
+                    + ", ".join(
+                        f"{key} +{extra} (target {targets[key]}, "
+                        f"survival {rates[key]:.0%})"
+                        for key, extra in plan.items()
+                    )
+                )
+                before = dict(report.by_generator)
+                for key, extra in plan.items():
+                    self.caps[key] = report.by_generator.get(key, 0) + extra
+                self.walk(halt=over)
+                for key in plan:
+                    report.kinds[key].topped_up += report.by_generator.get(
+                        key, 0
+                    ) - before.get(key, 0)
+            return over()
 
 
 def generate_for_space(
@@ -1061,27 +1361,22 @@ def generate_for_space(
         cohort_label: The new cohort's name; empty — the date and time of the build
         job: The launch these items belong to; empty — none that can be named
         per_generator: Stop at this many items from each generator — a trial
-            run. The walk over the material stops as soon as every generator
-            has its fill, so a trial does not mark chunks processed that it
-            never really used and leave a later full run nothing to build from
+            run. The walk stops as soon as every generator has its fill, so a
+            trial does not mark processed chunks it never used
         on_unit: Told before every unit which generator is being built, which
             unit of its batch this is, how big that batch is, and how many
-            questions exist so far. A build runs for minutes on a paid model
-            and reported nothing while it did; this is what a console draws
-            its position from
-        should_stop: Asked before every unit whether the owner has called the
-            build off. A unit is one generator call on a paid model, so this is
-            where stopping is worth something; mid-unit there is nothing left
-            to save. Without it the build runs to the end, which is what the
-            daily cycle wants
+            questions exist so far
+        should_stop: Asked before every unit (one paid generator call) whether
+            the owner has called the build off; None — the build runs to the end
         screen: Check each question as soon as it is written: grounding or
             the control gate, then the web check (``filter_stage.Screening``),
             while generation goes on. The set is then not recomputed here: the
             caller's filter pass checks what is left and recomputes it once
             (``filter_and_rotate(rotate_anyway=True)``). After the build, a
-            kind short of its target (``kind_targets``) gets more written and
-            checked the same way: up to ``TOP_UP_ROUNDS`` rounds, sized by its
-            survival rate on this target, until ``top_up_max_usd`` is spent
+            kind short of its target (``top_up.kind_targets``) gets more
+            written and checked the same way: up to ``TOP_UP_ROUNDS`` rounds,
+            sized by its survival rate on this target, until
+            ``top_up_max_usd`` is spent
         retrieve: What the control gate checks with when screening
         on_progress: Told "written N · checked M · removed R" as the build goes
 
@@ -1102,8 +1397,7 @@ def generate_for_space(
 
     # The cohort is decided before the first generator call: both what counts
     # as already parsed and where the items land depend on it. A rebuild mints
-    # a new label — the earlier pool stays in the database and will leave the
-    # measurement at the next recompute; the other modes top up the current one.
+    # a new label; the other modes top up the current cohort.
     rebuilding = new_cohort or conf.dataset_mode is DatasetMode.REBUILD
     cohort = (
         (cohort_label or cohorts.new_label())
@@ -1112,12 +1406,9 @@ def generate_for_space(
     )
     report = GenerationReport(space=space.key, cohort=cohort)
 
-    stopped = False
-    latch = Latch(should_stop)
-
-    # The question budget per kind: "Write at most" on the page is
-    # chunks_per_run * pairs_per_chunk * kinds. Counted in questions written,
-    # not passages read, so a passage that yields less does not shrink the set.
+    # The question budget per kind ("Write at most" on the page is
+    # chunks_per_run * pairs_per_chunk * kinds), counted in questions written,
+    # so a passage that yields less does not shrink the set.
     quota = (limit or conf.chunks_per_run) * conf.pairs_per_chunk
     cap = quota if per_generator is None else min(quota, per_generator)
     # Per kind; the top-up raises a short kind's.
@@ -1125,31 +1416,9 @@ def generate_for_space(
     for spec in specs:
         report.kinds[spec.key] = KindStats(
             kind=spec.key,
-            unit="article" if spec.scope == "document" else "passage",
+            unit="article" if spec.scope is Scope.DOCUMENT else "passage",
             budget=cap,
         )
-    # Units in a row that wrote nothing: failed calls, or answers all cleaned
-    # away. Every passage in the window is eligible, so this is what stops a
-    # kind that keeps paying for nothing.
-    give_up = conf.max_consecutive_failures
-
-    def gave_up(key: str, streak: int) -> bool:
-        if give_up and streak >= give_up:
-            report.notes.append(
-                f"{key}: {streak} units in a row wrote nothing — stopped before "
-                f"its budget was spent"
-            )
-            return True
-        return False
-
-    def called_off() -> bool:
-        """Whether to stop before the next unit. Said once, in the report."""
-        nonlocal stopped
-        if not stopped and latch():
-            stopped = True
-            report.notes.append("the build was stopped at the owner's request")
-            logger.info(f"{space.key}: generation stopped at the owner's request")
-        return stopped
 
     if rebuilding:
         report.notes.append(
@@ -1161,9 +1430,8 @@ def generate_for_space(
                 else ", over the whole corpus"
             )
         )
-    # The role is resolved once per run: its address and key may differ from
-    # the shared ones, and the perimeter check has to pass before the first
-    # call.
+    # Resolved once per run: the role's address and key may differ from the
+    # shared ones, and the perimeter check has to pass before the first call.
     provider = generator_provider(conf)
 
     control = [spec for spec in specs if spec.is_control]
@@ -1185,15 +1453,13 @@ def generate_for_space(
 
     documents = load_documents(client, collection_id)
     try:
-        backfill(space.key, documents)
+        backfill(space.key, documents, conf)
     except Exception:  # noqa: BLE001 - the dates only feed the report
         logger.exception(f"{space.key}: article dates were not stamped")
 
-    # The freshness window cuts off material BEFORE generation, not the set
-    # after it: there is no point paying the generator for a document that will
-    # not enter the measurement anyway. In incremental mode the window applies
-    # too — there it bounds what to build from, but it does not pull what has
-    # already been built out of the set.
+    # The freshness window cuts material off BEFORE generation, so no document
+    # outside the measurement is paid for. In incremental mode it bounds what
+    # to build from but does not pull built items out of the set.
     dated = {doc.doc_id: doc.dated_at for doc in documents}
     if conf.document_window_days:
         fresh, undated = fresh_ids(dated, conf)
@@ -1217,312 +1483,41 @@ def generate_for_space(
             if key in report.kinds:
                 report.kinds[key].units_available = len(queue.units)
 
-    width = max(1, conf.concurrency)
-    slots = model_slots(conf)
-    # Checks run as soon as a question is written, sharing the model limit.
-    screening = (
-        Screening(
-            space.key,
-            conf,
-            retrieve=retrieve,
-            should_stop=latch,
-            slots=slots,
-            on_verdict=lambda: tell(),
-            job_id=job,
-        )
-        if screen
-        else None
+    build = _Build(
+        space,
+        conf,
+        report=report,
+        queues=queues,
+        caps=caps,
+        provider=provider,
+        collection=name,
+        cohort=cohort,
+        job=job,
+        latch=Latch(should_stop),
+        screen=screen,
+        retrieve=retrieve,
+        on_unit=on_unit,
+        on_progress=on_progress,
     )
-    tell_lock = threading.Lock()
-    told = [0.0]
+    build.walk()
 
-    def tell(final: bool = False) -> None:
-        if on_progress is None:
-            return
-        with tell_lock:
-            now = time.monotonic()
-            if not final and now - told[0] < _PROGRESS_SECONDS:
-                return
-            told[0] = now
-            checked = screening.report.checked if screening else 0
-            removed = screening.report.rejected if screening else 0
-            on_progress(
-                f"written {report.pairs_made} · checked {checked} · removed {removed}"
-            )
-
-    # Questions per kind already asked for by units in flight: a unit is
-    # dispatched only while its kind has room beyond them, so the walk reads
-    # no passage it does not need. A unit that writes less frees the room.
-    reserved: dict[str, int] = {}
-    # The ids of the questions written, per kind.
-    built: dict[str, list[str]] = {}
-
-    def wanted(queue: _Queue) -> tuple[str, ...]:
-        return tuple(
-            key
-            for key in queue.keys
-            if report.by_generator.get(key, 0) + reserved.get(key, 0) < caps[key]
-        )
-
-    def work(
-        queue: _Queue, doc: Document, chunk: Chunk | None, keys: tuple[str, ...]
-    ) -> _Outcome:
-        """One unit on a worker thread: the model calls and the cleaning."""
-        whole = document_text(doc)
-        call: dict[str, Any] = {}
-        # Per kind: what passed the generator's own screening and the
-        # language check, why the rest did not, and what is stored rejected.
-        made: dict[str, list[Pair]] = {}
-        bad: dict[str, list[str]] = {}
-        refused: dict[str, list[_Rejected]] = {}
-        if queue.spec is None:
-            assert chunk is not None
-            extracted = _extractive_for_chunk(
-                doc, chunk, keys, conf, provider, hold=slots.hold, record=call
-            )
-            if extracted.error:
-                return _Outcome(error=extracted.error)
-            parsed = sum(len(v) for v in extracted.by_key.values())
-            for key, masked in extracted.by_key.items():
-                good, bad[key] = _masked_to_pairs(masked, whole)
-                made[key], refused[key] = _drop_wrong_language(good, whole)
-        else:
-            with slots.hold():
-                items, error = _run_llm_generator(
-                    queue.spec, doc, chunk, conf, provider, record=call
-                )
-            if error:
-                return _Outcome(error=error)
-            key = queue.spec.key
-            good, bad[key] = queue.spec.clean(items, conf.pairs_per_chunk, whole)
-            made[key], refused[key] = _drop_wrong_language(good, whole)
-            parsed = len(made[key])
-        made, unclear, check = _screen_entities(made, conf, provider, slots.hold)
-        pairs: dict[str, tuple[list[Pair], list[str]]] = {}
-        for key, good in made.items():
-            refused[key] += unclear[key]
-            dropped = bad[key] + [r.drop for r in refused[key]]
-            if queue.spec is None:
-                # The model may return more than asked, and one dense passage
-                # would spend a kind's budget.
-                surplus = max(0, len(good) - conf.pairs_per_chunk)
-                dropped += [OVER_UNIT_LIMIT] * surplus
-                good = good[: conf.pairs_per_chunk]
-            pairs[key] = (good, dropped)
-        return _Outcome(
-            pairs=pairs,
-            rejected=refused,
-            model=conf.generator_model,
-            parsed=parsed,
-            call=call,
-            check=check,
-        )
-
-    def settle(
-        queue: _Queue,
-        doc: Document,
-        chunk: Chunk | None,
-        keys: tuple[str, ...],
-        outcome: _Outcome,
-    ) -> None:
-        """Store one unit's questions and hand them to the checks."""
-        for key in keys:
-            if key in report.kinds:
-                stats = report.kinds[key]
-                stats.units_read += 1
-                stats.failed_units += bool(outcome.error)
-        if outcome.error:
-            report.failures += 1
-            queue.streak += 1
-            if queue.spec is not None:
-                report.failure_sample = (
-                    report.failure_sample or f"{queue.label}: {outcome.error}"
-                )
-            where = chunk.chunk_id if chunk is not None else queue.label
-            logger.warning(f"{space.key}/{where}: {outcome.error}")
-            return
-        before = report.pairs_made
-        fragment = chunk.text if chunk is not None else document_text(doc)
-        unit_id = chunk.chunk_id if chunk is not None else doc.doc_id
-        shown = chunk.chunk_id[:10] if chunk is not None else doc.title[:24]
-        for key, (good, bad) in outcome.pairs.items():
-            if bad:
-                report.notes.append(f"{key} {shown}: {reasons(bad)}")
-                if key in report.kinds:
-                    for why in bad:
-                        report.kinds[key].drop(why)
-            rows = _store(
-                space,
-                doc,
-                unit_id if chunk is not None else f"doc:{doc.doc_id}",
-                fragment,
-                good,
-                GENERATORS[key],
-                outcome.model,
-                name,
-                report,
-                cohort=cohort,
-                job=job,
-                cap=caps[key],
-                writer=outcome.call or None,
-                check=outcome.check or None,
-                rejected=outcome.rejected.get(key, ()),
-            )
-            built.setdefault(key, []).extend(row.id for row in rows)
-            if screening is not None and check_pool is not None:
-                checks.extend(check_pool.submit(_checked, screening, r) for r in rows)
-        _mark_processed(
-            space.key, queue.marker, unit_id, queue.scope, outcome.parsed, cohort
-        )
-        queue.streak = 0 if report.pairs_made > before else queue.streak + 1
-        tell()
-
-    checks: list[Future[None]] = []
-    check_pool: ThreadPoolExecutor | None = None
-
-    def build(halt: Callable[[], bool] = lambda: False) -> None:
-        """Walk the queues until every kind has its cap, the material runs
-        out, the owner stops it or ``halt`` says so."""
-        nonlocal check_pool
-        running: dict[
-            Future[_Outcome], tuple[_Queue, Document, Chunk | None, tuple[str, ...]]
-        ] = {}
-        # The workers charge the meter current here: the top-up's limit reads it.
-        check_pool = (
-            ThreadPoolExecutor(
-                max_workers=width, thread_name_prefix="check", **cost.pool_kwargs()
-            )
-            if screening is not None
-            else None
-        )
-        try:
-            with ThreadPoolExecutor(
-                max_workers=width, thread_name_prefix="gen", **cost.pool_kwargs()
-            ) as pool:
-                while True:
-                    # Round-robin over the kinds, one unit each per sweep.
-                    dispatched = True
-                    while (
-                        dispatched
-                        and len(running) < width
-                        and not called_off()
-                        and not halt()
-                    ):
-                        dispatched = False
-                        for queue in queues:
-                            if len(running) >= width:
-                                break
-                            if queue.done or queue.pos >= len(queue.units):
-                                continue
-                            if gave_up(queue.label, queue.streak):
-                                queue.done = True
-                                queue.gave_up = True
-                                continue
-                            keys = wanted(queue)
-                            if not keys:
-                                continue
-                            doc, chunk = queue.units[queue.pos]
-                            queue.pos += 1
-                            report.units_seen += 1
-                            if on_unit is not None:
-                                on_unit(
-                                    queue.label,
-                                    queue.pos,
-                                    len(queue.units),
-                                    report.pairs_made,
-                                )
-                            for key in keys:
-                                reserved[key] = reserved.get(key, 0) + queue.per_unit
-                            future = pool.submit(work, queue, doc, chunk, keys)
-                            running[future] = (queue, doc, chunk, keys)
-                            dispatched = True
-                    if not running:
-                        break
-                    finished, _ = wait(running, return_when=FIRST_COMPLETED)
-                    for future in finished:
-                        queue, doc, chunk, keys = running.pop(future)
-                        for key in keys:
-                            reserved[key] -= queue.per_unit
-                        settle(queue, doc, chunk, keys, future.result())
-        finally:
-            if check_pool is not None:
-                # Written questions are checked before the build reports; on a
-                # stop the checks not started leave their questions pending.
-                check_pool.shutdown(wait=True)
-
-    build()
-
-    # The top-up: more of each kind the checks left short of its target.
     limited = False
-    if screening is not None and conf.top_up_max_usd > 0 and not stopped:
-        current = cost.current()
-        metered: AbstractContextManager[cost.CostMeter] = (
-            nullcontext(current) if current is not None else cost.cost_meter()
-        )
-        with metered as meter:
-            start = meter.total_usd
-
-            def over() -> bool:
-                return meter.total_usd - start >= conf.top_up_max_usd
-
-            targets = kind_targets(list(report.kinds), cap, conf)
-            for turn in range(1, TOP_UP_ROUNDS + 1):
-                if called_off() or over():
-                    break
-                open_keys = {
-                    key
-                    for queue in queues
-                    if not queue.done and queue.pos < len(queue.units)
-                    for key in queue.keys
-                }
-                rates = survival_rates(space.key, list(targets), conf)
-                plan = {
-                    key: extra
-                    for key, extra in top_up_plan(
-                        targets, _survivors(built, conf), rates, cap
-                    ).items()
-                    if key in open_keys
-                }
-                if not plan:
-                    break
-                report.notes.append(
-                    f"top-up round {turn}: "
-                    + ", ".join(
-                        f"{key} +{extra} (target {targets[key]}, "
-                        f"survival {rates[key]:.0%})"
-                        for key, extra in plan.items()
-                    )
-                )
-                before = dict(report.by_generator)
-                for key, extra in plan.items():
-                    caps[key] = report.by_generator.get(key, 0) + extra
-                build(halt=over)
-                for key in plan:
-                    report.kinds[key].topped_up += report.by_generator.get(
-                        key, 0
-                    ) - before.get(key, 0)
-            limited = over()
+    if build.screening is not None and conf.top_up_max_usd > 0 and not build.stopped:
+        limited = build.top_up(cap)
         if limited:
             report.notes.append(
                 f"top-up stopped at its cost limit, ${conf.top_up_max_usd:g}"
             )
-    tell(final=True)
-    _settle_kinds(report, queues, caps, cancelled=stopped, limited=limited)
-    if screening is not None:
-        report.screened = screening.summary()
+    build.tell(final=True)
+    _settle_kinds(report, queues, caps, cancelled=build.stopped, limited=limited)
+    if build.screening is not None:
+        report.screened = build.screening.summary()
 
-    # Recomputing the set comes last: generation has added items from the new
-    # material, and only now is it visible what of the accumulated pile takes
-    # part in today's measurement. In incremental mode the call changes nothing
-    # and merely counts the active ones — but it is made anyway, so that the
-    # generation report states the size of the set in both modes, not in one.
-    # Not after a build that was called off. Recomputing would make a half-built
-    # cohort the set today's measurement runs on, and a set missing whatever the
-    # stop landed in front of is not a smaller set — it is a set with a hole in
-    # a shape nobody chose. Leaving it alone means a cancelled build changes
-    # nothing for the measurement, which is what cancelling is for; the items
+    # Recomputing the set comes last, and runs in incremental mode too so the
+    # report states the set's size in every mode. Not after a cancelled
+    # build: that would make a half-built cohort the measured set. The items
     # already stored stay in the cohort and the next build tops it up.
-    if stopped:
+    if build.stopped:
         report.notes.append("the set was left as it was: the build did not finish")
         return report
     if screen:
@@ -1588,7 +1583,7 @@ def filter_and_rotate(
         nothing changed.
     """
     conf = settings or get_settings()
-    web_on = bool(filter_model(conf))
+    web_on = bool(conf.filter_model)
     current = cohort or cohorts.current(space.key, conf)
     dated: dict[str, Any] | None = None
 

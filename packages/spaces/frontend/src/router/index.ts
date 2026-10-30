@@ -85,10 +85,6 @@ const router = createRouter({
       component: () => import('../pages/AnalyticsPage.vue'),
     },
     {
-      path: '/benchmark',
-      redirect: { name: 'model-access' },
-    },
-    {
       path: '/settings',
       name: 'settings',
       component: () => import('../pages/SettingsPage.vue'),

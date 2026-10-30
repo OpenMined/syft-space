@@ -11,16 +11,17 @@ import httpx
 import pytest
 
 from syft_benchmark.config import JudgeReasoningEffort, Settings, Verdict
-from syft_benchmark.control.app import _effective_defaults
-from syft_benchmark.control.compose import merge
+from syft_benchmark.control.compose import effective_defaults, merge
 from syft_benchmark.control.formfields import describe
 from syft_benchmark.control.schemas import Instrument
 from syft_benchmark.generation import control as control_set
-from syft_benchmark.llm import catalog, chat, ollama
+from syft_benchmark.llm import catalog, chat, client, judge_provider
 from syft_benchmark.llm.catalog import Catalog, ModelEntry
+from syft_benchmark.llm.errors import LLMFatalError
 from syft_benchmark.runs import judge as judge_module
 
-OPENROUTER = "https://openrouter.ai/api/v1"
+from fakes import OPENROUTER
+
 FULL = "google/gemini-3.1-pro-preview"  # temperature and reasoning
 COLD = "openai/gpt-5.1"  # reasoning, no temperature
 PLAIN = "openai/gpt-4.1"  # temperature, no reasoning
@@ -48,8 +49,6 @@ def _catalog() -> Catalog:
 def known_models(monkeypatch: pytest.MonkeyPatch) -> None:
     shipped = _catalog()
     monkeypatch.setattr(catalog, "load", lambda settings=None: shipped)
-    monkeypatch.setattr(ollama, "_EFFORT_STEPPED", {})
-    monkeypatch.setattr(ollama, "_NO_TEMPERATURE", set())
 
 
 def _external(**overrides: Any) -> Settings:
@@ -113,8 +112,8 @@ def test_latency_spans_the_retries(monkeypatch: pytest.MonkeyPatch) -> None:
         ticks.append(107.5)
         return value
 
-    monkeypatch.setattr(ollama.time, "monotonic", clock)
-    monkeypatch.setattr(ollama.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(client.time, "monotonic", clock)
+    monkeypatch.setattr(client.time, "sleep", lambda _s: None)
     provider = _Provider()
     calls = {"n": 0}
 
@@ -240,7 +239,7 @@ def test_an_unrelated_refusal_is_not_stepped_around(
 ) -> None:
     provider = _Provider(refusals=5, message="Insufficient credits")
     monkeypatch.setattr(httpx, "post", provider)
-    with pytest.raises(ollama.LLMFatalError):
+    with pytest.raises(LLMFatalError):
         chat("s", "u", model=FULL, settings=_external(), judging=True)
     assert len(provider.bodies) == 1
 
@@ -283,10 +282,10 @@ def test_the_form_offers_both_under_judging() -> None:
 
 
 def test_defaults_show_the_judge_settings() -> None:
-    shown = _effective_defaults(Settings())["instrument"]
+    shown = effective_defaults(Settings())["instrument"]
     assert shown.judge_temperature == 0.0
     assert shown.judge_reasoning_effort is JudgeReasoningEffort.LOW
-    shown = _effective_defaults(Settings(judge_temperature=None))["instrument"]
+    shown = effective_defaults(Settings(judge_temperature=None))["instrument"]
     assert shown.judge_temperature == "default"
 
 
@@ -315,6 +314,7 @@ def test_the_judge_prompt_accepts_a_differently_worded_answer(
         "Paris",
         "The French capital is Paris.",
         settings=Settings(),
+        judge=judge_provider(Settings()),
     )
 
     assert grade.verdict is Verdict.CORRECT
@@ -326,11 +326,22 @@ def test_the_judge_prompt_accepts_a_differently_worded_answer(
 def test_every_judge_call_site_is_tuned(monkeypatch: pytest.MonkeyPatch) -> None:
     seen = _capture(monkeypatch, judge_module, '{"covered": [true], "grounded": true}')
     judge_module.grade_key_facts(
-        "Paris is the capital.", ["Paris"], settings=Settings()
+        "Paris is the capital.",
+        ["Paris"],
+        settings=Settings(),
+        judge=judge_provider(Settings()),
     )
-    judge_module.check_grounded("Paris", ["Paris is the capital."], settings=Settings())
+    judge_module.check_grounded(
+        "Paris",
+        ["Paris is the capital."],
+        settings=Settings(),
+        judge=judge_provider(Settings()),
+    )
     gate = _capture(monkeypatch, control_set, '{"answered": false}')
-    control_set.gate_unanswerable("Q?", lambda _q: ["fragment"], settings=Settings())
+    conf = Settings()
+    control_set.gate_unanswerable(
+        "Q?", lambda _q: ["fragment"], settings=conf, judge=judge_provider(conf)
+    )
 
     for _system, kwargs in [*seen, *gate]:
         assert kwargs["judging"] is True and "temperature" not in kwargs

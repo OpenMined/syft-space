@@ -24,10 +24,11 @@ from syft_benchmark.config import (
     Verdict,
     WebSearchEngine,
 )
-from syft_benchmark.llm import Provider, catalog, chat, ollama
+from syft_benchmark.llm import Provider, catalog, chat, client, errors, web_search
 from syft_benchmark.llm.catalog import Catalog, ModelEntry
-from syft_benchmark.llm.ollama import (
-    LLMFatalError,
+from syft_benchmark.llm.errors import LLMFatalError
+from syft_benchmark.llm.roles import web_search_for
+from syft_benchmark.llm.web_search import (
     citations_of,
     search_requests,
     search_unused,
@@ -35,14 +36,14 @@ from syft_benchmark.llm.ollama import (
     web_plugin,
     web_search_tool,
 )
-from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.report import run_questions
 from syft_benchmark.runs.execute import Asked, audit_record
 from syft_benchmark.runs.judge import Grade
 from syft_benchmark.runs.parallel import Pool, RunCache
-from syft_benchmark.scheduler import _plan, measure
+from syft_benchmark.scheduler import measure
 
-OPENROUTER = "https://openrouter.ai/api/v1"
+from fakes import OPENROUTER
+
 NATIVE = "openai/gpt-5"
 PLUGIN_ONLY = "meta-llama/llama-4"
 NO_TOOLS = "gryphe/mythomax"  # takes no tool calling
@@ -93,7 +94,6 @@ def _catalog() -> Catalog:
 def known_models(monkeypatch: pytest.MonkeyPatch) -> None:
     shipped = _catalog()
     monkeypatch.setattr(catalog, "load", lambda settings=None: shipped)
-    monkeypatch.setattr(ollama, "_STEPPED_DOWN", {})
 
 
 def _external(**overrides: Any) -> Settings:
@@ -431,7 +431,8 @@ def test_a_bare_400_on_the_plugin_is_not_stepped_around(
 ) -> None:
     provider = _Refuser(3, "Model call failed: invalid request (400)", status=400)
     monkeypatch.setattr(httpx, "post", provider)
-    ollama._STEPPED_DOWN[(NATIVE, "native")] = 2
+    # Already stepped down to the plugin: the private map is the only way in.
+    web_search._STEPPED_DOWN[(NATIVE, "native")] = 2
 
     with pytest.raises(LLMFatalError):
         _search()
@@ -452,7 +453,7 @@ def test_a_wrong_model_id_is_not_stepped_around(
 
 
 def test_a_refusal_names_the_providers_own_message() -> None:
-    detail = ollama._error_detail(_WRAPPED_REFUSAL, "{}")
+    detail = errors.error_detail(_WRAPPED_REFUSAL, "{}")
 
     assert detail == (
         "Model call failed: invalid request (400) | "
@@ -496,10 +497,10 @@ def test_a_refusal_that_is_not_json_keeps_its_text(
         chat("s", "u", model=NATIVE, settings=_external())
 
     detail = str(caught.value).removeprefix(f"{NATIVE} -> 400: ")
-    assert detail == "x" * (ollama._DETAIL_CAP - 3) + "..."
+    assert detail == "x" * (errors.DETAIL_CAP - 3) + "..."
 
 
-def test_max_results_comes_from_the_call_or_the_settings(
+def test_max_results_comes_from_the_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = _Recorder()
@@ -514,18 +515,9 @@ def test_max_results_comes_from_the_call_or_the_settings(
         web_search=True,
         web_search_engine="plugin",
     )
-    chat(
-        "s",
-        "u",
-        model=NATIVE,
-        settings=conf,
-        web_search=True,
-        web_search_engine="plugin",
-        max_results=2,
-    )
 
     found = [b["tools"][0]["parameters"]["max_results"] for b in provider.bodies]
-    assert found == [9, 2]
+    assert found == [9]
 
 
 def test_the_search_cap_binds_the_tested_models_only(
@@ -576,6 +568,60 @@ def test_a_local_model_never_gets_a_plugin(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert "plugins" not in provider.bodies[0]
     assert "tools" not in provider.bodies[0]
+    assert usage["web_search"] is False
+
+
+# --- the client, called with a provider ------------------------------------
+
+
+def _seat(url: str) -> Provider:
+    return Provider(role="subject", url=url, api_key="sk-test", model=NATIVE)
+
+
+def test_the_client_adds_the_openrouter_web_search_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+
+    _, usage = client.chat(
+        "s", "q", provider=_seat(OPENROUTER), settings=_external(), web_search=True
+    )
+
+    body = provider.bodies[0]
+    assert [tool["type"] for tool in body["tools"]] == [TOOL]
+    assert "plugins" not in body
+    assert usage["web_search"] in ("native", "plugin")
+    assert usage["web_search_via"] == "tool"
+
+
+def test_the_client_asks_without_web_search_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+
+    client.chat("s", "q", provider=_seat(OPENROUTER), settings=_external())
+
+    assert "plugins" not in provider.bodies[0]
+    assert "tools" not in provider.bodies[0]
+
+
+def test_the_client_asks_a_local_model_without_web_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+
+    _, usage = client.chat(
+        "s",
+        "q",
+        provider=_seat("http://ollama:11434/v1"),
+        settings=Settings(),
+        web_search=True,
+    )
+
+    assert "plugins" not in provider.bodies[0]
     assert usage["web_search"] is False
 
 
@@ -1030,6 +1076,8 @@ class _Watcher:
     def planned(self, passes: int) -> None:
         self.planned_passes = passes
 
+    def plan(self, plan: dict[str, Any]) -> None: ...
+
     def phase(self, phase: JobPhase, message: str = "") -> None: ...
 
     def pass_started(self, index: int, arm: str, block: str, model: str) -> None:
@@ -1086,17 +1134,7 @@ def test_a_model_without_temperature_gets_no_monte_carlo(
     assert done.notes == [f"{COLD}: no temperature, Monte Carlo skipped"]
 
 
-def test_the_plan_does_not_count_a_skipped_block() -> None:
-    conf = Settings(
-        arms=[ContextMode.CLOSED_BOOK],
-        blocks=[EvalBlock.DIRECT, EvalBlock.DENIAL_LOOP, EvalBlock.MONTE_CARLO],
-    )
-
-    assert _plan(conf, _providers(NATIVE, COLD)) == 5
-    assert _plan(conf, _providers(NATIVE)) == 3
-
-
-# --- the settings ------------------------------------------------------------
+# --- the settings ----------------------------------------------------------
 
 
 def test_the_form_describes_the_web_search_fields() -> None:
@@ -1142,9 +1180,9 @@ def test_an_instrument_layer_sets_the_web_search_fields() -> None:
 
 
 def test_defaults_hand_out_the_web_search_fields() -> None:
-    from syft_benchmark.control.app import _effective_defaults
+    from syft_benchmark.control.compose import effective_defaults
 
-    instrument = _effective_defaults(Settings()).get("instrument")
+    instrument = effective_defaults(Settings()).get("instrument")
     shown = instrument.model_dump(mode="json")  # type: ignore[union-attr]
 
     assert shown["web_search_engine"] == "auto"

@@ -4,26 +4,20 @@ import type {
   BenchmarkFilterDecision,
   BenchmarkFilterOutcome,
   BenchmarkKindBuild,
-  BenchmarkWebCheck,
 } from '@/api/types'
-import { day } from './report/figures'
-import { REMOVED_REASON_LABEL, REMOVED_REASON_TIP, removedReasonLabel } from './report/labels'
-import { utcStamp } from './report/selectors'
-
-export const OUTCOMES: BenchmarkFilterOutcome[] = ['kept', 'removed', 'failed', 'skipped']
+import { TONE } from './labels'
+import { REMOVED_REASON_LABEL, removedReasonLabel } from './report/labels'
 
 const OUTCOME_LABEL: Record<BenchmarkFilterOutcome, string> = {
   kept: 'Kept',
   removed: 'Removed',
   failed: 'Failed',
-  skipped: 'Skipped',
 }
 
 const OUTCOME_TONE: Record<BenchmarkFilterOutcome, string> = {
-  kept: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-  removed: 'bg-destructive/10 text-destructive',
-  failed: 'bg-warning/20 text-foreground',
-  skipped: 'bg-muted text-muted-foreground',
+  kept: TONE.good,
+  removed: TONE.bad,
+  failed: TONE.failed,
 }
 
 export function outcomeLabel(outcome: string): string {
@@ -31,7 +25,7 @@ export function outcomeLabel(outcome: string): string {
 }
 
 export function outcomeTone(outcome: string): string {
-  return OUTCOME_TONE[outcome as BenchmarkFilterOutcome] ?? OUTCOME_TONE.skipped
+  return OUTCOME_TONE[outcome as BenchmarkFilterOutcome] ?? TONE.muted
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -57,35 +51,6 @@ export function reasonText(d: Pick<BenchmarkFilterDecision, 'reason' | 'reason_c
   if (note.toLowerCase().startsWith(lead)) note = note.slice(lead.length).trim()
   const repeats = note.toLowerCase() === label.toLowerCase()
   return note && !isCode && !repeats ? `${label}: ${note}` : label
-}
-
-/** What a removal reason means, for a tooltip; undefined when the label says it all. */
-export function reasonTip(d: Pick<BenchmarkFilterDecision, 'reason_code'>): string | undefined {
-  return d.reason_code ? REMOVED_REASON_TIP[d.reason_code] : undefined
-}
-
-/** `Written in 30 Sep 2026` for a question an earlier job wrote; null otherwise. */
-export function writtenInText(
-  d: Pick<BenchmarkFilterDecision, 'earlier' | 'written_by_job_at' | 'written_at'>,
-): string | null {
-  if (!d.earlier) return null
-  const when = day(utcStamp(d.written_by_job_at ?? d.written_at))
-  return when ? `Written in ${when}` : 'Written earlier'
-}
-
-/** Whether the row has web check details to unfold. */
-export function hasDetails(w: BenchmarkWebCheck | null | undefined): w is BenchmarkWebCheck {
-  if (!w) return false
-  return Boolean(
-    w.answer || w.verdict || w.reasoning || w.citations?.length || w.searches || w.error,
-  )
-}
-
-/** `3 kept · 2 removed`, outcomes with zero left out. */
-export function countsText(counts: Partial<Record<BenchmarkFilterOutcome, number>>): string {
-  return OUTCOMES.filter((o) => (counts[o] ?? 0) > 0)
-    .map((o) => `${counts[o]} ${OUTCOME_LABEL[o].toLowerCase()}`)
-    .join(' · ')
 }
 
 /** `12 written · 4 removed` for a job that asked no model. */
@@ -117,8 +82,18 @@ const STOPPED_LABEL: Record<string, string> = {
   'top-up cost limit': 'Cost limit',
 }
 
+export type KindBuildStat = 'written' | 'read' | 'dropped' | 'stopped'
+
+/** The figures of a kind's writing, with the hint over each heading. */
+export const KIND_BUILD_STATS: { key: KindBuildStat; label: string; tip: string | null }[] = [
+  { key: 'written', label: 'Written', tip: 'Of the budget, top-ups included.' },
+  { key: 'read', label: 'Read', tip: 'Passages or articles read, of those available.' },
+  { key: 'dropped', label: 'Dropped', tip: 'Thrown away while writing; hover a number for reasons.' },
+  { key: 'stopped', label: 'Stopped', tip: null },
+]
+
 /** Why a kind stopped writing, as a 1-2 word chip. */
-export function stoppedLabel(stopped: string): string {
+export function kindStoppedLabel(stopped: string): string {
   return STOPPED_LABEL[stopped] ?? stopped.charAt(0).toUpperCase() + stopped.slice(1)
 }
 
@@ -132,17 +107,6 @@ export function droppedLines(kind: Pick<BenchmarkKindBuild, 'dropped'>): string[
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1])
     .map(([reason, n]) => `${reason}: ${n}`)
-}
-
-/** An older masking question cut by spaCy: its badge; null for any other question. */
-export function maskedBy(meta: Record<string, unknown> | null | undefined): {
-  label: string
-  tip: string
-} | null {
-  const text = (key: string) => (typeof meta?.[key] === 'string' ? (meta[key] as string) : '')
-  if (text('mode') !== 'spacy') return null
-  const model = text('spacy_model')
-  return { label: 'spaCy', tip: model ? `Cut by spaCy (${model}).` : 'Cut by spaCy.' }
 }
 
 /** `12 / 10`, top-up writes noted. */

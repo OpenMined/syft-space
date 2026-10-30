@@ -1,56 +1,23 @@
-"""What has already been done — so an interrupted run does not start over.
+"""What has already been done, so an interrupted run does not start over.
 
-A port of ``_load_completed_and_cache`` from LiveTruth's `eval_arena/base.py`
-onto our schema. There, what was done got collected by walking the session's
-JSONL files; here it is already in the database — every verdict is written
-immediately rather than at the end — and it can be collected with a query.
+Every verdict is written at once, so what was done is a query. The unit of
+resumption is one judge's verdict on one question: a run can be interrupted in
+the middle of a panel.
 
-A measurement is interruptible by design, and that is no accident: it runs for
-hours, the node gets rebooted, the provider drops out, a human presses Ctrl-C.
-What is expensive in it is not what has already been recorded but what will
-have to be asked again.
-
-**The unit of resumption is one judge's verdict on one question**, not a run
-and not a question. A run gets interrupted in the middle of a panel: the first
-judge managed to assess the answer, the second did not — and "the question is
-done" would take away from the second work it never did.
-
-Three conditions, without which resumption turns into forgery.
-
-**A failure is a hole, not a result.** A row with the answer ``ERROR:`` is
-written so that the run is visible in full, but there is no verdict in it: the
-metrics filter it out of the denominator. Counting it as done means fixing a
-failure of the rig in place forever — it is exactly what has to be re-asked.
-A ``technical`` verdict on a real answer (the judge call failed) is a hole in
-the verdict, not in the answer: a run that needs a verdict re-asks it; a run
-with deferred judging keeps the answer, and the ``judge`` command grades it
-again.
-
-**What counts as done depends on what this run produces.** An ordinary run
-produces a verdict, and for it an answer without a verdict is a hole. A run
-with deferred judging produces an ANSWER, and the same row is done as far as it
-is concerned: it will be judged by a separate command, and there is no reason
-to re-ask the model. One definition for both cases would necessarily err in one
-direction or the other — either re-asking what was collected, or silently
-leaving a question without a verdict.
-
-**Freshness is computed the same way as in the report.** A question can be
-re-asked as many times as you like, and the latest verdict goes into the
-metrics. Which means a question counts as done when its LAST record is not a
-failure: otherwise resumption would skip a question the report will count as
-failed anyway.
-
-**The non-comparable is not reused.** The methodology profile, the effective
-context source and the measurement's settings snapshot have to match. The
-similarity threshold is an axis of the measurement, not a constant: a run at
-0.0 and a run at 0.45 answer different questions, and adding their halves into
-one share means getting a quantity that means nothing. That is exactly what
-``runs.params`` was created for.
-
-The time window is the fourth condition, and it is not about correctness but
-about intent. What is resumed is an interrupted attempt, not a cancellation of
-yesterday's measurement: without a window the daily cycle would measure nothing
-on its second day, having decided that everything was already done.
+  * **A failure is a hole, not a result.** An ``ERROR:`` answer is re-asked. A
+    ``technical`` verdict on a real answer (the judge call failed) is re-asked
+    by a run that needs a verdict; under deferred judging the answer is kept
+    and the ``judge`` command grades it again.
+  * **Done depends on what the run produces.** An ordinary run produces a
+    verdict, so an answer without one is a hole; a deferred run produces an
+    answer, and the same row is done.
+  * **Freshness as in the report.** A question is done when its LAST record is
+    usable.
+  * **The non-comparable is not reused.** The methodology profile, the
+    effective context source and the settings snapshot (``runs.params``) must
+    match: a run at threshold 0.0 and one at 0.45 answer different questions.
+  * **A time window.** What is resumed is an interrupted attempt, not
+    yesterday's measurement.
 """
 
 from __future__ import annotations
@@ -72,12 +39,7 @@ from syft_benchmark.runs.judge import is_error, is_technical
 
 
 def window_start(settings: Settings) -> datetime | None:
-    """From what moment to count what is recorded as ours.
-
-    ``0`` means "no window": sometimes a measurement that ran for a week is
-    resumed, and cutting it off at the start of the day would be exactly what
-    the human did not want.
-    """
+    """From what moment recorded verdicts count as this attempt's; None — no window."""
     hours = settings.resume_window_hours
     if hours <= 0:
         return None
@@ -97,10 +59,9 @@ def _matching_runs(
 ) -> list[str]:
     """Runs whose verdicts are comparable with the one going now.
 
-    The settings snapshot is compared in full and on the Python side rather
-    than in the query: comparing JSONB is delicate over trifles like ``0``
-    versus ``0.0``, and there are not many runs per Space. An error in this
-    direction is safe — extra work, not someone else's verdict in the report.
+    The settings snapshot is compared in Python, not in the query: JSONB
+    comparison trips over ``0`` versus ``0.0``. An error here only costs
+    extra work.
     """
     where = [
         Run.space == space,
@@ -175,18 +136,18 @@ def done_units(
             .order_by(Result.created_at)
         ).all()
 
-    # The last record for the ("judge", "question") pair is what decides. The
-    # walk goes in ascending time order, so each next one overrides the
-    # previous — by the same rule the report picks the latest verdict with.
+    # The latest record per (judge, question) decides, as in the report; the
+    # tests are the report's own, so "not assessed" has one definition.
     freshest: dict[tuple[str, str], bool] = {}
-    # The same tests the report counts failed calls with: two definitions of
-    # "not assessed" would drift apart.
     for row in rows:
         answer = str(row.answer or "")
         verdict = str(row.verdict or "")
         if need_verdict:
-            usable = not is_technical(verdict, answer)
-            usable = usable and verdict != Verdict.PENDING.value
+            usable = (
+                not is_error(answer)
+                and not is_technical(verdict)
+                and verdict != Verdict.PENDING.value
+            )
         else:
             usable = not is_error(answer)
         freshest[(row.judge_model, row.qa_id)] = usable

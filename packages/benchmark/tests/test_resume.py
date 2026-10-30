@@ -17,17 +17,13 @@ from syft_benchmark.config import (
     ContextSource,
     EvalBlock,
     Settings,
-    SpaceConfig,
 )
 from syft_benchmark.runs import resume as resume_mod
 from syft_benchmark.runs.resume import done_units, window_start
 
-SPACE = SpaceConfig(key="docs", url="http://node.local", endpoint="kb")
+from fakes import StoreStub
+
 PARAMS: dict[str, Any] = {"profile": "default", "similarity_threshold": 0.0}
-
-
-def _settings(**kwargs: object) -> Settings:
-    return Settings(**kwargs)  # type: ignore[arg-type]
 
 
 @dataclass
@@ -45,7 +41,7 @@ class _Row:
     verdict: str = "correct"
 
 
-class _Store:
+class _Store(StoreStub):
     """The database in the extent picking out what is done needs.
 
     There are two queries here and both are simple; the session is substituted
@@ -53,30 +49,16 @@ class _Store:
     """
 
     def __init__(self, runs: list[_Run], rows: list[_Row]) -> None:
+        super().__init__()
         self.runs = runs
-        self.rows = rows
-        self.queries = 0
-
-    def __call__(self, *args: Any, **kwargs: Any) -> _Store:
-        return self
-
-    def __enter__(self) -> _Store:
-        return self
-
-    def __exit__(self, *exc: Any) -> bool:
-        return False
-
-    def execute(self, stmt: Any) -> _Store:
-        self.queries += 1
-        self._last = stmt
-        return self
+        self.result_rows = rows
 
     def all(self) -> list[Any]:
         # The first query is the runs, the second the verdicts. Telling them
         # apart by the text is more reliable than by a counter: the order of the
         # calls may change.
-        text = str(self._last)
-        return self.runs if "FROM runs" in text else self.rows
+        text = str(self.statements[-1])
+        return self.runs if "FROM runs" in text else self.result_rows
 
 
 def _install(monkeypatch: Any, runs: list[_Run], rows: list[_Row]) -> _Store:
@@ -93,7 +75,7 @@ def _done(monkeypatch: Any, runs: list[_Run], rows: list[_Row], **kwargs: Any) -
         source=ContextSource.ENDPOINT_FRAGMENTS,
         block=EvalBlock.DIRECT,
         model="vendor/m",
-        settings=kwargs.pop("settings", _settings()),
+        settings=kwargs.pop("settings", Settings()),
         params=kwargs.pop("params", PARAMS),
         since=kwargs.pop("since", None),
     )
@@ -183,7 +165,7 @@ def test_a_failed_judge_call_is_not_done(monkeypatch: Any) -> None:
         source=ContextSource.ENDPOINT_FRAGMENTS,
         block=EvalBlock.DIRECT,
         model="vendor/m",
-        settings=_settings(),
+        settings=Settings(),
         params=PARAMS,
         since=None,
         need_verdict=False,
@@ -241,11 +223,11 @@ def test_the_verdicts_are_not_even_read_without_a_matching_run(
         source=ContextSource.NONE,
         block=EvalBlock.DIRECT,
         model="vendor/m",
-        settings=_settings(),
+        settings=Settings(),
         params=PARAMS,
         since=None,
     )
-    assert store.queries == 1
+    assert len(store.statements) == 1
 
 
 # --- the time window -------------------------------------------------------
@@ -257,11 +239,11 @@ def test_the_window_keeps_the_daily_cycle_measuring() -> None:
     Without the window the daily cycle would decide on the second day that
     everything was already done, and would measure nothing.
     """
-    start = window_start(_settings(resume_window_hours=24))
+    start = window_start(Settings(resume_window_hours=24))
     assert start is not None
     assert timedelta(hours=23) < datetime.now(UTC) - start < timedelta(hours=25)
 
 
 def test_the_window_can_be_removed() -> None:
     """A measurement that ran for a week cannot be cut off at the start of a day."""
-    assert window_start(_settings(resume_window_hours=0)) is None
+    assert window_start(Settings(resume_window_hours=0)) is None

@@ -6,12 +6,12 @@ uv run syft-benchmark evaluate docs -m closed_book       # arm A only
 uv run syft-benchmark evaluate docs -b direct -b monte_carlo
 uv run syft-benchmark evaluate docs --limit 10           # 10 items per generator
 uv run syft-benchmark evaluate docs --resume             # finish what was interrupted
-uv run syft-benchmark evaluate docs --defer-judging      # answers only, verdicts later
+uv run syft-benchmark evaluate docs --defer-judging      # answers only; `judge` grades them
 uv run syft-benchmark status docs                        # what is collected, what is left
 ```
 
-Who is asked, with what, how much it costs and how to resume. How answers are
-graded — [05-judging.md](05-judging.md). Which items are asked (`--limit`,
+Who is asked, with what, at what cost in calls, and how to resume. How answers
+are graded — [05-judging.md](05-judging.md). Which items are asked (`--limit`,
 frozen slice, web check gate) — [03-dataset.md](03-dataset.md).
 
 ---
@@ -24,9 +24,6 @@ The measurement is the difference between the arms over one set of questions.
 | --- | --- | --- | --- | --- |
 | **A** `closed_book` | the model under test | the question only | abstain (it has not seen the corpus) | the model's honesty |
 | **C** `model_with_context` | the **same** model | question + the endpoint's retrieval | a correct answer | the model's work with RAG |
-
-Arm B (`open_book`, the endpoint answering by itself) is not run: `arms` and
-`--mode` drop it. Stored B results still appear in reports and the card.
 
 **A and C differ by exactly the context.** Same model, same judge, and the
 arm C instruction repeats arm A's form: correct a false premise, otherwise
@@ -46,7 +43,7 @@ block.
 | --- | --- | --- |
 | `endpoint_fragments` (default) | can the model work with raw chunks: find the answer, not fill gaps | `raw` or `both` |
 | `endpoint_answer` | does the model repeat the endpoint's conclusion | `summary` or `both` |
-| `endpoint_both` | both, as the endpoint returned them | `raw` or `both` for the chunks |
+| `endpoint_both` | both, as the endpoint returned them | `raw` or `both` |
 | `oracle_chunk` | the ceiling: the item's source chunk, no retrieval | any |
 
 The first `context_docs` (3) chunks go into the prompt, each cut to
@@ -76,9 +73,8 @@ runs.
 | `denial_loop` | resistance to pressure | up to `denial_rounds` extra turns per right answer |
 | `monte_carlo` | resistance to randomness | temperatures × trials per question |
 
-Only `direct` goes into the card's headline numbers; the other two contribute
-`pressure` and `stability` ([08-card.md](08-card.md)). `denial_loop`
-and `monte_carlo` are graded by the first judge only.
+Only `direct` goes into the headline accuracy; the other two have figures of
+their own ([06-report.md](06-report.md)).
 
 ### `denial_loop`
 
@@ -96,15 +92,15 @@ round whose call or judge fails ends the loop without counting as surrender.
 
 The question is asked `monte_carlo_temperatures` (0.1, 0.3, 0.6, 0.9) ×
 `monte_carlo_trials` (3) = 12 times, in arm C with the same context (no
-re-retrieval). Each trial is graded; accuracy is the share of right trials,
-in the sense above. Consistency is the share of the most frequent answer,
+re-retrieval). Each trial is graded; accuracy is the share of trials that
+hold (correct; on a control item, anything but made up). Consistency is the share of the most frequent answer,
 compared on the lower-cased first 100 characters. Below
 `consistency_floor` (0.5) the report marks the accuracy as not trustworthy.
 A model the catalogue says takes no temperature skips the block.
 
-Both blocks grade every round and trial by the item's own grader, as
-`direct` does (see [05-judging.md](05-judging.md)); each log entry keeps its
-`verdict`, a control item's `behavior`, and the judge prompt and reply.
+Each round and trial is graded like a `direct` answer
+([05-judging.md](05-judging.md#how-an-answer-is-graded)); its log entry keeps
+the `verdict`, a control item's `behavior`, and the judge prompt and reply.
 
 ---
 
@@ -238,8 +234,8 @@ questions by behaviour) and recorded as a manual run.
 
 Limits: no temperature (no `monte_carlo`), no driven dialogue (no
 `denial_loop`), the chat's own system prompt and tools are in play, and the
-sample is small. Fit for reconnaissance, not for the report. A console
-**judge** has none of these limits — [05-judging.md](05-judging.md).
+sample is small. Fit for reconnaissance, not for the report. A **judge**
+through a chat has none of these limits — [05-judging.md](05-judging.md#judging-through-a-chat).
 
 ---
 
@@ -257,34 +253,38 @@ sample is small. Fit for reconnaissance, not for the report. A console
 | `monte_carlo_trials` | `3` | Trials per temperature |
 | `retrieval_top_k` | `5` | Chunks asked of the endpoint |
 | `similarity_threshold` | `0.0` | Retrieval similarity threshold |
-| `endpoint_max_tokens` | `500` | Ceiling on the endpoint's answer |
-| `endpoint_temperature` | `0.1` | The endpoint's temperature |
+| `endpoint_max_tokens` | `500` | Ceiling on the endpoint's answer, when arm C mixes it in |
+| `endpoint_temperature` | `0.1` | The endpoint's temperature, likewise |
 | `answer_max_tokens` | `8192` | Ceiling on any model answer |
 | `subject_models` | empty | Models under test; empty — the generator model |
 | `web_search_closed_book` | `true` | The model under test may search the web in arm A |
 | `web_search_with_context` | `false` | The same in arm C |
+| `web_search_engine` | `auto` | `native`: the model's own search; `plugin`: the Exa engine (OpenRouter's web plugin); `auto`: native when the catalogue says the model has it, else Exa |
+| `web_search_max_results` | `5` | Results per search with the Exa engine (1–20) |
+| `web_search_max_calls` | `0` | Searches one answer of a tested model may make (up to 30); `0` — the provider's own limit |
 | `consistency_floor` | `0.5` | Below it accuracy is not trusted |
 | `methodology_profile` | `default` | Written into every run |
 | `concurrency` | `16` | Model calls in flight |
 | `endpoint_concurrency` | `2` | Endpoint requests in flight |
 | `reuse_answers` | `true` | Reuse retrieval and temperature-0 answers |
 | `max_consecutive_failures` | `20` | Failures in a row before an answerer stops |
+| `max_job_usd` | `100` | A service job stops when its priced calls reach this; `0` — no cap |
 | `resume` | `false` | Resume by default |
 | `resume_window_hours` | `24` | Age limit for reused verdicts |
 | `audit_log` | `true` | Store prompts beside every answer |
 | `audit_max_chars` | `20000` | Ceiling on the stored arm C context |
 
-Web search applies only to models the catalogue can search with
-([01-setup.md](01-setup.md)). A model that takes tools gets OpenRouter's
-`web_search` tool, forced: `tool_choice: required`, then the named tool if the
-provider refuses that; a model without tools, or one that refuses both, gets
-the web plugin. An answer that shows no search (nothing cited, no searches
-reported, or a search call written as text) is asked once more with the Exa
-plugin, which always searches. Judging settings — [05-judging.md](05-judging.md).
+Web search applies only to models the catalogue can search with. A model that
+takes tools gets OpenRouter's `web_search` tool, forced: `tool_choice:
+required`, then the named tool if the provider refuses that; a model without
+tools, or one that refuses both, gets the web plugin. An answer that shows no
+search (nothing cited, no searches reported, or a search call written as text)
+is asked once more with the Exa plugin, which always searches. Judging settings — [05-judging.md](05-judging.md).
 
 **The similarity threshold is an axis of the measurement.** At `0.0` the
 endpoint returns top-k for any question, including one the corpus cannot
-answer. It can be set per Space in `config/spaces.json`. The profile and the
+answer. It is set per target, in the probe layer (`similarity_threshold`,
+[control-api.md](control-api.md#three-layers-of-settings)). The profile and the
 settings snapshot are written into every run (`runs.profile`, `runs.params`)
 so runs under different thresholds are never mixed.
 

@@ -12,7 +12,6 @@ import httpx
 from fastapi import HTTPException
 from loguru import logger
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
-from pydantic import ValidationError as PydanticValidationError
 
 # =============================================================================
 # Exceptions
@@ -399,7 +398,7 @@ def _handle_response(response: httpx.Response, model: type[T]) -> T:
     if response.is_success:
         try:
             return model.model_validate(response.json())
-        except (ValueError, PydanticValidationError) as exc:
+        except ValueError as exc:
             # A 2xx with a body this client cannot read - a proxy error page,
             # a truncated response - is a hub failure, not a success.
             raise ServerError(f"Unreadable response from SyftHub: {exc}") from exc

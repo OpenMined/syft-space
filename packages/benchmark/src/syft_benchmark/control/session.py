@@ -1,23 +1,14 @@
-"""Short-lived, single-target sessions for the console.
+"""Short-lived, single-target session tokens for the ``/console/*`` routes.
 
-The control API's own bearer token guards everything else in this package,
-and it is one shared secret for the whole installation — exactly wrong to
-hand to a browser: whoever holds it can see and drive every target of every
-Space wired to this installation. A session is the opposite in every
-dimension that matters: it names one target, it expires on its own, and it
-is minted by something that already holds the installation token (the
-Space's own backend, on the owner's request) rather than handed to a page
-directly.
+The installation token drives every target, so it is not handed out per
+request. A session names one target, expires on its own, and is minted by the
+holder of the installation token (the Space's backend) for each proxied call.
 
-The token is not looked up anywhere — there is no session table, and
-therefore nothing to garbage-collect. It is a signed claim,
+There is no session table: the token is a signed claim,
 ``base64url(payload) + "." + base64url(HMAC-SHA256(session key, payload))``,
-and "valid" means the signature checks out and ``exp`` has not passed yet,
-checked locally on every request. The signing key is derived from
-``control_token`` (``HMAC(control_token, "console-session")``), never
-``control_token`` itself: a session token must not double as the
-installation token even if the derivation could somehow be reversed, and the
-key rotates for free whenever the installation token does.
+valid while the signature checks out and ``exp`` has not passed. The signing
+key is ``HMAC(control_token, "console-session")``, never ``control_token``
+itself, so it rotates whenever the installation token does.
 """
 
 from __future__ import annotations
@@ -32,9 +23,8 @@ from syft_benchmark.config import Settings
 
 _ALGO = hashlib.sha256
 
-# One working session, comfortably: long enough that a console left open
-# through a coffee break does not suddenly refuse it, short enough that a
-# leaked link is not a standing door.
+# Long enough for one proxied call and its retries, short enough that a
+# leaked token is not a standing door.
 DEFAULT_TTL_SECONDS = 3600
 
 

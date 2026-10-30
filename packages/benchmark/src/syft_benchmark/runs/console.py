@@ -1,41 +1,15 @@
-"""Testing a model by hand, through a chat.
+"""Testing a model, or judging answers, by hand through a chat.
 
-A port of the idea of `eval_arena/console.py` from LiveTruth. The point is to
-test a model that has no API: Claude in the web chat, ChatGPT, anything with an
-input box. The benchmark exports the questions as one block of text, a human
-pastes it into the chat, takes the answer and puts it in a file, and the
-benchmark parses and judges it like an ordinary run.
+**A console model** answers questions exported as one block of text; the pasted
+answers are judged like an ordinary run. It is for reconnaissance of a model
+with no API, not for the report: no temperature (so no ``monte_carlo``), no
+programmatic dialogue (so no ``denial_loop``), a chat product's system prompt
+and tools in the way, and a small sample.
 
-**The limitations of this path have to be known in advance** — they are not in
-the implementation but in the very nature of manual testing:
-
-  * **the temperature cannot be set.** Which means `monte_carlo` is impossible
-    here: it is built entirely on repeats at given temperatures.
-  * **the dialogue cannot be continued programmatically.** `denial_loop`
-    requires K rounds of objections in the same exchange; that too can be done
-    by hand, but every round would have to be exported and pasted separately,
-    and the benchmark does not drive such a loop.
-  * **the answer comes from a chat, not from a model.** In a chat window the
-    provider system prompt, the history and the tools are usually at work. What
-    is measured is the behaviour of a product, not of a model, and these numbers
-    cannot be compared directly with an API run.
-  * **the sample is small.** Nobody is going to paste a hundred questions by
-    hand, and over ten a five-percent difference is noise.
-
-So the console path is fit for reconnaissance: seeing how a model behaves that
-cannot be reached otherwise. It is not intended for the report.
-
-**The second path is a console JUDGE**, and its limitations are different. A
-judge holds no dialogue and needs no temperature: it reads the question, the gold
-answer and the answer once and says whether it is right. Everything that got in
-the way of a console model does not get in the way here, and the gain is direct —
-the judge line drops out of the bill entirely, and a subscription takes its place.
-
-The pair of commands ``export-judging`` / ``import-judging`` works on top of
-answers already collected: nobody re-asks the answerer, what is judged is what
-was recorded. Deferred judging comes from the same place: ``evaluate
---defer-judging`` records answers with the verdict ``pending``, and they are
-judged later — by the same console judge or by an ordinary run.
+**A console judge** grades answers already recorded (``export-judging`` /
+``import-judging``): it needs neither a temperature nor a dialogue, and a
+subscription takes the place of the judge's API bill. Answers recorded with
+``evaluate --defer-judging`` can be judged this way.
 """
 
 from __future__ import annotations
@@ -65,11 +39,21 @@ from syft_benchmark.runs.gate import evaluable
 from syft_benchmark.runs.judge import (
     JUDGE_RULES,
     Gradable,
+    Grade,
+    VerdictCounts,
     date_note,
     explanation_grade,
     free_text_grade,
     grade_item,
-    is_technical,
+    is_error,
+)
+from syft_benchmark.runs.judge_stage import Task, pending_tasks
+from syft_benchmark.runs.regrade import (
+    VerdictRuns,
+    answer_audit,
+    answer_extra,
+    columns,
+    copy_result,
 )
 
 
@@ -84,26 +68,19 @@ def _questions_header(count: int) -> str:
     )
 
 
-# The answer is pasted by a human and a chat, and they format it however they
-# please: now an array of objects, now a numbered list. We parse both forms.
+# A pasted reply is a JSON array or a numbered list; both are parsed.
 _NUMBERED_RE = re.compile(r"^\s*(?:#|№)?\s*([0-9a-f]{6,32})\s*[:.\)]\s*(.+)$")
 
 
-@dataclass(slots=True)
-class ConsoleReport:
+@dataclass(slots=True, kw_only=True)
+class ConsoleReport(VerdictCounts):
     """The result of a manual run."""
 
     run_id: str = ""
     exported: int = 0
     matched: int = 0
     missing: int = 0
-    correct: int = 0
-    abstain: int = 0
-    hallucinate: int = 0
-    incomplete: int = 0
-    web_sourced: int = 0
-    technical: int = 0
-    notes: list[str] | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 def export_questions(
@@ -115,9 +92,8 @@ def export_questions(
 ) -> ConsoleReport:
     """Export the questions as one block of text for pasting into a chat.
 
-    The pair identifier is printed beside the question: without it there is
-    nothing to match the answers against, and the order in a chat answer is not
-    guaranteed.
+    Each question carries its pair id: a chat's answers come back in no
+    guaranteed order.
 
     Args:
         space: The Space key
@@ -129,7 +105,7 @@ def export_questions(
         A ConsoleReport with the number of questions exported
     """
     conf = settings or get_settings()
-    with session_scope() as session:
+    with session_scope(conf) as session:
         rows = list(
             session.execute(
                 select(QaPair)
@@ -154,31 +130,35 @@ def export_questions(
     return ConsoleReport(exported=len(pairs))
 
 
-def parse_answers(text: str) -> dict[str, str]:
-    """Pull the answers out of what the human pasted.
+def _pasted_items(text: str) -> list[dict[str, Any]]:
+    """The objects of the JSON array in a pasted reply; empty where there is none.
 
-    We accept both a JSON array and the line-by-line form "<id>: answer": a chat
-    answers now one way, now another, and demanding a single form would mean
-    breaking the work over a format.
+    The array is taken from the first ``[`` to the last ``]``: a chat wraps it
+    in prose and code fences.
     """
+    start = text.find("[")
+    if start < 0:
+        return []
+    try:
+        parsed = json.loads(text[start : text.rindex("]") + 1])
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
+
+
+def parse_answers(text: str) -> dict[str, str]:
+    """Pull the answers out of what was pasted: a JSON array or "<id>: answer" lines."""
     answers: dict[str, str] = {}
 
-    start = text.find("[")
-    if start >= 0:
-        try:
-            parsed = json.loads(text[start : text.rindex("]") + 1])
-        except (json.JSONDecodeError, ValueError):
-            parsed = None
-        if isinstance(parsed, list):
-            for item in parsed:
-                if not isinstance(item, dict):
-                    continue
-                key = str(item.get("id") or "").strip()
-                value = str(item.get("answer") or "").strip()
-                if key and value:
-                    answers[key] = value
-            if answers:
-                return answers
+    for item in _pasted_items(text):
+        key = str(item.get("id") or "").strip()
+        value = str(item.get("answer") or "").strip()
+        if key and value:
+            answers[key] = value
+    if answers:
+        return answers
 
     for line in text.splitlines():
         match = _NUMBERED_RE.match(line)
@@ -196,9 +176,8 @@ def import_answers(
 ) -> ConsoleReport:
     """Parse the pasted answers, judge them and record them as a run.
 
-    The run is marked with the ``direct`` block and the ``closed_book`` mode:
-    manual testing is always a question without context, and it supports no other
-    block.
+    The run is recorded as ``direct`` and ``closed_book``: the only block and
+    arm manual testing supports.
 
     Args:
         space: The Space key
@@ -214,13 +193,13 @@ def import_answers(
     judge = judge_provider(conf)
     answers = parse_answers(source.read_text(encoding="utf-8"))
 
-    report = ConsoleReport(notes=[])
+    report = ConsoleReport()
     if not answers:
-        report.notes = ["not a single answer was found in the file"]
+        report.notes.append("not a single answer was found in the file")
         return report
 
     run_id = uuid.uuid4().hex
-    with session_scope() as session:
+    with session_scope(conf) as session:
         session.add(
             Run(
                 id=run_id,
@@ -237,7 +216,7 @@ def import_answers(
         )
     report.run_id = run_id
 
-    with session_scope() as session:
+    with session_scope(conf) as session:
         rows = list(
             session.execute(
                 select(QaPair).where(QaPair.id.in_(list(answers)))
@@ -250,24 +229,10 @@ def import_answers(
     report.missing = len(answers) - len(pairs)
     for pair in pairs:
         answer = answers[pair.id]
-        # The judging method is set by the item's kind — as in an ordinary run. A
-        # control question is judged by behaviour: there is no correct answer, and
-        # nothing to compare it against.
-        verdict = grade_item(
-            Gradable(
-                question=pair.question,
-                expected=pair.answer,
-                generator=pair.generator,
-                task_type=pair.task_type,
-                meta=pair.meta,
-                context=pair.context or "",
-            ),
-            answer,
-            settings=conf,
-            judge=judge,
-        )
+        # Graded by the item's kind, as in an ordinary run.
+        verdict = grade_item(Gradable.of(pair), answer, settings=conf, judge=judge)
 
-        with session_scope() as session:
+        with session_scope(conf) as session:
             session.add(
                 Result(
                     id=uuid.uuid4().hex,
@@ -289,25 +254,9 @@ def import_answers(
             )
 
         report.matched += 1
-        if verdict.verdict is Verdict.CORRECT:
-            report.correct += 1
-        elif verdict.verdict is Verdict.ABSTAIN:
-            report.abstain += 1
-        elif verdict.verdict is Verdict.INCOMPLETE:
-            report.incomplete += 1
-        elif verdict.verdict is Verdict.WEB_SOURCED:
-            report.web_sourced += 1
-        elif verdict.verdict is Verdict.TECHNICAL:
-            report.technical += 1
-        else:
-            report.hallucinate += 1
+        report.count(verdict)
 
     return report
-
-
-# ---------------------------------------------------------------------------
-# The console judge
-# ---------------------------------------------------------------------------
 
 
 def _judging_header(count: int) -> str:
@@ -324,10 +273,9 @@ def _judging_header(count: int) -> str:
     )
 
 
-# The judge answer is one object per line or the whole array. The form is set by
-# the chat, not by us, and demanding a single one would mean breaking the work
-# over formatting. A line carries no "false_claims", so an incorrect one counts
-# as did not know, as with an API judge that leaves the field out.
+# A pasted verdict line: "<id>: correct — reasoning". A line carries no
+# "false_claims", so an incorrect one counts as did not know, as with an API
+# judge that leaves the field out.
 _VERDICT_RE = re.compile(
     r"^\s*([0-9a-f]{6,32})\s*[:.\)]\s*(correct|incorrect|wrong|yes|no|true|false)"
     r"\s*[—\-:]?\s*(.*)$",
@@ -337,142 +285,37 @@ _VERDICT_RE = re.compile(
 _POSITIVE = {"correct", "yes", "true"}
 
 
-@dataclass(slots=True)
-class JudgingTask:
-    """One answer that has to be judged."""
-
-    result_id: str
-    qa_id: str
-    question: str
-    expected: str
-    answer: str
-    grading: str
-    key_facts: list[str] = field(default_factory=list)
-    # Connect the facts: what a correct answer must state, every one.
-    hop_facts: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class JudgingReport:
+@dataclass(slots=True, kw_only=True)
+class JudgingReport(VerdictCounts):
     """The result of exporting or importing console judging."""
 
     run_ids: list[str] = field(default_factory=list)
     exported: int = 0
     matched: int = 0
     missing: int = 0
-    correct: int = 0
-    abstain: int = 0
-    hallucinate: int = 0
-    incomplete: int = 0
     notes: list[str] = field(default_factory=list)
 
 
-def _judging_tasks(
-    space: str,
-    *,
-    judge: str,
-    only_pending: bool,
-    limit: int | None,
-    settings: Settings,
-) -> list[JudgingTask]:
-    """The answers it makes sense to show this judge.
-
-    The key is (arm, source, block, model, question), and NOT the run or the
-    judge: the answerer answer is shared by the whole panel, and exporting it once
-    per judge that has already worked would mean asking a human to judge one and
-    the same thing three times.
-
-    Only the direct test is taken, and that is not a simplification. Pressure and
-    repeats issue their verdicts AS THEY GO: ``denial_loop`` judges every round in
-    order to work out at which one the model gave in, ``monte_carlo`` every trial.
-    A console judge sees one recorded answer and knows nothing of the rounds; its
-    verdict, placed into such a block row, would carry off someone else decision
-    about the surrender and pass it off as its own. The blocks are judged by the
-    model that went with them as they ran — there is no other way.
-
-    Three kinds of row drop out of the export, each for its own reason: failed
-    calls — there is nothing to judge; those this judge has already judged — the
-    work is done; and under ``only_pending``, everything that already has a
-    verdict as well.
-    """
-    with session_scope(settings) as session:
-        rows = session.execute(
-            select(
-                Result.id,
-                Result.qa_id,
-                Result.answer,
-                Result.verdict,
-                Result.judge_model,
-                Result.created_at,
-                Run.context_mode,
-                Run.context_source,
-                Run.block,
-                Run.model,
-            )
-            .join(Run, Run.id == Result.run_id)
-            .where(
-                Result.space == space,
-                Run.block == EvalBlock.DIRECT.value,
-            )
-            .order_by(Result.created_at)
-        ).all()
-
-    freshest: dict[tuple[str, ...], Any] = {}
-    judged: set[tuple[str, ...]] = set()
-    for row in rows:
-        key = (
-            row.context_mode,
-            row.context_source,
-            row.block,
-            row.model,
-            row.qa_id,
-        )
-        if row.judge_model == judge:
-            # This judge has already spoken here — we do not ask again.
-            judged.add(key)
-            continue
-        freshest[key] = row
-
-    wanted = [
-        row
-        for key, row in freshest.items()
-        if key not in judged
-        # Nothing to grade: the call did not happen.
-        and not is_technical(row.verdict, str(row.answer or ""))
-        and (not only_pending or row.verdict == Verdict.PENDING.value)
-    ]
-    wanted.sort(key=lambda row: (row.context_mode, row.block, row.model, row.qa_id))
-    if limit:
-        wanted = wanted[:limit]
-    if not wanted:
-        return []
-
-    with session_scope(settings) as session:
-        pairs = {
-            pair.id: pair
-            for pair in session.execute(
-                select(QaPair).where(QaPair.id.in_([row.qa_id for row in wanted]))
-            ).scalars()
-        }
-        tasks = []
-        for row in wanted:
-            pair = pairs.get(row.qa_id)
-            if pair is None:
-                continue
-            meta = pair.meta or {}
-            tasks.append(
-                JudgingTask(
-                    result_id=row.id,
-                    qa_id=row.qa_id,
-                    question=pair.question,
-                    expected=pair.answer,
-                    answer=str(row.answer or ""),
-                    grading=str(meta.get("grading") or "judge"),
-                    key_facts=[str(f) for f in meta.get("key_facts", [])],
-                    hop_facts=[str(f) for f in meta.get("hop_facts") or []],
-                )
-            )
-    return tasks
+def _task_lines(task: Task) -> list[str]:
+    """One exported item: the question, what it is graded against, the answer."""
+    meta = task.item.meta or {}
+    key_facts = [str(f) for f in meta.get("key_facts", [])]
+    hop_facts = [str(f) for f in meta.get("hop_facts") or []]
+    lines = [f"--- {task.result_id}", f"Question:\n{task.item.question}"]
+    if str(meta.get("grading") or "judge") == "key_facts" and key_facts:
+        # A machine judge computes the share of facts covered; a human gives
+        # a yes/no over the same list, read as an explanation's verdict.
+        facts = "\n".join(f"  {i + 1}. {f}" for i, f in enumerate(key_facts))
+        lines.append(f"Facts the explanation must cover:\n{facts}")
+    else:
+        lines.append(f"Expected answer:\n{task.item.expected}")
+        if hop_facts:
+            # Connect the facts: what a correct answer must state, every one.
+            facts = "\n".join(f"  {i + 1}. {f}" for i, f in enumerate(hop_facts))
+            lines.append(f"Required facts:\n{facts}")
+    lines.append(f"Model answer:\n{task.answer}")
+    lines.append("")
+    return lines
 
 
 def export_judging(
@@ -484,17 +327,15 @@ def export_judging(
     limit: int | None = None,
     settings: Settings | None = None,
 ) -> JudgingReport:
-    """Export the collected answers for judging by a human or a chat.
-
-    Nobody re-asks the answerer: what is judged is what was recorded. So a console
-    judge has not one of a console model limitations — it needs neither a
-    temperature nor a dialogue — and the judge line drops out of the bill entirely.
+    """Export the recorded answers for judging by a human or a chat.
 
     Args:
         space: The Space key
         out: Where to put the task text
         judge: The name the verdicts will go into the report under
-        only_pending: Only the answers that do not have a verdict yet
+        only_pending: Only the pending answers and those whose judge call
+            failed; otherwise every direct-test answer this judge has not
+            graded, as a further opinion
         limit: How many to export; empty — all of them
         settings: The process settings
 
@@ -502,8 +343,8 @@ def export_judging(
         A JudgingReport with the number of tasks exported
     """
     conf = settings or get_settings()
-    tasks = _judging_tasks(
-        space, judge=judge, only_pending=only_pending, limit=limit, settings=conf
+    tasks = pending_tasks(
+        space, judge_name=judge, only_pending=only_pending, limit=limit, settings=conf
     )
     report = JudgingReport(exported=len(tasks))
     if not tasks:
@@ -516,24 +357,7 @@ def export_judging(
 
     lines = [_judging_header(len(tasks)), ""]
     for task in tasks:
-        lines.append(f"--- {task.result_id}")
-        lines.append(f"Question:\n{task.question}")
-        if task.grading == "key_facts" and task.key_facts:
-            # For tiered the gold answer comes with a list of facts, and a machine
-            # judge computes the share covered. We show a human the same list and
-            # ask the same thing in substance — "is it covered" — but get a binary
-            # answer. That is a coarsening, and it is recorded in the verdict:
-            # mixing a share of facts with a yes/no must not be done silently.
-            facts = "\n".join(f"  {i + 1}. {f}" for i, f in enumerate(task.key_facts))
-            lines.append(f"Facts the explanation must cover:\n{facts}")
-        else:
-            lines.append(f"Expected answer:\n{task.expected}")
-            if task.hop_facts:
-                hops = enumerate(task.hop_facts)
-                facts = "\n".join(f"  {i + 1}. {f}" for i, f in hops)
-                lines.append(f"Required facts:\n{facts}")
-        lines.append(f"Model answer:\n{task.answer}")
-        lines.append("")
+        lines += _task_lines(task)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
@@ -541,31 +365,19 @@ def export_judging(
 
 
 def parse_verdicts(text: str) -> dict[str, tuple[Verdict, str]]:
-    """Pull the verdicts out of what the human pasted.
+    """Pull the verdicts out of what was pasted.
 
-    We accept both a JSON array and the line-by-line form ``<id>: correct —
-    reasoning``: the parsing is tolerant for the same reason as for the answers —
-    the form is set by the chat. Each item is read as the API judge's reply is
-    (``free_text_grade``), so "false_claims" splits a miss the same way.
+    A JSON array or ``<id>: correct — reasoning`` lines; each is read as the API
+    judge's reply is (``free_text_grade``).
     """
     verdicts: dict[str, tuple[Verdict, str]] = {}
 
-    start = text.find("[")
-    if start >= 0:
-        try:
-            parsed = json.loads(text[start : text.rindex("]") + 1])
-        except (json.JSONDecodeError, ValueError):
-            parsed = None
-        if isinstance(parsed, list):
-            for item in parsed:
-                if not isinstance(item, dict):
-                    continue
-                key = str(item.get("id") or "").strip()
-                if not key or "correct" not in item:
-                    continue
-                verdicts[key] = free_text_grade(item)
-            if verdicts:
-                return verdicts
+    for item in _pasted_items(text):
+        key = str(item.get("id") or "").strip()
+        if key and "correct" in item:
+            verdicts[key] = free_text_grade(item)
+    if verdicts:
+        return verdicts
 
     for line in text.splitlines():
         match = _VERDICT_RE.match(line)
@@ -588,15 +400,11 @@ def import_judging(
 ) -> JudgingReport:
     """Record the console verdicts as the assessment of a separate judge.
 
-    A new run is created for each (arm, source, block, model) combination, and the
-    verdicts go into it under the console judge name. That is how they enter the
-    report on a par with the machine ones — and judge agreement too: the point of
-    a second judge is that the first can be compared against it.
-
-    The settings snapshot, the profile and the endpoint mode are copied from the
-    original run rather than assembled afresh. What is judged is the RECORDED
-    answer, obtained under the settings of that time; substituting today ones
-    would mean ascribing to the verdict conditions under which it was not issued.
+    A new run per (arm, source, block, model) carries the verdicts under the
+    console judge's name, so they enter the report and judge agreement like a
+    machine judge's (``runs.regrade``). Only real direct-test answers take a
+    verdict, as in the export: a verdict on a failed call or on a pressure or
+    repeats row is skipped and counted in the notes.
 
     Args:
         space: The Space key
@@ -621,19 +429,7 @@ def import_judging(
             .join(Run, Run.id == Result.run_id)
             .where(Result.id.in_(list(verdicts)), Result.space == space)
         ).all()
-        source_rows = [
-            (
-                {
-                    column.name: getattr(result, column.name)
-                    for column in Result.__table__.columns
-                },
-                {
-                    column.name: getattr(run, column.name)
-                    for column in Run.__table__.columns
-                },
-            )
-            for result, run in rows
-        ]
+        source_rows = [(columns(result), columns(run)) for result, run in rows]
         # The items graded by key facts: their verdicts are read as such.
         explanations = {
             qa_id
@@ -653,88 +449,44 @@ def import_judging(
         )
         return report
 
-    # One run per combination: the verdicts of different arms and blocks must not
-    # be piled together — those are different measurements.
-    runs: dict[tuple[str, ...], str] = {}
-    for result_row, run_row in source_rows:
-        key = (
-            str(run_row["context_mode"]),
-            str(run_row["context_source"]),
-            str(run_row["block"]),
-            str(run_row["model"]),
+    gradable = [
+        (result_row, run_row)
+        for result_row, run_row in source_rows
+        if run_row["block"] == EvalBlock.DIRECT.value
+        and not is_error(str(result_row["answer"] or ""))
+    ]
+    skipped = len(source_rows) - len(gradable)
+    if skipped:
+        report.notes.append(
+            f"{skipped} verdicts skipped: a failed call or not a direct-test "
+            "answer, which only a judge in the loop grades"
         )
-        if key not in runs:
-            run_id = uuid.uuid4().hex
-            runs[key] = run_id
-            report.run_ids.append(run_id)
-            with session_scope(conf) as session:
-                session.add(
-                    Run(
-                        id=run_id,
-                        space=space,
-                        endpoint=str(run_row["endpoint"] or ""),
-                        context_mode=key[0],
-                        context_source=key[1],
-                        profile=str(run_row["profile"] or ""),
-                        params=dict(run_row["params"] or {}),
-                        block=key[2],
-                        model=key[3],
-                        model_vendor=str(run_row["model_vendor"] or ""),
-                        judge_model=judge,
-                        note="console judging",
-                    )
-                )
 
+    runs = VerdictRuns(space, judge, "console judging")
+    for result_row, run_row in gradable:
         verdict, reasoning = verdicts[str(result_row["id"])]
         if str(result_row["qa_id"]) in explanations:
             verdict, reasoning = explanation_grade(
                 verdict, reasoning, str(result_row["answer"] or "")
             )
-        audit = dict(result_row["audit"] or {})
-        # An auditor needs to see that the verdict was issued by a human in a chat
-        # rather than by a model: it cannot be checked the way a machine one can.
+        audit = answer_audit(result_row["audit"])
         audit["judged_by_console"] = judge
-        audit.pop("judge_raw", None)
 
         with session_scope(conf) as session:
             session.add(
-                Result(
-                    id=uuid.uuid4().hex,
-                    run_id=runs[key],
-                    qa_id=str(result_row["qa_id"]),
-                    space=space,
-                    endpoint=str(result_row["endpoint"] or ""),
-                    endpoint_response_type=str(
-                        result_row["endpoint_response_type"] or ""
-                    ),
-                    answer=str(result_row["answer"] or ""),
+                copy_result(
+                    result_row,
+                    run_id=runs.run_id_for(session, run_row),
                     verdict=verdict.value,
                     reasoning=reasoning or "console judge",
-                    expected_behavior=str(result_row["expected_behavior"] or "answer"),
-                    grounded=result_row["grounded"],
-                    grounded_note=str(result_row["grounded_note"] or ""),
-                    retrieval_hit=result_row["retrieval_hit"],
-                    retrieval_rank=result_row["retrieval_rank"],
-                    retrieved=result_row["retrieved"] or [],
-                    extra=dict(result_row["extra"] or {}),
+                    extra=answer_extra(result_row["extra"]),
                     audit=audit,
-                    latency_s=float(result_row["latency_s"] or 0.0),
-                    model=str(result_row["model"] or ""),
-                    # The same answer, so the same upstream. Only the grader
-                    # changed, and it is a person.
-                    served_by=str(result_row["served_by"] or ""),
                     judge_model=judge,
                 )
             )
 
         report.matched += 1
-        if verdict is Verdict.CORRECT:
-            report.correct += 1
-        elif verdict is Verdict.ABSTAIN:
-            report.abstain += 1
-        elif verdict is Verdict.INCOMPLETE:
-            report.incomplete += 1
-        else:
-            report.hallucinate += 1
+        report.count(Grade(verdict, reasoning))
 
+    report.run_ids = runs.run_ids
     return report

@@ -6,13 +6,11 @@
  */
 import type {
   BenchmarkInstrumentLayer,
-  BenchmarkJob,
   BenchmarkLayer,
-  BenchmarkModel,
   BenchmarkTarget,
   BenchmarkTargetRequest,
-  BenchmarkWebSearch,
 } from '@/api/types'
+import { plural } from '../labels'
 
 // --- copy -------------------------------------------------------------------
 
@@ -20,46 +18,6 @@ export interface Choice {
   value: string
   label: string
 }
-
-export interface Kind {
-  key: string
-  label: string
-  help: string
-}
-
-/** The kinds of question, in the order the benchmark runs them. */
-export const KINDS: Kind[] = [
-  { key: 'named_entity_masking', label: 'Names', help: 'Fill in a missing name.' },
-  { key: 'numeric_masking', label: 'Numbers', help: 'Fill in a missing figure.' },
-  { key: 'temporal_masking', label: 'Dates', help: 'Fill in a missing date.' },
-  { key: 'mcq', label: 'Multiple choice', help: 'Pick the right answer from four.' },
-  {
-    key: 'two_truths_one_lie',
-    label: 'Spotting a false claim',
-    help: 'Find the false statement among three.',
-  },
-  {
-    key: 'multihop_synthesis',
-    label: 'Connecting facts',
-    help: 'Combine facts from different parts of a story.',
-  },
-  {
-    key: 'tiered_explanation',
-    label: 'Explaining a story simply',
-    help: 'Explain it for a young reader.',
-  },
-  { key: 'qa', label: 'Open questions', help: 'Answer a direct question in a sentence.' },
-  {
-    key: 'unanswerable_property',
-    label: 'Trick questions',
-    help: 'Ask for a detail that isn’t there.',
-  },
-  {
-    key: 'false_premise',
-    label: 'Questions with a false premise',
-    help: 'Assume something that didn’t happen.',
-  },
-]
 
 export const DATASET_MODES: Choice[] = [
   { value: 'rolling', label: 'Rolling: only the newest articles' },
@@ -108,156 +66,14 @@ export const JUDGE_REASONING: Choice[] = [
   { value: 'default', label: 'Model default' },
 ]
 
-export const MAX_JUDGES = 3
+const MAX_JUDGES = 3
 
 /** Settings the page does not show; every save keeps them at these values. */
-export const FIXED_INSTRUMENT: BenchmarkInstrumentLayer = {
+const FIXED_INSTRUMENT: BenchmarkInstrumentLayer = {
   arms: ['closed_book', 'model_with_context'],
   context_source: 'endpoint_fragments',
   methodology_profile: 'demosyft',
   audit_log: true,
-}
-
-// --- companies --------------------------------------------------------------
-
-/** Prefixes one company publishes under; mirrors the benchmark's COMPANY_ALIASES. */
-export const COMPANY_ALIASES: Record<string, string> = {
-  'x-ai': 'xai',
-  'meta-llama': 'meta',
-  mistralai: 'mistral',
-  gemini: 'google',
-  'bytedance-seed': 'bytedance',
-}
-
-const COMPANY_NAMES: Record<string, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  google: 'Google',
-  xai: 'xAI',
-  qwen: 'Alibaba',
-  deepseek: 'DeepSeek',
-  moonshotai: 'Moonshot AI',
-  meta: 'Meta',
-  mistral: 'Mistral',
-  bytedance: 'ByteDance',
-}
-
-/** The company behind a model: catalogue vendor, else the id prefix, through the alias map. */
-export function companyOf(id: string, vendor?: string): string {
-  const raw = (vendor || (id.includes('/') ? id.slice(0, id.indexOf('/')) : '')).toLowerCase()
-  return COMPANY_ALIASES[raw] ?? raw
-}
-
-export function companyName(company: string): string {
-  return COMPANY_NAMES[company] ?? company
-}
-
-export interface Clash {
-  /** 0-based judge slot. */
-  judge: number
-  judgeModel: string
-  model: string
-  company: string
-}
-
-/** Every judge paired with a tested model from the same company. */
-export function findClashes(
-  judges: string[],
-  models: string[],
-  vendorOf: (id: string) => string | undefined = () => undefined,
-): Clash[] {
-  const clashes: Clash[] = []
-  judges.forEach((judge, index) => {
-    if (!judge) return
-    const company = companyOf(judge, vendorOf(judge))
-    if (!company) return
-    for (const model of models) {
-      if (companyOf(model, vendorOf(model)) === company) {
-        clashes.push({ judge: index, judgeModel: judge, model, company })
-      }
-    }
-  })
-  return clashes
-}
-
-// --- model names ------------------------------------------------------------
-
-/** A model's name without the vendor prefix the catalogue puts in front. */
-export function modelName(id: string, entry?: Pick<BenchmarkModel, 'name'>): string {
-  const name = entry?.name?.trim()
-  if (name) {
-    const cut = name.indexOf(': ')
-    return cut === -1 ? name : name.slice(cut + 2)
-  }
-  const slash = id.lastIndexOf('/')
-  return slash === -1 ? id : id.slice(slash + 1)
-}
-
-// --- model capabilities -----------------------------------------------------
-
-type CatalogEntry = Pick<BenchmarkModel, 'supports'> & Partial<Pick<BenchmarkModel, 'web_search'>>
-
-export function webSearchOf(entry?: CatalogEntry): BenchmarkWebSearch {
-  return entry?.web_search ?? 'none'
-}
-
-/** Whether a model takes a temperature; an unknown model is assumed to. */
-export function takesTemperature(entry?: CatalogEntry): boolean {
-  if (!entry || !entry.supports.length) return true
-  return entry.supports.includes('temperature')
-}
-
-export type ModelFilter = 'web' | 'no-web' | 'temperature' | 'no-temperature'
-
-export interface ModelFilterChip {
-  value: ModelFilter
-  label: string
-  help: string
-}
-
-/** Picker chips. "Web" means built-in search; the plugin works with any OpenRouter model. */
-export const MODEL_FILTERS: ModelFilterChip[] = [
-  { value: 'web', label: 'Web search', help: 'Models with built-in web search.' },
-  { value: 'no-web', label: 'No web search', help: 'Models without built-in web search.' },
-  { value: 'temperature', label: 'Temperature', help: 'Models that take a temperature.' },
-  { value: 'no-temperature', label: 'No temperature', help: 'Models that take no temperature.' },
-]
-
-/** The other chip of the same pair: both of a pair can't be on at once. */
-const FILTER_OPPOSITE: Record<ModelFilter, ModelFilter> = {
-  web: 'no-web',
-  'no-web': 'web',
-  temperature: 'no-temperature',
-  'no-temperature': 'temperature',
-}
-
-export function toggleFilter(on: ModelFilter[], chip: ModelFilter): ModelFilter[] {
-  if (on.includes(chip)) return on.filter((item) => item !== chip)
-  return [...on.filter((item) => item !== FILTER_OPPOSITE[chip]), chip]
-}
-
-export function matchesFilters(entry: CatalogEntry, filters: ModelFilter[]): boolean {
-  return filters.every((filter) => {
-    switch (filter) {
-      case 'web':
-        return webSearchOf(entry) === 'native'
-      case 'no-web':
-        return webSearchOf(entry) !== 'native'
-      case 'temperature':
-        return takesTemperature(entry)
-      case 'no-temperature':
-        return !takesTemperature(entry)
-    }
-  })
-}
-
-/** Tested models whose Monte Carlo block is skipped: repeats are on and they take no temperature. */
-export function monteCarloSkipped(
-  form: Pick<SetupForm, 'repeat' | 'models'>,
-  entryOf: (id: string) => CatalogEntry | undefined,
-): string[] {
-  if (!form.repeat) return []
-  return form.models.filter((id) => !takesTemperature(entryOf(id)))
 }
 
 // --- write at most ----------------------------------------------------------
@@ -298,7 +114,7 @@ export function parseNumberList(text: string): number[] | null {
   return numbers.every((n) => Number.isFinite(n)) ? numbers : null
 }
 
-export function formatNumberList(values: unknown): string {
+function formatNumberList(values: unknown): string {
   return Array.isArray(values) ? values.join(', ') : ''
 }
 
@@ -397,7 +213,7 @@ const FALLBACK = {
 } as const
 
 /** The judge temperature value that means the model's own default. */
-export const MODEL_DEFAULT = 'default'
+const MODEL_DEFAULT = 'default'
 
 /** The benchmark's own defaults, shown when no layer sets a field. */
 const BENCH_DEFAULTS = {
@@ -422,8 +238,8 @@ export const WEB_SEARCHES_MAX = 30
 
 const DEFAULT_WRITE_AT_MOST = 1000
 
-export interface Layers {
-  /** What the endpoint's own layer inherits: defaults, then the connection. */
+interface Layers {
+  /** What the endpoint's own layer inherits: the benchmark's defaults. */
   inheritedProbe: BenchmarkLayer
   inheritedInstrument: BenchmarkLayer
   /** What is in effect: the endpoint's own layer over the inherited one. */
@@ -431,9 +247,9 @@ export interface Layers {
   instrument: BenchmarkLayer
 }
 
-export function layersOf(target: BenchmarkTarget): Layers {
-  const inheritedProbe = { ...target.defaults?.probe, ...target.connection_probe }
-  const inheritedInstrument = { ...target.defaults?.instrument, ...target.connection_instrument }
+function layersOf(target: BenchmarkTarget): Layers {
+  const inheritedProbe = { ...target.defaults?.probe }
+  const inheritedInstrument = { ...target.defaults?.instrument }
   return {
     inheritedProbe,
     inheritedInstrument,
@@ -471,7 +287,7 @@ function strings(layer: BenchmarkLayer, key: string): string[] {
 }
 
 /** The judges in order, Judge 1 first, no repeats, at most MAX_JUDGES. */
-export function judgesOf(instrument: BenchmarkLayer): string[] {
+function judgesOf(instrument: BenchmarkLayer): string[] {
   const main = str(instrument, 'judge_model')
   const panel = strings(instrument, 'judge_models')
   const ordered = [...new Set([main, ...panel].filter(Boolean))]
@@ -560,8 +376,19 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
   }
 }
 
+/** One judge picker on the page. */
+export interface JudgeSlot {
+  /** 0-based. */
+  index: number
+  id: string
+  /** Models the other slots hold. */
+  exclude: string[]
+  /** Names of tested models from the same company. */
+  clashWith: string[]
+}
+
 /** The judges that count, Judge 1 first. */
-export function activeJudges(form: SetupForm): string[] {
+function activeJudges(form: SetupForm): string[] {
   return form.judges.slice(0, form.judgeCount).filter(Boolean)
 }
 
@@ -779,10 +606,6 @@ export function sameRequest(a: BenchmarkTargetRequest, b: BenchmarkTargetRequest
 
 // --- summary ----------------------------------------------------------------
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`
-}
-
 /**
  * "9 articles · up to 1000 questions written, 100 kept · 3 models · 3 judges",
  * plus "Monte Carlo skipped: <names>" for tested models that take no temperature.
@@ -811,28 +634,4 @@ export function windowDaysParam(value: unknown): number | undefined {
   if (value === '' || value === null || value === undefined) return undefined
   const days = Number(value)
   return Number.isInteger(days) && days >= 0 ? days : undefined
-}
-
-// --- a run in progress --------------------------------------------------------
-
-const PHASE_TEXT: Record<string, string> = {
-  generate: 'Writing questions from your articles.',
-  filter: 'Removing what the web already knows.',
-  evaluate: 'Asking the models.',
-  judge: 'Grading the answers.',
-  report: 'Writing up the results.',
-}
-
-export function phaseText(phase: string): string {
-  return PHASE_TEXT[phase] ?? 'Getting ready.'
-}
-
-type JobProgress = Pick<BenchmarkJob, 'state' | 'phase' | 'message' | 'step_done' | 'step_total'>
-
-/** "Running now · step 3 of 10"; while writing, the job's own counts as it sends them. */
-export function progressTitle(job: JobProgress): string {
-  if (job.state === 'queued') return 'Queued · starts shortly'
-  const message = job.message?.trim()
-  if (job.phase === 'generate' && message) return `Running now · ${message}`
-  return job.step_total ? `Running now · step ${job.step_done} of ${job.step_total}` : 'Running now'
 }

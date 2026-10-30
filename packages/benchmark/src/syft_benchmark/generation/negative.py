@@ -1,37 +1,21 @@
 """The control set: questions with no answer in the corpus.
 
-Every other generator builds an item OUT OF a chunk, that is, the question is
-answerable by construction. A dataset of only such questions measures half the
-behaviour: what the pair does when there is no answer is not measured at all —
-and that is the most frequent question a live user asks and the most dangerous
-trap in RAG.
+  * ``unanswerable_property`` — a property the corpus does not state, of a
+    subject it does describe. Retrieval returns topically relevant chunks with
+    no answer: where a model assembles an invention out of real quotations.
+  * ``false_premise`` — a premise the source contradicts. The correct
+    behaviour is a correction, not abstention, so it has its own gold answer
+    and judging.
 
-Two generators, and their axes differ:
-
-  * ``unanswerable_property`` — a question about the same subject, but about a
-    property that is not in the corpus. The negative is deliberately NEAR: the
-    question is about an entity the documents do describe, so retrieval will
-    return topically relevant chunks that contain no answer. This is exactly
-    where a model assembles an invention out of real quotations — the answer
-    looks as if it were backed by references.
-  * ``false_premise`` — a question whose premise contradicts the source. The
-    correct behaviour here is not abstention but CORRECTION: "that did not
-    happen, in fact it is like this". An abstention is catchable with regexes,
-    a correction is not, so this generator has its own gold answer and its own
-    judging.
-
-An important point about how reliable the labelling is: a generated negative is
-in itself the model conjecture about what is not in the corpus. Letting it into
-the measurement unchecked is not allowed, otherwise the benchmark will start
-accusing models of invention where an answer did in fact exist. The check is
-done by ``control.py`` against live retrieval.
+A generated negative is only the writer's conjecture about what the corpus
+lacks; ``control.py`` verifies it against live retrieval before it is measured.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from syft_benchmark.generation.pair import Pair
+from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.wording import ANCHOR_RULE
 
@@ -105,32 +89,35 @@ No markdown fences, no commentary.
 
 def clean_unanswerable(
     items: list[dict[str, Any]], pairs: int, document: str
-) -> tuple[list[Pair], list[str]]:
+) -> tuple[list[Pair], list[Dropped]]:
     """Select questions that should have no answer in the corpus.
 
-    Such an item has no gold answer — it has a description of what is missing.
-    That goes into the answer field and is needed by two readers: the auditor
-    checking the labelling, and the human looking into a disputed verdict.
+    The answer field holds a description of what is missing, for whoever
+    audits the labelling or a disputed verdict.
     """
     good: list[Pair] = []
-    rejected: list[str] = []
+    rejected: list[Dropped] = []
     for item in items[: pairs * 2]:
         question = str(item.get("question") or "").strip()
         missing = str(item.get("missing") or "").strip()
         subject = str(item.get("subject") or "").strip()
         if len(question) < 10 or not missing:
-            rejected.append("no question, or nothing said about what is missing")
+            rejected.append(
+                Dropped(
+                    "no question, or nothing said about what is missing",
+                    question,
+                    missing,
+                )
+            )
             continue
         reason = reject_reason(question, document, task_type="abstractive")
         if reason:
-            rejected.append(reason)
+            rejected.append(Dropped(reason, question, missing))
             continue
         good.append(
             Pair(
                 question=question,
-                # Not an answer but an explanation of its absence: it cannot and
-                # need not be judged against — the correct behaviour here is to
-                # abstain, and that is recognised without any model at all.
+                # Not judged against: the correct behaviour is to abstain.
                 answer=f"{NOT_IN_CORPUS} {missing}",
                 distractors=[],
                 meta={
@@ -145,16 +132,14 @@ def clean_unanswerable(
 
 def clean_false_premise(
     items: list[dict[str, Any]], pairs: int, document: str
-) -> tuple[list[Pair], list[str]]:
+) -> tuple[list[Pair], list[Dropped]]:
     """Select questions with a false premise.
 
-    The gold answer here is a real one — it is the correction, and it is judged
-    by an ordinary judge. An abstention ("I do not know") is not counted as
-    correct behaviour: the premise can be refuted from the very documents the
-    endpoint has.
+    The gold answer is the correction, judged by an ordinary judge. Abstaining
+    is not correct: the endpoint's own documents refute the premise.
     """
     good: list[Pair] = []
-    rejected: list[str] = []
+    rejected: list[Dropped] = []
     for item in items[: pairs * 2]:
         question = str(item.get("question") or "").strip()
         correction = str(item.get("correction") or "").strip()
@@ -163,11 +148,13 @@ def clean_false_premise(
             str(g).strip() for g in (item.get("grounds") or []) if str(g).strip()
         ]
         if len(question) < 10 or len(correction) < 5 or not premise:
-            rejected.append("no question, premise or correction")
+            rejected.append(
+                Dropped("no question, premise or correction", question, correction)
+            )
             continue
         reason = reject_reason(question, document, task_type="abstractive")
         if reason:
-            rejected.append(reason)
+            rejected.append(Dropped(reason, question, correction))
             continue
         good.append(
             Pair(
@@ -176,10 +163,8 @@ def clean_false_premise(
                 distractors=[],
                 meta={
                     "premise": premise,
-                    # What has to follow from the chunk is not the correction
-                    # (it is reworded) but the facts that make the premise
-                    # false. Those are what get checked — as with "two truths
-                    # and a lie".
+                    # Grounding checks the facts that make the premise false,
+                    # not the reworded correction.
                     "claims": grounds or [correction],
                     "grading": "judge",
                 },

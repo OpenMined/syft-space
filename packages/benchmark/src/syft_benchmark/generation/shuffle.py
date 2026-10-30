@@ -1,19 +1,11 @@
-"""Shuffling the answer options.
+"""Deterministic shuffling of answer options.
 
-Left to the generator model, the position of the correct option comes out
-anything but uniform: the false statement of "two truths and a lie" can land
-at position C in 26 cases out of 26, and MCQ's guessing base can turn out to
-be 0.60 instead of 0.25. A model always answering "C" would get excellent
-accuracy on such a dataset while knowing nothing about the corpus.
-
-For the measurement this breaks the main thing: a correct answer in arm A has
-to mean that the corpus is known to the model — whereas it would mean a match
-with the generator's favourite letter.
-
-The shuffling is deterministic: the seed is derived from the item's text, so
-one and the same question is always laid out the same way. This is not
-pedantry — regenerating the dataset must not change answers already collected,
-and an auditor has to be able to reproduce the layout from the question alone.
+A writer model places the correct option far from uniformly (the lie of "two
+truths and a lie" lands last almost always), so a model answering one fixed
+letter would score without knowing the corpus. The seed comes from the item's
+text: the same question is always laid out the same way, so regenerating the
+dataset does not change collected answers and the layout is reproducible from
+the question alone.
 """
 
 from __future__ import annotations

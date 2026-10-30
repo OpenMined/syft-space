@@ -1,26 +1,25 @@
-"""The benchmark settings.
+"""The benchmark's settings and the domain vocabulary they are written in.
 
-Two sources: environment variables (addresses, models, secrets) and a file with
-the list of Spaces. The split is not cosmetic — there can be many Spaces and they
-are described by a structure, and passing a structure through flat environment
-variables is inconvenient; everything else, on the contrary, naturally lives in
-the environment and in .env.
+``Settings`` is read from the environment and .env; the installation's stored
+overrides are laid over it by ``get_settings``. The enums here name the arms,
+verdicts, blocks, pair and job states shared by every package.
 
-The ban on external calls (invariant 2, docs/privacy.md) lives here too. It is
-implemented as a check rather than an agreement: the questions are generated from
-private documents, and the only reliable way not to send them outside is to have
-no code that can do it, except through an explicitly allowed list of hosts.
+The ban on external calls (invariant 2, docs/privacy.md) lives here too, as a
+check rather than an agreement: the questions are generated from private
+documents, so a model call leaves the perimeter only for an explicitly allowed
+host.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,56 +30,36 @@ class ContextMode(StrEnum):
     Without this field the arms are indistinguishable in the database, and the
     whole construction rests on comparing them with one another.
 
-    The three arms measure three different things, and they must not be added up:
-
-      * **A** — the model alone. The model honesty; a correct answer means not
-        quality but that the corpus is already known to it (or that it guessed).
-      * **B** — the whole endpoint: its retrieval, its model, its system prompt.
-        This is an assessment of the owner product.
-      * **C** — the same model as in A, plus what the endpoint returned. This is
-        the model interaction with RAG: A and C differ by exactly the presence of
-        context, so their difference is interpretable.
-
-    Arm B (``open_book``) is not measured. The value stays so that results
-    already collected under it still read; ``measured_arms`` drops it from any
-    setting that still lists it.
+    The two arms measure different things, and they must not be added up; what
+    each measures is in ``ARM_MEANING``.
     """
 
     CLOSED_BOOK = "closed_book"  # arm A: the question without a single corpus chunk
-    OPEN_BOOK = "open_book"  # arm B: retired; kept for stored results
     MODEL_WITH_CONTEXT = "model_with_context"  # arm C: the same model + the retrieval
 
 
-# The arms a measurement may run, in the order it runs them.
+# The arms a measurement runs, in the order it runs them.
 MEASURED_ARMS: tuple[ContextMode, ...] = (
     ContextMode.CLOSED_BOOK,
     ContextMode.MODEL_WITH_CONTEXT,
 )
-
-_retired_arm_logged = False
-
-
-def measured_arms(arms: list[ContextMode]) -> list[ContextMode]:
-    """The arms without the retired one, logged once per process.
-
-    A stored setting or an old job may still list ``open_book``; refusing it
-    would leave its owner unable to open the form that fixes it.
-    """
-    global _retired_arm_logged
-    kept = [arm for arm in arms if arm in MEASURED_ARMS]
-    if len(kept) != len(arms) and not _retired_arm_logged:
-        _retired_arm_logged = True
-        logger.info("arm open_book is no longer measured; dropped from the settings")
-    return kept
-
 
 # The arm letter for reports. Reading "closed_book vs model_with_context" in a
 # table is hard, while "A vs C" is exactly the language the methodology is
 # described in.
 ARM_LETTER: dict[str, str] = {
     ContextMode.CLOSED_BOOK.value: "A",
-    ContextMode.OPEN_BOOK.value: "B",
     ContextMode.MODEL_WITH_CONTEXT.value: "C",
+}
+
+# What each arm measures, as the report states it.
+ARM_MEANING: dict[ContextMode, str] = {
+    ContextMode.CLOSED_BOOK: "the model alone, without a single corpus chunk. "
+    "Measures the honesty of the model itself: a correct answer here means not "
+    "node quality but that the corpus is already familiar to it (or a guess)",
+    ContextMode.MODEL_WITH_CONTEXT: "the same model as in arm A, plus what the "
+    "endpoint returned. A and C differ by exactly the presence of context, so "
+    "their difference is interpretable",
 }
 
 
@@ -100,19 +79,17 @@ class ContextSource(StrEnum):
     ENDPOINT_ANSWER = "endpoint_answer"  # the endpoint finished answer
     ENDPOINT_BOTH = "endpoint_both"  # both, as the endpoint handed them over
     ORACLE_CHUNK = "oracle_chunk"  # the source chunk: the ceiling, no retrieval
-    ENDPOINT_OWN = "endpoint_own"  # arm B: the endpoint assembled the context itself
 
 
 class ExpectedBehavior(StrEnum):
     """What counts as the correct behaviour on this question.
 
-    Before the control set existed, every question was answerable by construction
-    — they are generated from chunks — and the benchmark measured half the
-    behaviour: what the pair does when there is NO answer in the corpus was not
-    measured at all. Meanwhile that is the most frequent question a live user asks.
+    Questions generated from chunks are answerable by construction; the control
+    half (no answer in the corpus, a false premise) measures the rest of the
+    behaviour.
 
-    The field sits on the pair, not on the run: there is one set and three arms,
-    and the correct behaviour is determined by the question, not by who answers it.
+    The field sits on the pair, not on the run: the correct behaviour is
+    determined by the question, not by who answers it.
     """
 
     ANSWER = "answer"  # there is an answer in the corpus — answering is right
@@ -141,9 +118,9 @@ class Verdict(StrEnum):
     refusing, the key out, the retrieval empty, the judge itself silent. Such a
     row says something about the rig and nothing about the model.
 
-    Neither enters a share, and neither may be issued by hand. Rows older than
-    ``TECHNICAL`` carry ``HALLUCINATE`` with an ``ERROR:`` answer, so filters
-    accept both — see ``runs.judge.is_technical``.
+    Neither enters a share, and neither may be issued by hand.
+    ``runs.judge.is_technical`` tests the verdict; ``runs.judge.is_error`` tests
+    the answer text for a failure message.
     """
 
     CORRECT = "correct"
@@ -182,7 +159,7 @@ class TextMetric(StrEnum):
     textual match diverge, that is grounds for a look with your own eyes.
 
     They do not know correctness and cannot: what is measured is word overlap. So
-    they enter no share of the report and no card.
+    they enter no share of the report.
     """
 
     BLEU = "bleu"  # n-gram overlap with a brevity penalty
@@ -191,7 +168,7 @@ class TextMetric(StrEnum):
 
 
 class EvalBlock(StrEnum):
-    """The test block. A port of the LiveTruth phase-3 blocks.
+    """The test block.
 
     The blocks are independent and switched on separately: `direct` is cheap and
     mandatory in meaning, while the other two cost several times as much —
@@ -213,8 +190,8 @@ class JudgePolicy(StrEnum):
 
     ``STRICT`` refuses to save or start a configuration with a clash (the
     control API answers 422), and a run that still meets one stops. ``WARN``
-    allows it and logs every clash. The page offers only these two; ``OFF`` and
-    ``RECUSE`` stay readable for stored settings.
+    allows it and logs every clash. The settings form offers these two;
+    ``OFF`` and ``RECUSE`` are accepted when set by hand.
     """
 
     OFF = "off"  # do not check
@@ -226,9 +203,8 @@ class JudgePolicy(StrEnum):
 class WebSearchEngine(StrEnum):
     """Which web search a model uses when a role searches.
 
-    ``NATIVE`` is the model's own search, ``PLUGIN`` the Exa engine (the name
-    predates OpenRouter's search tool). ``AUTO`` takes native when the catalogue
-    says the model has it.
+    ``NATIVE`` is the model's own search, ``PLUGIN`` the Exa engine (OpenRouter's
+    web plugin). ``AUTO`` takes native when the catalogue says the model has it.
     """
 
     AUTO = "auto"
@@ -316,14 +292,9 @@ class StatusReason(StrEnum):
 class JobState(StrEnum):
     """The state of a job launched from outside.
 
-    Created for the sake of a button in the UI: launching a measurement takes
-    hours, an HTTP response cannot wait that long, and the owner needs something to
-    look at while the run goes on.
-
-    ``QUEUED`` is separated from ``RUNNING`` not for elegance: a measurement costs
-    money and takes up the node entirely, so one job at a time is allowed per node
-    and the rest wait. Without a separate "waiting" state a queue is
-    indistinguishable from a hung run.
+    ``QUEUED`` is separate from ``RUNNING`` because one job at a time runs per
+    node and the rest wait; without it a queue is indistinguishable from a hung
+    run.
 
     ``CANCELLED`` means stopped by the owner, and that is not an error: half a
     measurement is data too, and its runs and verdicts are already written and stay
@@ -343,38 +314,24 @@ class JobState(StrEnum):
 
 
 class JobPhase(StrEnum):
-    """Where the job is now. Shown to the owner rather than computed.
-
-    The phases differ in length and in cost, and an owner who sees "running" cannot
-    tell a ten-minute generation from a multi-hour polling of nine models.
-    """
+    """Where the job is now. Shown to the owner rather than computed."""
 
     PENDING = "pending"
     GENERATE = "generate"
     FILTER = "filter"
     EVALUATE = "evaluate"
     JUDGE = "judge"
-    REPORT = "report"
     DONE = "done"
 
 
 class JobKind(StrEnum):
     """What operation a job is, as opposed to ``phase``, which is where it is now.
 
-    ``execute()`` picks a function by ``kind`` before there is any phase to
-    look at yet.
-
-    Only three values exist, not one per phase: ``PIPELINE`` covers every job
-    ``/targets/{key}/runs`` creates, whatever combination of ``generate``,
-    ``filter`` and ``evaluate`` its ``RunRequest`` sets — including a lone
-    generate, a lone evaluate, or the two console-facing groups ("Prepare" =
-    generate+filter, "Test" = evaluate+report), since all of those
-    are just different flag combinations on the one long-lived function,
-    ``scheduler.measure()``. ``FILTER`` and ``JUDGE`` are the two phases that
-    are NOT reachable that way — each needs its own already-stored input
-    (pending pairs; pending verdicts) rather than a fresh call to
-    ``measure()``, so each gets its own kind and its own route. Building a
-    card needs no kind at all: it is a fast, synchronous operation.
+    ``execute()`` picks a function by ``kind`` before there is any phase.
+    ``PIPELINE`` is every job ``/targets/{key}/runs`` creates: any combination
+    of the ``generate``/``filter``/``evaluate`` flags is one call to
+    ``scheduler.measure()``. ``FILTER`` and ``JUDGE`` work over already-stored
+    input (pending pairs; pending verdicts), so each has its own kind and route.
     """
 
     PIPELINE = "pipeline"
@@ -385,29 +342,16 @@ class JobKind(StrEnum):
 class DatasetMode(StrEnum):
     """Where the items in the next generation run come from.
 
-    Three modes answer three different questions, and they must not be confused.
+    ``INCREMENTAL`` — the set accumulates: new material adds items and the
+    earlier ones stay. For a stable corpus where an answer does not go stale.
 
-    ``INCREMENTAL`` — **what new has appeared in the corpus.** The set accumulates:
-    new material adds items, and the earlier ones stay in the measurement forever.
-    That is how a stable corpus is measured, where a correct answer does not go out
-    of date: documentation, a reference, a knowledge base.
+    ``ROLLING`` — the set holds what grew out of documents from the last N days.
+    What leaves the window leaves the set; what returns comes back with the same
+    items, at no generation cost.
 
-    ``ROLLING`` — **what is current now.** The set moves with time: in the
-    measurement is what grew out of documents from the last N days. What leaves the
-    window leaves the set, and what returns comes back — and comes back for free,
-    with the same items. That is how a live stream is measured, where the interest
-    is precisely in what is fresh.
-
-    ``REBUILD`` — **are the questions themselves any good.** The material is the
-    same, while the pool of questions is built afresh, as a separate cohort: with a
-    different generator model, a different prompt, simply a different pass. The
-    material is one and the metrics diverged — which means it is not about the
-    model under test but about the quality of the questions and gold answers. That
-    can only be answered by comparing cohorts, and the mode exists for it.
-
-    Note how REBUILD differs from ROLLING in cost: a rolling set reuses ready-made
-    items and calls the generator only for new material, whereas a rebuild pays for
-    the whole set again. So it is not scheduled for every night.
+    ``REBUILD`` — the same material, a fresh pool of questions as a separate
+    cohort. Comparing cohorts tells the quality of the questions apart from the
+    model under test. It pays for the whole set again.
     """
 
     INCREMENTAL = "incremental"
@@ -443,10 +387,19 @@ class SpaceConfig(BaseModel):
         ),
     )
 
-    # The endpoint retrieval parameters. They are here and not only in the shared
-    # settings because the threshold is tuned to the corpus: different values are
-    # meaningful on homogeneous documentation and on a mixed archive.
-    # None — take the shared value from the process settings.
+    @property
+    def name(self) -> str:
+        return self.title or self.key
+
+
+class SpaceSeed(SpaceConfig):
+    """One entry of the seed file (``config/spaces.json``).
+
+    The node's description plus the two retrieval keys the file may set: the
+    seed carries them into the target's probe, where they are edited from then
+    on. None — the probe inherits the installation's value.
+    """
+
     retrieval_top_k: int | None = Field(
         default=None, description="How many chunks to ask the endpoint for"
     )
@@ -457,10 +410,6 @@ class SpaceConfig(BaseModel):
             "for any question, including one whose answer is not in the corpus"
         ),
     )
-
-    @property
-    def name(self) -> str:
-        return self.title or self.key
 
 
 class Settings(BaseSettings):
@@ -508,16 +457,11 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- The model roles
-    #
-    # Three roles, each with its own provider. The split is no formality: the
-    # generator works over documents and should normally stay inside the
-    # perimeter, the models under test do not see documents and are almost always
-    # external, and the judge must not be from the same provider as the model
-    # under test.
-    #
-    # An empty address for a role means "take the shared one" — from ollama_url
-    # and llm_api_key.
+    # --- The model roles, each with its own provider: the generator sees
+    # documents and normally stays inside the perimeter, the models under test
+    # do not and are usually external, and the judge must not share the tested
+    # model's provider. An empty address means the shared ollama_url and
+    # llm_api_key.
     generator_url: str = Field(default="", description="The generator provider")
     generator_key: str = Field(default="", description="The generator provider key")
 
@@ -650,14 +594,9 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- The parameters of the request to the endpoint.
-    #
-    # The similarity threshold is an axis of the measurement, not a constant. At
-    # zero the endpoint is obliged to return top-k for any question, including one
-    # whose answer is not in the corpus, and it is physically unable to stay
-    # silent. Zero is left as the default so that earlier runs stay comparable, but
-    # on the control set it makes sense to run several values and see where the
-    # inventions stop appearing.
+    # --- The request to the endpoint. The similarity threshold is an axis of
+    # the measurement: at zero the endpoint returns top-k for any question,
+    # including one whose answer is not in the corpus.
     retrieval_top_k: int = Field(
         default=5, ge=1, le=50, description="How many chunks to ask the endpoint for"
     )
@@ -665,10 +604,15 @@ class Settings(BaseSettings):
         default=0.0, ge=0.0, le=1.0, description="The similarity threshold in retrieval"
     )
     endpoint_max_tokens: int = Field(
-        default=500, ge=1, description="The ceiling on the endpoint answer in arm B"
+        default=500,
+        ge=1,
+        description="The ceiling on the endpoint's answer when arm C reads it",
     )
     endpoint_temperature: float = Field(
-        default=0.1, ge=0.0, le=2.0, description="The endpoint temperature in arm B"
+        default=0.1,
+        ge=0.0,
+        le=2.0,
+        description="The endpoint's temperature when it answers",
     )
 
     # --- The test blocks. All are on by default.
@@ -691,18 +635,9 @@ class Settings(BaseSettings):
         default=3, ge=1, le=20, description="Trials per temperature"
     )
 
-    # --- Concurrency
-    #
-    # A run is busy not computing but waiting: almost all its time is an open
-    # socket to a model, to a judge or to the endpoint. A sequential walk pays that
-    # wait once per call, and on a live set the count runs into days. Here it is
-    # set how many waits to keep in flight at once.
-    #
-    # There are two lanes because the addressees have different capacity. An
-    # external model provider holds dozens of requests; the endpoint under test is
-    # one node with one model, and a queue to it does not speed it up but only
-    # accumulates timeouts. One number for both would mean choosing between an idle
-    # provider and a swamped node.
+    # --- Concurrency: how many calls to keep in flight. Two lanes, because an
+    # external provider holds dozens of requests while the endpoint under test
+    # is one node with one model, where a queue only accumulates timeouts.
     concurrency: int = Field(
         default=16,
         ge=1,
@@ -721,12 +656,8 @@ class Settings(BaseSettings):
             "is a foreign node, and its capacity is set by its owner, not by us"
         ),
     )
-    # --- the text metrics
-    #
-    # Off by default, and that is not caution. The headline assessment is the
-    # judge verdict; text similarity does not know correctness and enters no
-    # share. It is switched on when a view of the same answers that is
-    # independent of the judge is needed.
+    # --- The text metrics. Off by default: they do not know correctness and
+    # enter no share; they give a view of the answers independent of the judge.
     text_metrics: list[TextMetric] = Field(
         default_factory=list,
         description=(
@@ -804,17 +735,14 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- The generators. All ten are on by default.
+    # --- The generators. All are on by default.
     disabled_generators: list[str] = Field(
         default_factory=list,
         description="Generators not to run, even when all are asked for",
     )
 
-    # --- The judging and screening thresholds.
-    #
-    # This is calibration, not the design of the measurement: it changes along with
-    # the corpus and the models, and keeping it as constants in the code means
-    # demanding a commit for every attempt to tune it.
+    # --- The judging and screening thresholds: calibration that changes with
+    # the corpus and the models.
     key_facts_threshold: float = Field(
         default=0.7,
         ge=0.0,
@@ -855,13 +783,8 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- The audit log
-    #
-    # The benchmark numbers are a judge model verdicts, and they can only be
-    # checked against the raw records: what exactly was asked, with what prompt,
-    # what was answered in each arm and how the judge justified it. The log is
-    # written beside the answer rather than assembled after the fact: a prompt
-    # depends on the settings of the moment, and those change.
+    # --- The audit log: the prompts and the judge's reasoning, written beside
+    # each answer, since a prompt depends on the settings of the moment.
     audit_log: bool = Field(
         default=True,
         description="Save the prompts and the judge reasoning beside every answer",
@@ -883,12 +806,8 @@ class Settings(BaseSettings):
 
     spaces_file: Path = Field(default=Path("config/spaces.json"))
 
-    # --- The control API
-    #
-    # Off until a token is set, and that is not over-caution. Its one route starts
-    # work that runs for hours and costs money on external models; a port open by
-    # default would mean that anyone who could reach the network could spend
-    # someone else budget. Not "you may not" but "there is nothing here".
+    # --- The control API. Off until a token is set: it starts work that runs
+    # for hours and costs money on external models.
     control_token: str = Field(
         default="",
         description="The control API key. Empty — the API says it is not configured",
@@ -941,18 +860,7 @@ class Settings(BaseSettings):
     pairs_per_chunk: int = Field(default=2, ge=1)
     min_chunk_chars: int = Field(default=400, ge=0)
 
-    # --- What the set is like over time
-    #
-    # The corpus grows, and the measurement cannot grow along with it: three arms
-    # across nine models multiply by every item. Sooner or later you have to choose
-    # not "how much we can manage" but "what exactly we are measuring", and that
-    # choice is substantive.
-    #
-    # An incremental set accumulates: that is how a stable corpus is measured, where
-    # a correct answer does not go out of date. A rolling one moves with time: in
-    # the measurement is what grew out of fresh documents, and that is sensible
-    # where the interest is in the latest, while last year document answers a
-    # question nobody asks any more.
+    # --- What the set is like over time; see ``DatasetMode``.
     dataset_mode: DatasetMode = Field(
         default=DatasetMode.INCREMENTAL,
         description=(
@@ -1003,13 +911,8 @@ class Settings(BaseSettings):
         description="Hosts allowed explicitly when allow_external_models is on",
     )
 
-    # --- The master key for stored secrets
-    #
-    # The provider keys and the Space tokens are sealed before they reach the
-    # database. Without this there is nowhere to put them: the service refuses
-    # to store a secret rather than writing it in the clear, because a service
-    # that quietly falls back ends up with half its secrets encrypted and
-    # nobody aware of which half.
+    # --- The master key for stored secrets. Without it a secret is refused
+    # rather than written in the clear (see db/crypto.py).
     secret_key: str = Field(
         default="",
         description=(
@@ -1035,12 +938,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- The card
-    #
-    # The card's headline arm is deliberately not here. It is a property of the
-    # NODE, not of the installation: one Space may be summary, another raw. It is
-    # chosen by the card, by the kind of product — see report.card.
-
     @field_validator("judge_temperature", mode="before")
     @classmethod
     def _model_default_temperature(cls, value: Any) -> Any:
@@ -1048,18 +945,14 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("arms")
-    @classmethod
-    def _measured_arms(cls, value: list[ContextMode]) -> list[ContextMode]:
-        return measured_arms(value)
-
-    def load_spaces(self) -> list[SpaceConfig]:
-        """Read the Space registry.
+    def load_spaces(self) -> list[SpaceSeed]:
+        """Read the seed file.
 
         Raises:
-            FileNotFoundError: there is no such file — that is a configuration
-                error, not an empty list: a benchmark without a single Space is
-                meaningless, and a silent "zero checks" is worse than a refusal.
+            FileNotFoundError: no seed file — nothing to seed.
+            UnicodeDecodeError: the file is not UTF-8.
+            json.JSONDecodeError: the file is not JSON.
+            pydantic.ValidationError: an entry is not a Space description.
         """
         if not self.spaces_file.exists():
             raise FileNotFoundError(
@@ -1067,47 +960,20 @@ class Settings(BaseSettings):
                 f"(see config/spaces.example.json)"
             )
         raw = json.loads(self.spaces_file.read_text(encoding="utf-8"))
-        return [SpaceConfig.model_validate(item) for item in raw]
+        return [SpaceSeed.model_validate(item) for item in raw]
 
-    def retrieval_for(self, space: SpaceConfig) -> tuple[int, float]:
-        """The retrieval parameters for this Space: its own value or the shared one.
-
-        Returns:
-            (how many chunks to ask for, the similarity threshold)
-        """
-        top_k = (
-            space.retrieval_top_k
-            if space.retrieval_top_k is not None
-            else self.retrieval_top_k
-        )
-        threshold = (
-            space.similarity_threshold
-            if space.similarity_threshold is not None
-            else self.similarity_threshold
-        )
-        return top_k, threshold
-
-    def measurement_params(self, space: SpaceConfig | None = None) -> dict[str, Any]:
+    def measurement_params(self) -> dict[str, Any]:
         """A snapshot of the settings a run was obtained with.
 
-        Written into ``runs.params`` and goes into the audit export. The point is
-        exactly one: in six months it must be visible from a report row which
-        threshold and which ceilings produced it — otherwise a configurable
-        methodology turns the history of measurements into a mess.
+        Written into ``runs.params`` and the audit export, so a report row says
+        which threshold and ceilings produced it.
         """
-        top_k, threshold = (
-            self.retrieval_for(space)
-            if space is not None
-            else (self.retrieval_top_k, self.similarity_threshold)
-        )
         return {
             "profile": self.methodology_profile,
-            # The frozen slice is part of HOW a row was obtained, on a par with the
-            # threshold: a run over a slice and a run over the whole set answer
-            # different questions, and their shares must not be added up.
+            # A run over a slice and one over the whole set must not be added up.
             "question_set": str(self.question_set) if self.question_set else "",
-            "retrieval_top_k": top_k,
-            "similarity_threshold": threshold,
+            "retrieval_top_k": self.retrieval_top_k,
+            "similarity_threshold": self.similarity_threshold,
             "context_source": self.context_source.value,
             "context_docs": self.context_docs,
             # A ceiling on what the model was shown, not on what was stored.
@@ -1138,17 +1004,67 @@ class ExternalCallBlocked(RuntimeError):
     """An attempt to call a model outside the perimeter while permission is off."""
 
 
-_LOCAL_HOSTS = frozenset(
-    {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
-)
+_LOCAL_NAMES = frozenset({"localhost", "host.docker.internal"})
+
+# A single DNS label: letters, digits and inner hyphens, at most 63 characters.
+_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+# A label a resolver may read as an IPv4 address (``2130706433``, ``0x7f000001``).
+_NUMERIC = re.compile(r"0x[0-9a-f]*|[0-9]+")
+
+
+# The schemes the model client can call; any other address is unreadable.
+_CALLABLE_SCHEMES = frozenset({"http", "https"})
+
+
+def model_host(url: str) -> str:
+    """The host of an http(s) ``url``, lower-cased, IPv6 brackets dropped.
+
+    Empty, so refused by the perimeter, when the address has no host or any
+    scheme other than http/https, scheme-relative ``//ollama:11434`` included:
+    the model client cannot call it, so it must not pass as inside.
+    """
+    try:
+        parsed = urlparse(url.strip())
+        if parsed.scheme not in _CALLABLE_SCHEMES:
+            return ""
+        return (parsed.hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def host_is_inside(host: str) -> bool:
+    """Whether a call to ``host`` stays inside the perimeter.
+
+    Inside: ``localhost``, ``host.docker.internal``, loopback IP addresses (v4,
+    v6, or v4-mapped v6), and a single-label hostname (a service on the docker
+    network such as ``ollama``) that no resolver reads as a number. Everything
+    else is outside: private, link-local and unspecified addresses, public
+    hosts, and an empty host, since an address that cannot be read cannot be
+    shown to stay in.
+    """
+    host = host.lower()
+    if host in _LOCAL_NAMES:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return _LABEL.fullmatch(host) is not None and not _NUMERIC.fullmatch(host)
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return address.is_loopback
+
+
+def url_is_inside(url: str) -> bool:
+    """Whether a call to ``url`` stays inside the perimeter (``host_is_inside``)."""
+    return host_is_inside(model_host(url))
 
 
 def check_model_host(url: str, settings: Settings) -> None:
     """Let a model call through only if it stays inside the perimeter.
 
-    Called before every LLM request. Local addresses and docker-network service
-    names always pass; everything else only with ``allow_external_models``
-    explicitly on and only from the ``external_hosts`` list.
+    Called before every LLM request. An address inside the perimeter
+    (``host_is_inside``) always passes; any other only with
+    ``allow_external_models`` explicitly on and its host in ``external_hosts``.
 
     Args:
         url: The address about to be called
@@ -1158,13 +1074,15 @@ def check_model_host(url: str, settings: Settings) -> None:
         ExternalCallBlocked: the address is outside the perimeter and there is no
             permission
     """
-    host = (urlparse(url).hostname or "").lower()
-
-    # A name without dots is a docker-network service (ollama, space, chroma), that
-    # is, an address inside the perimeter. External names always contain a dot.
-    if host in _LOCAL_HOSTS or "." not in host:
+    host = model_host(url)
+    if host_is_inside(host):
         return
-
+    if not host:
+        raise ExternalCallBlocked(
+            f"the call to {url!r} is blocked: it cannot be read as an http(s) "
+            f"address with a host, so it "
+            f"cannot be shown to stay inside the perimeter"
+        )
     if settings.allow_external_models and host in {
         h.lower() for h in settings.external_hosts
     }:
@@ -1177,22 +1095,14 @@ def check_model_host(url: str, settings: Settings) -> None:
     )
 
 
-# --- Where a setting is allowed to live -------------------------------------
-#
-# Three layers assemble a measurement: the installation's defaults, the Space's
-# instrument, the node's probe. The bottom layer is a row in
-# `installation_settings`, with the environment as the read-only layer under it.
+# Three layers assemble a measurement: the installation's defaults (a row in
+# `installation_settings` over the read-only environment), the Space's
+# instrument, the node's probe.
 
-# Read before the database can be read, or read instead of trusting it.
-#
-# The database address cannot be in the settings it holds; the control key
-# cannot be either, because a lock whose key is inside it is not a lock;
-# `spaces_file` and `secret_key` are the same kind of thing.
-#
-# The perimeter is here for a stronger reason. The ban on calls outside is a
-# check rather than an agreement, because the questions are built from private
-# documents — and an allowed-hosts list editable through the API would let
-# anyone holding the control key send the corpus anywhere.
+# Read only from the environment: needed before the database can be read (its
+# address, the spaces file, the master keys), or not to be trusted to it (the
+# control API's own settings; the perimeter, which an API-editable host list
+# would let anyone holding the control key widen).
 BOOTSTRAP_FIELDS: frozenset[str] = frozenset(
     {
         "database_url",
@@ -1235,13 +1145,9 @@ def get_settings() -> Settings:
     """The settings a measurement is run with.
 
     The environment for what must come from the environment, the installation's
-    row for the rest, and the sealed credentials for the keys. The layers above
-    this one — the Space's instrument and the node's probe — are applied by
-    ``control.compose.settings_for`` on top of what this returns.
-
-    The stored half is cached: this is called from several dozen places, and
-    reading a row each time would mean a query per settings lookup. A write
-    through the store clears it.
+    row for the rest, and the sealed credentials for the keys. The Space's
+    instrument and the node's probe are applied on top of this by
+    ``control.compose.settings_for``. The stored half is cached by ``db.store``.
     """
     from syft_benchmark.db import store
 

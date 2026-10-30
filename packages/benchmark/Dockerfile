@@ -7,20 +7,13 @@
 # shared database to agree through anyway — which is what they already have.
 #
 # The image holds no credentials and no corpus. It reads the Space's index and
-# hands the Space a card; what it needs to reach either comes from the
+# asks the Space's endpoint; what it needs to reach either comes from the
 # environment and from the targets table.
 #
 # `metrics` (bert-score drags in torch) is an extra and is not installed; a rig
 # that wants it builds with --build-arg EXTRAS="--extra metrics".
 #
-# The console (frontend/) is built outside the image, the same way the
-# Space's own frontend is: `cd frontend && npm install && npm run build-only`
-# before `docker build`. Its dist/ is copied in below; a build run without it
-# still comes up — the console is one more door into the service, not a
-# dependency of it.
-#
 # Usage:
-#   cd frontend && npm install && npm run build-only
 #   docker build -t syft-benchmark .
 #   docker compose --profile service up -d --build
 # ============================================================================
@@ -79,11 +72,6 @@ RUN uv pip install --no-deps --python /app/.venv/bin/python -e . \
     # rig which does configure by file has somewhere to mount it.
     && mkdir -p /app/config /app/reports \
     && chown -R 65532:65532 /app
-
-# The pre-built console (see the prerequisite above). `control/app.py` mounts
-# `/ui` only once it finds files here, but the image build itself needs
-# `npm run build-only` to have already produced this directory.
-COPY frontend/dist ./frontend/dist
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

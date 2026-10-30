@@ -24,23 +24,17 @@ from syft_benchmark.runs.textmetrics import (
     score_text,
 )
 
-
-class _Pair:
-    """An item in the volume the slice needs."""
-
-    def __init__(self, number: int, question: str = "", answer: str = "") -> None:
-        self.id = f"p{number}"
-        self.question = question or f"Question {number}?"
-        self.answer = answer or f"Answer {number}"
-        self.generator = "cloze"
-        self.expected_behavior = "answer"
+from fakes import FakePair
 
 
-def _settings(**kwargs: object) -> Settings:
-    return Settings(**kwargs)  # type: ignore[arg-type]
+def _pair(number: int) -> FakePair:
+    """Pair ``number``: its own question and its own answer."""
+    return FakePair(
+        f"p{number}", question=f"Question {number}?", answer=f"Answer {number}"
+    )
 
 
-def _slice(pairs: list[_Pair], space: str = "docs") -> dict[str, Any]:
+def _slice(pairs: list[FakePair], space: str = "docs") -> dict[str, Any]:
     return questionset.build(space, pairs)  # type: ignore[arg-type]
 
 
@@ -49,7 +43,7 @@ def _slice(pairs: list[_Pair], space: str = "docs") -> dict[str, Any]:
 
 def test_the_slice_pins_the_exact_questions_in_order() -> None:
     """A slice is the WHOLE selection, and its order belongs to it too."""
-    pairs = [_Pair(i) for i in range(5)]
+    pairs = [_pair(i) for i in range(5)]
     selected = questionset.apply(_slice(pairs), list(reversed(pairs)))  # type: ignore[arg-type]
     assert [p.id for p in selected] == [p.id for p in pairs]
 
@@ -61,7 +55,7 @@ def test_a_changed_question_is_a_refusal_not_a_silent_swap() -> None:
     refined, the question reworded: the identifier is the same, the item is
     different, and the answers collected relate to the previous one.
     """
-    pairs = [_Pair(0), _Pair(1)]
+    pairs = [_pair(0), _pair(1)]
     frozen = _slice(pairs)
     pairs[1].answer = "An entirely different gold answer"
 
@@ -71,7 +65,7 @@ def test_a_changed_question_is_a_refusal_not_a_silent_swap() -> None:
 
 def test_a_vanished_question_is_a_refusal_too() -> None:
     """Screening took a pair out of the active ones — the set is not the same."""
-    pairs = [_Pair(0), _Pair(1)]
+    pairs = [_pair(0), _pair(1)]
     frozen = _slice(pairs)
 
     with pytest.raises(SliceMismatch, match="no longer among"):
@@ -80,7 +74,7 @@ def test_a_vanished_question_is_a_refusal_too() -> None:
 
 def test_the_strict_check_can_be_lowered_to_a_warning() -> None:
     """Sometimes diverged items just have to be thrown out so work can go on."""
-    pairs = [_Pair(0), _Pair(1)]
+    pairs = [_pair(0), _pair(1)]
     frozen = _slice(pairs)
     selected = questionset.apply(frozen, pairs[:1], strict=False)  # type: ignore[arg-type]
     assert [p.id for p in selected] == ["p0"]
@@ -88,9 +82,9 @@ def test_the_strict_check_can_be_lowered_to_a_warning() -> None:
 
 def test_a_slice_from_another_space_is_never_applied() -> None:
     """This is not a soft divergence but a wholly different set of questions."""
-    frozen = _slice([_Pair(0)], space="other")
+    frozen = _slice([_pair(0)], space="other")
     with pytest.raises(SliceMismatch, match="different sets"):
-        questionset.apply(frozen, [_Pair(0)], space="docs")  # type: ignore[arg-type]
+        questionset.apply(frozen, [_pair(0)], space="docs")  # type: ignore[arg-type]
 
 
 def test_the_answer_is_part_of_the_fingerprint() -> None:
@@ -106,7 +100,7 @@ def test_the_answer_is_part_of_the_fingerprint() -> None:
 def test_a_written_slice_reads_back(tmp_path: Path) -> None:
     """A slice goes into the repository and is read by eye."""
     path = tmp_path / "slice.json"
-    questionset.write(path, _slice([_Pair(0), _Pair(1)]))
+    questionset.write(path, _slice([_pair(0), _pair(1)]))
     data = questionset.load(path)
 
     assert data["space"] == "docs"
@@ -122,7 +116,7 @@ def test_a_missing_slice_says_so(tmp_path: Path) -> None:
 def test_a_future_slice_version_is_refused(tmp_path: Path) -> None:
     """The format survives code edits, and an old file says so itself."""
     path = tmp_path / "slice.json"
-    data = _slice([_Pair(0)])
+    data = _slice([_pair(0)])
     data["slice_version"] = 99
     questionset.write(path, data)
 
@@ -175,16 +169,16 @@ def test_smoothing_keeps_short_answers_from_collapsing_to_zero() -> None:
 
 def test_text_metrics_are_off_unless_asked() -> None:
     """The headline assessment is the judge verdict; this is a second view."""
-    assert score_text("answer", "gold answer", _settings()) == {}
+    assert score_text("answer", "gold answer", Settings()) == {}
 
 
 def test_each_metric_is_switched_on_by_name() -> None:
-    conf = _settings(text_metrics=[TextMetric.ROUGE])
+    conf = Settings(text_metrics=[TextMetric.ROUGE])
     scores = score_text("the port is 5442", "the port is 5442", conf)
     assert set(scores) == {"rouge1_f", "rouge2_f", "rougeL_f"}
     assert "bleu" not in scores
 
-    conf = _settings(text_metrics=[TextMetric.BLEU])
+    conf = Settings(text_metrics=[TextMetric.BLEU])
     assert set(score_text("a b c d", "a b c d", conf)) == {"bleu"}
 
 
@@ -198,7 +192,7 @@ def test_only_prose_generators_are_measured() -> None:
 
 
 def test_an_empty_side_is_not_scored() -> None:
-    conf = _settings(text_metrics=[TextMetric.BLEU, TextMetric.ROUGE])
+    conf = Settings(text_metrics=[TextMetric.BLEU, TextMetric.ROUGE])
     assert score_text("", "gold answer", conf) == {}
     assert score_text("answer", "   ", conf) == {}
 

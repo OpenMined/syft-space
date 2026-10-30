@@ -1,18 +1,9 @@
 """the model catalogue
 
-One table, so that a model stops being a string somebody typed: a typo in a
-model name reaches the provider verbatim and is refused after the pass has been
-paid for.
-
-A whole document per source rather than a row per model. The list is read whole
-and written whole, and three hundred entries are filtered in memory faster than
-a query would be planned; rows would buy joins nobody performs and cost a
-migration every time a provider adds a field.
-
-Nothing is seeded here. The snapshot that ships with the code is read wherever
-this table holds no row, which is what lets an installation with no way out of
-the perimeter draw a form with models in it — and a migration that copied it in
-would freeze it at the version of the day it ran.
+``model_catalog``: one provider's model list per row, as a whole JSON
+document — read and written whole, so rows per model would buy nothing.
+Nothing is seeded: the snapshot shipped with the code is read wherever the
+table has no row.
 
 Revision ID: d2a7c1e4b830
 Revises: 9bb3816f998f

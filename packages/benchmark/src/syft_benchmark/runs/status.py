@@ -1,36 +1,19 @@
 """What is collected, what is missing and what will finish it.
 
-A port of `cmd_status` from LiveTruth `run_console.py`. The point of the command
-is one: a measurement runs for hours and gets interrupted, and the first question
-after an interruption is "what is already there". Without an answer to it a human
-goes into the database by hand or, worse, launches everything again.
-
-It is computed by the same rule the report uses: the latest verdict for each
-question. Otherwise "collected" and "in the report" would diverge — and diverge
-silently.
-
-Five states are distinguished, and they must not be conflated:
+Counted by the report's rule, the latest verdict per question, so "collected"
+and "in the report" agree. Five states, each with its own remedy printed beside
+the number:
 
   * **assessed** — there is a verdict;
-  * **failed** — there is no answer, the call did not get through. This is a
-    hole: the report filters such a row out of the denominator, and ``--resume``
-    re-asks it;
+  * **failed** — the call did not get through; out of the denominator, and
+    ``--resume`` re-asks it;
   * **judge failed** — the answer was received, the judge call failed
-    (``technical`` verdict). Cured by judging again (``judge``), without
-    re-asking; ``--resume`` of a judging run re-asks it too;
-  * **awaiting a verdict** — the answer was received, the judge has not seen it
-    yet. Happens with deferred judging, and is cured not by rerunning but by
-    judging;
-  * **not asked** — this question was never put to this judge at all.
+    (``technical``); judging again (``judge``) cures it without re-asking;
+  * **awaiting a verdict** — recorded under deferred judging, cured by judging;
+  * **not asked** — never put to this judge at all.
 
-Each has its own remedy, and it is printed beside the number: a command unable to
-say what to do next saves not time but letters.
-
-Coverage by item type is computed separately, and that is not decoration. An
-interrupted run leaves it UNEVEN: questions go in a batch, and by the moment of
-interruption some generators have been got through entirely and others not
-started. A report assembled over such a state will compute shares over a skewed
-sample and will show nothing of it — the share will look like an ordinary share.
+Coverage by item type is reported too: an interrupted run leaves it uneven, and
+shares over such a sample look like ordinary shares.
 """
 
 from __future__ import annotations
@@ -38,6 +21,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import select
 
@@ -57,9 +42,7 @@ from syft_benchmark.runs.judge import is_error, is_technical
 class PassStatus:
     """The state of one (arm, block, model, judge) combination."""
 
-    space: str
     context_mode: ContextMode
-    context_source: str
     block: EvalBlock
     model: str
     judge: str
@@ -67,7 +50,6 @@ class PassStatus:
     graded: int
     failed: int
     pending: int
-    last_at: datetime | None
     unjudged: int = 0
 
     @property
@@ -118,9 +100,8 @@ class GeneratorCoverage:
         return self.graded / self.expected if self.expected else 0.0
 
 
-# How far an item type may lag behind the best before this stops being an
-# unevenness of progress and becomes a skew of the sample. The value comes from
-# practice: on an interruption the lag tends to be a multiple, not a quarter.
+# How far an item type may lag behind the best before it counts as a skew of
+# the sample rather than uneven progress.
 _LAG = 0.25
 
 
@@ -168,8 +149,7 @@ class SpaceStatus:
     def advice(self) -> list[str]:
         """What will finish it. Each state has its own remedy."""
         if not self.passes:
-            # Nothing has been collected at all. "Everything is done" here would
-            # be an untruth of exactly the kind the command exists to prevent.
+            # Nothing collected: not "everything is done".
             return [
                 "nothing has been collected yet:",
                 f"      uv run syft-benchmark evaluate {self.space}",
@@ -254,7 +234,6 @@ def collect(
                 Result.qa_id,
                 Result.answer,
                 Result.verdict,
-                Result.created_at,
             )
             .where(Result.run_id.in_([run.id for run in runs]))
             .order_by(Result.created_at)
@@ -274,39 +253,32 @@ def collect(
     }
 
     # The latest record per question — by the same rule the report selects with.
-    # The walk goes in ascending time order, so the next one overrides the previous.
-    freshest: dict[tuple[object, ...], tuple[str, datetime]] = {}
+    # The walk goes in ascending time order, so the next one overrides the
+    # previous. A stored arm that is not measured has no state to report.
+    freshest: dict[tuple[object, ...], _RowState] = {}
     for row in rows:
-        freshest[(*key_of[row.run_id], row.qa_id)] = (
-            _state(str(row.answer or ""), str(row.verdict or "")),
-            row.created_at,
-        )
+        key = key_of[row.run_id]
+        if _known_arm(key[0]) is not None:
+            freshest[(*key, row.qa_id)] = _state(
+                str(row.answer or ""), str(row.verdict or "")
+            )
 
-    tally: dict[tuple[object, ...], dict[str, int]] = {}
-    last: dict[tuple[object, ...], datetime] = {}
-    for full_key, (state, at) in freshest.items():
-        key = full_key[:-1]
-        counts = tally.setdefault(
-            key, {"graded": 0, "failed": 0, "unjudged": 0, "pending": 0}
-        )
+    tally: dict[tuple[object, ...], dict[_RowState, int]] = {}
+    for full_key, state in freshest.items():
+        counts = tally.setdefault(full_key[:-1], dict.fromkeys(_RowState, 0))
         counts[state] += 1
-        if at is not None and (key not in last or at > last[key]):
-            last[key] = at
 
     passes = [
         PassStatus(
-            space=space,
             context_mode=ContextMode(str(key[0])),
-            context_source=str(key[1]),
             block=EvalBlock(str(key[2])),
             model=str(key[3]),
             judge=str(key[4]),
             total=total,
-            graded=counts["graded"],
-            failed=counts["failed"],
-            pending=counts["pending"],
-            last_at=last.get(key),
-            unjudged=counts["unjudged"],
+            graded=counts[_RowState.GRADED],
+            failed=counts[_RowState.FAILED],
+            pending=counts[_RowState.PENDING],
+            unjudged=counts[_RowState.UNJUDGED],
         )
         for key, counts in tally.items()
     ]
@@ -321,7 +293,7 @@ def collect(
 
 
 def _coverage(
-    freshest: dict[tuple[object, ...], tuple[str, datetime]],
+    freshest: dict[tuple[object, ...], _RowState],
     generators: Mapping[str, str],
     passes: int,
 ) -> list[GeneratorCoverage]:
@@ -338,8 +310,8 @@ def _coverage(
         in_set[generator] = in_set.get(generator, 0) + 1
 
     graded: dict[str, int] = dict.fromkeys(in_set, 0)
-    for key, (state, _at) in freshest.items():
-        if state != "graded":
+    for key, state in freshest.items():
+        if state is not _RowState.GRADED:
             continue
         found = generators.get(str(key[-1]))
         if found is not None:
@@ -358,12 +330,29 @@ def _coverage(
     return entries
 
 
-def _state(answer: str, verdict: str) -> str:
+def _known_arm(value: Any) -> ContextMode | None:
+    """The arm a stored ``context_mode`` names; None where it names none."""
+    try:
+        return ContextMode(str(value))
+    except ValueError:
+        return None
+
+
+class _RowState(StrEnum):
+    """The recorded state of one question's latest row."""
+
+    GRADED = "graded"
+    FAILED = "failed"
+    UNJUDGED = "unjudged"
+    PENDING = "pending"
+
+
+def _state(answer: str, verdict: str) -> _RowState:
     """Which of the four recorded states a row belongs to."""
     if is_error(answer):
-        return "failed"
-    if is_technical(verdict, answer):
-        return "unjudged"
+        return _RowState.FAILED
+    if is_technical(verdict):
+        return _RowState.UNJUDGED
     if verdict == Verdict.PENDING.value:
-        return "pending"
-    return "graded"
+        return _RowState.PENDING
+    return _RowState.GRADED

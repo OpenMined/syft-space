@@ -168,7 +168,6 @@ syft-space/
     ├── station/             # the Syft Station package
     └── benchmark/           # the benchmark service
         ├── src/             # syft_benchmark: CLI and control API
-        ├── frontend/        # standalone console
         ├── alembic/         # its own database schema
         ├── docs/            # pipeline docs
         └── docker-compose.yml

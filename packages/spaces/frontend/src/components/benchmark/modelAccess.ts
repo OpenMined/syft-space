@@ -1,9 +1,9 @@
 /**
- * The Model access roles: what each sends, and whether it leaves this machine.
+ * The Model access roles: what each sends, and where its calls go.
  *
- * The locality rule mirrors the benchmark's perimeter check (`check_model_host`):
- * a loopback name or a dotless Docker service name stays on the machine,
- * anything else leaves it.
+ * Whether an address stays local is decided by the backends, never here: the
+ * benchmark for a provider role (`ProviderRole.local`), the Space for its own
+ * addresses (`benchmarksApi.locality`).
  */
 import type { ProviderResponse } from '@/api/types'
 
@@ -65,37 +65,18 @@ export const MODEL_ACCESS_ROLES: ModelAccessRole[] = [
   },
 ]
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0', 'host.docker.internal'])
-
-/** The host of an address, lower-cased; empty when it cannot be read. */
-export function hostOf(url: string): string {
-  const text = url.trim()
-  if (!text) return ''
-  try {
-    const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`)
-    return parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase()
-  } catch {
-    return ''
-  }
-}
-
-/** Whether a call to this address stays on this machine. */
-export function staysLocal(url: string): boolean {
-  const host = hostOf(url)
-  return LOCAL_HOSTS.has(host) || !host.includes('.')
-}
-
 /**
  * One sentence on where an address points, for a locality chip's tooltip.
  *
- * @param url - The address
+ * @param where - The address or its host; empty for the default address
+ * @param local - Whether it stays local, as a backend judged it
  * @param lead - What reaches it, e.g. "Sent to"
  */
-export function localityTip(url: string, lead: string): string {
-  const host = hostOf(url) || 'the default address'
-  return staysLocal(url)
-    ? `${lead} ${host}, on this machine or its Docker network.`
-    : `${lead} ${host}, outside this machine.`
+export function localityTip(where: string, local: boolean, lead: string): string {
+  const place = where || 'the default address'
+  return local
+    ? `${lead} ${place}, on this machine or its Docker network.`
+    : `${lead} ${place}, outside this machine.`
 }
 
 /**
@@ -117,12 +98,18 @@ export function effectiveUrl(
   return fallback ? effectiveUrl(urls, view, fallback) : ''
 }
 
-export type KeySource = 'own' | 'inherited' | 'none'
+export type KeySource = 'own' | 'inherited' | 'none' | 'unknown'
 
-/** Whether a role calls with its own key, one it inherits, or none. */
+/**
+ * Whether a role calls with its own key, one it inherits, or none;
+ * unknown when a key it depends on could not be read.
+ */
 export function keySource(view: ProviderResponse, key: ProviderKey): KeySource {
-  if (view[key].key_set) return 'own'
+  const keySet = view[key].key_set
+  if (keySet) return 'own'
+  if (keySet === null) return 'unknown'
   const fallback = MODEL_ACCESS_ROLES.find((role) => role.key === key)?.fallback
   if (!fallback) return 'none'
-  return keySource(view, fallback) === 'none' ? 'none' : 'inherited'
+  const followed = keySource(view, fallback)
+  return followed === 'own' ? 'inherited' : followed
 }

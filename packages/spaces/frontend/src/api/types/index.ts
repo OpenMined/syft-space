@@ -525,115 +525,6 @@ export interface UpdateDiagnosticsRequest {
   enabled: boolean
 }
 
-// --- Benchmark cards: one per measuring job --------------------------------
-
-/** What kind of product was measured. */
-export type BenchmarkKind = 'answering' | 'retrieval'
-
-export interface BenchmarkAnswerable {
-  samples: number
-  correct: number
-  abstain: number
-  hallucinate: number
-  /** Explanations that left key facts out, nothing false; absent on older cards. */
-  incomplete?: number | null
-  /** Of the times it answered, the share that were wrong. */
-  lmi?: number | null
-}
-
-export interface BenchmarkUnanswerable {
-  samples: number
-  /** Share of questions with no answer that got an answer anyway. */
-  fabricated: number
-}
-
-export interface BenchmarkModelRow {
-  model: string
-  samples: number
-  accuracy: number
-  fabrication?: number | null
-  lmi?: number | null
-  /** Change in honesty with this endpoint's material. */
-  context_gain?: number | null
-  /** Score of the same model without the material. */
-  closed_accuracy?: number | null
-}
-
-export interface BenchmarkSkillRow {
-  generator: string
-  samples: number
-  accuracy: number
-}
-
-/** What the figures rest on; `flags` are codes. */
-export interface BenchmarkTrust {
-  judges: number
-  agreement?: number | null
-  consistency?: number | null
-  even_coverage: boolean
-  failed: number
-  pending: number
-  flags: string[]
-}
-
-export interface BenchmarkDataset {
-  mode: string
-  window_days: number
-  cohort: string
-  questions: number
-}
-
-/** Denial loop results: whether a right answer survives push-back. Absent when not run. */
-export interface BenchmarkPressure {
-  samples: number
-  flip_rate?: number | null
-  /** Share still standing after each round of push-back, first round first. */
-  held?: number[]
-}
-
-export interface BenchmarkTemperature {
-  temperature: number
-  accuracy: number
-}
-
-/** Monte Carlo results: answer consistency across repeats and temperatures. */
-export interface BenchmarkStability {
-  samples: number
-  consistency?: number | null
-  by_temperature?: BenchmarkTemperature[]
-}
-
-export interface BenchmarkInstrument {
-  profile: string
-  judge: string
-  judges: number
-  subjects: number
-}
-
-export interface BenchmarkCard {
-  version: number
-  kind: BenchmarkKind
-  arm: string
-  /** The job this card belongs to; empty when none. */
-  job?: string
-  checked_at: string
-  score?: number | null
-  fabrication_rate?: number | null
-  reliable: boolean
-  samples: number
-  answerable?: BenchmarkAnswerable | null
-  unanswerable?: BenchmarkUnanswerable | null
-  discrimination?: number | null
-  retrieval?: number | null
-  models: BenchmarkModelRow[]
-  skills: BenchmarkSkillRow[]
-  trust?: BenchmarkTrust | null
-  dataset?: BenchmarkDataset | null
-  instrument?: BenchmarkInstrument | null
-  pressure?: BenchmarkPressure | null
-  stability?: BenchmarkStability | null
-}
-
 // Endpoint query API types
 export interface EndpointQueryMessage {
   role: 'user' | 'assistant' | 'system'
@@ -750,8 +641,7 @@ export interface LedgerEntryPage {
 }
 
 // --- Benchmarks -------------------------------------------------------------
-//
-// Settings are open documents; the benchmark describes its own fields (BenchmarkField).
+// These types list the fields the client reads, not the full wire format.
 
 export type BenchmarkLayer = Record<string, unknown>
 
@@ -763,22 +653,9 @@ export type BenchmarkInstrumentLayer = BenchmarkLayer & {
   manual_status_priority?: 'filter' | 'manual'
   /** Model calls in flight at once, 1..64. */
   concurrency?: number
-  /** Judge temperature, 0..2; null means the model's own default. */
   /** 0..2, or "default" for the model's own; null inherits. */
   judge_temperature?: number | 'default' | null
   judge_reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'default'
-}
-
-export interface BenchmarkField {
-  name: string
-  type: string
-  group: string
-  choices?: (string | number)[]
-  // A catalogue the form fetches separately (currently only 'models').
-  catalog?: string
-  item_type?: string
-  minimum?: number
-  maximum?: number
 }
 
 // One model, identified by the benchmark's id (e.g. `anthropic/claude-sonnet-5`).
@@ -786,19 +663,12 @@ export interface BenchmarkModel {
   id: string
   name: string
   vendor: string
-  // The dated build currently serving that name; not part of the identity.
-  build: string
   context_length: number | null
-  max_output_tokens: number | null
-  input_modalities: string[]
   supports: string[]
-  /** Built-in search ("native"), the OpenRouter web plugin, or none. Absent on older servers. */
+  /** Built-in search ("native"), the OpenRouter web plugin, or none; optional. */
   web_search?: BenchmarkWebSearch
   pricing: Record<string, string | null>
   retires_on: string | null
-  routes: Record<string, string>
-  aliases: Record<string, string>
-  source: string
   local: boolean
 }
 
@@ -817,43 +687,14 @@ export interface BenchmarkModelCatalog {
   pins: Record<string, string>
   // Source -> when it was last refreshed.
   fetched: Record<string, string>
-  total: number
-}
-
-export interface BenchmarkFieldCatalogue {
-  groups?: string[]
-  instrument?: BenchmarkField[]
-  probe?: BenchmarkField[]
-}
-
-export interface BenchmarkRoleProvider {
-  role: string
-  url: string
-  key_set: boolean
-  own: boolean
-}
-
-export interface BenchmarkProvider {
-  url: string
-  app_name: string
-  key_set: boolean
-  external_hosts: string[]
-  roles: BenchmarkRoleProvider[]
-  // Set by the benchmark; provider keys stay in its environment.
-  editable: boolean
 }
 
 export interface BenchmarkCapabilities {
-  version?: string
   profile?: string
-  arms?: string[]
-  blocks?: string[]
   generators?: string[]
   subject_models?: string[]
   judge_models?: string[]
-  text_metrics?: string[]
   external_models?: boolean
-  provider?: BenchmarkProvider
 }
 
 export interface BenchmarkConnection {
@@ -865,16 +706,9 @@ export interface BenchmarkConnection {
   chroma_host: string
   chroma_port: number
   container: string
-  instrument: BenchmarkLayer
-  probe: BenchmarkLayer
   reachable: boolean
   detail: string
-  checked_at: string | null
   capabilities: BenchmarkCapabilities
-  fields: BenchmarkFieldCatalogue
-  defaults: { instrument?: BenchmarkLayer; probe?: BenchmarkLayer }
-  is_default: boolean
-  is_active: boolean
   endpoints: number
 }
 
@@ -887,8 +721,6 @@ export interface BenchmarkConnectionRequest {
   chroma_host?: string
   chroma_port?: number
   container?: string
-  is_default?: boolean
-  is_active?: boolean
 }
 
 export interface BenchmarkJob {
@@ -897,20 +729,12 @@ export interface BenchmarkJob {
   phase: string
   /** pipeline, filter or judge — which operation this job is, not where it is. */
   kind: string
-  // Passes finished of passes planned; total 0 means not known yet.
-  done: number
-  total: number
   // The current pass and its progress (questions within the pass).
-  arm: string
   block: string
   model: string
   step_done: number
   step_total: number
   message: string
-  error: string
-  trigger: string
-  /** The card assembled after measuring; absent when nothing was asked or graded. */
-  card?: BenchmarkCard | null
   created_at: string | null
   started_at: string | null
   finished_at: string | null
@@ -928,24 +752,6 @@ export interface BenchmarkProgressPlan {
   /** Blocks in plan order. */
   checks: string[]
   skipped_monte_carlo: string[]
-  passes: number
-  /** == step_total. */
-  steps: number
-  /** ISO UTC, when the evaluate phase started. */
-  started_at: string
-}
-
-/** Text similarity scores, 0..1; only the metrics switched on. */
-export type BenchmarkTextScores = Partial<
-  Record<'bleu' | 'rouge1_f' | 'rouge2_f' | 'rougeL_f' | 'bertscore_f1', number>
->
-
-/** One model × condition's averages over the direct answers that have scores. */
-export interface BenchmarkTextMetricsRow {
-  model: string
-  arm: 'alone' | 'with'
-  counted: number
-  scores: BenchmarkTextScores
 }
 
 export interface BenchmarkTarget {
@@ -953,7 +759,6 @@ export interface BenchmarkTarget {
   // False: this endpoint is not measured (not a score of zero).
   measured: boolean
   connection_id: string | null
-  connection_name: string
   enabled: boolean
   collection: string
   resolved_collection: string
@@ -963,15 +768,9 @@ export interface BenchmarkTarget {
   schedule_at: string
   /** When the benchmark next runs the schedule, UTC. */
   next_run_at: string | null
-  synced_at: string | null
-  fields: BenchmarkFieldCatalogue
+  /** The benchmark's own values, under the endpoint's layers. */
   defaults: { instrument?: BenchmarkLayer; probe?: BenchmarkLayer }
-  connection_probe: BenchmarkLayer
-  connection_instrument: BenchmarkLayer
   capabilities: BenchmarkCapabilities
-  last_job: BenchmarkJob | null
-  reachable: boolean
-  detail: string
 }
 
 export interface BenchmarkTargetRequest {
@@ -987,8 +786,18 @@ export interface BenchmarkTargetRequest {
 export interface ProviderRole {
   url: string
   url_default: string
-  key_set: boolean
+  /** Null when the benchmark's keys could not be read. */
+  key_set: boolean | null
   key_updated_at: string | null
+  /** Whether the address the role calls stays inside the perimeter, as the benchmark judges it; null when it did not say. */
+  local: boolean | null
+}
+
+/** Where an address points, as the Space backend judges it (`GET /benchmarks/locality`). */
+export interface AddressLocality {
+  /** Empty when the address cannot be read. */
+  host: string
+  local: boolean
 }
 
 export interface ProviderResponse {
@@ -1000,6 +809,13 @@ export interface ProviderResponse {
   filter: ProviderRole
 }
 
+/** One provider key after it was stored or cleared (the credential routes' reply). */
+export interface ProviderKeyState {
+  key_set: boolean
+  key_updated_at: string | null
+}
+
+/** Every role's address at once; a blank one removes that override. */
 export interface ProviderUrls {
   ollama_url: string
   generator_url: string
@@ -1012,24 +828,16 @@ export interface ProviderUrls {
 export interface BenchmarkWindow {
   /** Articles in the window, undated ones included (generation keeps them). */
   count: number
-  undated: number
-  total: number
-  window_days: number
 }
 
 export interface BenchmarkRunRequest {
   generate?: boolean | null
-  /** Screen the pending pairs generation just built; empty — follow `generate`. */
-  filter?: boolean | null
   /** Ask and grade after the question set is built; empty — yes. */
   evaluate?: boolean | null
-  /** Collect answers without calling a judge, leaving every verdict pending. */
-  defer_judging?: boolean
-  limit?: number | null
 }
 
 export type BenchmarkPairStatus = 'pending' | 'active' | 'rejected' | 'retired'
-/** Fine outcome of a control answer; null on other kinds, overrides and old rows. */
+/** Fine outcome of a control answer; null on other kinds and under an override. */
 export type BenchmarkBehavior = 'declined' | 'corrected' | 'web_sourced' | 'made_up'
 
 /**
@@ -1048,24 +856,38 @@ export type BenchmarkVerdict =
 export interface BenchmarkPair {
   id: string
   generator: string
-  task_type: string
-  cohort: string
   status: BenchmarkPairStatus
   status_note: string
+  /** Why the pair is not active, as a code; null while it is. */
+  status_reason?: string | null
   question: string
   answer: string
   context: string
-  expected_behavior: string
   document_title: string
   file_name: string
   meta: Record<string, unknown>
   created_at: string
-  has_results: boolean
 }
 
-export interface BenchmarkPairPage {
-  items: BenchmarkPair[]
-  total: number
+/** A model call behind a generated pair, as it was made. */
+export interface BenchmarkRecordedCall {
+  call: string
+  model: string
+  system: string
+  /** The prompt as sent, the passage in place. */
+  user: string
+  reply: string
+  /** The passage a writer prompt was built from; empty on a check call. */
+  passage: string
+  cost_usd: number | null
+  latency_s: number | null
+}
+
+/** A pair read from a run's report, with the calls that wrote and checked it. */
+export interface BenchmarkRunPair extends BenchmarkPair {
+  /** Empty texts when none are kept; null when the pair records no call. */
+  writer_call: BenchmarkRecordedCall | null
+  entity_call: BenchmarkRecordedCall | null
 }
 
 /** One objection and the answer it drew. */
@@ -1084,7 +906,7 @@ export interface BenchmarkDenial {
   note: string
   /** Objections the run was configured to put, which `rounds` is read against. */
   limit: number
-  /** Empty on rows measured before transcripts were kept. */
+  /** Empty when no transcript is stored. */
   log: BenchmarkDenialRound[]
 }
 
@@ -1104,7 +926,7 @@ export interface BenchmarkRepeats {
   consistency: number
   by_temperature: Record<string, number>
   note: string
-  /** Empty on rows measured before transcripts were kept. */
+  /** Empty when no transcript is stored. */
   log: BenchmarkRepeatTrial[]
 }
 
@@ -1158,7 +980,8 @@ export interface BenchmarkResult {
   block: string
   model: string
   created_at: string
-  is_latest: boolean
+  /** Whether the job's figures count this row for its answer; null without the `job` filter. */
+  counted?: boolean | null
   /** What the denial loop or Monte Carlo block did beyond the starting answer. */
   denial?: BenchmarkDenial | null
   repeats?: BenchmarkRepeats | null
@@ -1176,8 +999,6 @@ export interface BenchmarkResult {
   citations?: BenchmarkCitation[] | null
   /** Asked to search the web and cited nothing. */
   web_search_unused?: boolean | null
-  /** Null: not computed for this answer (not a prose kind, or metrics off). */
-  text_metrics?: BenchmarkTextScores | null
   behavior?: BenchmarkBehavior | null
 }
 
@@ -1186,106 +1007,18 @@ export interface BenchmarkResultPage {
   total: number
 }
 
-export interface BenchmarkReportShare {
-  samples: number
-  correct: number
-  abstain: number
-  hallucinate: number
-  /** Absent on older cards. */
-  incomplete?: number | null
-  lmi: number | null
-}
-
-export interface BenchmarkReportControl {
-  samples: number
-  fabricated: number
-  /** Answered from the web; not in `fabricated`. */
-  web_sourced?: number
-}
-
-export interface BenchmarkReportModelRow {
-  model: string
-  samples: number
-  accuracy: number
-  fabrication: number | null
-  lmi: number | null
-  context_gain: number | null
-  closed_accuracy?: number | null
-}
-
-export interface BenchmarkReportSkillRow {
-  generator: string
-  samples: number
-  accuracy: number
-}
-
-export interface BenchmarkReportTrust {
-  judges: number
-  agreement: number | null
-  consistency: number | null
-  even_coverage: boolean
-  failed: number
-  pending: number
-  flags: string[]
-  /** Only in the `/console/report` build, not on a stored card. */
-  doubts?: string[]
-}
-
-export interface BenchmarkReportDataset {
-  mode: string
-  window_days: number
-  cohort: string
-  questions: number
-}
-
-export interface BenchmarkReportInstrument {
-  profile: string
-  judge: string
-  judges: number
-  subjects: number
-}
-
-/** One endpoint's measured quality from `/console/report`; adds `score_label` and `trust.doubts`. */
-export interface BenchmarkReport {
-  version: number
-  kind: 'answering' | 'retrieval'
-  arm: string
-  /** The job this card belongs to; empty when none. */
-  job?: string
-  checked_at: string
-  score: number | null
-  score_label?: string
-  fabrication_rate: number | null
-  reliable: boolean
-  samples: number
-  answerable?: BenchmarkReportShare
-  unanswerable?: BenchmarkReportControl
-  discrimination: number | null
-  retrieval: number | null
-  models: BenchmarkReportModelRow[]
-  skills: BenchmarkReportSkillRow[]
-  trust?: BenchmarkReportTrust
-  dataset?: BenchmarkReportDataset
-  instrument?: BenchmarkReportInstrument
-  pressure?: BenchmarkPressure | null
-  stability?: BenchmarkStability | null
-}
-
 // --- Benchmark results: the per-run report ------------------------------------
 
 /** A queued or running job, as the runs list shows it. */
 export interface BenchmarkRunProgress {
   job_id: string
   state: 'queued' | 'running'
-  trigger: string
   kind: string
   phase: string
   block: string
   model: string
   step_done: number
   step_total: number
-  done: number
-  total: number
   message: string
   created_at: string | null
   started_at: string | null
@@ -1303,11 +1036,7 @@ export interface BenchmarkModelFigures {
   rate_alone: number | null
   rate_with: number | null
   lift: number | null
-  made_up_alone: number | null
-  made_up_with: number | null
-  pending: number
-  technical: number
-  /** Why some answers failed; absent on older aggregates. */
+  /** Why some answers failed; optional. */
   failure?: BenchmarkModelFailure | null
 }
 
@@ -1324,7 +1053,6 @@ export interface BenchmarkRunSummary {
   /** Job start; run duration = finished_at − started_at. */
   started_at?: string | null
   finished_at: string | null
-  trigger: string
   window_days: number | null
   /** Distinct articles of the asked questions. */
   articles: number | null
@@ -1339,8 +1067,6 @@ export interface BenchmarkRunSummary {
   models: BenchmarkModelFigures[]
   lift_lo: number | null
   lift_hi: number | null
-  /** The card stored on the job differs from the live figures. */
-  card_outdated: boolean
   /** True: the job wrote or filtered questions but asked no model. */
   build_only?: boolean
   state?: 'succeeded' | 'failed' | 'cancelled'
@@ -1356,7 +1082,6 @@ export interface BenchmarkBuildCounts {
   kept: number
   removed: number
   failed: number
-  skipped: number
 }
 
 export interface BenchmarkRunList {
@@ -1391,8 +1116,6 @@ export interface BenchmarkKindFigures {
   rate_alone: number | null
   rate_with: number | null
   lift: number | null
-  web_alone?: number
-  web_with?: number
 }
 
 export interface BenchmarkRunChecks {
@@ -1406,11 +1129,9 @@ export interface BenchmarkRunChecks {
   by_temperature: { t: number; accuracy: number }[]
   trick_asked: number
   trick_answered: number
-  /** The trick check for the model on its own; null when not measured. */
-  trick_alone_asked: number | null
-  trick_alone_answered: number | null
   /** Trick questions answered from the web; not in `trick_answered`. */
   trick_web?: number
+  /** The same for the model on its own; null when not measured. */
   trick_alone_web?: number | null
   searched: number
   search_found: number | null
@@ -1431,8 +1152,8 @@ export interface BenchmarkModelReport extends BenchmarkModelFigures {
 export interface BenchmarkRunFunnel {
   /** Null when the run reused earlier questions. */
   written: number | null
+  /** By reason; a reason that removed nothing is absent. */
   removed: Record<string, number>
-  removed_total: number | null
   /** Kept but not asked: the web check had not passed them. */
   unchecked?: number | null
   asked: number
@@ -1440,15 +1161,10 @@ export interface BenchmarkRunFunnel {
 }
 
 export interface BenchmarkRunMethod {
-  articles_from: string | null
-  articles_to: string | null
   generator_model: string | null
   kinds: string[]
   trick: number
-  context_docs: number | null
-  judges: string[]
   profile: string | null
-  next_run_at: string | null
   /** The challenge limit per right answer; null when the block did not run. */
   denial_rounds: number | null
   /** Repeats per temperature and the temperatures, ascending; null when the block did not run. */
@@ -1461,13 +1177,11 @@ export interface BenchmarkRunMethod {
 
 /** OpenRouter spend of one job, in USD. */
 export interface BenchmarkRunCost {
-  /** spend_after − spend_before; null if either read failed. */
+  /** The key's spend after the job minus before it; null if either read failed. */
   usd: number | null
-  spend_before: number | null
-  spend_after: number | null
   /** Sum of per-call usage.cost. */
   usd_calls: number
-  /** Sum of `by_role`; null for older jobs. */
+  /** Sum of `by_role`; optional. */
   total_usd?: number | null
   by_role?: BenchmarkCostByRole | null
 }
@@ -1498,12 +1212,18 @@ export interface BenchmarkKindBuild {
 
 export interface BenchmarkGeneratedPage {
   kinds: BenchmarkKindBuild[]
-  items: BenchmarkPair[]
+  items: BenchmarkRunPair[]
+  total: number
+}
+
+/** Questions of the target read by id, whichever job wrote them. */
+export interface BenchmarkRunPairs {
+  items: BenchmarkRunPair[]
   total: number
 }
 
 export type BenchmarkFilterStage = 'writing' | 'grounding' | 'control' | 'web_check'
-export type BenchmarkFilterOutcome = 'kept' | 'removed' | 'failed' | 'skipped'
+export type BenchmarkFilterOutcome = 'kept' | 'removed' | 'failed'
 
 export interface BenchmarkWebCheck {
   model: string
@@ -1513,11 +1233,7 @@ export interface BenchmarkWebCheck {
   reasoning: string
   citations: BenchmarkCitation[]
   searches: number | null
-  engine: string
-  searched: boolean | null
-  search_unused: boolean
   error: string | null
-  checked_at: string | null
 }
 
 /** One filter decision a job made, on a question it wrote or an earlier one. */
@@ -1526,22 +1242,47 @@ export interface BenchmarkFilterDecision {
   question: string
   answer: string
   generator: string
-  task_type: string
   stage: BenchmarkFilterStage
   outcome: BenchmarkFilterOutcome
   reason: string
   reason_code: string | null
   at: string | null
-  written_by_job: string | null
-  written_by_job_at: string | null
   written_at: string
   /** Written by another job. */
   earlier: boolean
   status: string
   status_note: string
-  /** False: inferred from the question's status, not stamped. */
-  recorded: boolean
   web_check: BenchmarkWebCheck | null
+}
+
+/** A draft the writer threw away before it was stored. */
+export interface BenchmarkDroppedDraft {
+  question: string
+  answer: string
+  reason: string
+}
+
+/** One writer call of a job, with the drafts it dropped. */
+export interface BenchmarkWriterCall {
+  call: string
+  generator: string
+  model: string
+  at: string | null
+  document_title: string
+  file_name: string
+  passage: string
+  system: string
+  user: string
+  reply: string
+  cost_usd: number | null
+  latency_s: number | null
+  error: string | null
+  dropped: BenchmarkDroppedDraft[]
+}
+
+export interface BenchmarkWritingPage {
+  items: BenchmarkWriterCall[]
+  total: number
 }
 
 export interface BenchmarkFilterPage {
@@ -1557,46 +1298,6 @@ export interface BenchmarkRunReport {
   /** Primary first. */
   judges: string[]
   method: BenchmarkRunMethod
-  /** Null for jobs before timing was kept, and while a job is running. */
-  timing?: BenchmarkRunTiming | null
-  /** Sorted by model, alone first; [] when nothing was computed. */
-  text_metrics?: BenchmarkTextMetricsRow[]
-}
-
-export type BenchmarkTimingPhase = 'generate' | 'filter' | 'evaluate' | 'judge' | 'report'
-
-/** Where one job's time went; seconds rounded to 0.01. */
-export interface BenchmarkRunTiming {
-  total_s: number
-  /** In the order they ran; only phases that ran. */
-  phases: { phase: BenchmarkTimingPhase | string; s: number }[]
-  /** Evaluation passes in plan order; they run concurrently, so they overlap. */
-  passes: BenchmarkPassTiming[]
-  /** One row per model and role, sorted by role then model. */
-  calls: BenchmarkCallTiming[]
-  concurrency: { model: number; endpoint: number }
-}
-
-export interface BenchmarkPassTiming {
-  arm: string
-  block: string
-  model: string
-  s: number
-  questions: number
-  /** '' or why the pass ended early. */
-  stopped: string
-}
-
-export interface BenchmarkCallTiming {
-  model: string
-  role: 'answer' | 'judge' | string
-  count: number
-  failed: number
-  mean_s: number
-  p90_s: number
-  max_s: number
-  /** Sum of call times; calls overlap, so it can exceed the phase. */
-  total_s: number
 }
 
 export interface BenchmarkQuestionRow {
@@ -1607,11 +1308,9 @@ export interface BenchmarkQuestionRow {
   file_name: string
   question: string
   gold_answer: string
-  status: string
   verdict_alone: BenchmarkVerdict | null
   verdict_with: BenchmarkVerdict | null
   group: BenchmarkQuestionGroup | null
-  overridden: boolean
 }
 
 export interface BenchmarkQuestionQuery {
@@ -1630,28 +1329,11 @@ export interface BenchmarkQuestionPage {
   counts: { all: number } & Record<BenchmarkQuestionGroup, number>
 }
 
-export interface BenchmarkVerdictOverride {
-  id: string
-  verdict: BenchmarkVerdict
-  reasoning: string
-  created_at: string
-}
-
 export interface BenchmarkArmDetail {
   answer: string
   verdict: BenchmarkVerdict
-  reasoning: string
-  /** The row to post an override against. */
-  result_id: string
-  override: BenchmarkVerdictOverride | null
-  retrieval: { hit: boolean | null; rank: number | null; context_docs: number | null } | null
   denial: { rounds: number; flipped: boolean; flip_round: number | null; limit: number } | null
-  repeats: {
-    trials: number
-    right: number
-    consistency: number
-    by_temperature: Record<string, number>
-  } | null
+  repeats: { trials: number; right: number } | null
   /** Pages cited by an answer given with web search. */
   citations?: BenchmarkCitation[] | null
   /** Asked to search the web and cited nothing. */
@@ -1667,7 +1349,7 @@ export interface BenchmarkQuestionJudge {
   primary: boolean
   alone: BenchmarkVerdict | null
   with: BenchmarkVerdict | null
-  /** Absent from servers that predate per-judge reasoning. */
+  /** Optional, as are the behaviors. */
   alone_reasoning?: string | null
   with_reasoning?: string | null
   alone_behavior?: BenchmarkBehavior | null
@@ -1675,12 +1357,8 @@ export interface BenchmarkQuestionJudge {
 }
 
 export interface BenchmarkQuestionDetail {
-  question: BenchmarkQuestionRow
-  /** The gold source paragraph. */
-  context: string
   arms: { alone: BenchmarkArmDetail | null; with: BenchmarkArmDetail | null }
   judges: BenchmarkQuestionJudge[]
-  judges_agreed: boolean | null
 }
 
 /** A passage sent with the with-data answer. */
@@ -1689,5 +1367,4 @@ export interface BenchmarkReportFragment {
   document_title: string
   score: number
   content: string
-  is_source: boolean
 }

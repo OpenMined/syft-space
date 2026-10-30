@@ -38,13 +38,6 @@ class ConnectionRequest(BaseModel):
         return value.rstrip("/")
 
 
-class ConnectionSettings(BaseModel):
-    """Connection-wide measurement settings, sent whole so cleared fields are cleared."""
-
-    instrument: dict[str, Any] = Field(default_factory=dict)
-    probe: dict[str, Any] = Field(default_factory=dict)
-
-
 class ConnectionResponse(BaseModel):
     """A connection, without its key."""
 
@@ -58,19 +51,11 @@ class ConnectionResponse(BaseModel):
     chroma_port: int
     container: str
 
-    instrument: dict[str, Any] = Field(default_factory=dict)
-    probe: dict[str, Any] = Field(default_factory=dict)
-
     # The benchmark's cached self-description.
     reachable: bool = False
     detail: str = ""
-    checked_at: datetime | None = None
     capabilities: dict[str, Any] = Field(default_factory=dict)
-    fields: dict[str, Any] = Field(default_factory=dict)
-    defaults: dict[str, Any] = Field(default_factory=dict)
 
-    is_default: bool = False
-    is_active: bool = True
     endpoints: int = Field(default=0, description="How many endpoints it measures")
 
 
@@ -83,8 +68,18 @@ class ProviderRole(BaseModel):
 
     url: str = ""
     url_default: str = ""
-    key_set: bool = False
+    key_set: bool | None = Field(
+        default=False,
+        description="Whether a key is stored; null when the benchmark's keys could not be read",
+    )
     key_updated_at: datetime | None = None
+    local: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the address the role calls stays inside the benchmark's "
+            "perimeter, as the benchmark judges it; null when it did not say"
+        ),
+    )
 
 
 class ProviderResponse(BaseModel):
@@ -100,8 +95,15 @@ class ProviderResponse(BaseModel):
     )
 
 
+class ProviderKeyState(BaseModel):
+    """One provider key after it was stored or cleared; never the key itself."""
+
+    key_set: bool
+    key_updated_at: datetime | None = None
+
+
 class ProviderUrls(BaseModel):
-    """Provider URLs, sent whole so cleared fields are cleared."""
+    """Provider URLs, every role at once: a blank field removes that override."""
 
     ollama_url: str = ""
     generator_url: str = ""
@@ -130,16 +132,14 @@ class TargetRequest(BaseModel):
     probe: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Per-endpoint probe settings. Unset fields fall back to the "
-            "connection's, then to the benchmark's defaults"
+            "Per-endpoint probe settings. Unset fields take the benchmark's defaults"
         ),
     )
     instrument: dict[str, Any] = Field(
         default_factory=dict,
         description=(
             "Arms, blocks, judges, subject models and thresholds for this "
-            "endpoint. Unset fields fall back to the connection's, then to "
-            "the benchmark's defaults"
+            "endpoint. Unset fields take the benchmark's defaults"
         ),
     )
     # The benchmark runs the schedule itself, in UTC.
@@ -175,8 +175,6 @@ class JobResponse(BaseModel):
     message: str = ""
     error: str = ""
     trigger: str = ""
-    # The card built after measuring; None if nothing was graded.
-    card: dict[str, Any] | None = None
     created_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -185,7 +183,7 @@ class JobResponse(BaseModel):
 
 
 class TargetResponse(BaseModel):
-    """This endpoint's benchmark settings and last job."""
+    """This endpoint's benchmark settings."""
 
     endpoint_slug: str
     measured: bool = Field(
@@ -196,7 +194,6 @@ class TargetResponse(BaseModel):
         ),
     )
     connection_id: UUID | None = None
-    connection_name: str = ""
     enabled: bool = True
     collection: str = ""
     resolved_collection: str = Field(
@@ -209,55 +206,19 @@ class TargetResponse(BaseModel):
     schedule_at: str = ""
     # Next scheduled run in UTC, as reported by the benchmark.
     next_run_at: datetime | None = None
-    synced_at: datetime | None = None
 
     # Copied from the connection so the endpoint form needs no second request.
-    fields: dict[str, Any] = Field(default_factory=dict)
     defaults: dict[str, Any] = Field(default_factory=dict)
     capabilities: dict[str, Any] = Field(
         default_factory=dict,
         description="What the benchmark offers: arms, generators, models",
     )
-    connection_probe: dict[str, Any] = Field(
-        default_factory=dict,
-        description="The Space-wide layer, shown as what this endpoint inherits",
-    )
-    connection_instrument: dict[str, Any] = Field(
-        default_factory=dict,
-        description="The Space-wide layer, shown as what this endpoint inherits",
-    )
-
-    last_job: JobResponse | None = None
-    reachable: bool = False
-    detail: str = ""
 
 
 class WindowResponse(BaseModel):
     """Articles in the time window, counted by the benchmark's generation rule."""
 
     count: int = Field(0, description="Articles in the window, undated included")
-    undated: int = Field(0, description="Articles with no date; generation keeps them")
-    total: int = Field(0, description="Articles in the index")
-    window_days: int = Field(0, description="The window in days; 0 means no window")
-
-
-class CheckResponse(BaseModel):
-    """Whether the benchmark can reach this endpoint's index and its HTTP API, separately."""
-
-    ok: bool = False
-    corpus: bool = False
-    endpoint: bool = False
-    transport: str = ""
-    collection: str = ""
-    available: list[str] = Field(
-        default_factory=list, description="Collections the index actually holds"
-    )
-    chunks: int = 0
-    usable: int = 0
-    documents: int = 0
-    response_type: str = ""
-    blocked_arms: dict[str, str] = Field(default_factory=dict)
-    problems: list[str] = Field(default_factory=list)
 
 
 class RunRequest(BaseModel):
@@ -282,5 +243,5 @@ class RunRequest(BaseModel):
     limit: int | None = Field(
         default=None,
         ge=1,
-        description=("Questions per generator, for a trial run; noted on the card"),
+        description=("Questions per generator, for a trial run"),
     )

@@ -123,17 +123,6 @@ def test_detects_each_language(lang: str, text: str) -> None:
     assert detect_language(text) == lang
 
 
-@pytest.mark.parametrize("lang", list(PARAGRAPHS))
-def test_detects_each_language_among_two(lang: str) -> None:
-    # The pipeline compares an item with its document; the pair of candidates
-    # must not flip the verdict either.
-    for other in LANGUAGES:
-        if other == lang:
-            continue
-        for text in PARAGRAPHS[lang]:
-            assert detect_language(text, (lang, other)) == lang
-
-
 @pytest.mark.parametrize(("lang", "text"), list(QUESTIONS.items()))
 def test_detects_an_item_sized_text(lang: str, text: str) -> None:
     assert detect_language(text) == lang
@@ -149,8 +138,3 @@ def test_code_gives_no_verdict() -> None:
         "return run(config, args, timeout=30, retries=5, verbose=True)"
     )
     assert detect_language(code) is None
-
-
-def test_unknown_candidate_is_skipped() -> None:
-    assert detect_language(PARAGRAPHS["en"][0], ("xx", "en")) == "en"
-    assert detect_language(PARAGRAPHS["en"][0], ("xx",)) is None

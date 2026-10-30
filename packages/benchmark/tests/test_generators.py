@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import random
 import re
 
 import pytest
@@ -256,7 +255,7 @@ def test_ttil_needs_exactly_one_lie() -> None:
     ]
     pairs, rejected = clean_ttil(items, 1, DOC)
     assert not pairs
-    assert "lie" in rejected[0]
+    assert "lie" in rejected[0].reason
 
 
 def test_multihop_requires_two_facts() -> None:
@@ -275,7 +274,7 @@ def test_multihop_requires_two_facts() -> None:
     ]
     pairs, rejected = clean_multihop(items, 4, DOC)
     assert len(pairs) == 1
-    assert "fewer than two facts" in rejected[0]
+    assert "fewer than two facts" in rejected[0].reason
 
 
 _TIERED = {
@@ -300,17 +299,12 @@ def test_tiered_keeps_one_level_with_the_shared_facts() -> None:
     assert meta["key_facts"] == ["one", "two", "three", "four", "five"]
 
 
-def test_tiered_level_is_random_and_reproducible() -> None:
-    """Seeded from the topic by default; an injected generator picks otherwise."""
+def test_tiered_level_is_reproducible() -> None:
+    """Seeded from the topic: the same topic keeps the same level."""
     first = clean_tiered([_TIERED], 1, DOC)[0][0].meta["tier"]
     assert all(
         clean_tiered([_TIERED], 1, DOC)[0][0].meta["tier"] == first for _ in range(5)
     )
-    picked = {
-        clean_tiered([_TIERED], 1, DOC, rng=random.Random(seed))[0][0].meta["tier"]
-        for seed in range(30)
-    }
-    assert picked == {"eli5", "eli10", "eli18"}
 
 
 def test_tiered_prompt_asks_for_shared_exclusive_facts() -> None:
@@ -350,7 +344,7 @@ def test_tiered_level_without_facts_is_unjudgeable() -> None:
     }
     pairs, rejected = clean_tiered([payload], 1, DOC)
     assert not pairs
-    assert "key facts" in rejected[0]
+    assert "key facts" in rejected[0].reason
 
 
 # --- rejecting reference answers by their claims ---------------------------
@@ -384,7 +378,7 @@ def test_no_claims_is_not_grounded() -> None:
 # only be checked with text in the language being detected.
 
 
-def test_language_detection_separates_the_candidates() -> None:
+def test_language_detection_separates_the_languages() -> None:
     english = (
         "The Hub stores endpoint metadata but it never stores the documents "
         "themselves, and that is the whole point of the design."
@@ -393,12 +387,12 @@ def test_language_detection_separates_the_candidates() -> None:
         "Der Hub speichert nur die Beschreibungen der Endpunkte, aber niemals "
         "die Dokumente selbst, und genau darin liegt der Sinn des Entwurfs."
     )
-    assert detect_language(english, ("en", "de")) == "en"
-    assert detect_language(german, ("en", "de")) == "de"
+    assert detect_language(english) == "en"
+    assert detect_language(german) == "de"
 
 
 def test_too_short_to_judge() -> None:
-    assert detect_language("Hub stores", ("en", "ru")) is None
+    assert detect_language("Hub stores") is None
 
 
 _ENGLISH_ARTICLE = (
@@ -536,37 +530,32 @@ def test_a_choice_in_another_language_is_dropped() -> None:
 
 def test_rules_are_numbered_without_gaps() -> None:
     """Prompts that continue a shared rule list keep its numbering."""
-    from syft_benchmark.generation.generators import _MCQ_SYSTEM, _QA_SYSTEM
-    from syft_benchmark.generation.negative import (
-        FALSE_PREMISE_SYSTEM,
-        UNANSWERABLE_SYSTEM,
-    )
+    from syft_benchmark.generation.generators import GENERATORS
 
-    for system in (_QA_SYSTEM, _MCQ_SYSTEM, FALSE_PREMISE_SYSTEM, UNANSWERABLE_SYSTEM):
+    for key in ("qa", "mcq", "false_premise", "unanswerable_property"):
+        system = GENERATORS[key].system
         numbers = [int(n) for n in re.findall(r"^(\d+)\. ", system, re.MULTILINE)]
         assert numbers == list(range(1, len(numbers) + 1))
-    assert "exactly ONE missing detail" in UNANSWERABLE_SYSTEM
+    assert "exactly ONE missing detail" in GENERATORS["unanswerable_property"].system
 
 
 def test_writers_ask_about_facts_only_this_story_has() -> None:
     """Open, multiple-choice, connect-the-facts and false-claim writers."""
-    from syft_benchmark.generation.abstractive import MULTIHOP_SYSTEM, TTIL_SYSTEM
     from syft_benchmark.generation.extractive import COMBINED_SYSTEM
-    from syft_benchmark.generation.generators import _MCQ_SYSTEM, _QA_SYSTEM
+    from syft_benchmark.generation.generators import GENERATORS
 
-    def flat(system: str) -> str:
-        return " ".join(system.format(n=2).split())
+    def flat(key: str) -> str:
+        return " ".join(GENERATORS[key].system.format(n=2).split())
 
     rule = "Build each question on a fact that only this story reports"
-    for system in (_QA_SYSTEM, _MCQ_SYSTEM, MULTIHOP_SYSTEM, TTIL_SYSTEM):
-        assert rule in flat(system)
-    assert "each must be contradicted by it" in flat(_MCQ_SYSTEM)
-    assert "a detail only this story reports, so the web can't" in flat(TTIL_SYSTEM)
-    assert (
-        flat(COMBINED_SYSTEM)
-        .split(" Respond with ONLY")[0]
-        .endswith("- Use each sentence once.")
+    for key in ("qa", "mcq", "multihop_synthesis", "two_truths_one_lie"):
+        assert rule in flat(key)
+    assert "each must be contradicted by it" in flat("mcq")
+    assert "a detail only this story reports, so the web can't" in flat(
+        "two_truths_one_lie"
     )
+    combined = " ".join(COMBINED_SYSTEM.format(n=2).split())
+    assert combined.split(" Respond with ONLY")[0].endswith("- Use each sentence once.")
 
 
 def test_generation_calls_the_generator_role_not_the_common_provider(
@@ -617,7 +606,7 @@ def test_generation_calls_the_generator_role_not_the_common_provider(
         GENERATORS["qa"],
         document,
         chunk,
-        Settings(spaces_file="config/spaces.json"),  # type: ignore[arg-type]
+        Settings(),
         role,
     )
 

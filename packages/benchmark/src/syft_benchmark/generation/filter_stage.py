@@ -1,52 +1,11 @@
 """Stage 2: deciding which generated pairs are fit to measure with.
 
-Every candidate generation writes lands as ``pending``, whatever its answer or
-its question turn out to be worth. This module screens those pending rows as
-its own pass over what is already in the database, so the owner can see the
-raw output of generation before anything is screened, and can re-run screening
-on its own schedule.
-
-Four checks, all reading the persisted row rather than a fresh candidate:
-
-  * **grounding** (``validate.py``) — does the gold answer rest on the chunk.
-    Lexical, deterministic, needs nothing but the row itself (``context`` is
-    the chunk, truncated the same way as at generation; ``meta["claims"]``, where
-    present, is what a reworded item's answer must follow from instead).
-  * **the archive check** (``control.gate_answerable``) — for a grounded
-    ordinary pair, does live retrieval find a fragment stating its answer. A
-    question that makes no sense finds nothing and is rejected as
-    ``not_answerable`` before the web check is paid for. A failed check
-    leaves the pair pending; without a retriever the check is skipped.
-  * **the control gate** (``control.py``) — for a question built with no
-    answer in the corpus, does live retrieval in fact answer it anyway; for a
-    false premise, does live retrieval find the correction. This one is NOT a
-    replay of a stored verdict: it queries retrieval again, right now, because
-    what the archive holds is only ever true relative to an index at a moment,
-    and the index may have grown since generation ran.
-  * **the web check** (``web_check.py``) — for a pair that passed the above,
-    when ``filter_model`` is set: does a model with web search and its own
-    training, and none of the publisher's data, answer it correctly. If so it
-    is rejected as ``web_answerable``; a trick question its search answers is
-    rejected as ``public_knowledge``. A false premise skips it. A failed check
-    leaves the pair pending with a note, for the next pass.
-
-Only ``pending`` pairs are ever touched automatically — an ``active`` or
-``rejected`` verdict, once made, stands until a person overturns it through
-``override_status``. Re-running this on the same pending pairs twice gives the
-same answer for grounding and, because retrieval may have changed, not
-necessarily the same answer for the archive check or the gate; neither run
-ever moves a pair that already has a verdict.
-
-This module never reads the corpus (invariant 1: only ``sources`` and the
-handful of modules listed in ``test_invariants.py`` may). It decides
-grounding purely off what is already stored, and the archive check and the
-control gate through an injected ``retrieve`` callable — the same seam
-``generation/control.py`` uses. What it does NOT do is reconcile the
-freshness window, the cohort or the set cap for pairs it just turned active:
-that needs the document dates, which means reading the corpus, which means
-it belongs to ``pipeline.py``'s ``filter_and_rotate`` instead of here. A
-pair filtered on its own settles into the window at the next generation
-pass.
+Screens the ``pending`` pairs only, as its own pass over the stored rows: an
+``active`` or ``rejected`` verdict stands until ``override_status`` overturns
+it. Four checks: grounding (``validate.py``), the archive check
+(``control.gate_answerable``), the control gate (``control.py``) and the web
+check (``web_check.py``). The corpus is never read (invariant 1): retrieval
+goes through an injected ``retrieve`` callable.
 """
 
 from __future__ import annotations
@@ -103,12 +62,11 @@ from syft_benchmark.generation.web_check import (
     WebVerdict,
     checks_public,
     exclusion,
-    filter_model,
     lean,
     skips_manual,
     web_checked,
 )
-from syft_benchmark.llm import Provider, judge_providers
+from syft_benchmark.llm import Provider, judge_provider
 
 # The control gate's or the archive check's call, carried from the check to
 # the decision record.
@@ -191,7 +149,7 @@ def _screen_pair(
     generator: Generator,
     gate: Retriever | None,
     conf: Settings,
-    judge: Provider | None,
+    judge: Provider,
 ) -> tuple[PairStatus, StatusReason | None, str, dict[str, Any]]:
     """The verdict on one pending pair, why, and what to fold into its ``meta``.
 
@@ -226,9 +184,8 @@ def _screen_pair(
         )
 
     if gate is None:
-        # An unchecked negative is an unfounded accusation of fabrication, same
-        # as at generation time: kept as rejected rather than left pending
-        # forever, and it stays material for tuning the prompt.
+        # An unchecked negative could accuse a model of fabrication: rejected
+        # rather than left pending forever.
         return (
             PairStatus.REJECTED,
             StatusReason.RETRIEVAL_GATE,
@@ -259,7 +216,7 @@ def _screen_pair(
 
 
 def _archive_check(
-    row: QaPair, gate: Retriever, conf: Settings, judge: Provider | None
+    row: QaPair, gate: Retriever, conf: Settings, judge: Provider
 ) -> Gate:
     """Whether live retrieval finds the answer to an ordinary pair.
 
@@ -309,10 +266,8 @@ class Screening:
     a build: ``screen`` takes one pending pair from grounding and the archive
     check (or the control gate) through the web check to its verdict;
     ``recheck`` puts one pair already in the set to the web check. Model
-    calls take a slot from
-    ``slots`` (urgent: checks go before waiting generator calls); retrieval
-    for the archive check and the control gate is limited by
-    ``endpoint_concurrency``.
+    calls take a slot from ``slots`` (urgent: checks go before waiting
+    generator calls); retrieval is limited by ``endpoint_concurrency``.
 
     A pair stays pending when the owner stops the pass before it is checked,
     when its archive check or web check fails, or when the web check has
@@ -337,19 +292,17 @@ class Screening:
         self.report = FilterSummary(space=space)
         # The archive check's and the control gate's judge (Judge 1). The web
         # check picks its own.
-        judges = judge_providers(conf)
-        self.judge = judges[0] if judges else None
+        self.judge = judge_provider(conf)
         self.retrieve = limited(retrieve, endpoint_limit(conf))
         self.slots = slots or model_slots(conf)
         self.should_stop = Latch(should_stop)
-        self.web_on = bool(filter_model(conf))
+        self.web_on = bool(conf.filter_model)
         self.web = WebChecker(conf) if self.web_on else None
         # Whether any pair reached the web check (the summary is reported then).
         self.web_used = False
         self.rechecked = 0
         self._lock = threading.Lock()
 
-    # --- verdicts ------------------------------------------------------------
     def _decision(
         self,
         row: QaPair,
@@ -513,20 +466,18 @@ class Screening:
         with self.slots.hold(urgent=True):
             return self.web.check(row)
 
-    # --- the units of work ---------------------------------------------------
     def screen(self, row: QaPair) -> None:
         """One pending pair, from grounding to its verdict."""
         if self.stopped():
             return
         spec = GENERATORS.get(row.generator)
         if spec is None:
-            # The generator that made this pair no longer exists: there is
-            # nothing left to re-check it against.
+            # An unknown generator: nothing to check the pair against.
             self._write(
                 row,
                 PairStatus.REJECTED,
                 StatusReason.OTHER,
-                f"generator {row.generator!r} is no longer known",
+                f"generator {row.generator!r} is not known",
                 {},
             )
             return
@@ -765,7 +716,7 @@ def _unchecked_in_set(
 ) -> list[QaPair]:
     """This cohort's pairs in the set, or held back by the cap, not yet checked
     by the current web check model. Active ones first, the newest first."""
-    model = filter_model(conf)
+    model = conf.filter_model or ""
     with session_scope(conf) as session:
         query = select(QaPair).where(
             QaPair.space == space,
@@ -810,11 +761,8 @@ def override_status(
 ) -> bool:
     """Set one pair's status by hand, whatever it is now.
 
-    Automatic filtering only ever touches ``pending`` pairs — a verdict, once
-    made, stands on its own until a person looks at it and overturns it. This
-    is that override: the owner reviewing the filter's output may judge a
-    rejection too strict, or an active pair not good enough, and this is the
-    one place that can say so regardless of the pair's current status.
+    Automatic filtering only touches ``pending`` pairs; this is the one place
+    that overturns a verdict already made.
 
     A non-active status is recorded with the reason ``owner``. Every change
     stamps ``meta.manual_override`` = {status, at}: under

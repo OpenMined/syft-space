@@ -1,15 +1,8 @@
 """store the assembled card on the job
 
-A card was built only as a side effect of publishing it: ``request.publish``
-false, or the Space refusing it, meant ``build_card`` was never even called,
-and a measurement that ran to completion had nothing to show for itself beyond
-a pass count and an error string. The owner could not tell "measured fine, not
-sent anywhere" from "measured nothing" without going to the console.
-
-``jobs.card`` holds the card assembled right after measuring, independent of
-whether it was ever published — the one place "how did this run go" is
-answered from now on. Nullable: a job that never reached a gradable answer, or
-one still running, has none yet.
+``jobs.card`` holds the card assembled right after measuring, whether or not it
+was published: the one place "how did this run go" is answered from. Nullable:
+a job that never reached a gradable answer, or one still running, has none.
 
 Revision ID: 9bb3816f998f
 Revises: c4d81ab6f207

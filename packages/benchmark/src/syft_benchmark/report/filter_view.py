@@ -2,17 +2,19 @@
 
 A job's decisions are the ``meta.screening`` records stamped with its id
 (``generation.decisions``), on any pair of the target, whoever wrote it. A
-pair with no record at all (decided before the stamps existed) gets one
-decision inferred from its current status, attributed to the job that wrote it.
+pair with no record at all gets one decision inferred from its current status,
+attributed to the job that wrote it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select, text, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from syft_benchmark.config import PairStatus, StatusReason
@@ -20,12 +22,9 @@ from syft_benchmark.db.models import Job, QaPair
 from syft_benchmark.generation import decisions
 from syft_benchmark.generation.web_check import CONTROL_NOTE, exclusion
 from syft_benchmark.question_order import pair_key
+from syft_benchmark.report.job_params import iso
 
 MAX_PAGE = 200
-
-
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
 
 
 def _stamped_by(job_id: Any) -> Any:
@@ -50,23 +49,127 @@ def touched_by_job() -> Any:
     )
 
 
-def _rows(session: Session, target: str, job_ids: Sequence[str]) -> list[QaPair]:
+def job_pairs(
+    session: Session,
+    target: str,
+    job_ids: Sequence[str],
+    *,
+    generator: str | None = None,
+) -> list[QaPair]:
+    """The target's pairs these jobs wrote or decided on, detached; only
+    ``generator``'s when given."""
     if not job_ids:
         return []
-    rows = list(
-        session.execute(
-            select(QaPair).where(
-                QaPair.space == target,
-                or_(
-                    QaPair.job_id.in_(job_ids),
-                    *(_stamped_by(job_id) for job_id in job_ids),
-                ),
-            )
-        ).scalars()
-    )
+    query = select(QaPair).where(*_of_jobs(target, job_ids))
+    if generator:
+        query = query.where(QaPair.generator == generator)
+    rows = list(session.execute(query).scalars())
     for row in rows:
         session.expunge(row)
     return rows
+
+
+def _of_jobs(target: str, job_ids: Sequence[str]) -> tuple[Any, ...]:
+    """The target's pairs these jobs wrote or decided on."""
+    return (
+        QaPair.space == target,
+        or_(
+            QaPair.job_id.in_(job_ids),
+            *(_stamped_by(job_id) for job_id in job_ids),
+        ),
+    )
+
+
+def _slim_screening(meta: Any) -> Any:
+    """``meta.screening`` cut to each record's job and outcome."""
+    screening = meta.op("->")(decisions.SCREENING)
+    record = func.jsonb_array_elements(screening).table_valued("value").alias("record")
+    slim = (
+        select(
+            func.jsonb_agg(
+                func.jsonb_build_object(
+                    "job_id",
+                    record.c.value.op("->")("job_id"),
+                    "outcome",
+                    record.c.value.op("->")("outcome"),
+                )
+            )
+        )
+        .select_from(record)
+        .scalar_subquery()
+    )
+    return case((func.jsonb_typeof(screening) == "array", slim), else_=screening)
+
+
+def _slim_web_check(meta: Any) -> Any:
+    """``meta.web_check`` cut to the fields ``_inferred`` reads."""
+    web = meta.op("->")("web_check")
+    return func.jsonb_build_object(
+        *(
+            part
+            for key in ("error", "verdict", "checked_at")
+            for part in (key, web.op("->")(key))
+        )
+    )
+
+
+def _decision_states(
+    session: Session, target: str, job_ids: Sequence[str]
+) -> list[QaPair]:
+    """``job_pairs`` cut to what counting decisions reads, unattached to a session.
+
+    The full ``meta`` is large (the writer's prompts, the raw web checks), and
+    every reference to it in a query reads it out of TOAST again, so it is read
+    once in an inner query and cut down there.
+    """
+    if not job_ids:
+        return []
+    inner = (
+        select(
+            QaPair.id,
+            QaPair.job_id,
+            QaPair.task_type,
+            QaPair.status,
+            QaPair.status_reason,
+            QaPair.status_note,
+            type_coerce(QaPair.meta.op("||")(text("'{}'::jsonb")), JSONB).label("meta"),
+        )
+        .where(*_of_jobs(target, job_ids))
+        .offset(0)
+        .subquery()
+    )
+    meta = inner.c.meta
+    found = session.execute(
+        select(
+            inner.c.id,
+            inner.c.job_id,
+            inner.c.task_type,
+            inner.c.status,
+            inner.c.status_reason,
+            inner.c.status_note,
+            _slim_screening(meta),
+            _slim_web_check(meta),
+            meta.op("->")("grading"),
+            meta.op("->")("key_facts"),
+        )
+    )
+    keys = (decisions.SCREENING, "web_check", "grading", "key_facts")
+    return [
+        QaPair(
+            id=qa_id,
+            job_id=job_id,
+            task_type=task_type,
+            status=status,
+            status_reason=reason,
+            status_note=note,
+            meta={
+                key: value
+                for key, value in zip(keys, values, strict=True)
+                if value is not None
+            },
+        )
+        for qa_id, job_id, task_type, status, reason, note, *values in found
+    ]
 
 
 # Reasons decided as the question is written (the ``writing`` stage).
@@ -147,23 +250,43 @@ def _web(record: Any) -> dict[str, Any] | None:
     }
 
 
+@dataclass(frozen=True, slots=True)
+class Decision:
+    """One filter decision of a job on a pair.
+
+    ``web`` is the raw web check record behind it; ``recorded`` is false for a
+    decision inferred from the pair's status.
+    """
+
+    row: QaPair
+    entry: dict[str, Any]
+    web: Any
+    recorded: bool
+
+
+def job_decisions(rows: Sequence[QaPair], job_id: str) -> list[Decision]:
+    """Every filter decision of the job among ``rows``, in ``rows`` order."""
+    out: list[Decision] = []
+    for row in rows:
+        meta = row.meta or {}
+        entry = decisions.of_job(meta, job_id)
+        if entry is not None:
+            out.append(Decision(row, entry, entry.get("web"), recorded=True))
+            continue
+        if row.job_id != job_id or meta.get(decisions.SCREENING):
+            continue
+        inferred = _inferred(row)
+        if inferred is not None:
+            out.append(Decision(row, inferred, meta.get("web_check"), recorded=False))
+    return out
+
+
 def _decisions_of(
     rows: Sequence[QaPair], job_id: str, written: dict[str, datetime | None]
 ) -> list[dict[str, Any]]:
     out: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    for row in rows:
-        meta = row.meta or {}
-        entry = decisions.of_job(meta, job_id)
-        recorded = entry is not None
-        if entry is None:
-            if row.job_id != job_id or meta.get(decisions.SCREENING):
-                continue
-            entry = _inferred(row)
-            if entry is None:
-                continue
-            web_record = meta.get("web_check")
-        else:
-            web_record = entry.get("web")
+    for d in job_decisions(rows, job_id):
+        row, entry = d.row, d.entry
         out.append(
             (
                 pair_key(row.generator, row.created_at, row.id),
@@ -179,13 +302,13 @@ def _decisions_of(
                     "reason_code": entry.get("reason"),
                     "at": entry.get("at"),
                     "written_by_job": row.job_id,
-                    "written_by_job_at": _iso(written.get(row.job_id or "")),
-                    "written_at": _iso(row.created_at),
+                    "written_by_job_at": iso(written.get(row.job_id or "")),
+                    "written_at": iso(row.created_at),
                     "earlier": row.job_id != job_id,
                     "status": row.status,
                     "status_note": row.status_note,
-                    "recorded": recorded,
-                    "web_check": _web(web_record),
+                    "recorded": d.recorded,
+                    "web_check": _web(d.web),
                 },
             )
         )
@@ -208,25 +331,42 @@ def job_filter(
     session: Session,
     job: Job,
     *,
+    generator: str | None = None,
     stage: str | None = None,
     outcome: str | None = None,
-    limit: int = 50,
+    limit: int | None = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """The job's filter decisions in the question order, paged; counts before
-    filters."""
-    rows = _rows(session, job.target, [job.id])
+    """The job's filter decisions in the question order; only ``generator``'s
+    when given. Counts are of that kind, before the stage and outcome filters.
+
+    Paged by ``limit``, capped at ``MAX_PAGE``; ``None`` returns every decision
+    from ``offset`` on. The list is computed whole on each call, so a reader
+    that needs all of one kind asks once rather than page by page.
+    """
+    rows = job_pairs(session, job.target, [job.id], generator=generator)
     found = _decisions_of(rows, job.id, _writer_dates(session, rows))
     counts = decisions.outcome_counts(found)
     if stage:
         found = [d for d in found if d["stage"] == stage]
     if outcome:
         found = [d for d in found if d["outcome"] == outcome]
-    page = max(1, min(limit, MAX_PAGE))
+    end = None if limit is None else offset + max(1, min(limit, MAX_PAGE))
     return {
-        "items": found[offset : offset + page],
+        "items": found[offset:end],
         "total": len(found),
         "counts": counts,
+    }
+
+
+def counts_of(rows: Sequence[QaPair], job_id: str) -> dict[str, int]:
+    """Among ``rows``: the questions the job wrote, its filter decisions, and
+    those by outcome."""
+    found = [d.entry for d in job_decisions(rows, job_id)]
+    return {
+        "written": sum(1 for row in rows if row.job_id == job_id),
+        "checked": len(found),
+        **decisions.outcome_counts(found),
     }
 
 
@@ -234,13 +374,5 @@ def build_counts(
     session: Session, target: str, job_ids: Sequence[str]
 ) -> dict[str, dict[str, int]]:
     """Per job: questions written, and its filter decisions by outcome."""
-    rows = _rows(session, target, job_ids)
-    out: dict[str, dict[str, int]] = {}
-    for job_id in job_ids:
-        found = _decisions_of(rows, job_id, {})
-        out[job_id] = {
-            "written": sum(1 for row in rows if row.job_id == job_id),
-            "checked": len(found),
-            **decisions.outcome_counts(found),
-        }
-    return out
+    rows = _decision_states(session, target, job_ids)
+    return {job_id: counts_of(rows, job_id) for job_id in job_ids}

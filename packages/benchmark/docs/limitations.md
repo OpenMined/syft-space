@@ -6,10 +6,10 @@ What this measurement cannot do, or does only conditionally.
 
 * **The judge is a model.** A panel measures agreement between judges, but high
   agreement means the judges are alike, not that they are right. The judge's
-  name is part of every number: it is in the report and the card.
-* **A console judge grades only the `direct` block.** `denial_loop` and
-  `monte_carlo` verdicts are issued during the run; the console judge did not
-  see the rounds.
+  name is part of every number: it is in the report.
+* **A judge through a chat grades only the `direct` block.** `denial_loop` and
+  `monte_carlo` verdicts are issued during the run; that judge did not see
+  the rounds.
 * **The fill-in span match knows English forms only** (number words, dates);
   any other reply goes to the judge.
 * **A human verdict cannot be rechecked like a machine one.** The audit record
@@ -35,7 +35,8 @@ What this measurement cannot do, or does only conditionally.
 * **A rolling set makes days non-comparable question by question.** Compare
   behaviour across days (abstention share, the price of context), not accuracy
   on a particular set.
-* **The freshness window relies on the node's date header.** Undated documents
+* **The freshness window relies on each document's date** (the
+  `published_date` header, else when it was added). Documents with neither
   pass the window; their count is printed.
 * **An empty corpus read does not retire items.** Zero documents read skips
   the recompute, so a set whose material was deleted entirely stays until a run
@@ -43,10 +44,9 @@ What this measurement cannot do, or does only conditionally.
 
 ## The run
 
-* **`denial_loop` does not apply to arm B**: the endpoint has no conversation
-  to continue. It applies to arms A and C.
 * **Arm C depends on the endpoint's mode.** In `summary` mode there are no
-  chunks to hand the model.
+  chunks to hand the model; in `raw` mode there is no endpoint answer for
+  `context_source: endpoint_answer`.
 * **The price of context is relative to arm A** of a specific model; it can be
   compared between models, not between judges.
 * **The manual chat path is not for the report**: the chat product has its
@@ -66,5 +66,4 @@ What this measurement cannot do, or does only conditionally.
   aggregated numbers only, and marked as such. The computed observations beside
   it are the measurement.
 * **Different Spaces are not compared on accuracy**: each has its own corpus
-  and questions. Read first what depends least on the corpus: inventions on
-  questions without an answer, and abstention discrimination.
+  and questions.

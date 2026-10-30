@@ -4,19 +4,20 @@ Connections (Settings) say which benchmark and how it reaches this Space;
 targets are per endpoint. The rest proxies the benchmark's console and reports.
 """
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 
 from syft_space.components.benchmarks.handlers import BenchmarkHandler
+from syft_space.components.benchmarks.locality import Locality, locality
 from syft_space.components.benchmarks.schemas import (
-    CheckResponse,
     ConnectionRequest,
     ConnectionResponse,
-    ConnectionSettings,
     JobResponse,
     ProviderCredential,
+    ProviderKeyState,
     ProviderResponse,
     ProviderUrls,
     RunRequest,
@@ -27,6 +28,20 @@ from syft_space.components.benchmarks.schemas import (
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
 
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _file_meta(headers: dict[str, str], default_type: str) -> dict[str, Any]:
+    """Media type and disposition of a file the benchmark sent, to pass it on."""
+    passed = {}
+    if headers.get("content-disposition"):
+        passed["Content-Disposition"] = headers["content-disposition"]
+    return {
+        "media_type": headers.get("content-type") or default_type,
+        "headers": passed,
+    }
+
 
 def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
     """Build the benchmark routes."""
@@ -36,6 +51,15 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         return handler
 
     # --- connections -------------------------------------------------------
+
+    @router.get("/locality", response_model=Locality)
+    async def get_locality(
+        url: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+    ) -> Locality:
+        """Whether an address the Space calls or hands out stays on this machine
+        or its Docker network; for the connection form's labels."""
+        return locality(url)
 
     @router.get("/connections", response_model=list[ConnectionResponse])
     async def list_connections(
@@ -67,18 +91,6 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
     ) -> ConnectionResponse:
         """Update a connection."""
         return await handler.update_connection(tenant, connection_id, request)
-
-    @router.put(
-        "/connections/{connection_id}/settings", response_model=ConnectionResponse
-    )
-    async def save_settings(
-        connection_id: UUID,
-        settings: ConnectionSettings,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: BenchmarkHandler = Depends(get_handler),
-    ) -> ConnectionResponse:
-        """Replace the connection-wide measurement settings (not a patch)."""
-        return await handler.save_settings(tenant, connection_id, settings)
 
     @router.post(
         "/connections/{connection_id}/check", response_model=ConnectionResponse
@@ -178,7 +190,7 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
 
     @router.put(
         "/connections/{connection_id}/provider/credentials/{name}",
-        response_model=ProviderResponse,
+        response_model=ProviderKeyState,
     )
     async def save_provider_credential(
         connection_id: UUID,
@@ -186,7 +198,7 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         credential: ProviderCredential,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
-    ) -> ProviderResponse:
+    ) -> ProviderKeyState:
         """Set one provider key; it is never returned, only whether it is set."""
         return await handler.save_provider_credential(
             tenant, connection_id, name, credential.value
@@ -194,14 +206,14 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
 
     @router.delete(
         "/connections/{connection_id}/provider/credentials/{name}",
-        response_model=ProviderResponse,
+        response_model=ProviderKeyState,
     )
     async def delete_provider_credential(
         connection_id: UUID,
         name: str,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
-    ) -> ProviderResponse:
+    ) -> ProviderKeyState:
         """Clear one provider key; the role falls back to the shared default."""
         return await handler.delete_provider_credential(tenant, connection_id, name)
 
@@ -229,15 +241,6 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         """Start measuring this endpoint, or change how."""
         return await handler.save_target(tenant, slug, request)
 
-    @router.post("/endpoints/{slug}/check", response_model=CheckResponse)
-    async def check_target(
-        slug: str,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: BenchmarkHandler = Depends(get_handler),
-    ) -> CheckResponse:
-        """Check that the benchmark can reach this endpoint and its index."""
-        return await handler.check_target(tenant, slug)
-
     @router.get("/endpoints/{slug}/window", response_model=WindowResponse)
     async def get_window(
         slug: str,
@@ -262,36 +265,7 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         """Start a run; 202, the job runs in the background."""
         return await handler.start_run(tenant, slug, request)
 
-    # --- the console, embedded: pairs, results, filtering, judging, report --
-
-    @router.get("/endpoints/{slug}/console/pairs")
-    async def list_pairs(
-        slug: str,
-        pair_status: str = Query(default="", alias="status"),
-        cohort: str = "",
-        generator: str = "",
-        job: str = "",
-        limit: int = 0,
-        offset: int = 0,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: BenchmarkHandler = Depends(get_handler),
-    ) -> dict:
-        """This endpoint's question/answer pairs, filterable and paged.
-
-        ``job`` limits them to one job, rejected ones included.
-        """
-        return await handler.list_pairs(
-            tenant,
-            slug,
-            {
-                "status": pair_status,
-                "cohort": cohort,
-                "generator": generator,
-                "job": job,
-                "limit": limit,
-                "offset": offset,
-            },
-        )
+    # --- the console, embedded: pairs, results, judging, report ------------
 
     @router.patch("/endpoints/{slug}/console/pairs/{pair_id}")
     async def update_pair(
@@ -304,35 +278,24 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         """Set a pair's status by hand: ``{"status": ..., "note": ...}``."""
         return await handler.update_pair(tenant, slug, pair_id, body)
 
-    @router.delete(
-        "/endpoints/{slug}/console/pairs/{pair_id}",
-        status_code=status.HTTP_204_NO_CONTENT,
-    )
-    async def delete_pair(
-        slug: str,
-        pair_id: str,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: BenchmarkHandler = Depends(get_handler),
-    ) -> None:
-        """Delete a pair; refused once it has been measured."""
-        await handler.delete_pair(tenant, slug, pair_id)
-
     @router.get("/endpoints/{slug}/console/results")
     async def list_results(
         slug: str,
         verdict: str = "",
         qa_id: str = "",
+        model: str = "",
         job: str = "",
-        limit: int = 0,
-        offset: int = 0,
+        limit: int | None = None,
+        offset: int | None = None,
         prompts: bool = False,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> dict:
         """This endpoint's graded answers, filterable and paged.
 
-        ``job`` limits them to one job. ``prompts`` adds the prompts sent to the
-        model and judges plus the retrieved chunks; use it with ``qa_id``.
+        ``job`` limits them to one job and marks the row its figures count
+        (``counted``). ``prompts`` adds the prompts sent to the model and judges
+        plus the retrieved chunks; use it with ``qa_id``.
         """
         return await handler.list_results(
             tenant,
@@ -340,6 +303,7 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
             {
                 "verdict": verdict,
                 "qa_id": qa_id,
+                "model": model,
                 "job": job,
                 "limit": limit,
                 "offset": offset,
@@ -371,15 +335,6 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
     ) -> None:
         """Remove the manual verdict; the judges' verdict applies again."""
         await handler.withdraw_verdict(tenant, slug, result_id)
-
-    @router.post("/endpoints/{slug}/console/report")
-    async def build_report(
-        slug: str,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: BenchmarkHandler = Depends(get_handler),
-    ) -> dict:
-        """Build the card from the currently graded answers."""
-        return await handler.build_report(tenant, slug)
 
     # --- benchmark results ---------------------------------------------------
 
@@ -444,8 +399,9 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> dict:
-        """The questions the run wrote, paged, and its build per kind. Query
-        passed through (``generator``, ``status``, ``limit``, ``offset``)."""
+        """The questions the run wrote with their writer and entity-check calls,
+        paged, and its build per kind. Query passed through (``generator``,
+        ``status``, ``limit``, ``offset``)."""
         return await handler.list_run_part(
             tenant, slug, job_id, "generated", dict(request.query_params)
         )
@@ -458,11 +414,49 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> dict:
-        """The run's filter decisions, paged. Query passed through
-        (``stage``, ``outcome``, ``limit``, ``offset``)."""
+        """The run's filter decisions, paged; ``limit=0`` with a ``generator``
+        gives all of that kind. Query passed through (``generator``, ``stage``,
+        ``outcome``, ``limit``, ``offset``)."""
         return await handler.list_run_part(
             tenant, slug, job_id, "filter", dict(request.query_params)
         )
+
+    @router.get("/endpoints/{slug}/report/runs/{job_id}/writing")
+    async def list_run_writing(
+        slug: str,
+        job_id: str,
+        request: Request,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """The run's writer calls that dropped drafts or failed, paged. Query
+        passed through (``generator``, ``limit``, ``offset``)."""
+        return await handler.list_run_part(
+            tenant, slug, job_id, "writing", dict(request.query_params)
+        )
+
+    @router.get("/endpoints/{slug}/report/runs/{job_id}/pairs")
+    async def list_run_pairs(
+        slug: str,
+        job_id: str,
+        ids: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """Questions of the target by id (comma-separated), with their meta and
+        calls, whichever job wrote them."""
+        return await handler.list_run_part(tenant, slug, job_id, "pairs", {"ids": ids})
+
+    @router.get("/endpoints/{slug}/report/runs/{job_id}/pairs/{qa_id}")
+    async def get_run_pair(
+        slug: str,
+        job_id: str,
+        qa_id: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """One question of the target with its meta and calls, read from a run."""
+        return await handler.get_run_pair(tenant, slug, job_id, qa_id)
 
     @router.get("/endpoints/{slug}/report/runs/{job_id}/questions/{qa_id}")
     async def get_run_question(
@@ -501,13 +495,7 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
     ) -> Response:
         """The run's summary document (.docx)."""
         content, headers = await handler.download_run_summary(tenant, slug, job_id)
-        media_type = headers.get("content-type") or (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-        passed = {}
-        if headers.get("content-disposition"):
-            passed["Content-Disposition"] = headers["content-disposition"]
-        return Response(content=content, media_type=media_type, headers=passed)
+        return Response(content=content, **_file_meta(headers, DOCX))
 
     @router.get("/endpoints/{slug}/report/runs/{job_id}/export.xlsx")
     async def stream_run_export(
@@ -518,13 +506,7 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
     ) -> StreamingResponse:
         """The run's Excel export, streamed."""
         body, headers = await handler.stream_run_export(tenant, slug, job_id)
-        media_type = headers.get("content-type") or (
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        passed = {}
-        if headers.get("content-disposition"):
-            passed["Content-Disposition"] = headers["content-disposition"]
-        return StreamingResponse(body, media_type=media_type, headers=passed)
+        return StreamingResponse(body, **_file_meta(headers, XLSX))
 
     @router.get("/endpoints/{slug}/jobs", response_model=list[JobResponse])
     async def list_jobs(

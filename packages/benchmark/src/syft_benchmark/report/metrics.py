@@ -1,22 +1,22 @@
-"""Stage 6: folding the verdicts into metrics.
+"""Folding the verdicts of a Space into metrics.
 
-Computed over the COUNTED verdict for each question in each cut: the owner's
-override, else the freshest verdict of the primary judge, else that of the next
-judge in panel order (``run_view.pick``). A cut named by judge takes that
-judge's freshest verdict instead.
+Computed over the counted verdict for each question in each cut
+(``counted.pick``). A cut named by judge takes that judge's freshest verdict
+instead.
 
 The denominator is the assessed answers. A failed call speaks about the rig, not
 about the quality of the answers, and has no business in the denominator; it is
 counted separately, so that a run where half the requests fell out on a timeout
-is visible.
+is visible. The Markdown rendering of these metrics is ``report.markdown``.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -32,12 +32,53 @@ from syft_benchmark.config import (
     get_settings,
 )
 from syft_benchmark.db import Job, QaPair, Result, Run, session_scope
+from syft_benchmark.report.counted import (
+    AnswerKey,
+    group_answers,
+    judge_order,
+    pick,
+    primary_judge,
+)
+from syft_benchmark.report.job_params import configured_panel, job_panel
 from syft_benchmark.runs.judge import is_technical
 from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 
+class VerdictShares:
+    """Shares over the graded answers, for a dataclass carrying these counters."""
+
+    __slots__ = ()
+
+    graded: int
+    correct: int
+    abstain: int
+    hallucinate: int
+    web_sourced: int
+    incomplete: int
+
+    @property
+    def accuracy(self) -> float:
+        return self.correct / self.graded if self.graded else 0.0
+
+    @property
+    def hallucination_rate(self) -> float:
+        return self.hallucinate / self.graded if self.graded else 0.0
+
+    @property
+    def abstain_rate(self) -> float:
+        return self.abstain / self.graded if self.graded else 0.0
+
+    @property
+    def web_sourced_rate(self) -> float:
+        return self.web_sourced / self.graded if self.graded else 0.0
+
+    @property
+    def incomplete_rate(self) -> float:
+        return self.incomplete / self.graded if self.graded else 0.0
+
+
 @dataclass(frozen=True, slots=True)
-class Metrics:
+class Metrics(VerdictShares):
     """The result of one arm over one half of the set of one Space."""
 
     space: str
@@ -54,16 +95,11 @@ class Metrics:
     retrieval_checked: int
     checked_at: datetime | None
     judge: str
-    # Which half of the set the row describes. They must not be mixed: on a
-    # question without an answer no correct answer exists, and an "accuracy"
-    # computed over both halves at once drops simply because there came to be more
-    # control questions.
+    # Which half of the set the row describes; the halves are never mixed.
     expected: ExpectedBehavior = ExpectedBehavior.ANSWER
     context_source: str = ""
-    # Answers recorded without a verdict: the judge has not seen them yet. They do
-    # not enter the denominator for the same reason as the failed ones — but the
-    # reason is different, and they must not be conflated: a failure is fixed by
-    # rerunning, an awaited verdict by judging.
+    # Answers without a verdict yet. Out of the denominator like the failed
+    # ones, but kept apart: a failure is fixed by rerunning, these by judging.
     pending: int = 0
     # Control answers its web search supports: graded, in no other count, and
     # not an invention.
@@ -71,24 +107,16 @@ class Metrics:
     # Explanations short of the key-facts bar with nothing unsupported: graded,
     # neither right nor an invention.
     incomplete: int = 0
-    # The blocks results. flip_rate is meaningful only for denial_loop,
-    # consistency only for monte_carlo; for the direct test both are None, and in
-    # the report a dash stands in their place rather than a zero: "not measured"
-    # and "zero" are different things.
+    # flip_rate is for denial_loop, consistency for monte_carlo; None elsewhere,
+    # shown as a dash: "not measured" is not "zero".
     flip_rate: float | None = None
     consistency: float | None = None
-    # The shape behind those two numbers. ``held`` is the share of pressed
-    # answers still standing after each round of push-back, first round first:
-    # an endpoint that folds at the first word and one that holds out to the
-    # last round can share a flip rate and are not the same product.
-    # ``by_temperature`` is accuracy at each temperature the monte carlo block
-    # asked at — where the answers start to wander, rather than merely that
-    # they do. Both are empty for the direct test, which measures neither.
+    # The shape behind those two numbers: the share of pressed answers still
+    # standing after each round, and accuracy at each monte carlo temperature.
     held: list[float] = field(default_factory=list)
     by_temperature: dict[str, float] = field(default_factory=dict)
-    # The cut by retrieval hit on the answerable questions. Without it an
-    # abstention on a retrieval miss (correct behaviour) and an abstention on a hit
-    # (the model blindness) merge into one share, and those are different ailments.
+    # The cut by retrieval hit on the answerable questions (``retrieval_split``):
+    # an abstention on a miss is correct, on a hit it is the model's blindness.
     hit_correct: int = 0
     hit_abstain: int = 0
     hit_wrong: int = 0
@@ -101,20 +129,14 @@ class Metrics:
         return ARM_LETTER.get(self.context_mode.value, "?")
 
     @property
-    def accuracy(self) -> float:
-        return self.correct / self.graded if self.graded else 0.0
+    def arm_label(self) -> str:
+        """The arm letter and its mode, e.g. ``"C model_with_context"``."""
+        return f"{self.arm} {self.context_mode.value}"
 
     @property
-    def hallucination_rate(self) -> float:
-        return self.hallucinate / self.graded if self.graded else 0.0
-
-    @property
-    def abstain_rate(self) -> float:
-        return self.abstain / self.graded if self.graded else 0.0
-
-    @property
-    def incomplete_rate(self) -> float:
-        return self.incomplete / self.graded if self.graded else 0.0
+    def behaviour_label(self) -> str:
+        """The correct behaviour on this half of the set, in words."""
+        return BEHAVIOUR_LABEL.get(self.expected.value, self.expected.value)
 
     @property
     def retrieval_rate(self) -> float:
@@ -181,11 +203,8 @@ class Metrics:
 
     @property
     def false_abstain_rate(self) -> float | None:
-        """Abstentions despite retrieval having found the right chunk.
-
-        The model blindness, not the endpoint miss: the material lay in front of
-        it. None — there were no hits at all, nothing to measure on.
-        """
+        """The share of retrieval hits the answerer abstained on, every other
+        verdict on a hit counting as answered; None without a single hit."""
         hits = self.hit_correct + self.hit_abstain + self.hit_wrong
         return self.hit_abstain / hits if hits else None
 
@@ -201,13 +220,46 @@ class Metrics:
         return self.miss_answered / misses if misses else None
 
 
-# The arms in which a model under test answers. For them a cut by model is
-# mandatory: the set of models is chosen by us, and a blend of their verdicts
-# would describe our config rather than the node.
-_MODEL_ARMS = (ContextMode.CLOSED_BOOK, ContextMode.MODEL_WITH_CONTEXT)
+class RetrievalSplit(NamedTuple):
+    """The checked answers cut by retrieval hit."""
+
+    hit_correct: int
+    hit_abstain: int
+    hit_wrong: int
+    miss_answered: int
+    miss_abstain: int
 
 
-def _latest_results(
+def _answered(verdict: str) -> bool:
+    """Whether the answerer answered rather than abstained."""
+    return verdict != Verdict.ABSTAIN.value
+
+
+def retrieval_split(checked: Iterable[tuple[bool, str]]) -> RetrievalSplit:
+    """``(hit, verdict)`` pairs of the checked answers, cut by retrieval hit.
+
+    A hit is correct, abstained or wrong (answered, not correct); a miss is
+    answered or abstained. Both sides use the one ``_answered`` predicate, so a
+    verdict counts the same whichever side it falls on and the hits add up to
+    every hit.
+    """
+    split = dict.fromkeys(RetrievalSplit._fields, 0)
+    for hit, verdict in checked:
+        if hit:
+            if verdict == Verdict.CORRECT.value:
+                split["hit_correct"] += 1
+            elif _answered(verdict):
+                split["hit_wrong"] += 1
+            else:
+                split["hit_abstain"] += 1
+        elif _answered(verdict):
+            split["miss_answered"] += 1
+        else:
+            split["miss_abstain"] += 1
+    return RetrievalSplit(**split)
+
+
+def latest_results(
     space: str,
     mode: ContextMode,
     block: EvalBlock,
@@ -217,41 +269,18 @@ def _latest_results(
     cohort: str | None = None,
     job: str | None = None,
 ) -> list[Result]:
-    """One verdict per question in this mode, block and model.
+    """One verdict per answer: per question and model in this mode and block.
 
-    The cut by block and model is mandatory: a monte_carlo "accuracy" is an
-    average over the repeats, not the same number as the direct test, and adding
-    them into one share means getting a quantity that means nothing.
+    One block per call: a monte_carlo accuracy is an average over repeats and
+    does not add up with the direct test.
 
-    With ``judge`` named, that judge's freshest verdict. Without it, the counted
-    verdict by ``run_view.pick``: the owner's override, else the primary judge's
-    freshest verdict, else the next judge's in panel order (``_counted_panel``).
+    With ``judge`` named, that judge's freshest verdict; otherwise the counted
+    verdict (``counted.pick``) in the order of ``_counted_panel``.
 
-    Only verdicts on items that are IN THE MEASUREMENT now are counted. With a
-    rolling set this matters: yesterday items have not gone anywhere from the
-    database — they carry history — but the set today is different, and adding
-    both cohorts into one share would mean computing a quantity over the union of
-    two different measurements. Exactly the same is true of a set that simply
-    accumulates: what was screened out stopped being an item.
-
-    ``cohort`` replaces this selection with an explicit one: the verdicts on the
-    items of the named cohort are taken, whether it is in the measurement now or
-    has been taken out. That is how the comparison of cohorts is computed —
-    otherwise the previous pool, already taken out of the measurement, would be
-    unavailable exactly when it is needed.
-
-    ``job`` narrows it to the runs of one launch, and lifts the same restriction
-    for the same reason: a measurement from a month ago asked the questions that
-    were in the set a month ago, and screening one of them out since does not
-    unask it. This is what "the report of THIS measurement" means, as against the
-    node's numbers as of today — and the two differ precisely when the interest
-    is in comparing them.
-
-    A word on what a job-scoped selection does NOT hold. A launch that resumed a
-    finished pass opens no run for it at all — there is nothing to ask — so the
-    verdicts it inherited belong to the earlier job that obtained them. That is
-    the honest answer to "what did this launch measure", and it is not the same
-    as "what did the node look like when this launch ended".
+    By default only items active in the set now are counted. ``cohort`` takes the
+    named cohort's items instead, active or not (cohort comparison). ``job``
+    takes that launch's runs, whatever the items' status now; a pass the launch
+    resumed as finished opened no run, so its verdicts stay with the earlier job.
     """
     where = [
         Result.space == space,
@@ -278,15 +307,18 @@ def _latest_results(
 
     with session_scope() as session:
         if judge:
+            # Mode and block are fixed by ``where``; question and model make the
+            # answer (``counted.AnswerKey``).
             newest = (
                 select(
                     Result.qa_id,
+                    Run.model,
                     func.max(Result.created_at).label("at"),
                 )
                 .join(Run, Run.id == Result.run_id)
                 .join(QaPair, QaPair.id == Result.qa_id)
                 .where(*where)
-                .group_by(Result.qa_id)
+                .group_by(Result.qa_id, Run.model)
                 .subquery()
             )
             stmt = (
@@ -296,56 +328,59 @@ def _latest_results(
                 .join(
                     newest,
                     (Result.qa_id == newest.c.qa_id)
+                    & (Run.model.is_not_distinct_from(newest.c.model))
                     & (Result.created_at == newest.c.at),
                 )
                 .where(*where)
             )
             rows = list(session.execute(stmt).scalars())
         else:
-            rows = _counted(session, where, job)
+            rows = _counted(session, where, job, mode=mode.value, block=block.value)
         for row in rows:
             session.expunge(row)
         return rows
 
 
-def _counted(session: Session, where: list[Any], job: str | None) -> list[Result]:
-    """The counted verdict per question among the rows ``where`` selects."""
-    from syft_benchmark.report.run_view import pick
+def _counted(
+    session: Session, where: list[Any], job: str | None, *, mode: str, block: str
+) -> list[Result]:
+    """The counted verdict per answer among the rows ``where`` selects.
 
+    ``where`` fixes the arm and block to ``mode`` and ``block``, so only the
+    run's model is read to tell answers apart.
+    """
     stmt = (
-        select(Result)
+        select(Result, Run.model)
         .join(Run, Run.id == Result.run_id)
         .join(QaPair, QaPair.id == Result.qa_id)
         .where(*where)
         .order_by(Result.created_at, Result.id)
     )
-    by_question: dict[str, list[Result]] = {}
-    for row in session.execute(stmt).scalars():
-        by_question.setdefault(row.qa_id, []).append(row)
-    panel = _counted_panel(
-        session, (r.judge_model for rows in by_question.values() for r in rows), job
+    answers = group_answers(
+        session.execute(stmt).tuples(),
+        lambda row: AnswerKey.of(row[1], mode, block, row[0].qa_id),
     )
-    counted = (pick(rows, panel).counted for rows in by_question.values())
+    groups = [[result for result, _ in rows] for rows in answers.values()]
+    panel = _counted_panel(session, (r.judge_model for g in groups for r in g), job)
+    counted = (pick(rows, panel).counted for rows in groups)
     return [row for row in counted if row is not None]
 
 
 def _counted_panel(session: Session, seen: Iterable[str], job: str | None) -> list[str]:
     """The judges in precedence order, primary first.
 
-    For one launch, ``run_view``'s order: its primary judge, then its own
-    panel. Otherwise the configured panel. Judges outside it follow by first
-    verdict; the unjudged (empty name) come last.
+    For one launch, its primary judge, then its own panel. Otherwise the
+    configured panel. Judges outside it follow by first verdict; the unjudged
+    (empty name) come last.
     """
-    from syft_benchmark.report import run_view
-
-    configured = run_view.configured_panel(get_settings())
+    configured = configured_panel(get_settings())
     primary: str | None = None
     panel: list[str] = configured
     launch = session.get(Job, job) if job else None
     if launch is not None:
-        primary = run_view.primary_judge(session, launch, configured=configured)
-        panel = run_view.job_panel(launch) or configured
-    return [*run_view.judge_order(seen, primary, panel), ""]
+        primary = primary_judge(session, launch, configured=configured)
+        panel = job_panel(launch) or configured
+    return [*judge_order(seen, primary, panel), ""]
 
 
 def counted_judge(judges: Iterable[str], job: str | None = None) -> str:
@@ -411,30 +446,6 @@ def models_seen(
         return sorted(m for m in rows if m)
 
 
-def latest_measuring_job(space: str) -> str | None:
-    """The launch the newest run of this Space belongs to.
-
-    A card is of one launch, and the console builds it without being told
-    which. Asked of the newest run rather than of the newest launch, and the
-    difference is the whole point: a run started outside the queue — by the
-    CLI, or before the job table existed — belongs to no launch, and answering
-    "the newest launch" there would hand back a card describing an older
-    measurement while the freshest one sat unmentioned in the database.
-
-    None means exactly that case, and it is honest: there is no launch to name,
-    so the card is the node as of now. Generating questions, filtering them and
-    grading what is already answered open no runs at all, so none of them starts
-    a new card: judging yesterday's answers improves yesterday's.
-    """
-    with session_scope() as session:
-        return session.execute(
-            select(Run.job_id)
-            .where(Run.space == space)
-            .order_by(Run.started_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-
-
 def judges_seen(
     space: str, mode: ContextMode, block: EvalBlock, job: str | None = None
 ) -> list[str]:
@@ -490,7 +501,7 @@ def summarize(
     what makes a measurement from a month ago readable as it was — and what makes
     two of them comparable with each other, rather than each with today.
 
-    In arms A and C ``model`` is mandatory as soon as there is more than one
+    ``model`` is mandatory as soon as there is more than one
     model. An empty one there would mean not "an average over nine" but "whose
     model answered last": the verdict per question is chosen by time, and
     without a cut by model the choice goes to whoever finished later.
@@ -499,7 +510,7 @@ def summarize(
         ValueError: If an arm with a model under test names none of the several
             that were tested
     """
-    if mode in _MODEL_ARMS and not model:
+    if not model:
         seen = [name for name in models_seen(space, mode, block, job) if name]
         if len(seen) > 1:
             raise ValueError(
@@ -508,25 +519,17 @@ def summarize(
                 f"but the opinion of the one that answered last "
                 f"({', '.join(sorted(seen))})"
             )
-    rows = _latest_results(space, mode, block, model, judge, expected, cohort, job)
+    rows = latest_results(space, mode, block, model, judge, expected, cohort, job)
     if not rows:
         return None
 
-    # Filtered out BEFORE counting rather than subtracted afterwards: a
-    # subtraction breaks the moment such a row carries a different class.
-    failed_rows = [r for r in rows if is_technical(r.verdict, r.answer)]
-    rest = [r for r in rows if not is_technical(r.verdict, r.answer)]
-    # There is an answer but no verdict. It cannot be counted as an outcome —
-    # nobody issued one — and throwing it away silently means showing a share over
-    # part of the set without saying which part.
-    pending_rows = [r for r in rest if r.verdict == Verdict.PENDING.value]
+    # Failed calls are filtered out BEFORE counting rather than subtracted
+    # afterwards: a subtraction breaks the moment such a row carries a different
+    # class. An answer without a verdict is no outcome, and is counted apart
+    # rather than dropped silently.
+    rest = [r for r in rows if not is_technical(r.verdict)]
     graded_rows = [r for r in rest if r.verdict != Verdict.PENDING.value]
-
-    correct = sum(1 for r in graded_rows if r.verdict == Verdict.CORRECT.value)
-    abstain = sum(1 for r in graded_rows if r.verdict == Verdict.ABSTAIN.value)
-    hallucinate = sum(1 for r in graded_rows if r.verdict == Verdict.HALLUCINATE.value)
-    failed = len(failed_rows)
-    graded = len(graded_rows)
+    counts = Counter(r.verdict for r in graded_rows)
 
     checked = [r for r in graded_rows if r.retrieval_hit is not None]
     endpoints = {r.endpoint for r in rows if r.endpoint}
@@ -564,8 +567,7 @@ def summarize(
 
     # The 2x2 cut: what the answerer did when retrieval found the right chunk and
     # when it missed. Computed only where retrieval took part at all.
-    hit = [r for r in checked if r.retrieval_hit]
-    miss = [r for r in checked if not r.retrieval_hit]
+    split = retrieval_split((bool(r.retrieval_hit), r.verdict) for r in checked)
 
     return Metrics(
         space=space,
@@ -573,17 +575,15 @@ def summarize(
         block=block,
         model=", ".join(models)[:120],
         endpoint=next(iter(endpoints), ""),
-        graded=graded,
-        correct=correct,
-        abstain=abstain,
-        hallucinate=hallucinate,
-        failed=failed,
-        pending=len(pending_rows),
-        web_sourced=sum(
-            1 for r in graded_rows if r.verdict == Verdict.WEB_SOURCED.value
-        ),
-        incomplete=sum(1 for r in graded_rows if r.verdict == Verdict.INCOMPLETE.value),
-        retrieval_hits=len(hit),
+        graded=len(graded_rows),
+        correct=counts[Verdict.CORRECT.value],
+        abstain=counts[Verdict.ABSTAIN.value],
+        hallucinate=counts[Verdict.HALLUCINATE.value],
+        failed=len(rows) - len(rest),
+        pending=len(rest) - len(graded_rows),
+        web_sourced=counts[Verdict.WEB_SOURCED.value],
+        incomplete=counts[Verdict.INCOMPLETE.value],
+        retrieval_hits=split.hit_correct + split.hit_abstain + split.hit_wrong,
         retrieval_checked=len(checked),
         checked_at=max((r.created_at for r in rows), default=None),
         judge=judge or counted_judge((r.judge_model for r in rows), job),
@@ -593,11 +593,11 @@ def summarize(
         consistency=consistency,
         held=held,
         by_temperature=by_temperature,
-        hit_correct=sum(1 for r in hit if r.verdict == Verdict.CORRECT.value),
-        hit_abstain=sum(1 for r in hit if r.verdict == Verdict.ABSTAIN.value),
-        hit_wrong=sum(1 for r in hit if r.verdict == Verdict.HALLUCINATE.value),
-        miss_answered=sum(1 for r in miss if r.verdict != Verdict.ABSTAIN.value),
-        miss_abstain=sum(1 for r in miss if r.verdict == Verdict.ABSTAIN.value),
+        hit_correct=split.hit_correct,
+        hit_abstain=split.hit_abstain,
+        hit_wrong=split.hit_wrong,
+        miss_answered=split.miss_answered,
+        miss_abstain=split.miss_abstain,
     )
 
 
@@ -786,290 +786,3 @@ def context_effect_pairs(
             continue
         pairs.append((paired, m, value))
     return pairs
-
-
-def _discrimination_section(
-    answerable: list[Metrics], control: list[Metrics]
-) -> list[str]:
-    """Whether the pair can tell "there is an answer" from "there is none"."""
-    rows = discrimination_pairs([*answerable, *control])
-    if not rows:
-        return []
-    return [
-        "",
-        "## Abstention discrimination",
-        "",
-        "The share of abstentions on unanswerable questions minus the share of",
-        "abstentions on answerable ones. Someone who always abstains gets 0, and",
-        "someone who always answers also gets 0: the maximum belongs only to the",
-        "one that tells them apart.",
-        "",
-        "Questions with a false premise are not included here: there the right",
-        "thing is to refute the premise, not to stay silent.",
-        "",
-        "| Space | Arm | Model | Judge | Questions | Discrimination |",
-        "| --- | --- | --- | --- | ---: | ---: |",
-        *(
-            f"| {a.space} | {a.arm} {a.context_mode.value} | {a.model or '—'} "
-            f"| {a.judge or '—'} | {a.graded}+{c.graded} | {value:+.0%} |"
-            for a, c, value in rows
-        ),
-    ]
-
-
-def _context_effect_section(
-    answerable: list[Metrics], control: list[Metrics]
-) -> list[str]:
-    """What the context that appeared did to the model honesty."""
-    lines = [
-        f"| {m.space} | {m.model or '—'} | {m.judge or '—'} "
-        f"| {BEHAVIOUR_LABEL.get(m.expected.value, m.expected.value)} "
-        f"| {m.graded} | {value:+.0%} |"
-        for _, m, value in context_effect_pairs([*control, *answerable])
-    ]
-    if not lines:
-        return []
-    return [
-        "",
-        "## The price of context",
-        "",
-        "The share of inventions in arm C minus the share in arm A for ONE model.",
-        "A minus means the material helped it abstain; a plus means it removed the",
-        "caution and the model that stayed silent without context set about",
-        "answering.",
-        "",
-        "| Space | Model | Judge | Correct behaviour | Questions "
-        "| Change in inventions |",
-        "| --- | --- | --- | --- | ---: | ---: |",
-        *lines,
-    ]
-
-
-def _retrieval_split_section(answerable: list[Metrics]) -> list[str]:
-    """The cut by retrieval hit: whose ailment this is.
-
-    An abstention on a retrieval miss is correct behaviour by the model; an
-    abstention on a hit is its blindness; an answer on a miss is an invention over
-    someone else context. In one accuracy share they are indistinguishable.
-    """
-    rows = [m for m in answerable if m.retrieval_checked]
-    if not rows:
-        return []
-    lines = [
-        "",
-        "## Retrieval found it — did the model use it?",
-        "",
-        "Computed only where retrieval took part. A false abstention is the",
-        "model fault: the material lay in front of it. An answer on a miss is an",
-        "invention assembled out of topically neighbouring chunks.",
-        "",
-        "| Space | Arm | Model | Judge | Hits | False abstentions "
-        "| Answers on a miss |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: |",
-    ]
-    for m in rows:
-        false_abstain = (
-            f"{m.false_abstain_rate:.0%}" if m.false_abstain_rate is not None else "—"
-        )
-        blind = f"{m.blind_answer_rate:.0%}" if m.blind_answer_rate is not None else "—"
-        # The judge is in a column for the same reason as in the main table: one
-        # and the same answers assessed by different judges give different figures,
-        # and without the name the rows would read as inexplicable duplicates.
-        lines.append(
-            f"| {m.space} | {m.arm} {m.context_mode.value} | {m.model or '—'} "
-            f"| {m.judge or '—'} | {m.retrieval_rate:.0%} | {false_abstain} "
-            f"| {blind} |"
-        )
-    return lines
-
-
-def _stability_lines(results: list[Metrics]) -> list[str]:
-    """The section on the stability of the set, if there is anything to compare.
-
-    Computed over the first combination where two cohorts have verdicts: the
-    section answers one question — does the pool of questions affect the numbers —
-    and repeating it for every model would drown the answer in a table.
-    """
-    from syft_benchmark.report.stability import compare, lines
-
-    for m in results:
-        if m.expected is not ExpectedBehavior.ANSWER or not m.graded:
-            continue
-        comparison = compare(
-            m.space, m.context_mode, m.block, m.model or None, m.judge or None
-        )
-        if comparison is not None:
-            return lines(comparison)
-    return []
-
-
-def render_markdown(results: list[Metrics]) -> str:
-    """The report by mode, block, model and judge.
-
-    A cut by block rather than a fold into one row: the blocks answer different
-    questions, and adding their shares into one gives a number about nothing. The
-    judge is put in a column for the same reason: one and the same answers assessed
-    by different judges give different figures, and without the judge name the rows
-    would look like inexplicable duplicates.
-    """
-    answerable = [m for m in results if m.expected is ExpectedBehavior.ANSWER]
-    control = [m for m in results if m.expected is not ExpectedBehavior.ANSWER]
-
-    lines = [
-        "# Benchmark report",
-        "",
-        "## Answerable questions",
-        "",
-        "There is an answer to them in the corpus: the item was built from a chunk.",
-        "",
-        "| Space | Arm | Block | Model | Judge | Questions | Accuracy "
-        "| Hallucinations | Abstentions | Incomplete | LMI | Retrieval |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: "
-        "| ---: |",
-    ]
-    for m in answerable:
-        retrieval = f"{m.retrieval_rate:.0%}" if m.retrieval_checked else "—"
-        lmi = f"{m.lmi:.2f}" if m.lmi is not None else "—"
-        lines.append(
-            f"| {m.space} | {m.arm} {m.context_mode.value} | {m.block.value} "
-            f"| {m.model or '—'} | {m.judge or '—'} | {m.graded} "
-            f"| {m.accuracy:.0%} "
-            f"| {m.hallucination_rate:.0%} | {m.abstain_rate:.0%} "
-            f"| {m.incomplete_rate:.0%} | {lmi} "
-            f"| {retrieval} |"
-        )
-
-    if control:
-        lines += [
-            "",
-            "## Control questions — there is NO answer in the corpus",
-            "",
-            "Abstaining is right, and so is refuting a false premise; anything",
-            "else is an invention, except specifics the answer's web search",
-            "supports, counted on their own. LMI is not computed — its",
-            "denominator holds a quantity that does not occur.",
-            "",
-            "| Space | Arm | Model | Judge | Correct behaviour | Questions "
-            "| Abstentions | Inventions | From the web |",
-            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
-        ]
-        for m in control:
-            # The correct behaviour is in a column: the control half is not
-            # homogeneous. On a question without an answer the right thing is to
-            # stay silent, on a question with a false premise to refute it, and
-            # without this column the rows would read as inexplicable duplicates.
-            lines.append(
-                f"| {m.space} | {m.arm} {m.context_mode.value} | {m.model or '—'} "
-                f"| {m.judge or '—'} "
-                f"| {BEHAVIOUR_LABEL.get(m.expected.value, m.expected.value)} "
-                f"| {m.graded} | {m.abstain_rate:.0%} "
-                f"| {m.fabrication_rate:.0%} | {m.web_sourced} |"
-            )
-
-        lines += _discrimination_section(answerable, control)
-        lines += _context_effect_section(answerable, control)
-
-    lines += _retrieval_split_section(answerable)
-
-    pressured = [m for m in results if m.flip_rate is not None]
-    if pressured:
-        lines += [
-            "",
-            "## Resistance to pressure",
-            "",
-            "The share of correct answers the model gave up under objections.",
-            "Counted against those that were pressured: pressure is applied only",
-            "to a correct answer.",
-            "",
-            "| Space | Model | Gave in |",
-            "| --- | --- | ---: |",
-        ]
-        for m in pressured:
-            lines.append(f"| {m.space} | {m.model or '—'} | {m.flip_rate:.0%} |")
-
-    repeated = [m for m in results if m.consistency is not None]
-    if repeated:
-        lines += [
-            "",
-            "## Resistance to randomness",
-            "",
-            "How far the answer repeats when the question is repeated at different",
-            "temperatures. Below 50% any accuracy measured speaks about which run",
-            "made it into the report rather than about the model.",
-            "",
-            "| Space | Model | Consistency | Trust the accuracy |",
-            "| --- | --- | ---: | --- |",
-        ]
-        for m in repeated:
-            lines.append(
-                f"| {m.space} | {m.model or '—'} | {m.consistency:.0%} "
-                f"| {'yes' if m.is_reliable else 'NO'} |"
-            )
-
-    # The answerable half only: "answered correctly without the corpus" is
-    # meaningful only where a correct answer exists.
-    closed = [m for m in answerable if m.context_mode is ContextMode.CLOSED_BOOK]
-    if closed:
-        lines += [
-            "",
-            "## How public the corpus is",
-            "",
-            "The share of questions the model answered correctly without access to",
-            "the corpus. This is not the endpoint quality: a high value means the",
-            "corpus is already known to the model — public or part of its training.",
-            "",
-        ]
-        for m in closed:
-            judge = f" (judge {m.judge})" if m.judge else ""
-            lines.append(
-                f"* {m.space} / {m.model or '—'}{judge}: {m.corpus_exposure_rate:.0%}"
-            )
-
-    # The cuts live in their own module: they go to the database for what is not
-    # in the ready metrics — the item type and each judge verdicts separately. It
-    # relies on the selection of latest verdicts here, so the import is local: a
-    # mutual one at module level would diverge into a cycle.
-    from syft_benchmark.report.slices import (
-        agreement_lines,
-        generator_lines,
-        text_metric_lines,
-    )
-
-    lines += generator_lines(results)
-    lines += text_metric_lines(results)
-    lines += agreement_lines(results)
-    lines += _stability_lines(results)
-
-    failures = [m for m in results if m.failed]
-    if failures:
-        lines += ["", "## Failed calls", ""]
-        for m in failures:
-            lines.append(
-                f"* {m.space} / {m.context_mode.value} / {m.block.value}: "
-                f"{m.failed} (not included in the shares)"
-            )
-
-    # Awaiting a verdict is not a failure, and it is cured not by rerunning but by
-    # judging. On separate lines, so that this is visible.
-    waiting = [m for m in results if m.pending]
-    if waiting:
-        lines += [
-            "",
-            "## Answers without a verdict",
-            "",
-            "The answer was received, the judge has not seen it. Not included in",
-            "the shares. To judge them: `export-judging --only-pending`, then",
-            "`import-judging`.",
-            "",
-        ]
-        for m in waiting:
-            lines.append(
-                f"* {m.space} / {m.context_mode.value} / {m.block.value} "
-                f"/ {m.model or '—'}: {m.pending}"
-            )
-
-    judges = sorted({m.judge for m in results if m.judge})
-    if judges:
-        lines += ["", "---", "", f"Judge: {', '.join(judges)}"]
-
-    return "\n".join(lines) + "\n"

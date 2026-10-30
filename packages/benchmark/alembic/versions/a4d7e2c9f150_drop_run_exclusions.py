@@ -1,6 +1,6 @@
 """drop run_exclusions
 
-Questions are no longer left out of a run's figures by hand.
+Removes the table of questions left out of one run's figures by hand.
 
 Revision ID: a4d7e2c9f150
 Revises: 8e2c5a1f7b30

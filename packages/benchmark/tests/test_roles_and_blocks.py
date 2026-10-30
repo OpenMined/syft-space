@@ -18,17 +18,12 @@ from syft_benchmark.llm import (
 from syft_benchmark.runs import DENIAL_PHRASES
 from syft_benchmark.runs.console import parse_answers
 
-
-def _settings(**kwargs: object) -> Settings:
-    return Settings(spaces_file="config/spaces.json", **kwargs)  # type: ignore[arg-type]
-
-
 # --- roles ------------------------------------------------------------------
 
 
 def test_roles_fall_back_to_the_common_provider() -> None:
     """A configuration with a single local model stays one line long."""
-    conf = _settings()
+    conf = Settings()
     for provider in (generator_provider(conf), judge_provider(conf)):
         assert provider.url == conf.ollama_url
         assert not provider.is_external
@@ -36,7 +31,7 @@ def test_roles_fall_back_to_the_common_provider() -> None:
 
 def test_roles_can_be_split_between_providers() -> None:
     """Generator inside the perimeter, model under test outside — a working case."""
-    conf = _settings(
+    conf = Settings(
         subject_url="https://openrouter.ai/api/v1",
         subject_key="sk-or-test",
         subject_models=["anthropic/claude-sonnet-4", "openai/gpt-4o"],
@@ -56,7 +51,7 @@ def test_roles_can_be_split_between_providers() -> None:
 
 def test_no_subjects_configured_means_the_local_model() -> None:
     """A rig that never calls outside at all tests its own model."""
-    conf = _settings()
+    conf = Settings()
     assert [s.model for s in subject_providers(conf)] == [conf.generator_model]
 
 
@@ -81,7 +76,7 @@ def test_vendor_is_read_from_the_model_id(model: str, vendor: str) -> None:
 
 def test_same_vendor_is_a_conflict() -> None:
     """A model more readily approves an answer in its own style."""
-    conf = _settings(
+    conf = Settings(
         judge_url="https://openrouter.ai/api/v1",
         judge_key="k",
         judge_model="anthropic/claude-sonnet-4",
@@ -99,7 +94,7 @@ def test_same_vendor_is_a_conflict() -> None:
 
 
 def test_different_vendors_pass() -> None:
-    conf = _settings(
+    conf = Settings(
         judge_url="https://openrouter.ai/api/v1",
         judge_key="k",
         judge_model="openai/gpt-4o",
@@ -117,7 +112,7 @@ def test_different_vendors_pass() -> None:
 
 def test_a_local_model_judging_itself_is_a_conflict_too() -> None:
     """There are no providers, but the interest is the same."""
-    conf = _settings()
+    conf = Settings()
     warning = check_judge_independence(
         judge_provider(conf), subject_providers(conf)[0], conf
     )
@@ -126,13 +121,13 @@ def test_a_local_model_judging_itself_is_a_conflict_too() -> None:
 
 
 def test_strict_policy_refuses_to_run() -> None:
-    conf = _settings(judge_policy=JudgePolicy.STRICT)
+    conf = Settings(judge_policy=JudgePolicy.STRICT)
     with pytest.raises(JudgeConflict):
         check_judge_independence(judge_provider(conf), subject_providers(conf)[0], conf)
 
 
 def test_policy_off_asks_no_questions() -> None:
-    conf = _settings(judge_policy=JudgePolicy.OFF)
+    conf = Settings(judge_policy=JudgePolicy.OFF)
     assert (
         check_judge_independence(judge_provider(conf), subject_providers(conf)[0], conf)
         is None
@@ -143,7 +138,7 @@ def test_policy_off_asks_no_questions() -> None:
 
 
 def test_all_blocks_are_on_by_default() -> None:
-    assert set(_settings().blocks) == {
+    assert set(Settings().blocks) == {
         EvalBlock.DIRECT,
         EvalBlock.DENIAL_LOOP,
         EvalBlock.MONTE_CARLO,
@@ -151,7 +146,7 @@ def test_all_blocks_are_on_by_default() -> None:
 
 
 def test_blocks_can_be_narrowed() -> None:
-    conf = _settings(blocks=[EvalBlock.DIRECT])
+    conf = Settings(blocks=[EvalBlock.DIRECT])
     assert conf.blocks == [EvalBlock.DIRECT]
 
 
@@ -203,7 +198,7 @@ def test_console_nothing_recognisable() -> None:
 
 def test_one_judge_by_default() -> None:
     """While there is one judge, the panel consists of it."""
-    conf = _settings()
+    conf = Settings()
     judges = judge_providers(conf)
     assert [j.model for j in judges] == [conf.judge_model]
     assert judge_provider(conf).model == conf.judge_model
@@ -211,7 +206,7 @@ def test_one_judge_by_default() -> None:
 
 def test_panel_runs_every_judge() -> None:
     """The list of judges sets how many times the same answers get assessed."""
-    conf = _settings(
+    conf = Settings(
         judge_models=[
             "anthropic/claude-sonnet-4",
             "openai/gpt-4o",
@@ -227,13 +222,13 @@ def test_panel_runs_every_judge() -> None:
         "openai/gpt-4o",
         "google/gemini-2.5-pro",
     ]
-    # The first judge is the one the expensive blocks and the card are computed by.
+    # The first judge is the one the expensive blocks are computed by.
     assert judge_provider(conf).model == "anthropic/claude-sonnet-4"
 
 
 def test_duplicate_judges_are_collapsed() -> None:
     """The same judge twice would give two identical assessments and double the bill."""
-    conf = _settings(judge_models=["gemma3-4b-gpu", "gemma3-4b-gpu"])
+    conf = Settings(judge_models=["gemma3-4b-gpu", "gemma3-4b-gpu"])
     assert len(judge_providers(conf)) == 1
 
 
@@ -241,7 +236,7 @@ def test_duplicate_judges_are_collapsed() -> None:
 
 
 def _panel_settings(policy: JudgePolicy) -> Settings:
-    return _settings(
+    return Settings(
         judge_url="https://openrouter.ai/api/v1",
         judge_key="k",
         judge_model="anthropic/claude-sonnet-4",
@@ -275,7 +270,7 @@ def test_recusal_only_applies_under_its_own_policy() -> None:
 
 def test_local_model_judging_itself_is_recusable() -> None:
     """A local model has no provider, and the conflict shows only by name."""
-    conf = _settings(judge_policy=JudgePolicy.RECUSE)
+    conf = Settings(judge_policy=JudgePolicy.RECUSE)
     judge = judge_provider(conf)
     subject = subject_providers(conf)[0]
     assert judge.model == subject.model

@@ -1,28 +1,30 @@
 import { describe, expect, it } from 'vitest'
 
+import { KINDS } from '@/components/benchmark/kinds'
+import { modelName } from '@/components/benchmark/report/labels'
 import {
-  KINDS,
+  companyOf,
+  findClashes,
+  matchesFilters,
+  monteCarloSkipped,
+  takesTemperature,
+  toggleFilter,
+  webSearchOf,
+} from '@/components/benchmark/setup/models'
+import { progressTitle } from '@/components/benchmark/setup/progress'
+import {
   budgetFromChunks,
   buildRequest,
   chunksForBudget,
-  companyOf,
-  findClashes,
   formFromTarget,
   fromPercent,
-  matchesFilters,
-  modelName,
-  monteCarloSkipped,
   parseNumberList,
   problemsOf,
-  progressTitle,
   runProblemsOf,
   runSummary,
   sameRequest,
   storedRequest,
-  takesTemperature,
   toPercent,
-  toggleFilter,
-  webSearchOf,
   windowDaysParam,
 } from '@/components/benchmark/setup/setupForm'
 import type { BenchmarkTarget } from '@/api/types'
@@ -34,7 +36,6 @@ function makeTarget(over: Partial<BenchmarkTarget> = {}): BenchmarkTarget {
     endpoint_slug: 'news',
     measured: true,
     connection_id: 'c1',
-    connection_name: 'Bench',
     enabled: true,
     collection: '',
     resolved_collection: 'Collection_news',
@@ -43,8 +44,6 @@ function makeTarget(over: Partial<BenchmarkTarget> = {}): BenchmarkTarget {
     schedule: '',
     schedule_at: '',
     next_run_at: null,
-    synced_at: null,
-    fields: {},
     defaults: {
       probe: {
         dataset_mode: 'rolling',
@@ -85,12 +84,7 @@ function makeTarget(over: Partial<BenchmarkTarget> = {}): BenchmarkTarget {
         audit_log: true,
       },
     },
-    connection_probe: {},
-    connection_instrument: {},
     capabilities: { generators: KEYS },
-    last_job: null,
-    reachable: true,
-    detail: '',
     ...over,
   }
 }
@@ -140,9 +134,9 @@ describe('companies and clashes', () => {
     expect(findClashes(['openai/gpt-5.1'], ['x-ai/grok-4.6'])).toEqual([])
   })
 
-  it('strips the vendor prefix from catalogue names', () => {
+  it('strips the vendor prefix from catalogue names, else names the model from its id', () => {
     expect(modelName('x-ai/grok-4.6', { name: 'SpaceXAI: Grok 4.6' })).toBe('Grok 4.6')
-    expect(modelName('openai/gpt-5.1')).toBe('gpt-5.1')
+    expect(modelName('openai/gpt-5.1')).toBe('GPT-5.1')
   })
 })
 
@@ -175,12 +169,12 @@ describe('values on the page', () => {
     expect(parseNumberList(' ')).toBeNull()
   })
 
-  it('shows effective values: endpoint layer, else connection, else defaults', () => {
+  it('shows effective values: endpoint layer, else defaults', () => {
     const target = makeTarget({
-      connection_probe: { pairs_per_chunk: 3 },
       probe: { dataset_max_pairs: 40 },
       instrument: { judge_policy: 'recuse' },
     })
+    target.defaults.probe!.pairs_per_chunk = 3
     const form = formFromTarget(target, KEYS)
     expect(form.pairsPerChunk).toBe(3)
     expect(form.keepAtMost).toBe(40)
@@ -216,8 +210,8 @@ describe('values on the page', () => {
       judge_temperature: 1,
       judge_reasoning_effort: 'high',
       audit_log: false,
+      manual_status_priority: 'manual',
     })
-    saved.connection_instrument = { manual_status_priority: 'manual' }
     expect(formFromTarget(saved, KEYS)).toEqual(before)
     expect(holdsChanges(saved)).toBe(false)
   })
@@ -295,7 +289,7 @@ describe('the save request', () => {
 
   it('sends the web check model and keeps fixed values', () => {
     const target = makeTarget({
-      instrument: { arms: ['closed_book', 'open_book'], audit_log: false },
+      instrument: { arms: ['closed_book'], audit_log: false },
     })
     const form = formFromTarget(target, KEYS)
     form.webCheckModel = 'openai/gpt-5.1'
@@ -613,9 +607,11 @@ describe('judge settings', () => {
     expect(again.instrument!.judge_temperature).toBe('default')
   })
 
-  it('writes a default value back when a higher layer set another one', () => {
-    const target = makeTarget({
-      connection_instrument: { judge_temperature: 1, judge_reasoning_effort: 'high' },
+  it('writes a default value back when the inherited layer set another one', () => {
+    const target = makeTarget()
+    Object.assign(target.defaults.instrument!, {
+      judge_temperature: 1,
+      judge_reasoning_effort: 'high',
     })
     const form = formFromTarget(target, KEYS)
     expect(form.judgeTemperature).toBe(1)

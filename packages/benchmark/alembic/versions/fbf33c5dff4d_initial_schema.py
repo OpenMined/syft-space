@@ -1,29 +1,10 @@
 """initial schema
 
-The whole benchmark schema in one file. It replaces the eight migrations that
-built it up between ``3d8460084d2d`` and ``9abbfe2cb726``: the initial tables,
-then processed units keyed by generator, eval blocks, the three arms and the
-audit trail, dataset cohorts, targets and jobs for the control API, a target's
-collection, and a job's current pass.
+The whole benchmark schema as the base of the chain.
 
-Collapsed because nothing is deployed from them. A chain is worth keeping only
-while some database is partway along it; with no such database the eight steps
-recorded the order in which the schema was thought up, not anything a future
-run needs to repeat. Once a real installation exists this file becomes history
-like any other, and the next change is a migration on top of it.
-
-The schema here is the one the eight produced -- verified by building both and
-diffing the dumps -- with two deliberate differences.
-
-``server_default`` is kept on every column that had one, including the sixteen
-that only ever existed to backfill a column being added to a populated table.
-They no longer have that job here, a fresh table having no rows to fill, but
-the models do not declare them: dropping them would quietly change what a write
-that bypasses the ORM does, and that is not what collapsing a chain is for.
-
-The three ``targets`` comments read as the models word them rather than as the
-old migrations did. The two had drifted, ``alembic check`` was reporting it,
-and the models are what the code is written against.
+``server_default`` is set on every column that has one in the models and on
+some the models leave to the ORM, so a write that bypasses the ORM still gets
+a value.
 
 Revision ID: fbf33c5dff4d
 Revises:
@@ -38,7 +19,6 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "fbf33c5dff4d"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None

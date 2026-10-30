@@ -4,20 +4,18 @@ import { mount, RouterLinkStub } from '@vue/test-utils'
 import type { BenchmarkRunReport } from '@/api/types'
 import ModelPage from '@/components/benchmark/report/ModelPage.vue'
 import { provideRun, type RunContext } from '@/components/benchmark/report/context'
+import { hintText } from './hint'
 import { modelReport, OPUS, runReport } from './reportFixtures'
 
 function mountPage(data: BenchmarkRunReport, model: string) {
-  const dataRef = ref(data)
-  const run = {
+  const dataRef = ref<BenchmarkRunReport | null>(data)
+  const run: RunContext = {
     jobId: 'j1',
+    slug: 'ep',
     data: dataRef,
-    loading: ref(false),
-    error: ref(null),
-    running: computed(() => false),
     model: computed(() => model),
-    modelReport: computed(() => dataRef.value.models.find((m) => m.model === model) ?? null),
-    reload: async () => {},
-  } as unknown as RunContext
+    modelReport: computed(() => dataRef.value?.models.find((m) => m.model === model) ?? null),
+  }
   const Host = defineComponent({
     setup() {
       provideRun(run)
@@ -107,7 +105,7 @@ describe('ModelPage', () => {
     expect(row.find('[data-testid="kind-bar"]').exists()).toBe(false)
   })
 
-  it('shows the guessing rate next to the choice kinds only', () => {
+  it('shows the guessing rate next to the choice kinds only', async () => {
     const [names] = modelReport(OPUS).kinds
     const report = runReport({
       models: [
@@ -124,7 +122,8 @@ describe('ModelPage', () => {
     expect(wrapper.findAll('[data-testid="kind-row"]')).toHaveLength(3)
     const guesses = wrapper.findAll('[data-testid="kind-guess"]')
     expect(guesses.map((g) => g.text()).sort()).toEqual(['guess 25%', 'guess 33%'])
-    expect(guesses[0]!.attributes('title')).toBe('What picking an option at random would score.')
+    expect(guesses[0]!.attributes('tabindex')).toBe('0')
+    expect(await hintText(guesses[0]!)).toBe('What picking an option at random would score.')
   })
 
   it('links to the questions and the checks of this model', () => {
@@ -138,11 +137,5 @@ describe('ModelPage', () => {
       'All 100 questions, both of the model’s answers, and what each judge decided and why',
     )
     expect(wrapper.get('[data-testid="link-checks"]').text()).toContain('Reliability checks')
-  })
-
-  it('shows a short empty state for a model not in the run', () => {
-    const wrapper = mountPage(runReport(), 'nobody/unknown')
-    expect(wrapper.find('[data-testid="model-missing"]').exists()).toBe(true)
-    expect(wrapper.find('h1').exists()).toBe(false)
   })
 })

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -18,11 +19,12 @@ from syft_space.components.benchmarks.entities import (
 from syft_space.components.benchmarks.handlers import BenchmarkHandler
 from syft_space.components.benchmarks.schemas import (
     ConnectionRequest,
-    ConnectionSettings,
     ProviderUrls,
     RunRequest,
     TargetRequest,
 )
+
+from .conftest import make_settings_repo
 
 TENANT = SimpleNamespace(id=uuid4(), name="default")
 ENDPOINT_ID = uuid4()
@@ -68,6 +70,7 @@ class _Client:
         self.snapshots = 0
         self.settings_values: dict[str, object] = {}
         self.credentials: dict[str, str] = {}
+        self.provider: dict[str, object] = {}
         self.console_calls: list[tuple[str, str, object, dict]] = []
 
     async def snapshot(self) -> SimpleNamespace:
@@ -76,14 +79,6 @@ class _Client:
             reachable=self.reachable,
             detail="" if self.reachable else "benchmark is not answering",
             capabilities={"arms": ["closed_book"]} if self.reachable else {},
-            fields=(
-                {
-                    "probe": [],
-                    "instrument": [{"name": "judge_models", "catalog": "models"}],
-                }
-                if self.reachable
-                else {}
-            ),
             defaults={"probe": {"retrieval_top_k": 5}} if self.reachable else {},
         )
 
@@ -92,9 +87,6 @@ class _Client:
             return Reply(ok=False, detail="down")
         self.targets[key] = spec
         return Reply(ok=True, data=spec)
-
-    async def check_target(self, key: str) -> Reply:
-        return Reply(ok=True, data={"ok": True, "corpus": True, "endpoint": True})
 
     async def start_run(self, key: str, request: dict) -> Reply:
         self.runs.append((key, request))
@@ -169,10 +161,20 @@ class _Client:
             return Reply(ok=False, detail="down")
         return Reply(ok=True, data={"values": dict(self.settings_values)})
 
-    async def put_settings(self, values: dict) -> Reply:
+    async def capabilities(self) -> Reply:
         if not self.reachable:
             return Reply(ok=False, detail="down")
-        self.settings_values.update(values)
+        return Reply(ok=True, data={"provider": dict(self.provider)})
+
+    async def patch_settings(self, changes: dict) -> Reply:
+        """The benchmark's merge: a value sets an override, ``None`` removes it."""
+        if not self.reachable:
+            return Reply(ok=False, detail="down")
+        for field, value in changes.items():
+            if value is None:
+                self.settings_values.pop(field, None)
+            else:
+                self.settings_values[field] = value
         return Reply(ok=True, data={"values": dict(self.settings_values)})
 
     async def list_credentials(self) -> Reply:
@@ -204,7 +206,7 @@ class _Client:
         self.console_calls.append((method, path, body, params or {}))
         if not self.reachable:
             return Reply(ok=False, detail="down")
-        if method == "GET" and path in ("/console/pairs", "/console/results"):
+        if method == "GET" and path == "/console/results":
             return Reply(ok=True, data={"items": [], "total": 0})
         if method == "DELETE":
             return Reply(ok=True, data=None)
@@ -232,13 +234,12 @@ def _handler(
 
     target_repo = AsyncMock()
     target_repo.for_endpoint = AsyncMock(return_value=target)
-    target_repo.list_for_tenant = AsyncMock(return_value=[target] if target else [])
-    target_repo.count_for_connection = AsyncMock(return_value=0)
+    target_repo.list_for_connection = AsyncMock(return_value=[target] if target else [])
+    target_repo.count_by_connection = AsyncMock(return_value={})
     target_repo.create = AsyncMock(side_effect=lambda row: row)
     target_repo.update = AsyncMock(side_effect=lambda row: row)
     target_repo.delete = AsyncMock(return_value=True)
     target_repo.remember_job = AsyncMock()
-    target_repo.mark_synced = AsyncMock()
 
     endpoint_repo = AsyncMock()
     endpoint_repo.get_by_slug = AsyncMock(return_value=endpoint or _endpoint())
@@ -259,11 +260,10 @@ def _handler(
         target_repository=target_repo,
         endpoint_repository=endpoint_repo,
         dataset_repository=dataset_repo,
-        dataset_registry=registry,
-        settings_repository=settings_repo,
+        dataset_registry=registry,  # type: ignore[arg-type]
+        settings_repository=settings_repo or make_settings_repo(),
+        client_factory=lambda url, token: talker,  # type: ignore[arg-type,return-value]
     )
-    handler._client = lambda connection: talker  # type: ignore[method-assign]
-    handler._console_client = lambda connection, token: talker  # type: ignore[method-assign]
     return handler, talker
 
 
@@ -274,10 +274,11 @@ def _handler(
 async def test_the_first_benchmark_becomes_the_default_without_being_asked() -> None:
     """The first connection becomes the default."""
     handler, _ = _handler()
-    made = await handler.connect(
+    await handler.connect(
         TENANT, ConnectionRequest(name="Local", url="http://benchmark:8200")
     )
-    assert made.is_default is True
+    stored = handler.connections.create.await_args.args[0]  # type: ignore[attr-defined]
+    assert stored.is_default is True
 
 
 @pytest.mark.asyncio
@@ -314,22 +315,36 @@ async def test_a_benchmark_that_is_down_still_connects_and_says_why() -> None:
 
 
 @pytest.mark.asyncio
-async def test_saving_settings_pushes_them_to_every_endpoint_it_measures() -> None:
-    """Saving connection settings re-pushes every target."""
+async def test_editing_a_connection_re_pushes_every_endpoint_it_measures() -> None:
+    """An edited connection re-pushes its targets, which carry its details."""
     row = _connection()
     target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+        tenant_id=TENANT.id,
+        endpoint_id=ENDPOINT_ID,
+        connection_id=row.id,
+        probe={"retrieval_top_k": 9},
     )
     handler, client = _handler(connections=[row], target=target)
-    await handler.save_settings(
+    await handler.update_connection(
         TENANT,
         row.id,
-        ConnectionSettings(
-            instrument={"judge_model": "panel"}, probe={"retrieval_top_k": 9}
-        ),
+        ConnectionRequest(name=row.name, url=row.url, space_url="http://moved:8081"),
     )
-    assert client.targets["support-kb"]["instrument"] == {"judge_model": "panel"}
-    assert client.targets["support-kb"]["probe"]["retrieval_top_k"] == 9
+    handler.targets.list_for_connection.assert_awaited_with(row.id)  # type: ignore[attr-defined]
+    assert client.targets["support-kb"]["url"] == "http://moved:8081"
+    assert client.targets["support-kb"]["probe"] == {"retrieval_top_k": 9}
+
+
+@pytest.mark.asyncio
+async def test_the_connection_list_counts_its_endpoints_in_one_query() -> None:
+    row = _connection()
+    handler, _ = _handler(connections=[row])
+    handler.targets.count_by_connection = AsyncMock(return_value={row.id: 3})  # type: ignore[attr-defined]
+
+    [view] = await handler.list_connections(TENANT)
+
+    assert view.endpoints == 3
+    handler.targets.count_by_connection.assert_awaited_once_with(TENANT.id)  # type: ignore[attr-defined]
 
 
 # --- targets ----------------------------------------------------------------
@@ -341,19 +356,16 @@ async def test_an_endpoint_nobody_opted_in_is_not_measured_rather_than_zero() ->
     handler, _ = _handler(connections=[_connection()])
     view = await handler.get_target(TENANT, "support-kb")
     assert view.measured is False
-    assert view.last_job is None
 
 
 @pytest.mark.asyncio
-async def test_the_endpoint_layer_lies_on_top_of_the_space_wide_one() -> None:
-    """Endpoint settings override the connection's."""
-    row = _connection(probe={"retrieval_top_k": 5, "similarity_threshold": 0.3})
-    handler, client = _handler(connections=[row])
+async def test_the_probe_reaches_the_benchmark_as_set_on_the_endpoint() -> None:
+    """Only the fields set on the endpoint are pushed; the rest are the benchmark's."""
+    handler, client = _handler(connections=[_connection()])
     await handler.save_target(
         TENANT, "support-kb", TargetRequest(probe={"retrieval_top_k": 11})
     )
-    sent = client.targets["support-kb"]["probe"]
-    assert sent == {"retrieval_top_k": 11, "similarity_threshold": 0.3}
+    assert client.targets["support-kb"]["probe"] == {"retrieval_top_k": 11}
 
 
 @pytest.mark.asyncio
@@ -376,10 +388,9 @@ async def test_a_collection_named_by_hand_wins_over_the_resolved_one() -> None:
 
 @pytest.mark.asyncio
 async def test_a_benchmark_that_is_down_does_not_block_saving() -> None:
-    """A target is saved while the benchmark is down; ``synced_at`` stays empty."""
+    """A target is saved while the benchmark is down."""
     handler, _ = _handler(client=_Client(reachable=False), connections=[_connection()])
     await handler.save_target(TENANT, "support-kb", TargetRequest())
-    handler.targets.mark_synced.assert_not_called()  # type: ignore[attr-defined]
     handler.targets.create.assert_awaited()  # type: ignore[attr-defined]
 
 
@@ -415,9 +426,12 @@ async def test_a_paused_endpoint_is_not_measured_on_request_either() -> None:
 @pytest.mark.asyncio
 async def test_a_run_is_started_against_settings_the_benchmark_has_been_told() -> None:
     """Settings are pushed before a run starts."""
-    row = _connection(probe={"retrieval_top_k": 5})
+    row = _connection()
     target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+        tenant_id=TENANT.id,
+        endpoint_id=ENDPOINT_ID,
+        connection_id=row.id,
+        probe={"retrieval_top_k": 5},
     )
     handler, client = _handler(connections=[row], target=target)
     await handler.start_run(TENANT, "support-kb", RunRequest(limit=2))
@@ -426,22 +440,8 @@ async def test_a_run_is_started_against_settings_the_benchmark_has_been_told() -
 
 
 @pytest.mark.asyncio
-async def test_the_endpoint_layer_lies_on_top_of_the_space_wide_instrument() -> None:
-    """Endpoint instrument settings override the connection's, field by field."""
-    row = _connection(
-        instrument={"judge_model": "gemma3-4b-gpu", "arms": ["open_book"]}
-    )
-    handler, client = _handler(connections=[row])
-    await handler.save_target(
-        TENANT, "support-kb", TargetRequest(instrument={"judge_model": "gpt-4o"})
-    )
-    sent = client.targets["support-kb"]["instrument"]
-    assert sent == {"judge_model": "gpt-4o", "arms": ["open_book"]}
-
-
-@pytest.mark.asyncio
 async def test_the_endpoint_instrument_round_trips_through_get_target() -> None:
-    row = _connection(instrument={"judge_model": "gemma3-4b-gpu"})
+    row = _connection()
     target = BenchmarkTarget(
         tenant_id=TENANT.id,
         endpoint_id=ENDPOINT_ID,
@@ -451,7 +451,6 @@ async def test_the_endpoint_instrument_round_trips_through_get_target() -> None:
     handler, _ = _handler(connections=[row], target=target)
     view = await handler.get_target(TENANT, "support-kb")
     assert view.instrument == {"judge_model": "gpt-4o"}
-    assert view.connection_instrument == {"judge_model": "gemma3-4b-gpu"}
 
 
 @pytest.mark.asyncio
@@ -662,7 +661,7 @@ async def test_a_stale_description_is_refreshed_when_the_page_opens() -> None:
     from datetime import datetime, timedelta, timezone
 
     stale = _connection(
-        fields={"instrument": [{"name": "judge_models"}]},
+        capabilities={"arms": []},
         checked_at=datetime.now(timezone.utc) - timedelta(days=2),
     )
     handler, client = _handler(connections=[stale])
@@ -670,7 +669,7 @@ async def test_a_stale_description_is_refreshed_when_the_page_opens() -> None:
     listed = await handler.list_connections(TENANT)
 
     assert client.snapshots == 1
-    assert listed[0].fields["instrument"][0]["catalog"] == "models"
+    assert listed[0].capabilities == {"arms": ["closed_book"]}
 
 
 @pytest.mark.asyncio
@@ -679,7 +678,7 @@ async def test_a_fresh_description_is_not_asked_for_again() -> None:
     from datetime import datetime, timezone
 
     fresh = _connection(
-        fields={"instrument": [{"name": "judge_models"}]},
+        capabilities={"arms": ["mcq"]},
         checked_at=datetime.now(timezone.utc),
     )
     handler, client = _handler(connections=[fresh])
@@ -695,7 +694,7 @@ async def test_a_naive_timestamp_does_not_take_the_page_down() -> None:
     from datetime import datetime, timezone
 
     naive = _connection(
-        fields={"instrument": [{"name": "judge_models"}]},
+        capabilities={"arms": ["mcq"]},
         checked_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     handler, client = _handler(connections=[naive])
@@ -703,18 +702,18 @@ async def test_a_naive_timestamp_does_not_take_the_page_down() -> None:
     listed = await handler.list_connections(TENANT)
 
     assert client.snapshots == 0, "a moment written minutes ago is not stale"
-    assert listed[0].fields
+    assert listed[0].capabilities == {"arms": ["mcq"]}
 
 
 @pytest.mark.asyncio
 async def test_a_benchmark_that_is_down_leaves_the_page_standing() -> None:
     """A failed refresh keeps the cached description."""
-    stale = _connection(fields={"instrument": [{"name": "judge_models"}]})
+    stale = _connection(capabilities={"arms": ["mcq"]})
     handler, _ = _handler(client=_Client(reachable=False), connections=[stale])
 
     listed = await handler.list_connections(TENANT)
 
-    assert listed[0].fields["instrument"][0]["name"] == "judge_models"
+    assert listed[0].capabilities == {"arms": ["mcq"]}
     assert listed[0].reachable is False
 
 
@@ -738,6 +737,50 @@ async def test_the_provider_view_pairs_the_url_override_with_the_key_presence() 
 
 
 @pytest.mark.asyncio
+async def test_unreadable_keys_are_reported_as_unknown_not_absent() -> None:
+    """Settings answer but the key list does not: no role claims "no key"."""
+
+    class _KeysDown(_Client):
+        async def list_credentials(self) -> Reply:
+            return Reply(ok=False, detail="refused")
+
+    row = _connection()
+    client = _KeysDown()
+    client.settings_values = {"subject_url": "https://openrouter.ai/api/v1"}
+    client.credentials = {"subject_key": "sealed-already"}
+    handler, _ = _handler(client=client, connections=[row])
+
+    view = await handler.get_provider(TENANT, row.id)
+
+    assert view.subject.url == "https://openrouter.ai/api/v1"
+    assert view.subject.key_set is None
+    assert view.generator.key_set is None
+    assert view.subject.key_updated_at is None
+
+
+@pytest.mark.asyncio
+async def test_each_role_carries_the_benchmarks_locality() -> None:
+    """Whether a role stays inside is the benchmark's call, passed through."""
+    row = _connection()
+    client = _Client()
+    client.provider = {
+        "local": True,
+        "roles": [
+            {"role": "generator", "local": True},
+            {"role": "subject", "local": False},
+        ],
+    }
+    handler, _ = _handler(client=client, connections=[row])
+
+    view = await handler.get_provider(TENANT, row.id)
+
+    assert view.shared.local is True
+    assert view.generator.local is True
+    assert view.subject.local is False
+    assert view.judge.local is None, "a role the benchmark did not report"
+
+
+@pytest.mark.asyncio
 async def test_saving_provider_urls_reaches_the_benchmarks_settings() -> None:
     row = _connection()
     handler, client = _handler(connections=[row])
@@ -750,6 +793,45 @@ async def test_saving_provider_urls_reaches_the_benchmarks_settings() -> None:
 
 
 @pytest.mark.asyncio
+async def test_other_overrides_survive_a_provider_save() -> None:
+    """The addresses form owns only the URL fields; models and thresholds stay."""
+    row = _connection()
+    handler, client = _handler(connections=[row])
+    client.settings_values = {
+        "judge_model": "google/gemini-2.5-pro",
+        "retrieval_top_k": 8,
+        "subject_url": "https://openrouter.ai/api/v1",
+    }
+
+    await handler.save_provider(
+        TENANT, row.id, ProviderUrls(subject_url="https://openrouter.ai/api/v1")
+    )
+
+    assert client.settings_values == {
+        "judge_model": "google/gemini-2.5-pro",
+        "retrieval_top_k": 8,
+        "subject_url": "https://openrouter.ai/api/v1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_blank_address_removes_the_override() -> None:
+    """A blank shared default goes back to the benchmark's, never to ""."""
+    row = _connection(defaults={"ollama_url": "http://localhost:11434"})
+    handler, client = _handler(connections=[row])
+    client.settings_values = {
+        "ollama_url": "http://gpu:11434",
+        "judge_url": "http://judge:11434/v1",
+    }
+
+    view = await handler.save_provider(TENANT, row.id, ProviderUrls(ollama_url="  "))
+
+    assert client.settings_values == {}
+    assert view.shared.url == ""
+    assert view.shared.url_default == "http://localhost:11434"
+
+
+@pytest.mark.asyncio
 async def test_a_provider_key_is_sent_sealed_and_never_read_back() -> None:
     row = _connection()
     handler, client = _handler(connections=[row])
@@ -759,7 +841,8 @@ async def test_a_provider_key_is_sent_sealed_and_never_read_back() -> None:
     )
 
     assert client.credentials["subject_key"] == "sk-live-something"
-    assert view.subject.key_set is True
+    assert view.key_set is True
+    assert view.key_updated_at is not None
     assert "sk-live-something" not in view.model_dump_json()
 
 
@@ -787,7 +870,8 @@ async def test_clearing_a_provider_key_falls_back_to_the_shared_default() -> Non
     view = await handler.delete_provider_credential(TENANT, row.id, "judge_key")
 
     assert "judge_key" not in client.credentials
-    assert view.judge.key_set is False
+    assert view.key_set is False
+    assert view.key_updated_at is None
 
 
 @pytest.mark.asyncio
@@ -798,9 +882,8 @@ async def test_the_web_check_is_a_provider_role_of_its_own() -> None:
     await handler.save_provider(
         TENANT, row.id, ProviderUrls(filter_url="https://api.openai.com/v1")
     )
-    view = await handler.save_provider_credential(
-        TENANT, row.id, "filter_key", "sk-web"
-    )
+    await handler.save_provider_credential(TENANT, row.id, "filter_key", "sk-web")
+    view = await handler.get_provider(TENANT, row.id)
 
     assert client.settings_values["filter_url"] == "https://api.openai.com/v1"
     assert view.filter.url == "https://api.openai.com/v1"
@@ -808,44 +891,170 @@ async def test_the_web_check_is_a_provider_role_of_its_own() -> None:
     assert view.subject.key_set is False
 
 
-# --- the console, embedded ----------------------------------------------------
+class _ReadsDown(_Client):
+    """Writes land; every read afterwards fails."""
 
+    async def get_settings(self) -> Reply:
+        return Reply(ok=False, detail="down")
 
-def test_the_console_client_reaches_the_benchmark_by_its_url() -> None:
-    handler = BenchmarkHandler(None, None, None, None, None)  # type: ignore[arg-type]
-    row = _connection(url="http://benchmark:8200")
+    async def list_credentials(self) -> Reply:
+        return Reply(ok=False, detail="down")
 
-    client = handler._console_client(row, "session-token")
-
-    assert client.url == "http://benchmark:8200"
+    async def capabilities(self) -> Reply:
+        return Reply(ok=False, detail="down")
 
 
 @pytest.mark.asyncio
-async def test_listing_pairs_mints_a_session_scoped_to_this_target() -> None:
+async def test_a_stored_key_is_a_success_even_when_the_view_cannot_be_reread() -> None:
+    """The key is stored; only the follow-up read failed, so no 502."""
     row = _connection()
+    client = _ReadsDown()
+    handler, _ = _handler(client=client, connections=[row])
+
+    view = await handler.save_provider_credential(TENANT, row.id, "judge_key", "sk")
+
+    assert client.credentials == {"judge_key": "sk"}
+    assert view.key_set is True, "taken from the operation"
+    assert view.key_updated_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_cleared_key_is_a_success_even_when_the_view_cannot_be_reread() -> None:
+    row = _connection()
+    client = _ReadsDown()
+    client.credentials = {"judge_key": "sk-old"}
+    handler, _ = _handler(client=client, connections=[row])
+
+    view = await handler.delete_provider_credential(TENANT, row.id, "judge_key")
+
+    assert client.credentials == {}
+    assert view.key_set is False
+    assert view.key_updated_at is None
+
+
+@pytest.mark.asyncio
+async def test_saved_addresses_are_a_success_even_when_the_view_cannot_be_reread() -> (
+    None
+):
+    """The addresses are stored; the view shows them from the benchmark's reply."""
+    row = _connection()
+    client = _ReadsDown()
+    handler, _ = _handler(client=client, connections=[row])
+
+    view = await handler.save_provider(
+        TENANT, row.id, ProviderUrls(judge_url="http://judge:11434/v1")
+    )
+
+    assert client.settings_values["judge_url"] == "http://judge:11434/v1"
+    assert view.judge.url == "http://judge:11434/v1"
+    assert view.judge.key_set is None
+
+
+@pytest.mark.asyncio
+async def test_the_provider_view_asks_the_benchmark_all_at_once() -> None:
+    """The three reads overlap: each waits until all three have started."""
+    barrier = asyncio.Barrier(3)
+
+    class _Overlapping(_Client):
+        async def get_settings(self) -> Reply:
+            await barrier.wait()
+            return await super().get_settings()
+
+        async def list_credentials(self) -> Reply:
+            await barrier.wait()
+            return await super().list_credentials()
+
+        async def capabilities(self) -> Reply:
+            await barrier.wait()
+            return await super().capabilities()
+
+    row = _connection()
+    handler, _ = _handler(client=_Overlapping(), connections=[row])
+
+    view = await asyncio.wait_for(handler.get_provider(TENANT, row.id), timeout=2)
+
+    assert view.subject.key_set is False
+
+
+# --- the console, embedded ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_console_client_carries_the_session_token_to_the_benchmark() -> None:
+    row = _connection(url="http://benchmark:8200")
     target = BenchmarkTarget(
         tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
     )
     handler, client = _handler(connections=[row], target=target)
+    made: list[tuple[str, str | None]] = []
 
-    await handler.list_pairs(TENANT, "support-kb", {"status": "pending"})
+    def factory(url: str, token: str | None) -> _Client:
+        made.append((url, token))
+        return client
 
-    assert client.console_calls == [
-        ("GET", "/console/pairs", None, {"status": "pending"})
+    handler._new_client = factory  # type: ignore[assignment]
+
+    await handler.list_results(TENANT, "support-kb", {})
+
+    assert made == [
+        ("http://benchmark:8200", "secret"),
+        ("http://benchmark:8200", "token-for-support-kb"),
     ]
 
 
 @pytest.mark.asyncio
-async def test_deleting_a_pair_proxies_through_the_console() -> None:
+async def test_listing_results_mints_a_session_scoped_to_this_target() -> None:
     row = _connection()
     target = BenchmarkTarget(
         tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
     )
     handler, client = _handler(connections=[row], target=target)
 
-    await handler.delete_pair(TENANT, "support-kb", "pair-1")
+    await handler.list_results(TENANT, "support-kb", {"verdict": "wrong"})
 
-    assert client.console_calls == [("DELETE", "/console/pairs/pair-1", None, {})]
+    assert client.console_calls == [
+        ("GET", "/console/results", None, {"verdict": "wrong"})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_updating_a_pair_proxies_through_the_console() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+
+    await handler.update_pair(
+        TENANT, "support-kb", "pair-1", {"status": "rejected", "note": "dup"}
+    )
+
+    assert client.console_calls == [
+        ("PATCH", "/console/pairs/pair-1", {"status": "rejected", "note": "dup"}, {})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_withdrawal_is_not_reported_as_done() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+
+    async def refused(method: str, path: str, **_: object) -> Reply:
+        client.console_calls.append((method, path, None, {}))
+        return Reply(ok=False, status=404, detail="no override on that result")
+
+    client.raw = refused  # type: ignore[method-assign]
+
+    with pytest.raises(HTTPException) as refusal:
+        await handler.withdraw_verdict(TENANT, "support-kb", "result-1")
+
+    assert refusal.value.status_code == 404
+    assert client.console_calls == [
+        ("DELETE", "/console/results/result-1/verdict", None, {})
+    ]
 
 
 @pytest.mark.asyncio
@@ -927,9 +1136,12 @@ async def test_a_refused_save_reaches_the_browser_and_is_not_stored() -> None:
 
 @pytest.mark.asyncio
 async def test_a_refused_push_before_a_run_reaches_the_browser() -> None:
-    row = _connection(instrument={"subject_models": ["openai/gpt-5.1"]})
+    row = _connection()
     target = BenchmarkTarget(
-        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+        tenant_id=TENANT.id,
+        endpoint_id=ENDPOINT_ID,
+        connection_id=row.id,
+        instrument={"subject_models": ["openai/gpt-5.1"]},
     )
     handler, client = _handler(client=_StrictClient(), connections=[row], target=target)
     with pytest.raises(HTTPException) as refused:
@@ -965,7 +1177,6 @@ async def test_the_web_check_model_reaches_the_benchmark_untouched() -> None:
     assert client.targets["support-kb"]["instrument"] == {
         "filter_model": "openai/gpt-5.1"
     }
-    handler.targets.mark_synced.assert_awaited()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -1017,8 +1228,7 @@ async def test_the_window_count_is_the_benchmarks_not_computed_here() -> None:
     counted = await handler.window(TENANT, "support-kb", 2)
 
     assert client.window_asks == ("support-kb", 2)
-    assert (counted.count, counted.undated, counted.total) == (4, 1, 9)
-    assert counted.window_days == 2
+    assert counted.count == 4
 
 
 @pytest.mark.asyncio
@@ -1089,3 +1299,63 @@ async def test_the_new_run_settings_reach_the_benchmark_untouched() -> None:
         TENANT, "support-kb", TargetRequest(instrument=instrument)
     )
     assert client.targets["support-kb"]["instrument"] == instrument
+
+
+# --- locality of the Space's own addresses ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("url", "host", "local"),
+    [
+        ("http://localhost:8200", "localhost", True),
+        ("http://LOCALHOST:8200", "localhost", True),
+        ("http://127.0.0.1:8200", "127.0.0.1", True),
+        ("http://[::1]:8200", "::1", True),
+        ("http://[::ffff:127.0.0.1]:8200", "::ffff:127.0.0.1", True),
+        ("http://0.0.0.0:8200", "0.0.0.0", False),
+        ("http://host.docker.internal:8200", "host.docker.internal", True),
+        ("http://benchmark:8200", "benchmark", True),
+        ("http://10.0.0.5:8200", "10.0.0.5", False),
+        ("http://192.168.1.20:8200", "192.168.1.20", False),
+        ("http://[fd00::5]:8200", "fd00::5", False),
+        ("http://[fe80::1]:8200", "fe80::1", False),
+        ("https://bench.example.com", "bench.example.com", False),
+        ("http://8.8.8.8:8200", "8.8.8.8", False),
+        ("http://[2606:4700::1111]/v1", "2606:4700::1111", False),
+        ("http://[::ffff:8.8.8.8]/", "::ffff:8.8.8.8", False),
+        ("http://2130706433/", "2130706433", False),
+        ("http://0x08080808/", "0x08080808", False),
+        ("bench.example.com:443/v1", "", False),
+        ("//benchmark:8200", "", False),
+        ("//localhost:8200", "", False),
+        ("ftp://localhost/", "", False),
+        ("HTTPS://localhost:8200", "localhost", True),
+        ("", "", False),
+    ],
+)
+def test_locality_follows_the_benchmarks_perimeter_rule(
+    url: str, host: str, local: bool
+) -> None:
+    from syft_space.components.benchmarks.locality import locality
+
+    assert locality(url).model_dump() == {"host": host, "local": local}
+
+
+def test_the_locality_route_answers_the_connection_form() -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from syft_space.components.benchmarks.routes import build_benchmark_routes
+    from syft_space.components.tenants.dependency import get_tenant_dependency
+
+    handler, _ = _handler()
+    app = FastAPI()
+    app.include_router(build_benchmark_routes(handler))
+    app.dependency_overrides[get_tenant_dependency] = lambda: TENANT
+
+    answer = TestClient(app).get(
+        "/benchmarks/locality", params={"url": "https://bench.example.com"}
+    )
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"host": "bench.example.com", "local": False}

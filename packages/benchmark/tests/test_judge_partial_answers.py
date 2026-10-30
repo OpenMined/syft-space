@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from syft_benchmark.config import Settings, Verdict
+from syft_benchmark.llm import judge_provider
 from syft_benchmark.runs import execute
 from syft_benchmark.runs import judge as judge_module
 
@@ -31,6 +32,7 @@ def _grade(answer: str = "Lyon, I think it was founded in 1990.") -> Any:
         "Paris, in 1990.",
         answer,
         settings=Settings(),
+        judge=judge_provider(Settings()),
     )
 
 
@@ -102,6 +104,7 @@ def test_a_wrong_option_letter_stays_a_hallucination(
         "The answer is C) Lyon.",
         is_mcq=True,
         settings=Settings(),
+        judge=judge_provider(Settings()),
     )
     assert graded.verdict is Verdict.HALLUCINATE
     assert systems == []  # matched by the letter, no judge called
@@ -112,6 +115,8 @@ def test_a_wrong_option_letter_stays_a_hallucination(
     [
         ("[true, true, true, true]", Verdict.CORRECT),
         ("[true, false, false, false]", Verdict.INCOMPLETE),
+        # Yes/no given as strings: "false" is not covered.
+        ('["true", "false", "false", "false"]', Verdict.INCOMPLETE),
     ],
 )
 def test_key_facts_below_the_bar_count_as_incomplete(
@@ -122,6 +127,7 @@ def test_key_facts_below_the_bar_count_as_incomplete(
         "Goldman Sachs named a new technology banking co-head.",
         ["fact one", "fact two", "fact three", "fact four"],
         settings=Settings(key_facts_threshold=0.75),
+        judge=judge_provider(Settings(key_facts_threshold=0.75)),
     )
     assert graded.verdict is verdict
 
@@ -163,6 +169,7 @@ def test_key_facts_check_the_article(
         ["fact one", "fact two", "fact three", "fact four"],
         article="Goldman Sachs named Jane Doe co-head of technology banking.",
         settings=Settings(key_facts_threshold=0.75),
+        judge=judge_provider(Settings(key_facts_threshold=0.75)),
     )
     assert graded.verdict is verdict
     assert systems == [
@@ -189,7 +196,11 @@ def test_a_failed_article_check_measures_nothing(
 
     monkeypatch.setattr(judge_module, "chat", fake_chat)
     graded = judge_module.grade_key_facts(
-        "An answer.", ["fact"], article="The article.", settings=Settings()
+        "An answer.",
+        ["fact"],
+        article="The article.",
+        settings=Settings(),
+        judge=judge_provider(Settings()),
     )
     assert graded.verdict is Verdict.TECHNICAL
 
@@ -210,7 +221,9 @@ def test_grade_item_hands_key_facts_the_article(
         meta={"grading": "key_facts", "key_facts": ["fact"]},
         context="The article.",
     )
-    graded = judge_module.grade_item(item, "An answer.", settings=Settings())
+    graded = judge_module.grade_item(
+        item, "An answer.", settings=Settings(), judge=judge_provider(Settings())
+    )
     assert graded.verdict is Verdict.HALLUCINATE
     assert len(systems) == 2
 
@@ -224,7 +237,10 @@ def test_a_made_up_trick_answer_stays_a_hallucination(
         kind=judge_module.UNANSWERABLE, question="Who founded it?", missing="founder"
     )
     graded = judge_module.grade_control(
-        case, "John Smith founded it.", settings=Settings()
+        case,
+        "John Smith founded it.",
+        settings=Settings(),
+        judge=judge_provider(Settings()),
     )
     assert graded.verdict is Verdict.HALLUCINATE
 
@@ -243,3 +259,17 @@ def test_both_arms_correct_a_false_premise_before_abstaining(
     assert premise in system
     assert system.index(premise) < system.index("respond with ONLY: I don't know")
     assert "Otherwise, if" in system
+
+
+@pytest.mark.parametrize(
+    ("grounded", "expected"), [("true", True), ('"false"', False), ("null", False)]
+)
+def test_the_grounding_check_reads_a_yes_no_field(
+    monkeypatch: pytest.MonkeyPatch, grounded: str, expected: bool
+) -> None:
+    """A "false" string is not grounded, and a missing field is not either."""
+    _reply(monkeypatch, f'{{"grounded": {grounded}, "reasoning": "x"}}')
+    held, _ = judge_module.check_grounded(
+        "Paris", ["Paris."], settings=Settings(), judge=judge_provider(Settings())
+    )
+    assert held is expected

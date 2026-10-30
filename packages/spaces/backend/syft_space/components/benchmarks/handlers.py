@@ -7,9 +7,9 @@ settings (judges, arms, thresholds) are passed through unparsed.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime, timedelta, timezone
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar, cast
 from urllib.parse import quote
 from uuid import UUID
 
@@ -28,11 +28,10 @@ from syft_space.components.benchmarks.repository import (
     BenchmarkTargetRepository,
 )
 from syft_space.components.benchmarks.schemas import (
-    CheckResponse,
     ConnectionRequest,
     ConnectionResponse,
-    ConnectionSettings,
     JobResponse,
+    ProviderKeyState,
     ProviderResponse,
     ProviderRole,
     ProviderUrls,
@@ -41,20 +40,27 @@ from syft_space.components.benchmarks.schemas import (
     TargetResponse,
     WindowResponse,
 )
+from syft_space.components.dataset_types.registry import DatasetTypeRegistry
 from syft_space.components.datasets.repository import DatasetRepository
 from syft_space.components.endpoints.entities import Endpoint
 from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.tenants.entities import Tenant
 
-# How long a cached benchmark self-description (settings schema) is used.
+# How long a cached benchmark self-description (capabilities, defaults) is used.
 SNAPSHOT_MAX_AGE = timedelta(hours=1)
 
-# Provider key names the benchmark accepts (its `config.py`); checked here so a
-# wrong name is a clear 404 rather than the benchmark's 422.
-PROVIDER_KEY_NAMES = frozenset(
-    {"llm_api_key", "generator_key", "subject_key", "judge_key", "filter_key"}
-)
+# Provider roles (``ProviderResponse`` fields) and the benchmark's names for
+# their URL setting and key (its `config.py`).
+PROVIDER_ROLES: dict[str, tuple[str, str]] = {
+    "shared": ("ollama_url", "llm_api_key"),
+    "generator": ("generator_url", "generator_key"),
+    "subject": ("subject_url", "subject_key"),
+    "judge": ("judge_url", "judge_key"),
+    "filter": ("filter_url", "filter_key"),
+}
+# Checked here so a wrong key name is a clear 404 rather than the benchmark's 422.
+ROLE_OF_KEY = {key: role for role, (_, key) in PROVIDER_ROLES.items()}
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -70,28 +76,112 @@ def _parsed(model: type[ModelT], data: Any) -> ModelT:
         ) from exc
 
 
+def _require(reply: Reply, fallback: str, *, keep_status: bool = True) -> None:
+    """Raise unless the benchmark answered; its error status is kept or made a 502."""
+    if reply.ok:
+        return
+    passed_on = keep_status and reply.status >= 400
+    raise HTTPException(
+        status_code=reply.status if passed_on else 502,
+        detail=reply.detail or fallback,
+    )
+
+
+def _raise_if_refused(reply: Reply) -> None:
+    """Raise the benchmark's 422 (invalid configuration); other failures pass."""
+    if reply.status == 422:
+        raise HTTPException(status_code=422, detail=reply.detail)
+
+
+def _provider_locality(reply: Reply) -> dict[str, bool]:
+    """Per role (``shared`` for the default), whether the benchmark says its
+    calls stay inside the perimeter; empty when it did not answer."""
+    provider = (reply.data or {}).get("provider") if reply.ok else None
+    if not isinstance(provider, dict):
+        return {}
+    out: dict[str, bool] = {}
+    if isinstance(provider.get("local"), bool):
+        out["shared"] = provider["local"]
+    for role in provider.get("roles") or []:
+        if isinstance(role, dict) and isinstance(role.get("local"), bool):
+            out[str(role.get("role"))] = role["local"]
+    return out
+
+
+def _provider_view(
+    defaults: dict[str, Any], settings: Reply, secrets: Reply, capabilities: Reply
+) -> ProviderResponse:
+    """Each role's URL, key state and locality from the benchmark's replies.
+
+    Unanswered settings leave the URLs blank, an unanswered key list leaves
+    ``key_set`` null (unknown), unanswered capabilities leave ``local`` null.
+    """
+    values = (settings.data or {}).get("values", {}) if settings.ok else {}
+    updated: dict[str, datetime] | None = (
+        {item["name"]: item["updated_at"] for item in secrets.data or []}
+        if secrets.ok
+        else None
+    )
+    local = _provider_locality(capabilities)
+    return ProviderResponse(
+        **{
+            role: ProviderRole(
+                url=values.get(url_field, "") or "",
+                url_default=defaults.get(url_field, "") or "",
+                key_set=None if updated is None else key in updated,
+                key_updated_at=(updated or {}).get(key),
+                local=local.get(role),
+            )
+            for role, (url_field, key) in PROVIDER_ROLES.items()
+        }
+    )
+
+
+def _check_provider_key(name: str) -> None:
+    if name not in ROLE_OF_KEY:
+        raise HTTPException(status_code=404, detail=f"{name!r} is not a provider key")
+
+
+_CONSOLE_SILENT = "the benchmark's console did not answer"
+
+
 def _console_dict(reply: Reply) -> dict[str, Any]:
     """A console call's JSON body, or the refusal that stands in for it."""
-    if not reply.ok:
-        raise HTTPException(
-            status_code=reply.status if reply.status >= 400 else 502,
-            detail=reply.detail or "the benchmark's console did not answer",
-        )
+    _require(reply, _CONSOLE_SILENT)
     return reply.data if isinstance(reply.data, dict) else {}
 
 
-def _console_empty(reply: Reply) -> None:
-    """A console call with nothing to return — a delete."""
+def _remembered(target: BenchmarkTarget) -> JobResponse | None:
+    """The job cached on the target, shown while the benchmark is unreachable."""
+    return _parsed(JobResponse, target.last_job) if target.last_job else None
+
+
+def _warn_if_not_taken(endpoint: Endpoint, reply: Reply) -> None:
+    """Log a target push the benchmark did not take."""
     if not reply.ok:
-        raise HTTPException(
-            status_code=reply.status if reply.status >= 400 else 502,
-            detail=reply.detail or "the benchmark's console did not answer",
-        )
+        logger.warning(f"benchmark did not take target {endpoint.slug}: {reply.detail}")
 
 
 def _seg(value: str) -> str:
     """One path segment, escaped."""
     return quote(value, safe="")
+
+
+class _TargetSettings(Protocol):
+    """What the Space decides about a target: a stored row or a save request."""
+
+    @property
+    def collection(self) -> str: ...
+    @property
+    def instrument(self) -> dict[str, Any] | None: ...
+    @property
+    def probe(self) -> dict[str, Any] | None: ...
+    @property
+    def enabled(self) -> bool: ...
+    @property
+    def schedule(self) -> str: ...
+    @property
+    def schedule_at(self) -> str: ...
 
 
 class BenchmarkHandler:
@@ -103,8 +193,9 @@ class BenchmarkHandler:
         target_repository: BenchmarkTargetRepository,
         endpoint_repository: EndpointRepository,
         dataset_repository: DatasetRepository,
-        dataset_registry: Any,
-        settings_repository: SettingsRepository | None = None,
+        dataset_registry: DatasetTypeRegistry,
+        settings_repository: SettingsRepository,
+        client_factory: Callable[[str, str | None], BenchmarkClient] = BenchmarkClient,
     ) -> None:
         self.connections = connection_repository
         self.targets = target_repository
@@ -112,6 +203,7 @@ class BenchmarkHandler:
         self.datasets = dataset_repository
         self.dataset_registry = dataset_registry
         self.settings = settings_repository
+        self._new_client = client_factory
 
     # --- connections -------------------------------------------------------
 
@@ -119,11 +211,10 @@ class BenchmarkHandler:
         """Connected benchmarks; stale self-descriptions are refreshed."""
         rows = await self.connections.list_for_tenant(tenant.id)
         rows = list(await asyncio.gather(*(self._if_stale(row) for row in rows)))
-        out = []
-        for row in rows:
-            used = await self.targets.count_for_connection(row.id)
-            out.append(self._connection_view(row, endpoints=used))
-        return out
+        used = await self.targets.count_by_connection(tenant.id)
+        return [
+            self._connection_view(row, endpoints=used.get(row.id, 0)) for row in rows
+        ]
 
     async def connect(
         self, tenant: Tenant, request: ConnectionRequest
@@ -175,18 +266,6 @@ class BenchmarkHandler:
         await self._resync(tenant, row)
         return self._connection_view(row)
 
-    async def save_settings(
-        self, tenant: Tenant, connection_id: UUID, settings: ConnectionSettings
-    ) -> ConnectionResponse:
-        """Store connection-wide settings and re-push every target that carries them."""
-        row = await self._connection_or_404(tenant, connection_id)
-        row.instrument = settings.instrument or None
-        row.probe = settings.probe or None
-        row.updated_at = datetime.now(timezone.utc)
-        row = await self.connections.update(row)
-        await self._resync(tenant, row)
-        return self._connection_view(row)
-
     async def check_connection(
         self, tenant: Tenant, connection_id: UUID
     ) -> ConnectionResponse:
@@ -207,11 +286,7 @@ class BenchmarkHandler:
         """The benchmark's model catalogue, passed through unchanged."""
         row = await self._connection_or_404(tenant, connection_id)
         reply = await self._client(row).models(query)
-        if not reply.ok:
-            raise HTTPException(
-                status_code=502,
-                detail=reply.detail or "the benchmark did not hand over its models",
-            )
+        _require(reply, "the benchmark did not hand over its models", keep_status=False)
         return reply.data or {}
 
     async def refresh_models(
@@ -223,11 +298,7 @@ class BenchmarkHandler:
         """
         row = await self._connection_or_404(tenant, connection_id)
         reply = await self._client(row).refresh_models()
-        if not reply.ok:
-            raise HTTPException(
-                status_code=reply.status if reply.status >= 400 else 502,
-                detail=reply.detail or "the benchmark could not refresh its models",
-            )
+        _require(reply, "the benchmark could not refresh its models")
         return reply.data or {}
 
     # --- the model providers -------------------------------------------------
@@ -238,80 +309,68 @@ class BenchmarkHandler:
         self, tenant: Tenant, connection_id: UUID
     ) -> ProviderResponse:
         row = await self._connection_or_404(tenant, connection_id)
-        client = self._client(row)
-        settings_reply = await client.get_settings()
-        if not settings_reply.ok:
-            raise HTTPException(
-                status_code=502,
-                detail=settings_reply.detail or "the benchmark would not say",
-            )
-        values = (settings_reply.data or {}).get("values", {})
-        defaults = row.defaults or {}
-        secrets_reply = await client.list_credentials()
-        updated: dict[str, datetime] = {}
-        if secrets_reply.ok:
-            for item in secrets_reply.data or []:
-                updated[item["name"]] = item["updated_at"]
-
-        def role(url_field: str, key_field: str) -> ProviderRole:
-            return ProviderRole(
-                url=values.get(url_field, "") or "",
-                url_default=defaults.get(url_field, "") or "",
-                key_set=key_field in updated,
-                key_updated_at=updated.get(key_field),
-            )
-
-        return ProviderResponse(
-            shared=role("ollama_url", "llm_api_key"),
-            generator=role("generator_url", "generator_key"),
-            subject=role("subject_url", "subject_key"),
-            judge=role("judge_url", "judge_key"),
-            filter=role("filter_url", "filter_key"),
-        )
+        settings, secrets, capabilities = await self._provider_replies(row)
+        _require(settings, "the benchmark would not say", keep_status=False)
+        return _provider_view(row.defaults or {}, settings, secrets, capabilities)
 
     async def save_provider(
         self, tenant: Tenant, connection_id: UUID, urls: ProviderUrls
     ) -> ProviderResponse:
+        """Store the provider URLs, leaving every other benchmark setting alone.
+
+        A blank URL is sent as ``None``, which removes that override so the
+        benchmark's default applies.
+        """
         row = await self._connection_or_404(tenant, connection_id)
-        reply = await self._client(row).put_settings(urls.model_dump())
-        if not reply.ok:
-            raise HTTPException(
-                status_code=reply.status if reply.status >= 400 else 502,
-                detail=reply.detail or "the benchmark refused those addresses",
-            )
-        return await self.get_provider(tenant, connection_id)
+        changes = {
+            field: url.strip() or None for field, url in urls.model_dump().items()
+        }
+        client = self._client(row)
+        settings = await client.patch_settings(changes)
+        _require(settings, "the benchmark refused those addresses")
+        secrets, capabilities = await asyncio.gather(
+            client.list_credentials(), client.capabilities()
+        )
+        return _provider_view(row.defaults or {}, settings, secrets, capabilities)
 
     async def save_provider_credential(
         self, tenant: Tenant, connection_id: UUID, name: str, value: str
-    ) -> ProviderResponse:
-        if name not in PROVIDER_KEY_NAMES:
-            raise HTTPException(
-                status_code=404, detail=f"{name!r} is not a provider key"
-            )
+    ) -> ProviderKeyState:
+        _check_provider_key(name)
         row = await self._connection_or_404(tenant, connection_id)
         reply = await self._client(row).put_credential(name, value)
-        if not reply.ok:
-            raise HTTPException(
-                status_code=reply.status if reply.status >= 400 else 502,
-                detail=reply.detail or "the benchmark refused that key",
-            )
-        return await self.get_provider(tenant, connection_id)
+        _require(reply, "the benchmark refused that key")
+        return await self._key_state(row, name, key_set=True)
 
     async def delete_provider_credential(
         self, tenant: Tenant, connection_id: UUID, name: str
-    ) -> ProviderResponse:
-        if name not in PROVIDER_KEY_NAMES:
-            raise HTTPException(
-                status_code=404, detail=f"{name!r} is not a provider key"
-            )
+    ) -> ProviderKeyState:
+        _check_provider_key(name)
         row = await self._connection_or_404(tenant, connection_id)
         reply = await self._client(row).delete_credential(name)
+        _require(reply, "the benchmark could not clear that key")
+        return await self._key_state(row, name, key_set=False)
+
+    async def _provider_replies(
+        self, row: BenchmarkConnection
+    ) -> tuple[Reply, Reply, Reply]:
+        """The benchmark's settings, key list and capabilities, asked at once."""
+        client = self._client(row)
+        return await asyncio.gather(
+            client.get_settings(), client.list_credentials(), client.capabilities()
+        )
+
+    async def _key_state(
+        self, row: BenchmarkConnection, name: str, *, key_set: bool
+    ) -> ProviderKeyState:
+        """Key ``name`` from one key-list read; the operation's result if that read fails."""
+        reply = await self._client(row).list_credentials()
         if not reply.ok:
-            raise HTTPException(
-                status_code=reply.status if reply.status >= 400 else 502,
-                detail=reply.detail or "the benchmark could not clear that key",
-            )
-        return await self.get_provider(tenant, connection_id)
+            return ProviderKeyState(key_set=key_set)
+        updated = {item["name"]: item["updated_at"] for item in reply.data or []}
+        return ProviderKeyState(
+            key_set=name in updated, key_updated_at=updated.get(name)
+        )
 
     # --- targets -----------------------------------------------------------
 
@@ -329,14 +388,8 @@ class BenchmarkHandler:
         )
         if connection is not None:
             out.connection_id = connection.id
-            out.connection_name = connection.name
-            out.fields = connection.fields or {}
             out.defaults = connection.defaults or {}
-            out.connection_probe = connection.probe or {}
-            out.connection_instrument = connection.instrument or {}
             out.capabilities = connection.capabilities or {}
-            out.reachable = connection.reachable
-            out.detail = connection.detail
         if target is None:
             return out
 
@@ -346,11 +399,7 @@ class BenchmarkHandler:
         out.instrument = target.instrument or {}
         out.schedule = target.schedule
         out.schedule_at = target.schedule_at
-        out.synced_at = target.synced_at
-        out.last_job, out.next_run_at = await asyncio.gather(
-            self._latest_job(target, connection, slug),
-            self._next_run_at(connection, slug),
-        )
+        out.next_run_at = await self._next_run_at(connection, slug)
         return out
 
     async def save_target(
@@ -361,17 +410,7 @@ class BenchmarkHandler:
         connection = await self._pick_connection(tenant, request.connection_id)
 
         # Pushed before storing, so a configuration the benchmark refuses is not kept.
-        spec = await self._spec(
-            tenant,
-            connection,
-            endpoint,
-            collection=request.collection,
-            instrument=request.instrument,
-            probe=request.probe,
-            enabled=request.enabled,
-            schedule=request.schedule,
-            schedule_at=request.schedule_at,
-        )
+        spec = await self._spec(tenant, connection, endpoint, request)
         reply = await self._client(connection).put_target(endpoint.slug, spec)
         _raise_if_refused(reply)
 
@@ -388,47 +427,30 @@ class BenchmarkHandler:
 
         existing = await self.targets.for_endpoint(endpoint.id)
         if existing is not None:
-            target = await self.targets.update(apply(existing))
+            await self.targets.update(apply(existing))
         else:
             new_target = apply(
                 BenchmarkTarget(tenant_id=tenant.id, endpoint_id=endpoint.id)
             )
             try:
-                target = await self.targets.create(new_target)
+                await self.targets.create(new_target)
             except IntegrityError:
                 # A concurrent save created the row first; update it.
                 existing = await self.targets.for_endpoint(endpoint.id)
                 assert existing is not None
-                target = await self.targets.update(apply(existing))
+                await self.targets.update(apply(existing))
 
-        await self._synced(target, endpoint, reply)
+        _warn_if_not_taken(endpoint, reply)
         return await self.get_target(tenant, slug)
-
-    async def check_target(self, tenant: Tenant, slug: str) -> CheckResponse:
-        """Ask the benchmark whether it can actually reach this endpoint."""
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        target, connection = await self._pair_or_404(tenant, endpoint, slug)
-        # Push first so the check uses the current settings.
-        await self._push(tenant, connection, target, endpoint)
-        reply = await self._client(connection).check_target(slug)
-        if not reply.ok:
-            return CheckResponse(
-                problems=[reply.detail or "benchmark is not answering"]
-            )
-        return _parsed(CheckResponse, reply.data)
 
     async def window(
         self, tenant: Tenant, slug: str, days: int | None = None
     ) -> WindowResponse:
         """How many articles the endpoint's time window holds."""
         endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        _, connection = await self._measured_pair_or_409(tenant, endpoint, slug)
         reply = await self._client(connection).window(slug, days)
-        if not reply.ok:
-            raise HTTPException(
-                status_code=502,
-                detail=reply.detail or "the benchmark could not count the articles",
-            )
+        _require(reply, "the benchmark could not count the articles", keep_status=False)
         return _parsed(WindowResponse, reply.data)
 
     # --- runs --------------------------------------------------------------
@@ -437,7 +459,7 @@ class BenchmarkHandler:
         self, tenant: Tenant, slug: str, request: RunRequest
     ) -> JobResponse:
         endpoint = await self._endpoint_or_404(tenant, slug)
-        target, connection = await self._pair_or_404(tenant, endpoint, slug)
+        target, connection = await self._measured_pair_or_409(tenant, endpoint, slug)
         if not target.enabled:
             raise HTTPException(
                 status_code=409,
@@ -448,173 +470,10 @@ class BenchmarkHandler:
             slug, request.model_dump(exclude_none=True)
         )
         _raise_if_refused(reply)
-        if not reply.ok:
-            raise HTTPException(
-                status_code=502,
-                detail=reply.detail or "the benchmark did not take the run",
-            )
+        _require(reply, "the benchmark did not take the run", keep_status=False)
         job = _parsed(JobResponse, reply.data)
         await self.targets.remember_job(target.id, job.model_dump(mode="json"))
         return job
-
-    async def _console(
-        self, connection: BenchmarkConnection, target_key: str
-    ) -> BenchmarkClient:
-        """A client with a fresh session token scoped to one target."""
-        reply = await self._client(connection).mint_session(target_key)
-        token = reply.data.get("token") if isinstance(reply.data, dict) else None
-        if not reply.ok or not token:
-            raise HTTPException(
-                status_code=502,
-                detail=reply.detail or "the benchmark would not open a console session",
-            )
-        return self._console_client(connection, token)
-
-    # --- the console: pairs, results, filtering, judging, the report -------
-    #
-    # Proxied to the benchmark's console API with a session token; replies are
-    # passed through unchanged.
-
-    async def list_pairs(
-        self, tenant: Tenant, slug: str, query: dict[str, Any]
-    ) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        return _console_dict(await console.raw("GET", "/console/pairs", params=query))
-
-    async def update_pair(
-        self, tenant: Tenant, slug: str, pair_id: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        reply = await console.raw("PATCH", f"/console/pairs/{pair_id}", body=body)
-        return _console_dict(reply)
-
-    async def delete_pair(self, tenant: Tenant, slug: str, pair_id: str) -> None:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        _console_empty(await console.raw("DELETE", f"/console/pairs/{pair_id}"))
-
-    async def list_results(
-        self, tenant: Tenant, slug: str, query: dict[str, Any]
-    ) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        return _console_dict(await console.raw("GET", "/console/results", params=query))
-
-    async def override_verdict(
-        self, tenant: Tenant, slug: str, result_id: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        reply = await console.raw(
-            "POST", f"/console/results/{result_id}/verdict", body=body
-        )
-        return _console_dict(reply)
-
-    async def withdraw_verdict(self, tenant: Tenant, slug: str, result_id: str) -> None:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        await console.raw("DELETE", f"/console/results/{result_id}/verdict")
-
-    async def build_report(self, tenant: Tenant, slug: str) -> dict[str, Any]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        console = await self._console(connection, slug)
-        return _console_dict(await console.raw("POST", "/console/report"))
-
-    # --- benchmark results: runs and their reports ---------------------------
-
-    async def list_report_runs(
-        self, tenant: Tenant, slug: str, query: dict[str, Any]
-    ) -> dict[str, Any]:
-        _, console = await self._report_console(tenant, slug)
-        return _console_dict(
-            await console.raw("GET", "/console/report/runs", params=dict(query))
-        )
-
-    async def get_report_run(
-        self, tenant: Tenant, slug: str, job_id: str
-    ) -> dict[str, Any]:
-        _, console = await self._report_console(tenant, slug)
-        return _console_dict(
-            await console.raw("GET", f"/console/report/runs/{_seg(job_id)}")
-        )
-
-    async def list_run_questions(
-        self, tenant: Tenant, slug: str, job_id: str, query: dict[str, Any]
-    ) -> dict[str, Any]:
-        _, console = await self._report_console(tenant, slug)
-        path = f"/console/report/runs/{_seg(job_id)}/questions"
-        return _console_dict(await console.raw("GET", path, params=query))
-
-    async def list_run_part(
-        self, tenant: Tenant, slug: str, job_id: str, part: str, query: dict[str, Any]
-    ) -> dict[str, Any]:
-        """A run's ``generated`` or ``filter`` list, passed through."""
-        _, console = await self._report_console(tenant, slug)
-        path = f"/console/report/runs/{_seg(job_id)}/{part}"
-        return _console_dict(await console.raw("GET", path, params=query))
-
-    async def get_run_question(
-        self, tenant: Tenant, slug: str, job_id: str, qa_id: str, query: dict[str, Any]
-    ) -> dict[str, Any]:
-        _, console = await self._report_console(tenant, slug)
-        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}"
-        return _console_dict(await console.raw("GET", path, params=query))
-
-    async def get_run_question_fragments(
-        self, tenant: Tenant, slug: str, job_id: str, qa_id: str, query: dict[str, Any]
-    ) -> list[Any]:
-        _, console = await self._report_console(tenant, slug)
-        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}/fragments"
-        reply = await console.raw("GET", path, params=query)
-        _console_empty(reply)
-        return reply.data if isinstance(reply.data, list) else []
-
-    async def delete_report_run(self, tenant: Tenant, slug: str, job_id: str) -> None:
-        """Delete a finished run; the benchmark keeps its questions."""
-        _, console = await self._report_console(tenant, slug)
-        _console_empty(
-            await console.raw("DELETE", f"/console/report/runs/{_seg(job_id)}")
-        )
-
-    async def download_run_summary(
-        self, tenant: Tenant, slug: str, job_id: str
-    ) -> tuple[bytes, dict[str, str]]:
-        """The run's summary document and the headers it came with."""
-        _, console = await self._report_console(tenant, slug)
-        reply = await console.download(
-            f"/console/report/runs/{_seg(job_id)}/summary.docx"
-        )
-        _console_empty(reply)
-        return reply.data or b"", reply.headers
-
-    async def stream_run_export(
-        self, tenant: Tenant, slug: str, job_id: str
-    ) -> tuple[AsyncIterator[bytes], dict[str, str]]:
-        """The run's Excel export as it arrives, and the headers it came with."""
-        _, console = await self._report_console(tenant, slug)
-        reply, body = await console.stream(
-            f"/console/report/runs/{_seg(job_id)}/export.xlsx"
-        )
-        _console_empty(reply)
-        if body is None:
-            raise HTTPException(status_code=502, detail="the export came back empty")
-        return body, reply.headers
-
-    async def _report_console(
-        self, tenant: Tenant, slug: str
-    ) -> tuple[Endpoint, BenchmarkClient]:
-        endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
-        return endpoint, await self._console(connection, slug)
 
     async def list_jobs(self, tenant: Tenant, slug: str) -> list[JobResponse]:
         endpoint = await self._endpoint_or_404(tenant, slug)
@@ -624,8 +483,8 @@ class BenchmarkHandler:
             return []
         reply = await self._client(connection).jobs(slug)
         if not reply.ok:
-            # Benchmark unreachable: show the last remembered job.
-            return [_parsed(JobResponse, target.last_job)] if target.last_job else []
+            remembered = _remembered(target)
+            return [remembered] if remembered else []
         jobs = [_parsed(JobResponse, item) for item in reply.data or []]
         # An empty list clears the remembered job too.
         await self.targets.remember_job(
@@ -635,24 +494,145 @@ class BenchmarkHandler:
 
     async def cancel_run(self, tenant: Tenant, slug: str, job_id: str) -> JobResponse:
         endpoint = await self._endpoint_or_404(tenant, slug)
-        _, connection = await self._pair_or_404(tenant, endpoint, slug)
+        _, connection = await self._measured_pair_or_409(tenant, endpoint, slug)
         reply = await self._client(connection).cancel(job_id)
-        if not reply.ok:
-            raise HTTPException(
-                status_code=502, detail=reply.detail or "the run could not be stopped"
-            )
+        _require(reply, "the run could not be stopped", keep_status=False)
         return _parsed(JobResponse, reply.data)
 
-    # --- inside ------------------------------------------------------------
+    # --- the console: pairs, results, judging, run reports ------------------
+    #
+    # Proxied to the benchmark's console API with a per-target session token;
+    # replies are passed through unchanged.
+
+    async def update_pair(
+        self, tenant: Tenant, slug: str, pair_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        console = await self._console(tenant, slug)
+        reply = await console.raw("PATCH", f"/console/pairs/{_seg(pair_id)}", body=body)
+        return _console_dict(reply)
+
+    async def list_results(
+        self, tenant: Tenant, slug: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        console = await self._console(tenant, slug)
+        return _console_dict(await console.raw("GET", "/console/results", params=query))
+
+    async def override_verdict(
+        self, tenant: Tenant, slug: str, result_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        console = await self._console(tenant, slug)
+        reply = await console.raw(
+            "POST", f"/console/results/{_seg(result_id)}/verdict", body=body
+        )
+        return _console_dict(reply)
+
+    async def withdraw_verdict(self, tenant: Tenant, slug: str, result_id: str) -> None:
+        console = await self._console(tenant, slug)
+        reply = await console.raw(
+            "DELETE", f"/console/results/{_seg(result_id)}/verdict"
+        )
+        _require(reply, _CONSOLE_SILENT)
+
+    async def list_report_runs(
+        self, tenant: Tenant, slug: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        console = await self._console(tenant, slug)
+        return _console_dict(
+            await console.raw("GET", "/console/report/runs", params=dict(query))
+        )
+
+    async def get_report_run(
+        self, tenant: Tenant, slug: str, job_id: str
+    ) -> dict[str, Any]:
+        console = await self._console(tenant, slug)
+        return _console_dict(
+            await console.raw("GET", f"/console/report/runs/{_seg(job_id)}")
+        )
+
+    async def list_run_questions(
+        self, tenant: Tenant, slug: str, job_id: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        console = await self._console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/questions"
+        return _console_dict(await console.raw("GET", path, params=query))
+
+    async def list_run_part(
+        self, tenant: Tenant, slug: str, job_id: str, part: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        """A run's ``generated``, ``filter``, ``writing`` or ``pairs`` list,
+        passed through."""
+        console = await self._console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/{part}"
+        return _console_dict(await console.raw("GET", path, params=query))
+
+    async def get_run_question(
+        self, tenant: Tenant, slug: str, job_id: str, qa_id: str, query: dict[str, Any]
+    ) -> dict[str, Any]:
+        console = await self._console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}"
+        return _console_dict(await console.raw("GET", path, params=query))
+
+    async def get_run_pair(
+        self, tenant: Tenant, slug: str, job_id: str, qa_id: str
+    ) -> dict[str, Any]:
+        """One question of the target with its meta and calls, read from a run."""
+        console = await self._console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/pairs/{_seg(qa_id)}"
+        return _console_dict(await console.raw("GET", path))
+
+    async def get_run_question_fragments(
+        self, tenant: Tenant, slug: str, job_id: str, qa_id: str, query: dict[str, Any]
+    ) -> list[Any]:
+        console = await self._console(tenant, slug)
+        path = f"/console/report/runs/{_seg(job_id)}/questions/{_seg(qa_id)}/fragments"
+        reply = await console.raw("GET", path, params=query)
+        _require(reply, _CONSOLE_SILENT)
+        return reply.data if isinstance(reply.data, list) else []
+
+    async def delete_report_run(self, tenant: Tenant, slug: str, job_id: str) -> None:
+        """Delete a finished run; the benchmark keeps its questions."""
+        console = await self._console(tenant, slug)
+        reply = await console.raw("DELETE", f"/console/report/runs/{_seg(job_id)}")
+        _require(reply, _CONSOLE_SILENT)
+
+    async def download_run_summary(
+        self, tenant: Tenant, slug: str, job_id: str
+    ) -> tuple[bytes, dict[str, str]]:
+        """The run's summary document and the headers it came with."""
+        console = await self._console(tenant, slug)
+        reply = await console.download(
+            f"/console/report/runs/{_seg(job_id)}/summary.docx"
+        )
+        _require(reply, _CONSOLE_SILENT)
+        return reply.data or b"", reply.headers
+
+    async def stream_run_export(
+        self, tenant: Tenant, slug: str, job_id: str
+    ) -> tuple[AsyncIterator[bytes], dict[str, str]]:
+        """The run's Excel export as it arrives, and the headers it came with."""
+        console = await self._console(tenant, slug)
+        reply = await console.stream(f"/console/report/runs/{_seg(job_id)}/export.xlsx")
+        _require(reply, _CONSOLE_SILENT)
+        return cast(AsyncIterator[bytes], reply.data), reply.headers
+
+    async def _console(self, tenant: Tenant, slug: str) -> BenchmarkClient:
+        """A client carrying a fresh session token scoped to this endpoint's target."""
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        _, connection = await self._measured_pair_or_409(tenant, endpoint, slug)
+        reply = await self._client(connection).mint_session(slug)
+        token = reply.data.get("token") if isinstance(reply.data, dict) else None
+        if not reply.ok or not token:
+            raise HTTPException(
+                status_code=502,
+                detail=reply.detail or "the benchmark would not open a console session",
+            )
+        return self._new_client(connection.url, token)
+
+    # --- helpers -------------------------------------------------------------
 
     def _client(self, connection: BenchmarkConnection) -> BenchmarkClient:
-        return BenchmarkClient(connection.url, connection.token)
-
-    def _console_client(
-        self, connection: BenchmarkConnection, token: str
-    ) -> BenchmarkClient:
-        """A client carrying a console session token."""
-        return BenchmarkClient(connection.url, token)
+        """A client carrying the connection's control key."""
+        return self._new_client(connection.url, connection.token)
 
     async def _if_stale(self, row: BenchmarkConnection) -> BenchmarkConnection:
         """Refresh an expired self-description; on failure return the row unchanged."""
@@ -679,8 +659,6 @@ class BenchmarkHandler:
         row.checked_at = datetime.now(timezone.utc)
         if snapshot.capabilities:
             row.capabilities = snapshot.capabilities
-        if snapshot.fields:
-            row.fields = snapshot.fields
         if snapshot.defaults:
             row.defaults = snapshot.defaults
         return await self.connections.update(row)
@@ -697,23 +675,14 @@ class BenchmarkHandler:
             chroma_host=row.chroma_host,
             chroma_port=row.chroma_port,
             container=row.container,
-            instrument=row.instrument or {},
-            probe=row.probe or {},
             reachable=row.reachable,
             detail=row.detail,
-            checked_at=row.checked_at,
             capabilities=row.capabilities or {},
-            fields=row.fields or {},
-            defaults=row.defaults or {},
-            is_default=row.is_default,
-            is_active=row.is_active,
             endpoints=endpoints,
         )
 
     async def _own_url(self) -> str:
         """This Space's public URL, or empty."""
-        if self.settings is None:
-            return ""
         try:
             return await self.settings.get_public_url() or ""
         except Exception:  # noqa: BLE001 - an address we do not know is simply blank
@@ -741,50 +710,22 @@ class BenchmarkHandler:
         target: BenchmarkTarget,
         endpoint: Endpoint,
     ) -> Reply:
-        """Push this target's settings to the benchmark, best effort.
-
-        ``synced_at`` records success; a refusal is returned for the caller.
-        """
-        spec = await self._spec(
-            tenant,
-            connection,
-            endpoint,
-            collection=target.collection,
-            instrument=target.instrument or {},
-            probe=target.probe or {},
-            enabled=target.enabled,
-            schedule=target.schedule,
-            schedule_at=target.schedule_at,
-        )
+        """Push this target's settings to the benchmark, best effort; a refusal
+        is returned for the caller."""
+        spec = await self._spec(tenant, connection, endpoint, target)
         reply = await self._client(connection).put_target(endpoint.slug, spec)
-        await self._synced(target, endpoint, reply)
+        _warn_if_not_taken(endpoint, reply)
         return reply
-
-    async def _synced(
-        self, target: BenchmarkTarget, endpoint: Endpoint, reply: Reply
-    ) -> None:
-        """Record whether the benchmark took the settings."""
-        if reply.ok:
-            await self.targets.mark_synced(target.id)
-        else:
-            logger.warning(
-                f"benchmark did not take target {endpoint.slug}: {reply.detail}"
-            )
 
     async def _spec(
         self,
         tenant: Tenant,
         connection: BenchmarkConnection,
         endpoint: Endpoint,
-        *,
-        collection: str,
-        instrument: dict[str, Any],
-        probe: dict[str, Any],
-        enabled: bool,
-        schedule: str,
-        schedule_at: str,
+        settings: _TargetSettings,
     ) -> dict[str, Any]:
         """The target as the benchmark takes it."""
+        collection = settings.collection or await self._collection_for(tenant, endpoint)
         return {
             "key": endpoint.slug,
             "title": endpoint.name or endpoint.slug,
@@ -793,20 +734,17 @@ class BenchmarkHandler:
             "container": connection.container,
             "chroma_host": connection.chroma_host or "localhost",
             "chroma_port": connection.chroma_port,
-            "collection": collection or await self._collection_for(tenant, endpoint),
-            # Per-endpoint values override connection-wide ones.
-            "instrument": {**(connection.instrument or {}), **instrument},
-            "probe": {**(connection.probe or {}), **probe},
-            "enabled": enabled,
-            "schedule": schedule,
-            "schedule_at": schedule_at,
+            "collection": collection,
+            "instrument": settings.instrument or {},
+            "probe": settings.probe or {},
+            "enabled": settings.enabled,
+            "schedule": settings.schedule,
+            "schedule_at": settings.schedule_at,
         }
 
     async def _resync(self, tenant: Tenant, connection: BenchmarkConnection) -> None:
         """Re-push every target this connection measures."""
-        for target in await self.targets.list_for_tenant(tenant.id):
-            if target.connection_id != connection.id:
-                continue
+        for target in await self.targets.list_for_connection(connection.id):
             endpoint = await self.endpoints.get_by_id(target.endpoint_id, tenant.id)
             if endpoint is not None:
                 await self._push(tenant, connection, target, endpoint)
@@ -828,24 +766,6 @@ class BenchmarkHandler:
         except ValueError:
             logger.warning(f"benchmark returned an unreadable next_run_at: {raw!r}")
             return None
-
-    async def _latest_job(
-        self,
-        target: BenchmarkTarget,
-        connection: BenchmarkConnection | None,
-        slug: str,
-    ) -> JobResponse | None:
-        if connection is None:
-            return _parsed(JobResponse, target.last_job) if target.last_job else None
-        reply = await self._client(connection).jobs(slug)
-        if reply.ok:
-            job = _parsed(JobResponse, reply.data[0]) if reply.data else None
-            await self.targets.remember_job(
-                target.id, job.model_dump(mode="json") if job else None
-            )
-            return job
-        # Unreachable: fall back to the remembered job.
-        return _parsed(JobResponse, target.last_job) if target.last_job else None
 
     async def _connection_for(
         self, tenant: Tenant, target: BenchmarkTarget | None
@@ -886,9 +806,11 @@ class BenchmarkHandler:
             raise HTTPException(status_code=404, detail="Endpoint not found")
         return endpoint
 
-    async def _pair_or_404(
+    async def _measured_pair_or_409(
         self, tenant: Tenant, endpoint: Endpoint, slug: str
     ) -> tuple[BenchmarkTarget, BenchmarkConnection]:
+        """The endpoint's target and its connection; 409 when it is not
+        measured or its benchmark is gone."""
         target = await self.targets.for_endpoint(endpoint.id)
         if target is None:
             raise HTTPException(
@@ -902,9 +824,3 @@ class BenchmarkHandler:
                 detail="The benchmark this endpoint was measured by is gone",
             )
         return target, connection
-
-
-def _raise_if_refused(reply: Reply) -> None:
-    """Raise the benchmark's 422 (invalid configuration); other failures pass."""
-    if reply.status == 422:
-        raise HTTPException(status_code=422, detail=reply.detail)

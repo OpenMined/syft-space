@@ -1,7 +1,7 @@
 """drop the benchmark card tables
 
-Benchmark results stay inside the Space and are read from the benchmark's own
-jobs, so ``endpoint_quality_cards`` and ``benchmark_settings`` are unused.
+Benchmark results are read from the benchmark's own jobs, so
+``endpoint_quality_cards`` and ``benchmark_settings`` are unused.
 Downgrade recreates them empty.
 
 Revision ID: b7d2e4f19a60

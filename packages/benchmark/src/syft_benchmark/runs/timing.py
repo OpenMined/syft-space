@@ -1,7 +1,7 @@
 """Where a job's time went: phases, passes and model calls.
 
-Kept with the job (``jobs.params["timing"]``) and shown in the technical view.
-The shape is the "Timing" section of the report API.
+Kept with the job (``jobs.params["timing"]``); the shape is the "Timing"
+section of the report API.
 """
 
 from __future__ import annotations
@@ -11,9 +11,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
-
-T = TypeVar("T")
+from typing import Any
 
 ANSWER = "answer"
 JUDGE = "judge"
@@ -48,7 +46,7 @@ class CallClock:
             if failed:
                 self._failed[key] = self._failed.get(key, 0) + 1
 
-    def timed(
+    def timed[T](
         self,
         model: str,
         role: str,

@@ -1,22 +1,15 @@
-"""Which kind of provider sits at an address.
+"""Which kind of provider sits at an address, worked out from the host.
 
-Turning this service's identifier for a model into the name that will be sent
-needs to know whose API is being called: the same model is
-``anthropic/claude-sonnet-5`` at OpenRouter and ``claude-sonnet-5`` at
-Anthropic's own API.
-
-Worked out from the host rather than configured. Every role already has a URL
-in the settings; a second field saying what that URL is would be a second thing
-to keep in step, wrong the moment somebody changes one and not the other.
-
-An unrecognised external host is ``UNKNOWN``, not an error: it means "send the
-identifier as it stands", which is what a self-hosted gateway expects anyway.
+The name sent for a model depends on it: ``anthropic/claude-sonnet-5`` at
+OpenRouter is ``claude-sonnet-5`` at Anthropic's own API. An unrecognised
+external host is ``UNKNOWN``: the identifier is sent as it stands.
 """
 
 from __future__ import annotations
 
 from enum import Enum
-from urllib.parse import urlparse
+
+from syft_benchmark.config import host_is_inside, model_host
 
 
 class ProviderKind(str, Enum):
@@ -37,11 +30,10 @@ _HOSTS: tuple[tuple[str, ProviderKind], ...] = (
     ("api.anthropic.com", ProviderKind.ANTHROPIC),
 )
 
-# A host with no dot is a service on the docker network; a local address is the
-# rig itself. Both mean Ollama: what the perimeter lets through unasked.
-_LOCAL_HOSTS = frozenset(
-    {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
-)
+
+def api_root(url: str) -> str:
+    """The provider's root without /v1: the settings hold the base address."""
+    return url.rstrip("/").removesuffix("/v1")
 
 
 def kind_for_url(url: str) -> ProviderKind:
@@ -53,10 +45,11 @@ def kind_for_url(url: str) -> ProviderKind:
     Returns:
         The kind. ``UNKNOWN`` for an external host with no naming rules here.
     """
-    host = (urlparse(url).hostname or "").lower()
+    host = model_host(url)
     if not host:
         return ProviderKind.UNKNOWN
-    if host in _LOCAL_HOSTS or "." not in host:
+    # What the perimeter lets through unasked is the rig's own Ollama.
+    if host_is_inside(host):
         return ProviderKind.OLLAMA
     for suffix, kind in _HOSTS:
         if host == suffix or host.endswith(f".{suffix}"):

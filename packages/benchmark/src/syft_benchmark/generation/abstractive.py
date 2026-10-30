@@ -1,15 +1,8 @@
-"""Abstractive generators: items that demand understanding.
+"""Abstractive generators: two truths and one lie, multi-hop, tiered explanation.
 
-A port from LiveTruth with one substantive change to each: there the source was
-a news article and what was tested was whether the model knew paid content. Our
-source is a private corpus, and a RAG endpoint is tested as well, so the wordings
-speak of "the document" instead of "the article", and the item language is taken
-from the language of the chunk.
-
-Two generators work over the whole document rather than over a chunk, and that is
-no trifle: `multihop_synthesis` requires connecting at least two facts, and
-`tiered_explanation` requires laying out the core of a topic. On a single chunk
-both degenerate into paraphrasing a paragraph.
+``multihop_synthesis`` and ``tiered_explanation`` read the whole document:
+connecting two facts or laying out a topic degenerates into paraphrasing a
+paragraph at chunk scope.
 """
 
 from __future__ import annotations
@@ -17,14 +10,11 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from syft_benchmark.generation.pair import Pair
+from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.shuffle import seed_of, shuffle_options
 from syft_benchmark.generation.wording import ANCHOR_RULE
 
-# ---------------------------------------------------------------------------
-# two_truths_one_lie
-# ---------------------------------------------------------------------------
 TTIL_SYSTEM = f"""\
 You design benchmark questions that measure whether a system has access to a \
 specific body of documents.
@@ -60,9 +50,6 @@ Respond with ONLY a JSON array of 3 objects. No markdown, no commentary.
 "source_detail": "the exact phrase that supports or is contradicted"}}}}]
 """
 
-# ---------------------------------------------------------------------------
-# multihop_synthesis
-# ---------------------------------------------------------------------------
 MULTIHOP_SYSTEM = f"""\
 You design benchmark questions that measure whether a system has access to a \
 specific body of documents.
@@ -98,9 +85,6 @@ Respond with ONLY a JSON array. No markdown, no commentary.
 "hop_facts": ["fact 1 needed", "fact 2 needed"]}}}}]
 """
 
-# ---------------------------------------------------------------------------
-# tiered_explanation
-# ---------------------------------------------------------------------------
 TIERS: dict[str, dict[str, str]] = {
     "eli5": {
         "label": "ELI5",
@@ -171,46 +155,43 @@ def _letter(index: int) -> str:
     return chr(ord("A") + index)
 
 
+def _ttil_draft(reason: str, texts: list[str], lie: str = "") -> Dropped:
+    """A dropped "two truths, one lie" draft: its statements as written."""
+    listed = "\n".join(f"  {_letter(i)}) {t}" for i, t in enumerate(texts))
+    return Dropped(reason, f"{TTIL_HEAD}\n{listed}", lie)
+
+
 def clean_ttil(
     items: list[dict[str, Any]], pairs: int, document: str
-) -> tuple[list[Pair], list[str]]:
-    """Assemble a "two truths, one lie" item.
-
-    Judged by the letter, like MCQ: a judge is not needed here and would only add
-    noise.
-    """
-    rejected: list[str] = []
+) -> tuple[list[Pair], list[Dropped]]:
+    """Assemble a "two truths, one lie" item, judged by its letter like MCQ."""
+    rejected: list[Dropped] = []
     statements = [
         item
         for item in items
         if isinstance(item, dict) and str(item.get("statement") or "").strip()
     ]
+    texts = [str(s["statement"]).strip() for s in statements]
     if len(statements) != 3:
-        return [], [f"expected 3 statements, got {len(statements)}"]
+        return [], [_ttil_draft(f"expected 3 statements, got {len(statements)}", texts)]
 
     lies = [i for i, s in enumerate(statements) if s.get("label") == "lie"]
     if len(lies) != 1:
-        return [], [f"expected one lie, {len(lies)} labelled"]
+        return [], [_ttil_draft(f"expected one lie, {len(lies)} labelled", texts)]
 
     lie_index = lies[0]
-    texts = [str(s["statement"]).strip() for s in statements]
-    # The detail about the lie is taken BEFORE shuffling: afterwards the index is
-    # different, and the note would move to someone else statement.
+    # Read before the shuffle moves the lie to another index.
     lie_detail = str(statements[lie_index].get("source_detail") or "")
 
-    # Statements are not a question, and the self-sufficiency requirement still
-    # applies to them: "this solution" in a statement is just as unreadable out
-    # of context.
+    # A statement must be just as readable out of context as a question.
     for text in texts:
         reason = reject_reason(text, document, task_type="statement")
         if reason:
-            rejected.append(reason)
+            rejected.append(_ttil_draft(reason, texts, texts[lie_index]))
             return [], rejected
 
-    # We shuffle: the generator numbers the statements in the order it produced
-    # them, and the prompt asks for "two truths and one lie" — the lie settles in
-    # last place, and the constant answer "C" gives an accuracy of 1.00 while
-    # knowing nothing about the corpus.
+    # The writer tends to put the lie last; unshuffled, always answering "C"
+    # would score without knowing the corpus.
     texts, lie_index, seed = shuffle_options(texts, lie_index, TTIL_HEAD + texts[0])
 
     listed = "\n".join(f"  {_letter(i)}) {t}" for i, t in enumerate(texts))
@@ -223,10 +204,8 @@ def clean_ttil(
                 meta={
                     "lie_index": lie_index,
                     "option_seed": seed,
-                    # The gold answer here is the LIE, and checking it for support
-                    # in the source is back to front: a good lie is obliged to
-                    # contradict it. What has to follow from the chunk is the two
-                    # true statements, and those are what go to screening.
+                    # The gold answer is the lie, which must contradict the
+                    # source; grounding checks the two true statements instead.
                     "claims": [t for i, t in enumerate(texts) if i != lie_index],
                     "source_detail": lie_detail[:500],
                 },
@@ -238,10 +217,10 @@ def clean_ttil(
 
 def clean_multihop(
     items: list[dict[str, Any]], pairs: int, document: str
-) -> tuple[list[Pair], list[str]]:
+) -> tuple[list[Pair], list[Dropped]]:
     """Select questions that require connecting several facts."""
     good: list[Pair] = []
-    rejected: list[str] = []
+    rejected: list[Dropped] = []
 
     for item in items[: pairs * 2]:
         question = str(item.get("question") or "").strip()
@@ -249,17 +228,17 @@ def clean_multihop(
         hops = [str(f).strip() for f in (item.get("hop_facts") or []) if str(f).strip()]
 
         if len(question) < 15 or len(answer) < 5:
-            rejected.append("empty question or answer")
+            rejected.append(Dropped("empty question or answer", question, answer))
             continue
-        # Fewer than two facts is an ordinary question, and it has no place in
-        # multihop.
         if len(hops) < 2:
-            rejected.append("fewer than two facts in the link")
+            rejected.append(
+                Dropped("fewer than two facts in the link", question, answer)
+            )
             continue
 
         reason = reject_reason(question, document, task_type="abstractive")
         if reason:
-            rejected.append(reason)
+            rejected.append(Dropped(reason, question, answer))
             continue
 
         good.append(
@@ -288,26 +267,20 @@ def clean_tiered(
     items: list[dict[str, Any]],
     pairs: int,
     document: str,
-    *,
-    rng: random.Random | None = None,
-) -> tuple[list[Pair], list[str]]:
-    """Keep one audience level of the topic, picked at random.
+) -> tuple[list[Pair], list[Dropped]]:
+    """Keep one audience level of the topic, picked by a seed from the topic:
+    the same topic always keeps the same level.
 
-    Judged by key facts rather than by a text match: an explanation can be
-    correct and unlike the gold answer, and comparing prose with prose would mean
-    punishing the wording. The levels share one list of key facts.
-
-    Args:
-        rng: Picks the level; None — seeded from the topic, so the same topic
-            always keeps the same level
+    Judged by key facts rather than by a text match: a correct explanation can
+    be worded unlike the gold answer. The levels share one list of key facts.
     """
-    rejected: list[str] = []
+    rejected: list[Dropped] = []
 
     payload = items[0] if items else {}
     topic = str(payload.get("topic") or "").strip()
     tiers = payload.get("tiers") or []
     if not topic or not isinstance(tiers, list):
-        return [], ["no topic or tiers"]
+        return [], [Dropped("no topic or tiers", topic)]
     shared = _facts(payload.get("key_facts"))
 
     candidates: list[Pair] = []
@@ -319,13 +292,17 @@ def clean_tiered(
         explanation = str(tier_data.get("explanation") or "").strip()
         facts = (shared or _facts(tier_data.get("key_facts")))[:MAX_KEY_FACTS]
 
+        shown = f"Topic: {topic}\nTier: {tier_id}"
         if spec is None or len(explanation) < 20:
-            rejected.append(f"tier {tier_id!r} without an explanation")
+            rejected.append(
+                Dropped(f"tier {tier_id!r} without an explanation", shown, explanation)
+            )
             continue
         if not facts:
-            # Without key facts there is nothing to judge the item by: comparing
-            # prose with prose is a lottery, not an assessment.
-            rejected.append(f"tier {tier_id!r} without key facts")
+            # Without key facts there is nothing to judge the item by.
+            rejected.append(
+                Dropped(f"tier {tier_id!r} without key facts", shown, explanation)
+            )
             continue
 
         candidates.append(
@@ -346,5 +323,4 @@ def clean_tiered(
 
     if not candidates:
         return [], rejected
-    picker = rng or random.Random(seed_of(topic))
-    return [picker.choice(candidates)], rejected
+    return [random.Random(seed_of(topic)).choice(candidates)], rejected

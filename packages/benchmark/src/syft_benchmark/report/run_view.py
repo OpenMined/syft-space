@@ -1,13 +1,11 @@
 """The figures of one run (one job): the runs list, the run report, its questions.
 
-One aggregation feeds the runs list, the run report, the summary document and
-the job-scoped card, so the same run never shows two sets of numbers.
+One aggregation feeds the runs list, the run report and the summary document,
+so the same run never shows two sets of numbers.
 
 The question set of a run is every ``qa_id`` with a result under the job,
-whatever the pair's status is now. The counted verdict of an answer (model x
-arm x block x question) is the latest owner override, else the freshest verdict
-of the job's primary judge (``primary_judge``, fixed per job), else the
-freshest verdict of the next judge in panel order.
+whatever the pair's status is now. Each answer (model x arm x block x question)
+is read through its counted verdict (``counted.pick``, the job's primary judge).
 Only ``closed_book`` ("alone") and ``model_with_context`` ("with") count.
 ``pending`` and ``technical`` never enter a rate. Trick questions feed only the
 trick check.
@@ -20,10 +18,10 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any, Generic, Protocol, TypeVar
+from datetime import timedelta
+from typing import Any, NamedTuple
 
 from loguru import logger
 from sqlalchemy import func, select
@@ -33,8 +31,6 @@ from sqlalchemy.orm import Session
 from syft_benchmark.config import (
     ContextMode,
     EvalBlock,
-    JobState,
-    ManualStatusPriority,
     PairStatus,
     Settings,
     StatusReason,
@@ -52,14 +48,33 @@ from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation.article_dates import DATE_KEY
 from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.question_order import pair_order
+from syft_benchmark.report.counted import (
+    OUTCOMES,
+    AnswerKey,
+    Panel,
+    group_answers,
+    judge_order,
+    pick,
+    primary_judge,
+    resolve_panel,
+)
+from syft_benchmark.report.job_params import (
+    configured_panel,
+    generation_of,
+    is_finished,
+    iso,
+    job_gate,
+    job_panel,
+    window_days_of,
+)
 from syft_benchmark.report.metrics import accuracy_by_temperature, held_by_round
 from syft_benchmark.runs.gate import passes
-from syft_benchmark.runs.judge import ERROR_PREFIX, is_technical
+from syft_benchmark.runs.judge import ERROR_PREFIX
 from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 11
+AGGREGATE_VERSION = 13
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -71,11 +86,6 @@ def generator_order(generator: str) -> tuple[int, str]:
     return (_REGISTRY_ORDER.get(generator, len(_REGISTRY_ORDER)), generator)
 
 
-# The configured judges, primary first, or how to get them: only a
-# computation needs them, a cached read does not.
-Panel = Sequence[str] | Callable[[], Sequence[str]]
-
-
 ALONE = "alone"
 WITH = "with"
 ARM_OF: dict[str, str] = {
@@ -83,15 +93,6 @@ ARM_OF: dict[str, str] = {
     ContextMode.MODEL_WITH_CONTEXT.value: WITH,
 }
 GROUPS = ("fixed", "either", "still", "worse")
-OUTCOMES = frozenset(
-    {
-        Verdict.CORRECT.value,
-        Verdict.ABSTAIN.value,
-        Verdict.HALLUCINATE.value,
-        Verdict.WEB_SOURCED.value,
-        Verdict.INCOMPLETE.value,
-    }
-)
 TECHNICAL = Verdict.TECHNICAL.value
 CORRECT = Verdict.CORRECT.value
 ABSTAIN = Verdict.ABSTAIN.value
@@ -99,53 +100,7 @@ HALLUCINATE = Verdict.HALLUCINATE.value
 PENDING = Verdict.PENDING.value
 WEB_SOURCED = Verdict.WEB_SOURCED.value
 INCOMPLETE = Verdict.INCOMPLETE.value
-ACTIVE_STATES = (JobState.QUEUED.value, JobState.RUNNING.value)
 REMOVED_STATUSES = (PairStatus.REJECTED.value, PairStatus.RETIRED.value)
-
-
-class _Judged(Protocol):
-    judge_model: str
-
-
-T = TypeVar("T", bound=_Judged)
-
-
-@dataclass(frozen=True, slots=True)
-class Picked(Generic[T]):
-    """The rows that decide one answer's verdict."""
-
-    counted: T | None
-    judged: T | None
-    override: T | None
-
-
-def pick(rows: Sequence[T], panel: Sequence[str]) -> Picked[T]:
-    """The counted verdict among one answer's rows, oldest first.
-
-    ``panel`` is the judges in precedence order, primary first; a judge not in
-    it ranks after it, by first appearance.
-    """
-    freshest: dict[str, T] = {}
-    override: T | None = None
-    for row in rows:
-        if row.judge_model == OWNER_OVERRIDE:
-            override = row
-        else:
-            freshest[row.judge_model] = row
-    judged: T | None = None
-    for judge in panel:
-        if judge in freshest:
-            judged = freshest[judge]
-            break
-    else:
-        if freshest:
-            judged = next(iter(freshest.values()))
-    return Picked(counted=override or judged, judged=judged, override=override)
-
-
-def verdict_of(verdict: str, answer: str) -> str:
-    """The stored verdict, with failed calls of any vintage read as technical."""
-    return TECHNICAL if is_technical(verdict, answer or "") else verdict
 
 
 def group_of(alone: str | None, with_: str | None) -> str | None:
@@ -172,11 +127,11 @@ def lift(rate_alone: float | None, rate_with: float | None) -> int | None:
 
 @dataclass(slots=True)
 class _Row:
-    id: str
     qa_id: str
     verdict: str
     judge_model: str
     retrieval_hit: bool | None
+    mode: str
     arm: str
     block: str
     model: str
@@ -184,226 +139,13 @@ class _Row:
     repeats: dict[str, Any] | None
 
 
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
-
-
-def is_finished(job: Job) -> bool:
-    return job.state not in ACTIVE_STATES
-
-
-def configured_panel(settings: Settings) -> list[str]:
-    """The judges as configured, primary first."""
-    return list(dict.fromkeys(settings.judge_models or [settings.judge_model]))
-
-
-# Keys of the judging snapshot a job carries in ``jobs.params``.
-JUDGE_PANEL = "judge_panel"
-JUDGE_POLICY = "judge_policy"
-PRIMARY_JUDGE = "primary_judge"
-# The web check gate the launch asked through.
-WEB_CHECK_MODEL = "web_check_model"
-WEB_CHECK_JUDGE = "web_check_judge"
-MANUAL_PRIORITY = "manual_status_priority"
-# What the job spent: {spend_before, spend_after, usd, usd_calls, total_usd,
-# by_role} (report API, "Cost and time").
-COST = "cost"
-# The build per kind (``pipeline.KindStats.as_dict``).
-GENERATION = "generation"
-# Where the job's time went (``runs.timing``; report API, "Timing").
-TIMING = "timing"
-SNAPSHOT_KEYS = frozenset(
-    {
-        JUDGE_PANEL,
-        JUDGE_POLICY,
-        PRIMARY_JUDGE,
-        WEB_CHECK_MODEL,
-        WEB_CHECK_JUDGE,
-        MANUAL_PRIORITY,
-        COST,
-        GENERATION,
-        TIMING,
-    }
-)
-
-
-def record_generation(
-    job_id: str, kinds: list[dict[str, Any]], settings: Settings | None = None
-) -> None:
-    """Keep the job's per-kind build stats in its params."""
-    with session_scope(settings) as session:
-        job = session.get(Job, job_id)
-        if job is not None:
-            job.params = {**(job.params or {}), GENERATION: kinds}
-
-
-def generation_of(job: Job) -> list[dict[str, Any]]:
-    """The job's per-kind build stats; empty — it built nothing (or before they
-    were kept)."""
-    kinds = (job.params or {}).get(GENERATION)
-    return [k for k in kinds if isinstance(k, dict)] if isinstance(kinds, list) else []
-
-
-def web_check_judge(settings: Settings) -> str:
-    """The web check judge: ``filter_judge_model``, else Judge 1; empty without
-    a web check model."""
-    if not settings.filter_model:
-        return ""
-    if settings.filter_judge_model:
-        return settings.filter_judge_model
-    panel = configured_panel(settings)
-    return panel[0] if panel else ""
-
-
-def judging_snapshot(settings: Settings) -> dict[str, Any]:
-    """The judging and the web check gate a launch goes by, for ``jobs.params``."""
-    return {
-        JUDGE_PANEL: configured_panel(settings),
-        JUDGE_POLICY: settings.judge_policy.value,
-        WEB_CHECK_MODEL: settings.filter_model or "",
-        WEB_CHECK_JUDGE: web_check_judge(settings),
-        MANUAL_PRIORITY: settings.manual_status_priority.value,
-    }
-
-
-def how_tested(job: Job) -> dict[str, Any]:
-    """The job's web check model and judge, and what it spent (``method``)."""
-    params = job.params or {}
-    cost = params.get(COST)
-    return {
-        WEB_CHECK_MODEL: str(params.get(WEB_CHECK_MODEL) or "") or None,
-        WEB_CHECK_JUDGE: str(params.get(WEB_CHECK_JUDGE) or "") or None,
-        COST: _cost(cost) if isinstance(cost, dict) else None,
-    }
-
-
-def _cost(cost: dict[str, Any]) -> dict[str, Any]:
-    """The stored cost; ``total_usd`` and ``by_role`` null for older jobs."""
-    by_role = cost.get("by_role")
-    return {
-        **cost,
-        "total_usd": cost.get("total_usd"),
-        "by_role": dict(by_role) if isinstance(by_role, dict) else None,
-    }
-
-
-def job_times(job: Job) -> dict[str, Any]:
-    """When the job started and finished, and how long it took (seconds);
-    null while unknown."""
-    took = (
-        round((job.finished_at - job.started_at).total_seconds(), 2)
-        if job.started_at is not None and job.finished_at is not None
-        else None
-    )
-    return {
-        "started_at": _iso(job.started_at),
-        "finished_at": _iso(job.finished_at),
-        "duration_s": took,
-    }
-
-
-def timing_of(job: Job) -> dict[str, Any] | None:
-    """The job's phase, pass and call timings; None — not kept (yet)."""
-    timing = (job.params or {}).get(TIMING)
-    return dict(timing) if isinstance(timing, dict) else None
-
-
-def job_gate(job: Job) -> Settings | None:
-    """The web check gate of the job's launch; None for a job without a snapshot."""
-    params = job.params or {}
-    if WEB_CHECK_MODEL not in params:
-        return None
-    return Settings.model_construct(
-        filter_model=str(params.get(WEB_CHECK_MODEL) or "") or None,
-        manual_status_priority=ManualStatusPriority(
-            params.get(MANUAL_PRIORITY) or ManualStatusPriority.FILTER.value
-        ),
-    )
-
-
-def job_panel(job: Job) -> list[str]:
-    """The judges configured when the job ran, primary first; empty if unknown."""
-    panel = (job.params or {}).get(JUDGE_PANEL)
-    if not isinstance(panel, list):
-        return []
-    return [j for j in dict.fromkeys(panel) if isinstance(j, str) and j]
-
-
-def judges_seen(session: Session, job_id: str) -> list[str]:
-    """The judges that graded this job, by first verdict."""
-    first = func.min(Result.created_at)
-    return list(
-        session.execute(
-            select(Result.judge_model)
-            .join(Run, Run.id == Result.run_id)
-            .where(
-                Run.job_id == job_id,
-                Result.judge_model.not_in(["", OWNER_OVERRIDE]),
-            )
-            .group_by(Result.judge_model)
-            .order_by(first, Result.judge_model)
-        ).scalars()
-    )
-
-
-def primary_judge(session: Session, job: Job, *, configured: Panel = ()) -> str | None:
-    """The judge whose verdict counts for this job.
-
-    The first judge of the job's own panel that graded it; else the one
-    frozen in ``params``; else it is frozen now (a finished job only): the
-    card's instrument judge if it graded the job, else the first configured
-    judge that did, else the first to grade.
-    """
-    seen = judges_seen(session, job.id)
-    for judge in job_panel(job):
-        if judge in seen:
-            return judge
-    params = dict(job.params or {})
-    frozen = params.get(PRIMARY_JUDGE)
-    if isinstance(frozen, str) and frozen:
-        return frozen
-    if not seen:
-        return None
-    card = job.card if isinstance(job.card, dict) else {}
-    instrument = card.get("instrument")
-    named = instrument.get("judge") if isinstance(instrument, dict) else None
-    if named in seen:
-        chosen = str(named)
-    else:
-        if callable(configured):
-            configured = configured()
-        chosen = next((j for j in configured if j in seen), seen[0])
-    if is_finished(job):
-        job.params = {**params, PRIMARY_JUDGE: chosen}
-    return chosen
-
-
-def judge_order(
-    seen: Iterable[str], primary: str | None, panel: Sequence[str]
-) -> list[str]:
-    """The judges that graded this run: the primary, then ``panel`` order,
-    then by first appearance."""
-    seen_list = [j for j in dict.fromkeys(seen) if j and j != OWNER_OVERRIDE]
-    ordered = [j for j in panel if j in seen_list]
-    ordered += [j for j in seen_list if j not in ordered]
-    if primary in ordered:
-        ordered.remove(primary)
-        ordered.insert(0, primary)
-    return ordered
-
-
-# --- computing ------------------------------------------------------------
-
-
 def _load_rows(session: Session, job_id: str) -> list[_Row]:
     """The job's answers in the two counted arms, oldest first, only the
     columns the figures need."""
     stmt = (
         select(
-            Result.id,
             Result.qa_id,
             Result.verdict,
-            Result.answer.op("~")(rf"^\s*{ERROR_PREFIX}"),
             Result.judge_model,
             Result.retrieval_hit,
             Run.context_mode,
@@ -418,11 +160,11 @@ def _load_rows(session: Session, job_id: str) -> list[_Row]:
     )
     return [
         _Row(
-            id=rid,
             qa_id=qa_id,
-            verdict=TECHNICAL if failed or verdict == TECHNICAL else verdict,
+            verdict=verdict,
             judge_model=judge or "",
             retrieval_hit=hit,
+            mode=mode,
             arm=ARM_OF[mode],
             block=block,
             model=model or "",
@@ -430,10 +172,8 @@ def _load_rows(session: Session, job_id: str) -> list[_Row]:
             repeats=repeats if isinstance(repeats, dict) else None,
         )
         for (
-            rid,
             qa_id,
             verdict,
-            failed,
             judge,
             hit,
             mode,
@@ -443,6 +183,29 @@ def _load_rows(session: Session, job_id: str) -> list[_Row]:
             repeats,
         ) in session.connection().execute(stmt).all()
     ]
+
+
+def counting_judges(session: Session, job: Job, *, configured: Panel = ()) -> list[str]:
+    """The job's judges in the order a verdict is counted by (``pick``): the
+    primary, the panel, then by first verdict in the measured arms.
+
+    Reads only each judge's first verdict, so a caller can count rows as the
+    figures do without computing them.
+    """
+    configured = resolve_panel(configured)
+    first = (
+        select(Result.judge_model, Result.created_at, Result.id)
+        .join(Run, Run.id == Result.run_id)
+        .where(Run.job_id == job.id, Run.context_mode.in_(list(ARM_OF)))
+        .distinct(Result.judge_model)
+        .order_by(Result.judge_model, Result.created_at, Result.id)
+        .subquery()
+    )
+    seen = session.scalars(
+        select(first.c.judge_model).order_by(first.c.created_at, first.c.id)
+    )
+    primary = primary_judge(session, job, configured=configured)
+    return judge_order(seen, primary, job_panel(job) or configured)
 
 
 def _last_errors(session: Session, job_id: str) -> dict[str, str]:
@@ -512,10 +275,10 @@ def took_part(session: Session, job_id: str, qa_id: str) -> bool:
     return found is not None
 
 
-def question_set_query(job_id: str) -> Any:
-    """qa_id and first appearance of every question with a result under the job."""
+def _question_set_query(job_id: str) -> Any:
+    """The qa_id of every question with a result under the job."""
     return (
-        select(Result.qa_id, func.min(Result.created_at).label("first_at"))
+        select(Result.qa_id)
         .join(Run, Run.id == Result.run_id)
         .where(Run.job_id == job_id)
         .group_by(Result.qa_id)
@@ -526,14 +289,15 @@ def question_set_query(job_id: str) -> Any:
 def _funnel(
     session: Session,
     job: Job,
-    took_part: set[str],
+    asked_ids: set[str],
     asked: int,
     trick: int,
 ) -> dict[str, Any]:
     """What the job wrote, what of it never took part and why, what was asked.
 
-    ``unchecked``: kept questions that were not asked because they had not
-    passed the web check (None for a job without a gate snapshot).
+    ``asked_ids`` are the questions with a result under the job. ``unchecked``:
+    kept questions that were not asked because they had not passed the web
+    check (None for a job without a gate snapshot).
     """
     gate = job_gate(job)
     rows = session.connection().execute(
@@ -550,7 +314,7 @@ def _funnel(
     removed: dict[str, int] = {}
     for qa, status, reason, task_type, meta in rows:
         written += 1
-        if qa in took_part:
+        if qa in asked_ids:
             continue
         if status not in REMOVED_STATUSES:
             probe = QaPair(id=qa, task_type=task_type, meta=meta or {})
@@ -596,6 +360,36 @@ def _articles(
     }
 
 
+class _RunParams(NamedTuple):
+    """The methodology of one of the job's runs, as its ``Run`` row records it."""
+
+    mode: str
+    profile: str | None
+    context_docs: Any
+    denial_rounds: Any
+    block: str
+    trials: Any
+    temperatures: Any
+
+
+def _run_params(session: Session, job_id: str) -> list[_RunParams]:
+    """The distinct methodologies of the job's runs; owner overrides open none."""
+    rows = session.execute(
+        select(
+            Run.context_mode,
+            Run.profile,
+            Run.params["context_docs"],
+            Run.params["denial_rounds"],
+            Run.block,
+            Run.params["monte_carlo_trials"],
+            Run.params["monte_carlo_temperatures"],
+        )
+        .where(Run.job_id == job_id, Run.judge_model != OWNER_OVERRIDE)
+        .distinct()
+    ).all()
+    return [_RunParams(*row) for row in rows]
+
+
 def _tally(verdicts: Iterable[str | None]) -> dict[str, int]:
     counts = Counter(v for v in verdicts if v)
     graded = sum(counts[v] for v in OUTCOMES)
@@ -614,9 +408,8 @@ def _tally(verdicts: Iterable[str | None]) -> dict[str, int]:
 
 def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, Any]:
     """The whole payload of one job: summary, report and the question index."""
-    if callable(configured):
-        configured = configured()
-    first_seen = question_set_query(job.id)
+    configured = resolve_panel(configured)
+    first_seen = _question_set_query(job.id)
     pairs = (
         session.connection()
         .execute(
@@ -633,19 +426,7 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
         )
         .all()
     )
-    run_params = session.execute(
-        select(
-            Run.context_mode,
-            Run.profile,
-            Run.params["context_docs"],
-            Run.params["denial_rounds"],
-            Run.block,
-            Run.params["monte_carlo_trials"],
-            Run.params["monte_carlo_temperatures"],
-        )
-        .where(Run.job_id == job.id, Run.judge_model != OWNER_OVERRIDE)
-        .distinct()
-    ).all()
+    run_params = _run_params(session, job.id)
     rows = _load_rows(session, job.id)
     errors = _last_errors(session, job.id)
 
@@ -653,17 +434,13 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     trick_ids = {qa for qa, gen in generator_of.items() if gen == TRICK_GENERATOR}
     main_ids = [qa for qa, *_ in pairs if qa not in trick_ids]
     counted_main = set(main_ids)
-    counted_trick = trick_ids
 
-    primary = primary_judge(session, job, configured=configured)
-    judges = judge_order(
-        (r.judge_model for r in rows), primary, job_panel(job) or configured
-    )
+    judges = counting_judges(session, job, configured=configured)
     panel = [*judges, ""]
 
-    by_answer: dict[tuple[str, str, str, str], list[_Row]] = defaultdict(list)
-    for row in rows:
-        by_answer[(row.model, row.arm, row.block, row.qa_id)].append(row)
+    by_answer = group_answers(
+        rows, lambda r: AnswerKey.of(r.model, r.mode, r.block, r.qa_id)
+    )
 
     models = sorted(
         {r.model for r in rows if r.model and r.block == EvalBlock.DIRECT.value}
@@ -674,7 +451,8 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     retrieval: dict[tuple[str, str], bool | None] = {}
     blocks: dict[tuple[str, str], list[_Row]] = defaultdict(list)
     agreement: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    for (model, arm, block, qa), answer_rows in by_answer.items():
+    for (model, mode, block, qa), answer_rows in by_answer.items():
+        arm = ARM_OF[mode]
         chosen = pick(answer_rows, panel)
         counted = chosen.counted
         if counted is None:
@@ -699,21 +477,21 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
             blocks[(model, block)].append(counted)
 
     denial_limit_param = max(
-        (int(p[3]) for p in run_params if isinstance(p[3], int)), default=None
+        (int(p.denial_rounds) for p in run_params if isinstance(p.denial_rounds, int)),
+        default=None,
     )
     context_docs = max(
-        (int(p[2]) for p in run_params if isinstance(p[2], int)), default=None
+        (int(p.context_docs) for p in run_params if isinstance(p.context_docs, int)),
+        default=None,
     )
-    profile = next((p[1] for p in run_params if p[1]), None)
+    profile = next((p.profile for p in run_params if p.profile), None)
 
     reports: list[dict[str, Any]] = []
     for model in models:
         alone = {qa: direct.get((model, ALONE, qa)) for qa in counted_main}
         with_ = {qa: direct.get((model, WITH, qa)) for qa in counted_main}
         asked_ids = [
-            qa
-            for qa in main_ids
-            if qa in counted_main and (alone[qa] is not None or with_[qa] is not None)
+            qa for qa in main_ids if alone[qa] is not None or with_[qa] is not None
         ]
         tally = {
             ALONE: _tally(alone[qa] for qa in asked_ids),
@@ -767,7 +545,7 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
                 "checks": _checks(
                     model,
                     asked_ids,
-                    counted_trick,
+                    trick_ids,
                     direct,
                     retrieval,
                     blocks,
@@ -784,24 +562,19 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     lifts = [m["lift"] for m in reports if m["lift"] is not None]
 
     counted_pairs = [p for p in pairs if p[0] in counted_main]
-    # Older masking rows carry "spacy:<model>" (no writer) or "llm:<model>".
+    # Masking rows carry "llm:<model>".
     generator_model = Counter(
-        m.removeprefix("llm:")
-        for *_, m in counted_pairs
-        if m and not m.startswith("spacy:")
+        m.removeprefix("llm:") for *_, m in counted_pairs if m
     ).most_common(1)
-    card = job.card if isinstance(job.card, dict) else {}
-    dataset = card.get("dataset") if isinstance(card.get("dataset"), dict) else {}
-    window_days = dataset.get("window_days") if dataset else None
-    window_days = int(window_days) if isinstance(window_days, int) else None
+    window_days = window_days_of(job)
 
     articles = _articles(
         session, job, [qa for qa, *_ in counted_pairs], asked=bool(pairs)
     )
     run = {
         "job_id": job.id,
-        "created_at": _iso(job.created_at),
-        "finished_at": _iso(job.finished_at),
+        "created_at": iso(job.created_at),
+        "finished_at": iso(job.finished_at),
         "trigger": job.trigger,
         "window_days": window_days,
         **articles,
@@ -816,18 +589,15 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
         else None
     )
     method = {
-        "articles_from": _iso(since),
-        "articles_to": _iso(job.created_at) if since else None,
-        **articles,
+        "articles_from": iso(since),
+        "articles_to": iso(job.created_at) if since else None,
         "generator_model": generator_model[0][0] if generator_model else None,
         "kinds": sorted(
             {gen for gen in generator_of.values() if gen}, key=generator_order
         ),
-        "trick": len(counted_trick),
+        "trick": len(trick_ids),
         "context_docs": context_docs,
-        "judges": judges,
         "profile": profile,
-        "next_run_at": None,
         "denial_rounds": _denial_rounds(rows, run_params),
         "repeats": _repeats(rows, run_params),
     }
@@ -855,7 +625,7 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     return {
         "run": run,
         "funnel": _funnel(
-            session, job, set(generator_of), len(counted_main), len(counted_trick)
+            session, job, set(generator_of), len(counted_main), len(trick_ids)
         ),
         "models": reports,
         "judges": judges,
@@ -864,7 +634,9 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     }
 
 
-def _denial_rounds(rows: Sequence[_Row], run_params: Sequence[Any]) -> int | None:
+def _denial_rounds(
+    rows: Sequence[_Row], run_params: Sequence[_RunParams]
+) -> int | None:
     """The challenge limit of the run's denial_loop block; None — it did not run."""
     seen = [
         int(r.denial.get("limit") or 0)
@@ -874,23 +646,25 @@ def _denial_rounds(rows: Sequence[_Row], run_params: Sequence[Any]) -> int | Non
     if max(seen, default=0):
         return max(seen)
     params = [
-        int(p[3])
+        int(p.denial_rounds)
         for p in run_params
-        if p[4] == EvalBlock.DENIAL_LOOP.value and isinstance(p[3], int)
+        if p.block == EvalBlock.DENIAL_LOOP.value and isinstance(p.denial_rounds, int)
     ]
     return max(params, default=None)
 
 
-def _repeats(rows: Sequence[_Row], run_params: Sequence[Any]) -> dict[str, Any] | None:
+def _repeats(
+    rows: Sequence[_Row], run_params: Sequence[_RunParams]
+) -> dict[str, Any] | None:
     """Repeats per temperature and the temperatures of the run's monte_carlo
     block; None — it did not run."""
-    mc = [p for p in run_params if p[4] == EvalBlock.MONTE_CARLO.value]
-    trials = max((int(p[5]) for p in mc if isinstance(p[5], int)), default=0)
+    mc = [p for p in run_params if p.block == EvalBlock.MONTE_CARLO.value]
+    trials = max((int(p.trials) for p in mc if isinstance(p.trials, int)), default=0)
     temps = {
         float(t)
         for p in mc
-        if isinstance(p[6], list)
-        for t in p[6]
+        if isinstance(p.temperatures, list)
+        for t in p.temperatures
         if isinstance(t, int | float)
     }
     if trials and temps:
@@ -1144,50 +918,3 @@ def summaries(
             cached.get(job.id) or aggregate(session, job, configured=configured)["run"]
         )
     return out
-
-
-# --- the card -------------------------------------------------------------
-
-
-def card_models(report: dict[str, Any]) -> dict[str, Any]:
-    """One model's row of the card, from this module's figures."""
-    tally = report["tally"][WITH]
-    attempted = tally["hallucinate"] + tally["correct"]
-    checks = report["checks"]
-    made_up = (report["made_up_alone"], report["made_up_with"])
-    return {
-        "model": report["model"],
-        "samples": report["graded_with"],
-        "accuracy": report["rate_with"],
-        "fabrication": rate(checks["trick_answered"], checks["trick_asked"]),
-        "lmi": rate(tally["hallucinate"], attempted),
-        "context_gain": (
-            round(made_up[1] - made_up[0], 4) if None not in made_up else None
-        ),
-        "closed_accuracy": report["rate_alone"],
-    }
-
-
-def card_outdated(card: dict[str, Any] | None, run: dict[str, Any]) -> bool:
-    """Whether the card's per-model figures differ from the live ones."""
-    if not isinstance(card, dict) or not isinstance(card.get("models"), list):
-        return False
-    stored = {str(m.get("model")): m for m in card["models"] if isinstance(m, dict)}
-    live = {m["model"]: m for m in run.get("models") or [] if m["graded_with"]}
-    if set(stored) != set(live):
-        return True
-
-    def differs(a: Any, b: Any) -> bool:
-        if a is None or b is None:
-            return a is not b
-        return abs(float(a) - float(b)) > 5e-5
-
-    for name, figures in live.items():
-        row = stored[name]
-        if int(row.get("samples") or 0) != figures["graded_with"]:
-            return True
-        if differs(row.get("accuracy"), figures["rate_with"]):
-            return True
-        if differs(row.get("closed_accuracy"), figures["rate_alone"]):
-            return True
-    return False

@@ -7,15 +7,14 @@ import type {
 } from '@/api/types'
 import { count, DASH, daySpan } from './figures'
 import { customerCost, runDuration, tookText } from './timeCost'
-import { KIND_LABEL, modelName, REMOVED_REASON_LABEL, type Behavior } from './labels'
-import { sortKinds } from '../questionOrder'
+import { plural } from '../labels'
+import { modelName, REMOVED_REASON_LABEL, type Behavior } from './labels'
+import { KIND_ORDER, sortKinds } from '../questionOrder'
 import { TRICK_GENERATOR, type Held, type SettingRow } from './types'
 
 export function isTrick(generator: string | null | undefined): boolean {
   return generator === TRICK_GENERATOR
 }
-
-export { shortStamp, utcStamp } from './figures'
 
 /** `Step 11 of 15` for an in-progress run. */
 export function progressText(p: BenchmarkRunProgress): string {
@@ -54,10 +53,6 @@ type ArticleFacts = Pick<
   BenchmarkRunSummary,
   'articles' | 'articles_first' | 'articles_last' | 'articles_dated' | 'articles_new'
 >
-
-function plural(n: number, word: string): string {
-  return `${count(n)} ${n === 1 ? word : `${word}s`}`
-}
 
 /** `10 articles published 5–9 Oct · 4 new this run`, from the asked questions' own article dates. */
 export function articlesText(
@@ -98,9 +93,15 @@ export function hasIncomplete(report: BenchmarkRunReport): boolean {
   )
 }
 
-/** Questions removed by the web check; null until the check reports them. */
+/**
+ * Questions removed by the web check: 0 when it removed none; null when no web check ran or
+ * the run reused earlier questions (it wrote none, so it removed none of its own).
+ */
 export function webRemoved(report: BenchmarkRunReport): number | null {
-  return report.funnel.removed.web_answerable ?? null
+  const removed = report.funnel.removed.web_answerable
+  if (typeof removed === 'number') return removed
+  if (report.funnel.written === null) return null
+  return report.method.web_check_model ? 0 : null
 }
 
 /** This run's questions not asked for reasons other than the web check; null — none. */
@@ -123,7 +124,7 @@ export function methodKinds(report: BenchmarkRunReport): string[] {
   let kinds = report.method.kinds
   if (!kinds.length) {
     const seen = new Set(report.models.flatMap((m) => m.kinds.map((k) => k.generator)))
-    kinds = Object.keys(KIND_LABEL).filter((g) => seen.has(g))
+    kinds = KIND_ORDER.filter((g) => seen.has(g))
   }
   return sortKinds(kinds.some(isTrick) ? kinds : [...kinds, TRICK_GENERATOR])
 }
@@ -223,7 +224,7 @@ export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
   const asked = trick
     ? `${count(funnel.asked)}, plus ${trick} trick ${trick === 1 ? 'question' : 'questions'}`
     : count(funnel.asked)
-  const judges = method.judges.length ? method.judges : report.judges
+  const judges = report.judges
   const rounds = method.denial_rounds
   const repeats = repeatsTotal(report)
   const webCheck = webCheckText(method)
@@ -247,7 +248,7 @@ export function methodSettings(report: BenchmarkRunReport): SettingRow[] {
     {
       key: 'judges',
       label: 'Judges',
-      value: judges.length ? judges.map(modelName).join(', ') : null,
+      value: judges.length ? judges.map((j) => modelName(j)).join(', ') : null,
     },
     {
       key: 'rounds',

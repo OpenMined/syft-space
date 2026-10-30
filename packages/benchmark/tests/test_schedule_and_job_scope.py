@@ -2,7 +2,8 @@
 
 The service decides when to measure, and a measurement is findable afterwards —
 a launch, its verdicts and its raw records, as against the node's numbers as of
-today.
+today. Within a measurement, a model name the provider refused is not asked
+again in the passes still to come.
 
 The schedule half is checked mostly without a database: what to fire and when is
 a function of a target and a moment, and it is worth being able to say so. The
@@ -16,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from syft_benchmark.config import ContextMode, EvalBlock, Settings
 from syft_benchmark.control import targets as registry
@@ -26,6 +27,7 @@ from syft_benchmark.db.models import Job, QaPair, Result, Run, Target
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.report.audit import audit_records
 from syft_benchmark.report.metrics import summarize
+from syft_benchmark.scheduler import next_fire, parse_interval
 
 KEY = "pytest-schedule"
 SPACE = "pytest-scope"
@@ -46,7 +48,7 @@ def _target(**kw: Any) -> Target:
     return Target(**fields)
 
 
-# --- what to fire and when --------------------------------------------------
+# --- what to fire and when -------------------------------------------------
 
 
 def test_a_daily_schedule_lands_on_the_hour_it_was_given() -> None:
@@ -98,38 +100,39 @@ def test_an_unreadable_schedule_does_not_bring_the_thread_down() -> None:
     assert plan(_target(schedule="0h"), now=NIGHT) is None
 
 
-# --- the ticker over a live table -------------------------------------------
+# --- the interval and the next fire of the scheduler -----------------------
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(Job).where(Job.target == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
+@pytest.mark.parametrize(
+    ("text", "seconds"),
+    [("24h", 86400.0), ("90m", 5400.0), ("30s", 30.0), ("2d", 172800.0)],
 )
+def test_interval_parsing(text: str, seconds: float) -> None:
+    assert parse_interval(text) == seconds
 
 
-@pytest.fixture
-def clean() -> Any:
-    """Clear away everything these checks write — before and after."""
+def test_empty_interval_is_rejected() -> None:
+    with pytest.raises(ValueError, match="empty interval"):
+        parse_interval("")
 
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Job).where(Job.target == KEY))
-            session.execute(delete(Target).where(Target.key == KEY))
-            session.execute(delete(Result).where(Result.space == SPACE))
-            session.execute(delete(Run).where(Run.space == SPACE))
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
 
-    wipe()
-    yield
-    wipe()
+def test_daily_step_lands_on_the_wall_clock_time() -> None:
+    """The cycle should land at night, not at the moment of the first launch."""
+    now = datetime(2026, 9, 9, 14, 30)
+    assert next_fire(86400, "03:00", now=now) == datetime(2026, 9, 10, 3, 0)
+
+
+def test_daily_step_today_when_the_hour_is_still_ahead() -> None:
+    now = datetime(2026, 9, 9, 1, 15)
+    assert next_fire(86400, "03:00", now=now) == datetime(2026, 9, 9, 3, 0)
+
+
+def test_sub_daily_interval_ignores_the_wall_clock() -> None:
+    now = datetime(2026, 9, 9, 14, 30)
+    assert next_fire(3600, "03:00", now=now) == datetime(2026, 9, 9, 15, 30)
+
+
+# --- the ticker over a live table ------------------------------------------
 
 
 def _queued(session: Any) -> list[Job]:
@@ -139,7 +142,7 @@ def _queued(session: Any) -> list[Job]:
     )
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_schedule_seen_for_the_first_time_plans_and_does_not_measure(
     clean: Any,
 ) -> None:
@@ -159,7 +162,7 @@ def test_a_schedule_seen_for_the_first_time_plans_and_does_not_measure(
         assert _queued(session) == []
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_moment_arrives_and_the_measurement_is_queued(clean: Any) -> None:
     """And the plan moves forward at once, so the next tick does not fire again."""
     with session_scope() as session:
@@ -187,7 +190,7 @@ def test_the_moment_arrives_and_the_measurement_is_queued(clean: Any) -> None:
         assert len(_queued(session)) == 1
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_three_nights_slept_through_are_one_measurement_overdue(clean: Any) -> None:
     """A service that was down does not owe a run for every window it missed.
 
@@ -213,7 +216,7 @@ def test_three_nights_slept_through_are_one_measurement_overdue(clean: Any) -> N
         assert target.next_run_at == datetime(2026, 9, 18, 3, 0, tzinfo=UTC)
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_measurement_still_running_is_not_overtaken_by_its_own_schedule(
     clean: Any,
 ) -> None:
@@ -244,7 +247,7 @@ def test_a_measurement_still_running_is_not_overtaken_by_its_own_schedule(
         assert jobs[0].id == "pytest-running"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_schedule_taken_off_leaves_no_plan_behind(clean: Any) -> None:
     """Otherwise switching it back on a month later would fire against a moment
     long past — a measurement nobody asked for, at the moment of the save."""
@@ -295,7 +298,7 @@ def test_saving_a_target_without_touching_the_schedule_keeps_the_plan() -> None:
     assert row.next_run_at == planned
 
 
-# --- reading one measurement back -------------------------------------------
+# --- reading one measurement back ------------------------------------------
 
 
 def _pair(pair_id: str, status: str = "active") -> QaPair:
@@ -323,7 +326,7 @@ def _seed_run(run_id: str, job_id: str | None, at: datetime) -> Run:
         space=SPACE,
         endpoint="kb",
         job_id=job_id,
-        context_mode=ContextMode.OPEN_BOOK.value,
+        context_mode=ContextMode.MODEL_WITH_CONTEXT.value,
         context_source="endpoint_own",
         profile="default",
         params={},
@@ -378,7 +381,7 @@ def two_measurements(clean: Any) -> Any:
     yield
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_launch_is_read_back_as_it_was(two_measurements: Any) -> None:
     """Two questions were asked in August and both were answered correctly.
 
@@ -387,27 +390,33 @@ def test_a_launch_is_read_back_as_it_was(two_measurements: Any) -> None:
     unask it.
     """
     metrics = summarize(
-        SPACE, ContextMode.OPEN_BOOK, EvalBlock.DIRECT, judge="judge-1", job="job-old"
+        SPACE,
+        ContextMode.MODEL_WITH_CONTEXT,
+        EvalBlock.DIRECT,
+        judge="judge-1",
+        job="job-old",
     )
     assert metrics is not None
     assert metrics.graded == 2
     assert metrics.correct == 2
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_node_as_of_now_is_a_different_number(two_measurements: Any) -> None:
     """Unscoped, the September verdict wins and the retired question is gone.
 
-    This is the number the card shows, and it is not the August one. The
-    two being different is the whole reason a launch has to be nameable.
+    It is not the August one; the two being different is the whole reason a
+    launch has to be nameable.
     """
-    metrics = summarize(SPACE, ContextMode.OPEN_BOOK, EvalBlock.DIRECT, judge="judge-1")
+    metrics = summarize(
+        SPACE, ContextMode.MODEL_WITH_CONTEXT, EvalBlock.DIRECT, judge="judge-1"
+    )
     assert metrics is not None
     assert metrics.graded == 1
     assert metrics.hallucinate == 1
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_audit_of_a_launch_holds_only_that_launch(two_measurements: Any) -> None:
     """Settings change between launches. An export that mixed two of them would
     lay answers obtained at different thresholds side by side under one heading.
@@ -418,7 +427,7 @@ def test_the_audit_of_a_launch_holds_only_that_launch(two_measurements: Any) -> 
     assert verdicts == ["hallucinate"]
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_run_from_the_console_belongs_to_no_launch(clean: Any) -> None:
     """And is not swept into one. NULL here is a fact, not a gap to be filled."""
     at = datetime(2026, 9, 1, tzinfo=UTC)
@@ -432,7 +441,7 @@ def test_a_run_from_the_console_belongs_to_no_launch(clean: Any) -> None:
     assert (
         summarize(
             SPACE,
-            ContextMode.OPEN_BOOK,
+            ContextMode.MODEL_WITH_CONTEXT,
             EvalBlock.DIRECT,
             judge="judge-1",
             job="job-old",
@@ -443,7 +452,7 @@ def test_a_run_from_the_console_belongs_to_no_launch(clean: Any) -> None:
     assert len(list(audit_records(SPACE))) == 1
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_runs_a_launch_opens_carry_its_id(clean: Any) -> None:
     """The column is not decoration: this is the code path that writes it.
 
@@ -457,17 +466,19 @@ def test_the_runs_a_launch_opens_carry_its_id(clean: Any) -> None:
 
     space = SpaceConfig(key=SPACE, url="http://space.invalid", endpoint="kb")
     seat = Provider(role="judge", url="http://llm.invalid", api_key="", model="judge-1")
+    subject = Provider(role="subject", url="http://llm.invalid", api_key="", model="m")
 
     _open_runs(
         space,
-        ContextMode.OPEN_BOOK,
+        ContextMode.MODEL_WITH_CONTEXT,
         block=EvalBlock.DIRECT,
-        source=ContextSource.ENDPOINT_OWN,
-        responder="endpoint",
+        source=ContextSource.ENDPOINT_FRAGMENTS,
+        responder="model",
         vendor="",
         seated=[seat],
         params={},
         settings=Settings(),
+        subject=subject,
         job_id="job-opened",
     )
 
@@ -519,3 +530,71 @@ def test_a_measurement_hands_its_launch_down_to_the_runs(
     )
 
     assert seen == ["job-handed-down"]
+
+
+# --- a refusal outlives the pass it happened in ----------------------------
+
+
+def test_a_refused_name_is_not_asked_in_the_passes_still_to_come(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole point of noticing a refusal at all.
+
+    A run stopped from within is followed by the next one, which is fresh; a
+    refused model name is not paid for again in every pass. The models that were not
+    refused go on being measured: a panel with one bad name in it is still a
+    measurement of the other two.
+    """
+    from syft_benchmark import scheduler as sched
+    from syft_benchmark.config import Settings, SpaceConfig
+    from syft_benchmark.llm.roles import Provider
+    from syft_benchmark.runs.execute import RunReport
+
+    def _seat(role: str, model: str) -> Provider:
+        return Provider(
+            role=role, url="http://localhost:11434", api_key="", model=model
+        )
+
+    bad, good, judge = (
+        _seat("subject", "bad/name"),
+        _seat("subject", "good/one"),
+        _seat("judge", "a/judge"),
+    )
+    monkeypatch.setattr(sched, "subject_providers", lambda conf: [bad, good])
+    monkeypatch.setattr(sched, "judge_providers", lambda conf: [judge])
+    monkeypatch.setattr(sched, "summarize", lambda *args, **kwargs: None)
+
+    asked: list[str] = []
+
+    async def one_pass(space, mode, **kwargs):  # type: ignore[no-untyped-def]
+        subject = kwargs["subject"]
+        asked.append(subject.model)
+        return [
+            RunReport(
+                run_id="r",
+                context_mode=mode,
+                block=kwargs["block"],
+                model=subject.model,
+                judge=judge.model,
+                asked=1,
+                refused=subject.model if subject is bad else "",
+            )
+        ]
+
+    monkeypatch.setattr(sched, "arun_pass", one_pass)
+
+    conf = Settings(  # type: ignore[call-arg]
+        ollama_url="http://localhost:11434",
+        arms=[ContextMode.CLOSED_BOOK],
+        blocks=[EvalBlock.DIRECT, EvalBlock.MONTE_CARLO],
+    )
+    out = sched.measure(
+        SpaceConfig(key="docs", url="http://localhost:8081", endpoint="kb"),
+        conf,
+        generate=False,
+    )
+
+    # Two blocks over two models is four passes. The refused name is asked in
+    # the first and never again; the other model keeps both of its.
+    assert asked == ["bad/name", "good/one", "good/one"]
+    assert any("bad/name" in line for line in out.failures)

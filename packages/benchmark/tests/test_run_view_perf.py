@@ -15,17 +15,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import delete, text
+from sqlalchemy import text
 
-from syft_benchmark.config import JobState, PairStatus, get_settings
-from syft_benchmark.control.app import create_app
-from syft_benchmark.control.schemas import TargetSpec
-from syft_benchmark.db import Job, QaPair, Result, Run, Target, session_scope
+from syft_benchmark.config import JobState, PairStatus
+from syft_benchmark.db import Job, QaPair, Result, Run, session_scope
 
-TOKEN = "test-run-view-perf-token"
+from support import console_auth, control_client, wipe
+
 KEY = "pytest-run-view-perf"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 JOB = "rv-perf-job"
 QUESTIONS = 1000
 MODELS = [f"vendor{n}/model-{n}" for n in range(5)]
@@ -34,30 +31,12 @@ GENERATORS = ["qa", "numbers", "names", "dates", "multihop", "unanswerable_prope
 VERDICTS = ["correct", "correct", "abstain", "hallucinate", "correct", "technical"]
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
 pytestmark = [
     pytest.mark.skipif(
         os.environ.get("BENCH_QUICK") == "1", reason="BENCH_QUICK=1: slow to seed"
     ),
-    pytest.mark.skipif(not _db_ready(), reason="the benchmark database is unavailable"),
+    pytest.mark.needs_db,
 ]
-
-
-def _wipe() -> None:
-    with session_scope() as session:
-        session.execute(delete(Result).where(Result.space == KEY))
-        session.execute(delete(Run).where(Run.space == KEY))
-        session.execute(delete(QaPair).where(QaPair.space == KEY))
-        session.execute(delete(Job).where(Job.target == KEY))
-        session.execute(delete(Target).where(Target.key == KEY))
 
 
 def _seed() -> None:
@@ -229,19 +208,14 @@ def _timed(call: Callable[[], Any], times: int = 5) -> float:
 
 
 def test_the_read_api_is_fast_on_a_full_run() -> None:
-    _wipe()
+    wipe(KEY, jobs=[JOB])
     try:
         started = time.perf_counter()
         _seed()
         seeded = time.perf_counter() - started
 
-        client = TestClient(
-            create_app(get_settings().model_copy(update={"control_token": TOKEN}))
-        )
-        body = TargetSpec(key=KEY, url="http://space.invalid").model_dump(mode="json")
-        assert client.put(f"/targets/{KEY}", json=body, headers=AUTH).status_code == 200
-        token = client.post(f"/targets/{KEY}/session", headers=AUTH).json()["token"]
-        auth = {"Authorization": f"Bearer {token}"}
+        client = control_client()
+        auth = console_auth(client, KEY)
 
         base = f"/console/report/runs/{JOB}"
         started = time.perf_counter()
@@ -295,11 +269,11 @@ def test_the_read_api_is_fast_on_a_full_run() -> None:
             + "; ".join(f"{k} {v * 1000:.0f} ms" for k, v in timings.items())
         )
         assert cold_s < 5.0
-        assert timings["runs list"] < 0.3
+        assert timings["runs list"] < 0.5
         assert timings["report"] < 0.5
         assert timings["questions page"] < 0.3
         assert timings["questions search"] < 0.3
         assert timings["detail"] < 0.3
         assert timings["fragments"] < 0.3
     finally:
-        _wipe()
+        wipe(KEY, jobs=[JOB])

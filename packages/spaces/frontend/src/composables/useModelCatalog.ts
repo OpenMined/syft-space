@@ -10,7 +10,6 @@ const EMPTY: BenchmarkModelCatalog = {
   vendors: [],
   pins: {},
   fetched: {},
-  total: 0,
 }
 
 const cache = new Map<string, BenchmarkModelCatalog>()

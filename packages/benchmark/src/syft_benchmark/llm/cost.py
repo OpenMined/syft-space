@@ -2,27 +2,17 @@
 
 OpenRouter returns ``usage.cost`` (USD, credits charged) in every chat
 response; chat() copies it to ``usage["cost_usd"]`` and adds it to the active
-meter. https://openrouter.ai/docs/guides/administration/usage-accounting
+meter.
 
 A meter is found in this order:
 
   1. the meter set in this thread's context (``cost_meter()`` sets it in the
-     thread that opens it; ``pool_kwargs()`` / ``bind()`` carry it into pool
-     workers, since contextvars do not cross into ThreadPoolExecutor threads);
+     thread that opens it; ``pool_kwargs()`` carries it into pool workers,
+     since contextvars do not cross into ThreadPoolExecutor threads);
   2. otherwise the only meter open in the process, if there is exactly one.
      The job worker runs one job at a time, so pool workers that were not given
      the meter still charge the right job. With two meters open and no context
      the cost is not attributed.
-
-Usage::
-
-    with cost_meter(job_id=job.id) as meter:
-        before = openrouter_spend(conf)
-        ...  # chat() calls, in this thread or in pools
-        after = openrouter_spend(conf)
-    meter.total_usd
-
-    ThreadPoolExecutor(max_workers=n, **pool_kwargs())  # exact attribution
 
 Every call is tagged with the role it was made for (``ROLES``): the call site
 passes ``role=`` to chat(), and ``acting_as()`` overrides it for a block run in
@@ -35,9 +25,9 @@ from __future__ import annotations
 
 import contextvars
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, ParamSpec, TypeVar
+from typing import Any
 
 from syft_benchmark.llm.openrouter import openrouter_spend
 
@@ -49,7 +39,6 @@ __all__ = [
     "WRITER",
     "CostMeter",
     "acting_as",
-    "bind",
     "charge",
     "cost_meter",
     "cost_of",
@@ -67,9 +56,6 @@ WEB_CHECK = "web_check"  # web check model and judge, control gate
 SUBJECTS = "subjects"  # tested models, every arm and block
 JUDGES = "judges"  # panel judges grading answers
 ROLES = (WRITER, WEB_CHECK, SUBJECTS, JUDGES)
-
-_P = ParamSpec("_P")
-_R = TypeVar("_R")
 
 
 class CostMeter:
@@ -181,20 +167,6 @@ def pool_kwargs() -> dict[str, Any]:
     return {"initializer": _adopt, "initargs": (current(),)}
 
 
-def bind(fn: Callable[_P, _R]) -> Callable[_P, _R]:
-    """``fn`` run under the meter that is current here, in whatever thread."""
-    meter = current()
-
-    def bound(*args: _P.args, **kwargs: _P.kwargs) -> _R:
-        token = _ACTIVE.set(meter)
-        try:
-            return fn(*args, **kwargs)
-        finally:
-            _ACTIVE.reset(token)
-
-    return bound
-
-
 def cost_of(usage: dict[str, Any]) -> float | None:
     """USD the provider charged for one response; None — not reported."""
     raw = usage.get("cost")
@@ -206,7 +178,7 @@ def cost_of(usage: dict[str, Any]) -> float | None:
         return None
 
 
-def spent(usage: dict[str, Any] | None) -> dict[str, Any]:
+def spent(usage: Mapping[str, Any] | None) -> dict[str, Any]:
     """One call's ``cost_usd`` and ``latency_s`` (seconds, 0.01), from chat() usage."""
     usage = usage or {}
     latency = usage.get("latency_s")

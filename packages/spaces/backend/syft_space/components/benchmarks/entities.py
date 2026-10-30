@@ -1,8 +1,9 @@
 """Benchmark tables.
 
-``benchmark_connections``: where a benchmark is, its key, and the connection-wide
-settings. ``benchmark_targets``: one row per endpoint opted into measuring; no
-row means not measured. Questions, answers and corpus text stay in the benchmark.
+``benchmark_connections``: where a benchmark is, its key, and how it reaches
+this Space. ``benchmark_targets``: one row per endpoint opted into measuring,
+with its settings; no row means not measured. Questions, answers and corpus
+text stay in the benchmark.
 """
 
 from datetime import datetime, timezone
@@ -13,7 +14,7 @@ from sqlmodel import Column, Field, ForeignKey, SQLModel
 
 
 class BenchmarkConnection(SQLModel, table=True):
-    """A benchmark this Space is wired to, and the settings it measures with."""
+    """A benchmark this Space is wired to."""
 
     __tablename__ = "benchmark_connections"
 
@@ -42,26 +43,9 @@ class BenchmarkConnection(SQLModel, table=True):
     )
     container: str = Field(default="", description="Container name, the fallback road")
 
-    # Partial settings; unset fields use the benchmark's defaults.
-    instrument: dict | None = Field(
-        default=None,
-        sa_column=Column(JSON(none_as_null=True)),
-        description="How to measure: arms, judges, subject models, thresholds",
-    )
-    probe: dict | None = Field(
-        default=None,
-        sa_column=Column(JSON(none_as_null=True)),
-        description="How to question a node: dataset shape, search, answer limits",
-    )
-
     # The benchmark's cached self-description.
     capabilities: dict | None = Field(
         default=None, sa_column=Column(JSON(none_as_null=True))
-    )
-    fields: dict | None = Field(
-        default=None,
-        sa_column=Column(JSON(none_as_null=True)),
-        description="Shape of the settings fields, as the benchmark describes them",
     )
     defaults: dict | None = Field(
         default=None,
@@ -82,8 +66,8 @@ class BenchmarkConnection(SQLModel, table=True):
 class BenchmarkTarget(SQLModel, table=True):
     """An endpoint opted into measuring, with its own settings.
 
-    ``probe`` and ``instrument`` override the connection's, which override the
-    benchmark's defaults.
+    ``probe`` and ``instrument`` are partial: unset fields take the benchmark's
+    defaults.
     """
 
     __tablename__ = "benchmark_targets"
@@ -116,9 +100,15 @@ class BenchmarkTarget(SQLModel, table=True):
         default="",
         description=("Collection name in the index. Empty — resolved from the dataset"),
     )
-    probe: dict | None = Field(default=None, sa_column=Column(JSON(none_as_null=True)))
+    probe: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON(none_as_null=True)),
+        description="How to question a node: dataset shape, search, answer limits",
+    )
     instrument: dict | None = Field(
-        default=None, sa_column=Column(JSON(none_as_null=True))
+        default=None,
+        sa_column=Column(JSON(none_as_null=True)),
+        description="How to measure: arms, judges, subject models, thresholds",
     )
 
     schedule: str = Field(default="", description="Interval like 24h; empty — manual")
@@ -127,9 +117,6 @@ class BenchmarkTarget(SQLModel, table=True):
     # Last job seen, shown while the benchmark is unreachable.
     last_job: dict | None = Field(
         default=None, sa_column=Column(JSON(none_as_null=True))
-    )
-    synced_at: datetime | None = Field(
-        default=None, description="When this target was last pushed to the benchmark"
     )
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

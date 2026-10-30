@@ -27,8 +27,7 @@ STAGES = (WRITING, GROUNDING, CONTROL, WEB_CHECK)
 KEPT = "kept"
 REMOVED = "removed"
 FAILED = "failed"
-SKIPPED = "skipped"
-OUTCOMES = (KEPT, REMOVED, FAILED, SKIPPED)
+OUTCOMES = (KEPT, REMOVED, FAILED)
 
 # How many records a pair keeps; the oldest go first.
 _KEPT_RECORDS = 20

@@ -1,44 +1,9 @@
-import type { BenchmarkBehavior } from '@/api/types'
-import { generatorWords, shortModel } from '../labels'
+/** The report's customer wording: verdicts and their pill colours, outcomes and model names. */
+import type { BenchmarkBehavior, BenchmarkModel } from '@/api/types'
+import { TONE } from '../labels'
 import type { Group } from './types'
 
-export const KIND_LABEL: Record<string, string> = {
-  named_entity_masking: 'Names',
-  temporal_masking: 'Dates',
-  numeric_masking: 'Numbers',
-  mcq: 'Multiple choice',
-  qa: 'Open questions',
-  multihop_synthesis: 'Connecting facts',
-  two_truths_one_lie: 'Spotting a false claim',
-  false_premise: 'Questions with a false premise',
-  tiered_explanation: 'Explaining a story simply',
-  unanswerable_property: 'Trick questions',
-}
-
-export const KIND_DESC: Record<string, string> = {
-  named_entity_masking: 'Fill in a missing name in a sentence from your article.',
-  temporal_masking: 'Fill in a missing date.',
-  numeric_masking: 'Fill in a missing figure.',
-  mcq: 'Pick the right answer from four.',
-  qa: 'Answer a direct question in a sentence.',
-  multihop_synthesis: 'Combine facts from different parts of a story.',
-  two_truths_one_lie: 'Find the one false statement among three.',
-  false_premise: 'Notice that the question assumes something that did not happen.',
-  tiered_explanation:
-    'Explain a story simply. Graded on its key facts; anything the story doesn’t support counts as hallucinated.',
-  unanswerable_property:
-    'Ask for a detail your reporting does not contain. The right response is “I don’t know”.',
-}
-
-export function kindLabel(generator: string): string {
-  return KIND_LABEL[generator] ?? generatorWords(generator).label
-}
-
-export function kindDescription(generator: string): string {
-  return KIND_DESC[generator] ?? ''
-}
-
-export const VERDICT_LABEL: Record<string, string> = {
+const VERDICT_LABEL: Record<string, string> = {
   correct: 'Right',
   abstain: 'Didn’t know',
   hallucinate: 'Hallucinated',
@@ -66,21 +31,29 @@ export function verdictTip(verdict: string | null | undefined): string {
 }
 
 /** Pill colours without the border reset, shared by every verdict pill. */
-export const VERDICT_COLORS: Record<string, string> = {
+const VERDICT_COLORS: Record<string, string> = {
   correct: 'bg-primary/10 text-primary',
-  abstain: 'bg-muted text-muted-foreground',
-  hallucinate: 'bg-warning/20 text-foreground',
-  web_sourced: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
+  abstain: TONE.muted,
+  hallucinate: TONE.failed,
+  web_sourced: TONE.info,
   incomplete: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
+}
+
+/** Pill colours of a verdict; muted for one without its own. */
+export function verdictColors(verdict: string): string {
+  return VERDICT_COLORS[verdict] ?? TONE.muted
 }
 
 /** Badge classes for a verdict pill. */
 export function verdictTone(verdict: string): string {
-  return `border-transparent ${VERDICT_COLORS[verdict] ?? 'bg-muted text-muted-foreground'}`
+  return `border-transparent ${verdictColors(verdict)}`
 }
 
+/** Tooltip of a `Searched: no` chip when the API gives no reason. */
+export const SEARCH_UNUSED_TIP = 'Asked to search the web, but cited nothing.'
+
 /** Control questions: graded on how the model behaves, not on a right answer. */
-export const CONTROL_KINDS = new Set(['unanswerable_property', 'false_premise'])
+const CONTROL_KINDS = new Set(['unanswerable_property', 'false_premise'])
 
 export type Behavior = BenchmarkBehavior
 
@@ -151,12 +124,22 @@ function word(token: string): string {
   return token.charAt(0).toUpperCase() + token.slice(1)
 }
 
-/** A display name from a model id: `anthropic/claude-opus-4.8` → `Claude Opus 4.8`. */
-export function modelName(id: string): string {
+/**
+ * A model's display name: the catalogue entry's, without the vendor the catalogue puts in
+ * front (`SpaceXAI: Grok 4.6` → `Grok 4.6`); else one made from the id
+ * (`anthropic/claude-opus-4.8` → `Claude Opus 4.8`).
+ */
+export function modelName(id: string, entry?: Pick<BenchmarkModel, 'name'>): string {
+  const name = entry?.name?.trim()
+  if (name) {
+    const cut = name.indexOf(': ')
+    return cut === -1 ? name : name.slice(cut + 2)
+  }
   const bare = id.replace(/^~/, '')
   const known = MODEL_NAME[bare]
   if (known) return known
-  const tokens = shortModel(bare)
+  const tokens = bare
+    .slice(bare.lastIndexOf('/') + 1)
     .split(/[-_\s]+/)
     .filter((t) => t && t !== 'preview' && t !== 'latest')
     .flatMap((t) => t.replace(/^([a-z]{2,})(\d)/i, '$1 $2').split(' '))
@@ -168,7 +151,15 @@ export function modelName(id: string): string {
   return tokens.map(word).join(' ')
 }
 
-export function vendorOf(id: string): string | null {
+/** `Judge 1 (GPT-5.1), Judge 2 (Claude Sonnet 5) and Judge 3 (Gemini 3.1 Pro)`. */
+export function judgesText(judges: readonly string[]): string {
+  const named = judges.map((j, i) => `Judge ${i + 1} (${modelName(j)})`)
+  const last = named.pop()
+  if (!last) return ''
+  return named.length ? `${named.join(', ')} and ${last}` : last
+}
+
+function vendorOf(id: string): string | null {
   const bare = id.replace(/^~/, '')
   const cut = bare.indexOf('/')
   return cut === -1 ? null : bare.slice(0, cut)
@@ -192,13 +183,6 @@ export const REMOVED_REASON_LABEL: Record<string, string> = {
   wrong_language: 'Wrong language',
   ambiguous_entity: 'Unclear subject',
   other: 'Other',
-}
-
-export const REMOVED_REASON_TIP: Record<string, string> = {
-  public_knowledge:
-    'A trick question whose missing detail the web check model found on the web, so it doesn’t test the archive.',
-  wrong_language: 'Written in a different language from its article.',
-  ambiguous_entity: 'Names someone or something a reader can’t identify from the question alone.',
 }
 
 export function removedReasonLabel(reason: string): string {

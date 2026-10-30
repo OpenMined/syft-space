@@ -21,18 +21,17 @@ uv run alembic upgrade head   # schema
 uv run syft-benchmark secrets keygen >> .env       # the master key for secrets
 ```
 
-The benchmark's Postgres (host port 5442 on 127.0.0.1, `BENCH_DB_PORT`) is separate from the
-Space's database. It holds a third copy of corpus content — gold answers often
-quote the source, and retrieved chunks and prompts are stored whole — and is
-protected like the corpus; see [privacy.md](privacy.md) and
-[data-model.md](data-model.md).
+The benchmark's Postgres (host port 5442 on 127.0.0.1, `BENCH_DB_PORT`) is
+separate from the Space's database and holds corpus text, so it is protected
+like the corpus ([privacy.md](privacy.md#3-the-database-is-protected-like-the-corpus)).
 
 ---
 
 ## Where a setting lives
 
 Settings are stored in one database row (`installation_settings`), edited with
-the CLI or through `GET`/`PUT /settings`:
+the CLI or through `GET`/`PATCH /settings` (`PATCH` changes only the fields it
+names, `null` removing one):
 
 ```bash
 uv run syft-benchmark settings show                       # what is overridden
@@ -43,7 +42,7 @@ uv run syft-benchmark settings unset retrieval_top_k      # back to the default
 Precedence, bottom to top:
 
     built-in defaults → environment (BENCH_*) → the installation's row
-        → the Space's instrument → the node's probe
+        → the target's instrument → the target's probe
 
 The environment is read-only and is not copied into the row. `BENCH_X` sets
 setting `x`; change it with `settings set x`, not in the environment.
@@ -103,16 +102,16 @@ overwritten. A Space also adds a node when an endpoint is opted into measuring
 — see [control-api.md](control-api.md).
 
 A node has: key, title, Space URL, endpoint slug, token, container name,
-Chroma host/port, collection name, and optional `retrieval_top_k` and
-`similarity_threshold` overrides. The endpoint's mode (raw / summary / both)
-is read from the endpoint itself.
+Chroma host/port and collection name. `retrieval_top_k` and
+`similarity_threshold` in the seed file go into the target's probe layer
+([control-api.md](control-api.md#three-layers-of-settings)). The endpoint's
+mode (raw / summary / both) is read from the endpoint itself.
 
 - **Set `collection` explicitly.** A Space names the collection after its
   dataset; empty falls back to the node key, which rarely matches. `chunks`
   shows what is in the index.
-- **The similarity threshold is a measurement axis.** At `0.0` the endpoint
-  returns top-k for any question, including unanswerable ones. Runs at
-  different thresholds are not merged by the report or by resume.
+- **The similarity threshold is a measurement axis** —
+  [04-evaluation.md](04-evaluation.md#run-settings).
 - **Two transports to the index.** HTTP when `chroma_port` is published;
   with `chroma_port: 0`, `docker exec` into `container` runs the same request.
 
@@ -134,7 +133,7 @@ flowchart TB
         G["GENERATOR<br/>sees whole documents"]
     end
     subgraph OUT["outside — the norm"]
-        S["MODELS UNDER TEST<br/>see only the question"]
+        S["MODELS UNDER TEST<br/>see the question;<br/>in arm C, the endpoint's retrieval too"]
     end
     subgraph ANY["anywhere"]
         J["JUDGE<br/>sees question, gold answer, answer"]
@@ -153,16 +152,26 @@ flowchart TB
 | Role | Sees documents | Usually | Settings |
 | --- | --- | --- | --- |
 | **generator** | yes, whole | inside the perimeter | `generator_url`, `generator_key`, `generator_model` |
-| **models under test** | no, the question only | outside | `subject_url`, `subject_key`, `subject_models` |
+| **models under test** | the question; in arm C, the endpoint's retrieval | outside | `subject_url`, `subject_key`, `subject_models` |
 | **judge** | no | anywhere | `judge_url`, `judge_key`, `judge_model`, `judge_models` |
 | **web check model** | no, the question only | outside | `filter_url`, `filter_key`, `filter_model` |
 
 - An empty role URL/key falls back to `ollama_url` / `llm_api_key`.
-- An empty `filter_url` / `filter_key` takes the models under test's first.
+- An empty `filter_url` / `filter_key` takes the models under test's, then
+  the shared one.
 - Empty `subject_models` tests `generator_model`.
 - The judge should not share a provider with the model under test
   (`judge_policy`, default `warn`); see [05-judging.md](05-judging.md).
 - The web check is described in [02-generation.md](02-generation.md#the-web-check).
+
+Shared by every role:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `ollama_url` / `llm_api_key` | `http://localhost:11434` / empty | The provider a role without its own address or key uses |
+| `llm_app_name` | `syft-benchmark` | The name sent to the provider in the `X-Title` header |
+| `llm_temperature` | `0.2` | Temperature of the question writer and the entity check. Judge calls (the control gate, the web-check grading) use `judge_temperature`; the web-check answer uses `0.0` |
+| `llm_timeout` | `900` | Seconds to wait for one call; a local Ollama serves one request at a time |
 
 ```bash
 # generator inside, models under test outside, judge from a third provider
@@ -211,9 +220,13 @@ results — `syft-benchmark upstreams`, see [04-evaluation.md](04-evaluation.md)
 | `BENCH_ALLOW_EXTERNAL_MODELS` | `false` | Allow models outside the perimeter |
 | `BENCH_EXTERNAL_HOSTS` | `[]` | Allowed external hosts, named one by one |
 
-Environment only, never settable through the API. `localhost`, `127.0.0.1`,
-`host.docker.internal` and dotless docker service names always pass; any other
-host needs both the flag and its name in the list. A key is not a permission.
+Environment only, never settable through the API. Inside the perimeter, and
+always let through: `localhost`, `host.docker.internal`, a single-label docker
+service name (`ollama`; not a number a resolver reads as an IP), and loopback
+IP addresses, v4 or v6 (`config.host_is_inside`). Any other host — private,
+link-local, `0.0.0.0`, public — needs both the flag and its name in the list;
+an address the model client cannot call (no `http`/`https` scheme, scheme-relative
+`//ollama:11434` included, or no host) is always refused. A key is not a permission.
 
 The check sits in the LLM client, before every call
 ([invariant 2](privacy.md)). A measurement also refuses to start if any role

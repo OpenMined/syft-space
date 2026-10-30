@@ -4,15 +4,14 @@ import type { LocationQuery, RouteLocationRaw } from 'vue-router'
 export const RESULTS_TAB = 'results'
 
 /** Query keys owned by the results tab; dropped when another tab is opened. */
-export const RESULTS_QUERY_KEYS = ['job', 'model', 'screen', 'view', 'run'] as const
+const RESULTS_QUERY_KEYS = ['job', 'model', 'screen'] as const
 
 /** Screens of one run: its summary and method, and three about one model. */
 export type RunScreen = 'run' | 'method' | 'model' | 'questions' | 'checks'
 
-export type ResultsView =
+type ResultsView =
   | { kind: 'list' }
   | { kind: 'run'; jobId: string; screen: RunScreen; modelId: string | null }
-  | { kind: 'technical' }
 
 const MODEL_SCREENS = new Set<RunScreen>(['model', 'questions', 'checks'])
 
@@ -23,7 +22,6 @@ function single(value: LocationQuery[string] | undefined): string | null {
 
 /** Which results screen the query describes. */
 export function readResultsView(query: LocationQuery): ResultsView {
-  if (single(query.view) === 'technical') return { kind: 'technical' }
   const jobId = single(query.job)
   if (!jobId) return { kind: 'list' }
   const modelId = single(query.model)

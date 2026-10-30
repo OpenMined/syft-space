@@ -8,6 +8,7 @@ import SplashScreen from './components/SplashScreen.vue'
 import { useTheme } from './composables/useTheme'
 import { loadGlobalData } from './lib/utils'
 import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { useServerAvailabilityStore } from '@/stores/serverAvailability'
 import 'vue-sonner/style.css'
 
@@ -71,24 +72,27 @@ watch(
 </script>
 
 <template>
-  <SplashScreen v-if="!serverStore.isReady && !isStandalonePage" :is-slow="serverStore.isSlow" />
-  <template v-else>
-    <!-- Sidebar layout for main app -->
-    <AppLayout v-if="showSidebar">
-      <router-view />
-    </AppLayout>
-
-    <!-- Full-screen layout for standalone/create/onboarding pages -->
-    <div v-else class="flex h-screen flex-col bg-background text-foreground">
-      <div v-if="!isStandalonePage" class="hidden md:block">
-        <AppTopbar />
-      </div>
-      <div class="flex-1 overflow-y-auto">
+  <!-- One provider, so tooltips across the app share the skip delay. -->
+  <TooltipProvider>
+    <SplashScreen v-if="!serverStore.isReady && !isStandalonePage" :is-slow="serverStore.isSlow" />
+    <template v-else>
+      <!-- Sidebar layout for main app -->
+      <AppLayout v-if="showSidebar">
         <router-view />
-      </div>
-    </div>
+      </AppLayout>
 
-    <FeedbackButton v-if="!isStandalonePage" />
-    <Toaster position="top-center" />
-  </template>
+      <!-- Full-screen layout for standalone/create/onboarding pages -->
+      <div v-else class="flex h-screen flex-col bg-background text-foreground">
+        <div v-if="!isStandalonePage" class="hidden md:block">
+          <AppTopbar />
+        </div>
+        <div class="flex-1 overflow-y-auto">
+          <router-view />
+        </div>
+      </div>
+
+      <FeedbackButton v-if="!isStandalonePage" />
+      <Toaster position="top-center" />
+    </template>
+  </TooltipProvider>
 </template>

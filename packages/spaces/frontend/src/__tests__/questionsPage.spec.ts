@@ -9,7 +9,9 @@ import {
   type RunContext,
 } from '@/components/benchmark/report/context'
 import type { RunReport } from '@/components/benchmark/report/useRunReport'
+import { useDetails } from '@/components/benchmark/report/details/useDetails'
 import { Select } from '@/components/ui/select'
+import { hintText } from './hint'
 import { GEMINI, GPT, OPUS, questionDetail, questionRow, runReport } from './reportFixtures'
 
 const KINDS = ['temporal_masking', 'named_entity_masking', 'unanswerable_property', 'mcq']
@@ -28,7 +30,6 @@ function fakeReport(list: BenchmarkQuestionPage = page()) {
     loadQuestions: vi.fn(async (_job: string, _query: BenchmarkQuestionQuery) => list),
     loadQuestion: vi.fn(async (_job: string, qaId: string) =>
       questionDetail(qaId, {
-        question: questionRow(qaId, { generator: 'multihop_synthesis' }),
         judges: [
           {
             model: GEMINI,
@@ -50,14 +51,8 @@ function fakeReport(list: BenchmarkQuestionPage = page()) {
       }),
     ),
     loadFragments: vi.fn(async () => [
-      {
-        file_name: 'a.md',
-        document_title: 'Article A',
-        score: 0.9,
-        content: 'First passage text.',
-        is_source: true,
-      },
-      { file_name: 'b.md', document_title: '', score: 0.5, content: 'Second.', is_source: false },
+      { file_name: 'a.md', document_title: 'Article A', score: 0.9, content: 'First passage text.' },
+      { file_name: 'b.md', document_title: '', score: 0.5, content: 'Second.' },
     ]),
   }
 }
@@ -66,13 +61,10 @@ function fakeRun() {
   const data = shallowRef(runReport({ method: { ...runReport().method, kinds: KINDS } }))
   return {
     jobId: 'j1',
+    slug: 'ep',
     data,
-    loading: ref(false),
-    error: ref<string | null>(null),
-    running: computed(() => false),
     model: computed(() => OPUS),
     modelReport: computed(() => data.value.models.find((m) => m.model === OPUS) ?? null),
-    reload: vi.fn(async () => {}),
   } satisfies RunContext
 }
 
@@ -194,7 +186,7 @@ describe('QuestionsPage', () => {
       'Showing 26–50 of 60 questions',
     )
 
-    await wrapper.findAll('[data-testid="question-row"] > button')[0]!.trigger('click')
+    await wrapper.findAll('[data-testid="question-row"] > div > button')[0]!.trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="question-detail"]').exists()).toBe(true)
 
@@ -293,7 +285,8 @@ describe('QuestionsPage', () => {
     const withData = wrapper.get('[data-testid="answer-ctx"]')
     const searchedNo = withData.get('[data-testid="searched-no"]')
     expect(searchedNo.text()).toBe('Searched: no')
-    expect(searchedNo.attributes('title')).toBe('The model chose not to search.')
+    expect(searchedNo.attributes('tabindex')).toBe('0')
+    expect(await hintText(searchedNo)).toBe('The model chose not to search.')
     expect(withData.find('[data-testid="citations"]').exists()).toBe(false)
   })
 
@@ -305,6 +298,23 @@ describe('QuestionsPage', () => {
     for (const word of ['Change a verdict', 'Remove this question', 'Restore', 'Excluded']) {
       expect(text).not.toContain(word)
     }
+  })
+
+  it('offers what was sent and judged per question only with Details on', async () => {
+    const details = useDetails()
+    details.value = false
+    const { wrapper } = await mountPage()
+    expect(wrapper.find('[data-testid="question-audit"]').exists()).toBe(false)
+
+    details.value = true
+    await flushPromises()
+    const buttons = wrapper.findAll('[data-testid="question-audit"]')
+    expect(buttons).toHaveLength(2)
+    await buttons[1]!.trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('[data-testid="question-dialog"]')).not.toBeNull()
+    expect(wrapper.find('[data-testid="question-detail"]').exists()).toBe(false)
+    details.value = false
   })
 
   it('opens every passage in a dialog and returns focus on Escape', async () => {

@@ -72,15 +72,14 @@
               >
                 <div
                   class="h-full rounded-full bg-primary transition-[width]"
-                  :style="{ width: share(progressShare(run)!) }"
+                  :style="{ width: barWidth(progressShare(run)) }"
                 />
               </div>
-              <div
-                class="mt-1.5 text-xs text-muted-foreground"
-                :title="planText(run.progress_plan, modelName) || undefined"
-              >
-                {{ progressText(run) }}
-              </div>
+              <Hint :text="planText(run.progress_plan, modelName)">
+                <div class="mt-1.5 text-xs text-muted-foreground">
+                  {{ progressText(run) }}
+                </div>
+              </Hint>
             </td>
             <td class="px-3 py-3 text-right text-muted-foreground">{{ DASH }}</td>
             <td class="px-3 py-3 text-right text-muted-foreground">{{ DASH }}</td>
@@ -140,39 +139,40 @@
               </div>
             </td>
             <td class="space-x-1.5 whitespace-nowrap px-3 py-3">
-              <Badge
+              <AlertBadge
                 v-if="!run.build_only && stoppedLabel(run)"
-                variant="outline"
-                class="border-transparent bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                :title="stoppedTip(run)"
+                :tip="stoppedTip(run)"
                 data-testid="run-stopped"
               >
                 {{ stoppedLabel(run) }}
-              </Badge>
-              <Badge
+              </AlertBadge>
+              <Hint
                 v-if="runStateLabel(run)"
-                variant="outline"
-                class="border-transparent bg-muted text-muted-foreground"
-                :title="run.build_only ? (stoppedTip(run) ?? BUILD_ONLY_TIP) : undefined"
-                data-testid="run-state"
+                :text="run.build_only ? (stoppedTip(run) ?? BUILD_ONLY_TIP) : null"
               >
-                {{ runStateLabel(run) }}
-              </Badge>
+                <Badge
+                  variant="outline"
+                  class="border-transparent bg-muted text-muted-foreground"
+                  data-testid="run-state"
+                >
+                  {{ runStateLabel(run) }}
+                </Badge>
+              </Hint>
             </td>
             <td class="pr-3 text-muted-foreground">
               <div class="flex items-center justify-end gap-1">
-                <Button
-                  v-if="deletable(run.job_id)"
-                  variant="ghost"
-                  size="icon"
-                  class="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  title="Delete this run"
-                  aria-label="Delete this run"
-                  data-testid="run-delete"
-                  @click.stop="askDelete(run)"
-                >
-                  <Trash2 class="size-4" />
-                </Button>
+                <Hint text="Delete this run">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    aria-label="Delete this run"
+                    data-testid="run-delete"
+                    @click.stop="askDelete(run)"
+                  >
+                    <Trash2 class="size-4" />
+                  </Button>
+                </Hint>
                 <ChevronRight class="size-4" aria-hidden="true" />
               </div>
             </td>
@@ -254,23 +254,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { apiErrorDetail } from '@/lib/errors'
+import Hint from '../Hint.vue'
+import AlertBadge from './AlertBadge.vue'
 import { useReport } from './context'
-import { count, DASH, dayTime, pointsRange, scheduleText } from './figures'
+import { barWidth, count, DASH, dayTime, pointsRange, scheduleText, utcStamp } from './figures'
 import { modelName } from './labels'
 import { runLocation } from './routing'
 import { planText } from '../setup/progress'
 import { buildText } from '../filter'
-import {
-  progressShare,
-  progressText,
-  runStateLabel,
-  stoppedLabel,
-  stoppedTip,
-  utcStamp,
-} from './selectors'
+import { progressShare, progressText, runStateLabel, stoppedLabel, stoppedTip } from './selectors'
 import { RUNS_PAGE } from './useRunReport'
-
-defineProps<{ slug: string }>()
 
 const BUILD_ONLY_TIP = 'Questions were written and filtered; no model was asked.'
 const DELETE_TEXT =
@@ -286,17 +279,9 @@ const running = computed(() => report.inProgress.value)
 
 const first = computed(() => report.page.value * RUNS_PAGE)
 
-function clamp01(x: number): number {
-  return Math.min(Math.max(x, 0), 1)
-}
-
-function share(x: number): string {
-  return `${clamp01(x) * 100}%`
-}
-
 /** Lift on a 0–100 point scale, drawn from zero to the top of the range. */
 function liftStyle(hi: number): Record<string, string> {
-  return { left: '0%', width: share(hi / 100) }
+  return { left: '0%', width: barWidth(hi / 100) }
 }
 
 function open(jobId: string): void {
@@ -305,11 +290,6 @@ function open(jobId: string): void {
 
 const toDelete = ref<BenchmarkRunSummary | null>(null)
 const deleting = ref(false)
-
-/** Queued and running runs cannot be deleted. */
-function deletable(jobId: string): boolean {
-  return !running.value.some((p) => p.job_id === jobId)
-}
 
 function askDelete(run: BenchmarkRunSummary): void {
   toDelete.value = run

@@ -1,49 +1,34 @@
-"""Stage 6: the report as a document — tables, charts, observations, conclusion.
+"""The report of a Space as a .docx: tables, charts, observations, conclusion.
 
-The Markdown report from ``metrics.py`` stays: it reads in a console, goes into
-git and is compared line by line between runs. This one assembles from the same
-metrics a document to hand to a human — with charts, with an explanation of what
-each quantity means, and with a conclusion at the end.
-
-Two rules that shaped the module.
-
-**The report is built from aggregates and from nothing else.** The input is a
-list of ``Metrics`` — aggregated numbers only.
-Neither a question, nor a gold answer, nor a corpus chunk is here or can appear:
-the document leaves the owner hands further than the audit export, and it must
-not carry corpus text. The raw records live in ``audit.py``, are marked there as
-corpus, and are handed over separately.
-
-**A chart does not compute.** Everything drawn has already been computed in
-``metrics.py`` — otherwise a picture will one day diverge from the table beneath it.
-
-The sections go in order of the importance of the question rather than in order
-of convenience of assembly: first the behaviour where there is no answer in the
-corpus (the measurement was set up for it), then the price of context, and only
-at the end the reliability of the measurement itself.
+Built from the same ``Metrics`` rows as the Markdown report, for a human
+reader. The input is aggregated numbers only: no question, gold answer or
+corpus chunk reaches the document, which leaves the owner's hands further than
+the audit export. Sections go in order of the importance of the question: the
+control half first, then the price of context, the reliability of the
+measurement last.
 """
 
 from __future__ import annotations
 
-import io
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
 from docx import Document
 from docx.document import Document as Doc
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Pt, RGBColor
 
 from syft_benchmark.config import (
     ARM_LETTER,
-    BEHAVIOUR_LABEL,
+    ARM_MEANING,
+    MEASURED_ARMS,
     ContextMode,
     ExpectedBehavior,
     Settings,
     get_settings,
 )
 from syft_benchmark.report import charts
+from syft_benchmark.report.docx_blocks import heading, image, note, para, table
 from syft_benchmark.report.metrics import (
     Metrics,
     context_effect_pairs,
@@ -52,30 +37,12 @@ from syft_benchmark.report.metrics import (
 from syft_benchmark.report.narrative import Finding, analysis, findings, numbers_block
 from syft_benchmark.report.slices import (
     AGREEMENT_FLOOR,
-    GeneratorSlice,
-    JudgePair,
+    agreement_rows,
     average_agreement,
-    by_generator,
-    judge_agreement,
+    generator_rows,
 )
 
-TABLE_STYLE = "Light Grid Accent 1"
 ACCENT = RGBColor(0x1A, 0x5C, 0x97)
-MUTED = RGBColor(0x55, 0x55, 0x55)
-
-ARM_MEANING: dict[str, str] = {
-    "A": "the model alone, without a single corpus chunk. Measures the honesty of "
-    "the model itself: a correct answer here means not node quality but that the "
-    "corpus is already familiar to it",
-    "B": "the whole endpoint — its retrieval, its model, its system prompt. An "
-    "assessment of the owner product",
-    "C": "the same model as in arm A, plus what the endpoint returned. A and C "
-    "differ by exactly the presence of context, so their difference is interpretable",
-}
-
-
-def _heading(doc: Doc, text: str, level: int = 1) -> None:
-    doc.add_heading(text, level=level)
 
 
 class _Sections:
@@ -95,46 +62,11 @@ class _Sections:
     def open(self, title: str) -> None:
         self._number += 1
         self._sub = 0
-        _heading(self.doc, f"{self._number}. {title}", level=1)
+        heading(self.doc, f"{self._number}. {title}", level=1)
 
     def sub(self, title: str) -> None:
         self._sub += 1
-        _heading(self.doc, f"{self._number}.{self._sub} {title}", level=2)
-
-
-def _para(doc: Doc, text: str, *, bold: bool = False, italic: bool = False) -> None:
-    run = doc.add_paragraph().add_run(text)
-    run.bold = bold
-    run.italic = italic
-
-
-def _note(doc: Doc, text: str) -> None:
-    """An explanation under a section: what the quantity means and what it is not."""
-    run = doc.add_paragraph().add_run(text)
-    run.italic = True
-    run.font.size = Pt(9)
-    run.font.color.rgb = MUTED
-
-
-def _image(doc: Doc, png: bytes, width: float = 6.0) -> None:
-    doc.add_picture(io.BytesIO(png), width=Inches(width))
-    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-
-def _table(doc: Doc, headers: Sequence[str], rows: Iterable[Sequence[str]]) -> None:
-    table = doc.add_table(rows=1, cols=len(headers), style=TABLE_STYLE)
-    for cell, name in zip(table.rows[0].cells, headers, strict=True):
-        cell.text = name
-    for row in rows:
-        cells = table.add_row().cells
-        for cell, value in zip(cells, row, strict=True):
-            cell.text = value
-    for row in table.rows:
-        for cell in row.cells:
-            for paragraph in cell.paragraphs:
-                for run in paragraph.runs:
-                    run.font.size = Pt(8)
-    doc.add_paragraph()
+        heading(self.doc, f"{self._number}.{self._sub} {title}", level=2)
 
 
 def _label(m: Metrics, *, with_judge: bool) -> str:
@@ -154,10 +86,13 @@ def _many_judges(results: Sequence[Metrics]) -> bool:
 
 
 def _parts(m: Metrics) -> dict[str, float]:
+    """Every graded verdict's share of the row: the parts add up to the bar."""
     return {
         "correct": m.accuracy,
         "abstain": m.abstain_rate,
         "hallucinate": m.hallucination_rate,
+        "web_sourced": m.web_sourced_rate,
+        "incomplete": m.incomplete_rate,
     }
 
 
@@ -173,22 +108,22 @@ def _insight(doc: Doc, numbers: str, question: str, settings: Settings) -> None:
 def _title_page(doc: Doc, results: list[Metrics], conf: Settings) -> None:
     spaces = sorted({m.space for m in results})
     doc.add_heading("Endpoint honesty benchmark — report", level=0)
-    _para(doc, f"Nodes: {', '.join(spaces) or '—'}")
-    _para(doc, f"Report assembled: {datetime.now():%Y-%m-%d %H:%M}")
+    para(doc, f"Nodes: {', '.join(spaces) or '—'}")
+    para(doc, f"Report assembled: {datetime.now():%Y-%m-%d %H:%M}")
 
     stamps = [m.checked_at for m in results if m.checked_at]
     if stamps:
         first, last = min(stamps), max(stamps)
-        _para(doc, f"Verdicts issued: {first:%Y-%m-%d %H:%M} — {last:%Y-%m-%d %H:%M}")
+        para(doc, f"Verdicts issued: {first:%Y-%m-%d %H:%M} — {last:%Y-%m-%d %H:%M}")
 
     judges = sorted({m.judge for m in results if m.judge})
-    _para(doc, f"Judges: {', '.join(judges) or '—'}")
+    para(doc, f"Judges: {', '.join(judges) or '—'}")
     models = sorted({m.model for m in results if m.model})
-    _para(doc, f"Models tested: {', '.join(models) or '—'}")
+    para(doc, f"Models tested: {', '.join(models) or '—'}")
     doc.add_paragraph()
 
-    _heading(doc, "How this report was obtained", level=2)
-    _note(
+    heading(doc, "How this report was obtained", level=2)
+    note(
         doc,
         "Thresholds and retrieval parameters are axes of the measurement, not "
         "constants: one and the same pair at a different similarity threshold gives "
@@ -196,7 +131,7 @@ def _title_page(doc: Doc, results: list[Metrics], conf: Settings) -> None:
         "cannot be compared with a report obtained under different ones.",
     )
     sources = sorted({m.context_source for m in results if m.context_source})
-    _table(
+    table(
         doc,
         ("Parameter", "Value"),
         [
@@ -212,8 +147,8 @@ def _title_page(doc: Doc, results: list[Metrics], conf: Settings) -> None:
         ],
     )
 
-    _heading(doc, "What is not in this report", level=2)
-    _para(
+    heading(doc, "What is not in this report", level=2)
+    para(
         doc,
         "The report is assembled from aggregated numbers. There are no questions, "
         "gold answers or corpus chunks in it — not one, and that is a property of "
@@ -231,47 +166,47 @@ def _title_page(doc: Doc, results: list[Metrics], conf: Settings) -> None:
 def _how_to_read(sections: _Sections, results: list[Metrics]) -> None:
     doc = sections.doc
     sections.open("How to read these numbers")
-    _para(
+    para(
         doc,
-        "The measurement is built as a comparison of three arms. Their shares must "
-        "not be added into one: the arms measure three different things.",
+        "The measurement is built as a comparison of two arms. Their shares must "
+        "not be added into one: the arms measure different things.",
     )
     seen = {m.context_mode for m in results}
-    _table(
+    table(
         doc,
         ("Arm", "Mode", "What it measures", "Present in this run"),
         [
             (
-                letter,
-                mode,
-                ARM_MEANING[letter],
-                "yes" if ContextMode(mode) in seen else "no",
+                ARM_LETTER[mode.value],
+                mode.value,
+                ARM_MEANING[mode],
+                "yes" if mode in seen else "no",
             )
-            for mode, letter in ARM_LETTER.items()
+            for mode in MEASURED_ARMS
         ],
     )
 
-    _para(doc, "The halves of the set are counted separately:", bold=True)
-    _para(
+    para(doc, "The halves of the set are counted separately:", bold=True)
+    para(
         doc,
         "\u2022 Answerable questions — there is an answer in the corpus, the item "
         "was built from a chunk. Accuracy and LMI are meaningful here.",
     )
-    _para(
+    para(
         doc,
         "\u2022 Control questions — there is no answer in the corpus. There is no "
         'share of "correct" there: any non-abstention is an invention. LMI is not '
         "computed — its denominator holds a quantity that does not occur.",
     )
-    _note(
+    note(
         doc,
         "Accuracy computed over both halves at once drops simply because there came "
         "to be more control questions. So they are not mixed anywhere in the report, "
         "charts included.",
     )
 
-    _para(doc, "The judge is a model.", bold=True)
-    _para(
+    para(doc, "The judge is a model.", bold=True)
+    para(
         doc,
         "All the shares in the report are computed from a judge model verdicts "
         "rather than from a human labelling. Different judges diverge on borderline "
@@ -285,18 +220,18 @@ def _answerable_section(
 ) -> None:
     doc = sections.doc
     sections.open("Answerable questions: there is an answer in the corpus")
-    _para(
+    para(
         doc,
         "The item was built from a corpus chunk, which means a correct answer exists "
         "and is known. What is measured here is the usefulness of the node: did "
         "retrieval find the right thing and did the model use it.",
     )
     if not rows:
-        _para(doc, "No answerable questions were assessed in this run.")
+        para(doc, "No answerable questions were assessed in this run.")
         return
 
     with_judge = _many_judges(rows)
-    _image(
+    image(
         doc,
         charts.composition(
             [_label(m, with_judge=with_judge) for m in rows],
@@ -304,14 +239,14 @@ def _answerable_section(
             title="The composition of outcomes on answerable questions",
         ),
     )
-    _note(
+    note(
         doc,
         "The whole bar is all the assessed answers. It should be read not by the "
         "green but by the rest: an abstention on an answerable question is a missed "
         "benefit, an invention is harm.",
     )
 
-    _table(
+    table(
         doc,
         (
             "Arm",
@@ -322,12 +257,13 @@ def _answerable_section(
             "Correct",
             "Inventions",
             "Abstentions",
+            "Incomplete",
             "LMI",
             "Retrieval",
         ),
         [
             (
-                f"{m.arm} {m.context_mode.value}",
+                m.arm_label,
                 m.block.value,
                 m.model or m.endpoint or "—",
                 m.judge or "—",
@@ -335,6 +271,7 @@ def _answerable_section(
                 f"{m.accuracy:.0%}",
                 f"{m.hallucination_rate:.0%}",
                 f"{m.abstain_rate:.0%}",
+                f"{m.incomplete_rate:.0%}",
                 f"{m.lmi:.2f}" if m.lmi is not None else "—",
                 f"{m.retrieval_rate:.0%}" if m.retrieval_checked else "—",
             )
@@ -345,14 +282,14 @@ def _answerable_section(
     lmi_rows = [m for m in rows if m.lmi is not None]
     if lmi_rows:
         sections.sub("The share of inventions among attempts to answer (LMI)")
-        _note(
+        note(
             doc,
             "H / (H + C): out of the cases where the answerer set about answering, "
             "how many times it answered wrongly. Abstentions do not enter the "
             "denominator — otherwise the metric could be improved simply by "
             "abstaining more often.",
         )
-        _image(
+        image(
             doc,
             charts.bars(
                 [_label(m, with_judge=with_judge) for m in lmi_rows],
@@ -367,7 +304,7 @@ def _answerable_section(
         numbers_block(rows),
         "Analyse the results on the answerable questions: which arm gives more "
         "benefit, where abstentions mean missed benefit and where inventions mean "
-        "harm, and what the difference between arms B and C says about the endpoint.",
+        "harm, and what the difference between arms A and C says about the endpoint.",
         conf,
     )
 
@@ -375,14 +312,14 @@ def _answerable_section(
 def _control_section(sections: _Sections, rows: list[Metrics], conf: Settings) -> None:
     doc = sections.doc
     sections.open("Control questions: there is NO answer in the corpus")
-    _para(
+    para(
         doc,
         "The most frequent question a live user asks is the one with no answer in "
         "the corpus. No correct answer exists here, so there is no share of "
         '"correct" in this section: any non-abstention is an invention.',
     )
     if not rows:
-        _para(
+        para(
             doc,
             "No control questions were assessed in this run — half of the pair "
             "behaviour was measured.",
@@ -391,7 +328,7 @@ def _control_section(sections: _Sections, rows: list[Metrics], conf: Settings) -
 
     with_judge = _many_judges(rows)
     labels = [_label(m, with_judge=with_judge) for m in rows]
-    _image(
+    image(
         doc,
         charts.bars(
             labels,
@@ -400,7 +337,7 @@ def _control_section(sections: _Sections, rows: list[Metrics], conf: Settings) -
             colour=charts.BAD,
         ),
     )
-    _table(
+    table(
         doc,
         (
             "Arm",
@@ -414,10 +351,10 @@ def _control_section(sections: _Sections, rows: list[Metrics], conf: Settings) -
         ),
         [
             (
-                f"{m.arm} {m.context_mode.value}",
+                m.arm_label,
                 m.model or m.endpoint or "—",
                 m.judge or "—",
-                BEHAVIOUR_LABEL.get(m.expected.value, m.expected.value),
+                m.behaviour_label,
                 str(m.graded),
                 f"{m.abstain_rate:.0%}",
                 f"{m.fabrication_rate:.0%}",
@@ -426,7 +363,7 @@ def _control_section(sections: _Sections, rows: list[Metrics], conf: Settings) -
             for m in rows
         ],
     )
-    _note(
+    note(
         doc,
         "The control half is not homogeneous. On a question without an answer the "
         "right thing is to stay silent, on a question with a false premise to refute "
@@ -450,7 +387,7 @@ def _discrimination_section(sections: _Sections, results: list[Metrics]) -> None
     if not pairs:
         return
     sections.open("Abstention discrimination")
-    _para(
+    para(
         doc,
         'Whether the answerer tells "there is an answer" from "there is none". '
         "The share of abstentions on the control half minus the share on the "
@@ -459,7 +396,7 @@ def _discrimination_section(sections: _Sections, results: list[Metrics]) -> None
         "tells them apart.",
     )
     with_judge = _many_judges([a for a, _, _ in pairs])
-    _image(
+    image(
         doc,
         charts.diverging(
             [_label(a, with_judge=with_judge) for a, _, _ in pairs],
@@ -468,7 +405,7 @@ def _discrimination_section(sections: _Sections, results: list[Metrics]) -> None
             plus_is_bad=False,
         ),
     )
-    _table(
+    table(
         doc,
         (
             "Arm",
@@ -480,7 +417,7 @@ def _discrimination_section(sections: _Sections, results: list[Metrics]) -> None
         ),
         [
             (
-                f"{a.arm} {a.context_mode.value}",
+                a.arm_label,
                 a.model or a.endpoint or "—",
                 a.judge or "—",
                 f"{c.abstain_rate:.0%}",
@@ -490,7 +427,7 @@ def _discrimination_section(sections: _Sections, results: list[Metrics]) -> None
             for a, c, value in pairs
         ],
     )
-    _note(
+    note(
         doc,
         "Questions with a false premise do not enter this count: there the right "
         "thing is to refute the premise rather than stay silent, and counting an "
@@ -507,38 +444,37 @@ def _context_price_section(
     if not pairs:
         return
     sections.open("The price of context: what RAG did to the model")
-    _para(
+    para(
         doc,
         "The share of inventions in arm C minus the share in arm A for one and the "
         "same model. The arms differ by exactly the presence of context, so the "
         "difference is interpretable, and the sign is not known in advance — that is "
         "the point of the measurement.",
     )
-    _para(
+    para(
         doc,
         '\u2022 A minus — the material helped it abstain: saying "this is not in '
         'the documents provided" is easier than "I do not know".',
     )
-    _para(
+    para(
         doc,
         "\u2022 A plus — the material removed the caution: the question started "
         "looking as if the answer were somewhere here, and the model that stayed "
         "silent without context answered.",
     )
     with_judge = _many_judges([c for _, c, _ in pairs])
-    _image(
+    image(
         doc,
         charts.diverging(
             [
-                f"{_label(c, with_judge=with_judge)}\n"
-                f"{BEHAVIOUR_LABEL.get(c.expected.value, c.expected.value)}"
+                f"{_label(c, with_judge=with_judge)}\n" f"{c.behaviour_label}"
                 for _, c, _ in pairs
             ],
             [value for _, _, value in pairs],
             title="The change in the share of inventions on going A → C",
         ),
     )
-    _table(
+    table(
         doc,
         (
             "Model",
@@ -553,7 +489,7 @@ def _context_price_section(
             (
                 c.model or "—",
                 c.judge or "—",
-                BEHAVIOUR_LABEL.get(c.expected.value, c.expected.value),
+                c.behaviour_label,
                 str(c.graded),
                 f"{a.hallucination_rate:.0%}",
                 f"{c.hallucination_rate:.0%}",
@@ -562,7 +498,7 @@ def _context_price_section(
             for a, c, value in pairs
         ],
     )
-    _note(
+    note(
         doc,
         "On the control half this is the most important number in the whole "
         "measurement: it is the price the model honesty pays for being wired to RAG.",
@@ -571,7 +507,7 @@ def _context_price_section(
         doc,
         "\n".join(
             f"{c.model or '—'} / "
-            f"{BEHAVIOUR_LABEL.get(c.expected.value, c.expected.value)}: "
+            f"{c.behaviour_label}: "
             f"inventions A {a.hallucination_rate:.0%} → C {c.hallucination_rate:.0%} "
             f"({value:+.0%}), questions {c.graded}"
             for a, c, value in pairs
@@ -588,7 +524,7 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
     if not rows:
         return
     sections.open("Retrieval found it — did the model use it?")
-    _para(
+    para(
         doc,
         "The cut by retrieval hit. Without it two different ailments merge into one "
         "share: an abstention on a retrieval miss is correct behaviour by the model, "
@@ -598,7 +534,7 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
     )
     with_judge = _many_judges(rows)
     labels = [_label(m, with_judge=with_judge) for m in rows]
-    _image(
+    image(
         doc,
         charts.grouped(
             labels,
@@ -621,7 +557,7 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
             title="Retrieval and the model: whose error this is",
         ),
     )
-    _table(
+    table(
         doc,
         (
             "Arm",
@@ -633,7 +569,7 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
         ),
         [
             (
-                f"{m.arm} {m.context_mode.value}",
+                m.arm_label,
                 m.model or m.endpoint or "—",
                 m.judge or "—",
                 f"{m.retrieval_rate:.0%}",
@@ -647,7 +583,7 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
             for m in rows
         ],
     )
-    _note(
+    note(
         doc,
         "The shares are computed against different denominators: a false abstention "
         "against retrieval hits, an answer on a miss against misses. They have no "
@@ -668,13 +604,13 @@ def _stability_section(
 
     if pressured:
         sections.sub("Under pressure")
-        _para(
+        para(
             doc,
             "The share of correct answers the model gave up under objections. The "
             "pressure was applied only to a correct answer: an answer given up is "
             "spoiled by the disagreement of an interlocutor, not by an error.",
         )
-        _image(
+        image(
             doc,
             charts.bars(
                 [_label(m, with_judge=_many_judges(pressured)) for m in pressured],
@@ -686,13 +622,13 @@ def _stability_section(
 
     if repeated:
         sections.sub("On repeats")
-        _para(
+        para(
             doc,
             "How far the answer repeats when the question is repeated at different "
             "temperatures. Below the floor any accuracy measured speaks about which "
             "run made it into the report rather than about the model.",
         )
-        _image(
+        image(
             doc,
             charts.bars(
                 [_label(m, with_judge=_many_judges(repeated)) for m in repeated],
@@ -703,12 +639,12 @@ def _stability_section(
                 floor_label="trust floor",
             ),
         )
-        _table(
+        table(
             doc,
             ("Arm", "Model", "Judge", "Consistency", "Trust the accuracy"),
             [
                 (
-                    f"{m.arm} {m.context_mode.value}",
+                    m.arm_label,
                     m.model or m.endpoint or "—",
                     m.judge or "—",
                     f"{m.consistency:.0%}" if m.consistency is not None else "—",
@@ -725,14 +661,14 @@ def _exposure_section(sections: _Sections, rows: list[Metrics]) -> None:
     if not closed:
         return
     sections.open("How public the corpus is")
-    _para(
+    para(
         doc,
         "The share of questions the model answered correctly without access to the "
         "corpus. This is not the endpoint quality: a high value means the corpus is "
         "already known to the model — public or part of its training — and the "
         "merits of retrieval in the other arms are overstated by exactly as much.",
     )
-    _image(
+    image(
         doc,
         charts.bars(
             [_label(m, with_judge=_many_judges(closed)) for m in closed],
@@ -746,96 +682,66 @@ def _exposure_section(sections: _Sections, rows: list[Metrics]) -> None:
 def _generator_section(
     sections: _Sections, answerable: list[Metrics], conf: Settings
 ) -> None:
-    """Where exactly the model errs, rather than how many times.
-
-    The summary gives one share laid over ten generators, and they measure different
-    skills. A model that holds dates confidently and falls apart on connecting facts
-    gets "accuracy 71%" in the summary — a number by which there is nothing to fix.
-    """
-    rows: list[tuple[str, str, GeneratorSlice]] = []
-    for m in answerable:
-        if not m.graded:
-            continue
-        arm = f"{m.arm} {m.context_mode.value}"
-        for entry in by_generator(
-            m.space, m.context_mode, m.block, m.model or None, m.judge or None
-        ):
-            if entry.graded:
-                rows.append((arm, m.model or m.endpoint or "—", entry))
+    """The "by item type" section; see ``generator_rows``."""
+    rows = generator_rows(answerable)
     if not rows:
         return
 
     sections.open("By item type")
-    _para(
+    para(
         sections.doc,
         "The generators measure different skills: number masking — precision about "
         "a figure, multihop — the ability to connect two facts, tiered — an extended "
         "explanation. A summary share averages them and therefore hides exactly what "
         "the owner needs: which kind of question breaks.",
     )
-    _para(
+    para(
         sections.doc,
         "Worst first. The half of the set is the answerable one: on the control half "
         'there is nothing to compute "accuracy by item type" from, no correct '
         "answer occurs there.",
     )
 
-    worst = sorted(rows, key=lambda item: item[2].accuracy)
-    _table(
+    worst = sorted(rows, key=lambda row: row.entry.accuracy)
+    table(
         sections.doc,
         ("Arm", "Model", "Item type", "Questions", "Accuracy", "Hallucinations"),
         [
             (
-                arm,
-                model,
-                entry.generator,
-                str(entry.graded),
-                f"{entry.accuracy:.0%}",
-                f"{entry.hallucination_rate:.0%}",
+                row.arm,
+                row.model or "—",
+                row.entry.generator,
+                str(row.entry.graded),
+                f"{row.entry.accuracy:.0%}",
+                f"{row.entry.hallucination_rate:.0%}",
             )
-            for arm, model, entry in worst
+            for row in worst
         ],
     )
 
-    head = worst[0]
     _insight(
         sections.doc,
         "\n".join(
-            f"{arm} / {model} / {entry.generator}: accuracy "
-            f"{entry.accuracy:.0%}, inventions {entry.hallucination_rate:.0%}, "
-            f"questions {entry.graded}"
-            for arm, model, entry in worst[:12]
+            f"{row.arm} / {row.model or '—'} / {row.entry.generator}: accuracy "
+            f"{row.entry.accuracy:.0%}, inventions "
+            f"{row.entry.hallucination_rate:.0%}, questions {row.entry.graded}"
+            for row in worst[:12]
         ),
         f"Which kind of item is hardest and what does that say about the corpus? "
-        f"The worst cut is {head[2].generator}.",
+        f"The worst cut is {worst[0].entry.generator}.",
         conf,
     )
 
 
 def _agreement_section(sections: _Sections, answerable: list[Metrics]) -> None:
-    """Whether whoever computed this can be trusted.
-
-    A panel is set up so that the divergence of assessments can be seen, but by
-    themselves three columns show nothing. If the judges diverge on a third of the
-    questions, any difference between models smaller than a third is noise, and that
-    has to be said before the reader starts comparing percentages.
-    """
-    rows: list[tuple[str, str, JudgePair]] = []
-    seen: set[tuple[str, str, str, str]] = set()
-    for m in answerable:
-        key = (m.space, m.context_mode.value, m.block.value, m.model)
-        if not m.graded or key in seen:
-            continue
-        seen.add(key)
-        arm = f"{m.arm} {m.context_mode.value}"
-        for pair in judge_agreement(m.space, m.context_mode, m.block, m.model or None):
-            rows.append((arm, m.model or m.endpoint or "—", pair))
+    """The "judge agreement" section; see ``agreement_rows``."""
+    rows = agreement_rows(answerable)
     if not rows:
         return
 
-    average = average_agreement([pair for *_, pair in rows])
+    average = average_agreement([row.pair for row in rows])
     sections.open("Judge agreement")
-    _para(
+    para(
         sections.doc,
         "The assessment is made by a model, and models differ in their opinions. "
         "Here is the share of questions on which two judges issued ONE verdict. "
@@ -843,27 +749,27 @@ def _agreement_section(sections: _Sections, answerable: list[Metrics]) -> None:
         "run leave the judges with different sets, and someone else gap is not a "
         "disagreement.",
     )
-    _table(
+    table(
         sections.doc,
         ("Arm", "Model", "Judge", "Judge", "Shared questions", "Agreement"),
         [
             (
-                arm,
-                model,
-                pair.left,
-                pair.right,
-                str(pair.shared),
-                f"{pair.rate:.0%}",
+                row.arm,
+                row.model or "—",
+                row.pair.left,
+                row.pair.right,
+                str(row.pair.shared),
+                f"{row.pair.rate:.0%}",
             )
-            for arm, model, pair in rows
+            for row in rows
         ],
     )
     if average is None:
         return
 
-    _para(sections.doc, f"Average agreement — {average:.0%}.", bold=True)
+    para(sections.doc, f"Average agreement — {average:.0%}.", bold=True)
     if average < AGREEMENT_FLOOR:
-        _note(
+        note(
             sections.doc,
             f"That is below {AGREEMENT_FLOOR:.0%}. The judges diverge too often: a "
             f"difference between models smaller than that spread means nothing, and "
@@ -871,7 +777,7 @@ def _agreement_section(sections: _Sections, answerable: list[Metrics]) -> None:
             f"verdicts diverge on before reading the shares.",
         )
     else:
-        _para(
+        para(
             sections.doc,
             f"The judges agree more often than in {AGREEMENT_FLOOR:.0%} of cases — a "
             f"difference between models exceeding the spread of assessments can be "
@@ -887,19 +793,19 @@ def _reliability_section(sections: _Sections, results: list[Metrics]) -> None:
         return
     if not failures:
         sections.open("Answers without a verdict")
-        _para(
+        para(
             doc,
             "The answer was received, the judge has not seen it. These rows do not "
             "enter the shares: an outcome nobody issued is not an outcome. It is "
             "cured not by rerunning but by judging.",
         )
-        _table(
+        table(
             doc,
             ("Node", "Arm", "Block", "Model", "Awaiting a verdict"),
             [
                 (
                     m.space,
-                    f"{m.arm} {m.context_mode.value}",
+                    m.arm_label,
                     m.block.value,
                     m.model or m.endpoint or "—",
                     str(m.pending),
@@ -909,20 +815,20 @@ def _reliability_section(sections: _Sections, results: list[Metrics]) -> None:
         )
         return
     sections.open("Failed calls")
-    _para(
+    para(
         doc,
         "Requests that did not reach an answer. They do not enter the shares: a "
         "failed call speaks about the rig, not about the quality of the answers. But "
         "if there are many, the report describes the part of the set that happened "
         "to get through.",
     )
-    _table(
+    table(
         doc,
         ("Node", "Arm", "Block", "Model", "Failed", "Assessed"),
         [
             (
                 m.space,
-                f"{m.arm} {m.context_mode.value}",
+                m.arm_label,
                 m.block.value,
                 m.model or m.endpoint or "—",
                 str(m.failed),
@@ -932,7 +838,7 @@ def _reliability_section(sections: _Sections, results: list[Metrics]) -> None:
         ],
     )
     if waiting:
-        _note(
+        note(
             doc,
             f"Besides them, {sum(m.pending for m in waiting)} answers are recorded "
             f"without a verdict: the judge has not seen them. That is not a failure "
@@ -948,20 +854,20 @@ def _conclusions(
 ) -> None:
     doc = sections.doc
     sections.open("Conclusions")
-    _para(doc, "Observations", bold=True)
-    _note(
+    para(doc, "Observations", bold=True)
+    note(
         doc,
         "Each follows directly from the tables above and is computed rather than "
         "written: an observation appears only where the quantity was measured.",
     )
     if not observed:
-        _para(doc, "There are not enough measured quantities for observations.")
+        para(doc, "There are not enough measured quantities for observations.")
     for item in observed:
         run = doc.add_paragraph().add_run(item.title)
         run.bold = True
         run.font.color.rgb = ACCENT
         run.font.size = Pt(10)
-        _para(doc, item.detail)
+        para(doc, item.detail)
 
     text = analysis(
         numbers_block(results),
@@ -972,14 +878,14 @@ def _conclusions(
         settings=conf,
     )
     if text:
-        _para(doc, "Overall conclusion", bold=True)
-        _note(
+        para(doc, "Overall conclusion", bold=True)
+        note(
             doc,
             "The paragraph below was written by a model from the aggregated numbers "
             "of this report alone. It is a retelling, not a measurement: it is "
             "checked against the tables above.",
         )
-        _para(doc, text, italic=True)
+        para(doc, text, italic=True)
 
 
 def build_docx(

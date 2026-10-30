@@ -1,22 +1,12 @@
-"""The prose part of the report: the observations and the conclusion.
+"""The prose part of the report: computed observations and a model-written
+analysis.
 
-Two different sources of text, and they must not be mixed.
-
-**The observations are computed, not written.** Each is a statement about an
-already-computed quantity: "inventions on the control half are such-and-such",
-"the context shifted them by such-and-such". They appear only if the quantity was
-measured, and never appear if there was nothing to measure on. Such text cannot
-diverge from the table beside it, because it takes its numbers from the same place.
-
-**The analysis is written by a model** — and that is exactly the part that must
-not be taken on trust. So it is kept apart: it goes as a separate paragraph with a
-note saying what wrote it, and the absence of a model does not break the report —
-the section simply does not appear.
-
-The perimeter: what goes out is aggregated numbers only. Neither a question,
-nor a gold answer, nor a corpus chunk gets into the prompt — there is nowhere
-here to take them from, ``Metrics`` contains no text, and this module does not
-touch the database (locked down by the invariants test).
+The two are kept apart: an observation is a statement about a measured
+quantity and appears only where it was measured; the analysis is a paragraph a
+model writes from the aggregated numbers alone, labelled as such, and absent
+when the model is unreachable. The prompt holds ``Metrics`` figures only, never
+a question, a gold answer or a corpus chunk; this module does not touch the
+database (the invariants test locks that down).
 """
 
 from __future__ import annotations
@@ -26,7 +16,6 @@ from dataclasses import dataclass
 from loguru import logger
 
 from syft_benchmark.config import (
-    BEHAVIOUR_LABEL,
     ContextMode,
     ExpectedBehavior,
     Settings,
@@ -45,8 +34,8 @@ SYSTEM = (
     "RAG endpoint. You are given only the aggregated numbers of the measurement. "
     "Write 4-6 connected sentences as continuous prose: no lists, no headings, no "
     "markup. Rely on the specific numbers and name the arms by letter (A — the "
-    "model without context, B — the whole endpoint, C — the same model with the "
-    "material that was found). Do not invent quantities that are not in the data, "
+    "model without context, C — the same model with the material that was "
+    "found). Do not invent quantities that are not in the data, "
     'and do not write "apparently" — if something was not measured, say so.'
 )
 
@@ -97,7 +86,7 @@ def _fabrication_finding(results: list[Metrics]) -> Finding | None:
             f"is the best outcome of the measurement: the answerer stays silent "
             f"where there is nothing to answer with.",
         )
-    behaviour = BEHAVIOUR_LABEL.get(worst.expected.value, worst.expected.value)
+    behaviour = worst.behaviour_label
     return Finding(
         "Questions without an answer: how often they are answered anyway",
         f"Worst of all is {_label(worst)}: on {worst.graded} questions where the "
@@ -217,7 +206,7 @@ def _exposure_finding(results: list[Metrics]) -> Finding | None:
             f"Without access to the corpus not one model answered correctly on a "
             f"single free-answer question ({split.free_form_graded} of them, arm A). "
             f"The corpus is unfamiliar to the models, which means the correct answers "
-            f"in arms B and C were obtained by retrieval, not by memory.{tail}",
+            f"in arm C were obtained by retrieval, not by memory.{tail}",
         )
     return Finding(
         "How public the corpus is",
@@ -344,7 +333,7 @@ def numbers_block(results: list[Metrics]) -> str:
         lines.append(
             f"{m.arm} | {m.block.value} | {m.model or m.endpoint or '—'} | "
             f"{m.judge or '—'} | "
-            f"{BEHAVIOUR_LABEL.get(m.expected.value, m.expected.value)} | "
+            f"{m.behaviour_label} | "
             f"{m.graded} | {m.accuracy:.0%} | {m.abstain_rate:.0%} | "
             f"{m.hallucination_rate:.0%} | {m.incomplete_rate:.0%} | {lmi} | "
             f"{retrieval}"

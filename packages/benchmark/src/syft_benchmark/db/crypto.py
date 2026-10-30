@@ -1,19 +1,9 @@
 """Sealing a secret before it reaches the database.
 
-Two kinds pass through this service and neither is its own: the keys to the
-model providers, which cost money, and the Space tokens, which speak for their
-owner. Neither belongs in a plain-text column — that would put it in every
-dump, backup and replica.
-
-AES-256-GCM, with the credential's name as associated data. The name binds a
-ciphertext to its slot: without it, somebody who can write to the table but
-knows no key could copy the row of `judge_key` into `subject_key` and quietly
-redirect the model under test to a provider of their choosing.
-
-This protects what leaves the database — dumps, backups, replicas, a stolen
-volume. It does not protect against someone who can read the process's
-environment, where the master key is. That is the ordinary bargain of envelope
-encryption with the key outside, and the step beyond it is an external KMS.
+The provider keys and the Space tokens are stored under AES-256-GCM with the
+credential's name as associated data, so a ciphertext opens only in the slot it
+was sealed for. This protects what leaves the database; the master key lives in
+the process's environment.
 """
 
 from __future__ import annotations

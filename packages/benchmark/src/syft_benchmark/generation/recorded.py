@@ -14,13 +14,17 @@ import uuid
 from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 
+from syft_benchmark.llm import cost
+
 WRITER = "writer"
 PASSAGE_MARK = "⟦passage⟧"
 # The texts that sit on one pair of a call.
 _FULL = ("model", "system", "user", "reply", "passage", "cost_usd", "latency_s")
 
 
-class _Pair(Protocol):
+class RecordedPair(Protocol):
+    """A pair, as far as the calls recorded on it go."""
+
     meta: dict[str, Any]
     context: str
 
@@ -35,7 +39,6 @@ def new_call(
     usage: Mapping[str, Any],
 ) -> dict[str, Any]:
     """A writer call as made: its id and full texts."""
-    latency = usage.get("latency_s")
     return {
         "call": uuid.uuid4().hex,
         "model": model,
@@ -43,8 +46,7 @@ def new_call(
         "user": user,
         "reply": reply,
         "passage": passage,
-        "cost_usd": usage.get("cost_usd"),
-        "latency_s": round(float(latency), 2) if latency is not None else None,
+        **cost.spent(usage),
     }
 
 
@@ -61,14 +63,23 @@ def writer_meta(call: dict[str, Any], context: str) -> dict[str, Any]:
     out["call"] = call["call"]
     passage = str(out.pop("passage", "") or "")
     user = str(out.get("user") or "")
-    if passage and user.count(passage) == 1:
-        out["user"] = user.replace(passage, PASSAGE_MARK)
+    masked = masked_user(user, passage)
+    if masked != user:
+        out["user"] = masked
         if passage != context:
             out["passage"] = passage
     return out
 
 
-def writer_calls(pairs: Iterable[_Pair]) -> dict[str, dict[str, Any]]:
+def masked_user(user: str, passage: str) -> str:
+    """``user`` with its one copy of ``passage`` replaced by ``PASSAGE_MARK``;
+    unchanged when the passage is not in it exactly once."""
+    if passage and user.count(passage) == 1:
+        return user.replace(passage, PASSAGE_MARK)
+    return user
+
+
+def writer_calls(pairs: Iterable[RecordedPair]) -> dict[str, dict[str, Any]]:
     """Every writer call the pairs carry the texts of, by call id, the user
     prompt with its passage put back: {model, system, user, reply, passage,
     cost_usd, latency_s}."""
@@ -94,7 +105,7 @@ def writer_calls(pairs: Iterable[_Pair]) -> dict[str, dict[str, Any]]:
 
 
 def writer_call(
-    pair: _Pair, calls: Mapping[str, dict[str, Any]]
+    pair: RecordedPair, calls: Mapping[str, dict[str, Any]]
 ) -> dict[str, Any] | None:
     """The writer call that wrote ``pair``; None — not recorded."""
     writer = (pair.meta or {}).get(WRITER)
@@ -104,7 +115,7 @@ def writer_call(
 
 
 # The texts of a check call that sit on one pair of it.
-_CHECK_FULL = ("model", "system", "user", "reply", "cost_usd", "latency_s")
+_CHECK_FULL = tuple(key for key in _FULL if key != "passage")
 
 
 def check_meta(call: dict[str, Any], verdict: dict[str, Any]) -> dict[str, Any]:
@@ -119,7 +130,7 @@ def check_meta(call: dict[str, Any], verdict: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def check_calls(pairs: Iterable[_Pair], key: str) -> dict[str, dict[str, Any]]:
+def check_calls(pairs: Iterable[RecordedPair], key: str) -> dict[str, dict[str, Any]]:
     """Every check call under ``meta[key]`` the pairs carry the texts of, by
     call id: {model, system, user, reply, cost_usd, latency_s}."""
     out: dict[str, dict[str, Any]] = {}

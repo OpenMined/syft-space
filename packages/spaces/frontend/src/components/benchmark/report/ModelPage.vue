@@ -1,23 +1,11 @@
 <template>
-  <section v-if="!report" data-testid="screen-ModelPage">
-    <p class="py-4 text-sm text-muted-foreground" data-testid="model-missing">
-      This model is not part of this run.
-    </p>
-  </section>
-
-  <section v-else class="space-y-6" data-testid="screen-ModelPage">
+  <section v-if="report" class="space-y-6" data-testid="screen-ModelPage">
     <div class="space-y-0.5">
       <div class="flex flex-wrap items-center gap-2.5">
         <h1 class="heading-3">{{ name }}</h1>
-        <Badge
-          v-if="report.failure"
-          variant="outline"
-          class="cursor-help border-transparent bg-amber-500/10 text-amber-700 dark:text-amber-400"
-          :title="report.failure.detail"
-          data-testid="model-failure"
-        >
+        <AlertBadge v-if="report.failure" :tip="report.failure.detail" data-testid="model-failure">
           {{ report.failure.label }}
-        </Badge>
+        </AlertBadge>
       </div>
       <p class="max-w-[780px] text-sm text-muted-foreground" data-testid="model-subtitle">
         {{ subtitle }}
@@ -73,14 +61,12 @@
               />
             </div>
             <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              <span
-                v-for="part in arm.parts"
-                :key="part.key"
-                :title="verdictTip(part.key) || undefined"
-              >
-                <b class="font-semibold tabular-nums" :class="part.text">{{ part.n }}</b>
-                {{ part.label }}
-              </span>
+              <Hint v-for="part in arm.parts" :key="part.key" :text="verdictTip(part.key)">
+                <span>
+                  <b class="font-semibold tabular-nums" :class="part.text">{{ part.n }}</b>
+                  {{ part.label }}
+                </span>
+              </Hint>
             </div>
           </div>
         </div>
@@ -115,13 +101,13 @@
             >
               <td class="px-4 py-3">
                 {{ kindLabel(k.generator) }}
-                <span
-                  v-if="guessText(k.generator)"
-                  class="ml-1.5 cursor-help text-xs text-muted-foreground"
-                  :title="GUESS_TIP"
-                  data-testid="kind-guess"
-                  >{{ guessText(k.generator) }}</span
-                >
+                <Hint v-if="guessText(k.generator)" :text="GUESS_TIP">
+                  <span
+                    class="ml-1.5 cursor-help text-xs text-muted-foreground"
+                    data-testid="kind-guess"
+                    >{{ guessText(k.generator) }}</span
+                  >
+                </Hint>
               </td>
               <td class="px-2 py-3 text-right text-muted-foreground tabular-nums">
                 {{ count(k.asked) }}
@@ -176,10 +162,12 @@
 import { computed } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
 import type { BenchmarkTally } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import Hint from '../Hint.vue'
+import { kindLabel } from '../kinds'
+import AlertBadge from './AlertBadge.vue'
 import { useRun } from './context'
 import { count, DASH, pct, points } from './figures'
-import { kindLabel, modelName, vendorName, verdictTip } from './labels'
+import { modelName, vendorName, verdictTip } from './labels'
 import { checksLocation, questionsLocation } from './routing'
 import { isTrick } from './selectors'
 import { compareKinds } from '../questionOrder'

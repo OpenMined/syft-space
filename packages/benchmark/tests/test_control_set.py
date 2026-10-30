@@ -15,7 +15,9 @@ from syft_benchmark.db import QaPair
 from syft_benchmark.generation import control, filter_stage, gate_unanswerable
 from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.generation.negative import clean_false_premise, clean_unanswerable
-from syft_benchmark.llm import LLMError
+from syft_benchmark.llm import LLMError, judge_provider
+
+from fakes import JudgeRecorder
 
 DOC = (
     "Space registers with the Hub. The Hub stores endpoint metadata in "
@@ -100,7 +102,9 @@ def test_false_premise_needs_a_correction() -> None:
 
 def test_empty_retrieval_means_the_question_is_unanswerable() -> None:
     """Retrieval returned nothing: this endpoint certainly cannot answer."""
-    gate = gate_unanswerable("What TLS version?", _no_hits)
+    gate = gate_unanswerable(
+        "What TLS version?", _no_hits, judge=judge_provider(_settings())
+    )
     assert gate.clear
     assert gate.fragments == 0
 
@@ -112,7 +116,9 @@ def test_a_broken_search_never_admits_a_candidate() -> None:
     measurement: otherwise the benchmark would charge fabrication where an
     answer could have existed.
     """
-    gate = gate_unanswerable("What TLS version?", _broken)
+    gate = gate_unanswerable(
+        "What TLS version?", _broken, judge=judge_provider(_settings())
+    )
     assert not gate.clear
     assert not gate.checked
 
@@ -120,18 +126,6 @@ def test_a_broken_search_never_admits_a_candidate() -> None:
 # --- the false-premise gate --------------------------------------------------
 
 CORRECTION_HIT = "The Hub stores endpoint metadata in PostgreSQL."
-
-
-class _Judge:
-    """A fake chat(): one reply, the prompts it was given."""
-
-    def __init__(self, reply: str) -> None:
-        self.reply = reply
-        self.prompts: list[tuple[str, str]] = []
-
-    def __call__(self, system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
-        self.prompts.append((system, user))
-        return self.reply, {}
 
 
 def _settings() -> Settings:
@@ -160,15 +154,16 @@ def _premise_row() -> QaPair:
 
 
 def _screen(row: QaPair, retrieve: Any) -> tuple[Any, ...]:
+    conf = _settings()
     return filter_stage._screen_pair(
-        row, GENERATORS[row.generator], retrieve, _settings(), None
+        row, GENERATORS[row.generator], retrieve, conf, judge_provider(conf)
     )
 
 
 def test_a_false_premise_with_its_correction_found_is_kept(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    judge = _Judge(
+    judge = JudgeRecorder(
         '{"answered": true, "where": "stores endpoint metadata in PostgreSQL"}'
     )
     monkeypatch.setattr(control, "chat", judge)
@@ -191,7 +186,9 @@ def test_a_false_premise_with_its_correction_found_is_kept(
 def test_a_false_premise_without_its_correction_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(control, "chat", _Judge('{"answered": false, "where": ""}'))
+    monkeypatch.setattr(
+        control, "chat", JudgeRecorder('{"answered": false, "where": ""}')
+    )
 
     status, reason, note, meta = _screen(
         _premise_row(), lambda _q: ["The Hub has a web interface."]
@@ -206,7 +203,7 @@ def test_a_false_premise_without_its_correction_is_rejected(
 def test_a_false_premise_with_nothing_retrieved_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    judge = _Judge('{"answered": true}')
+    judge = JudgeRecorder('{"answered": true}')
     monkeypatch.setattr(control, "chat", judge)
 
     status, reason, note, _ = _screen(_premise_row(), _no_hits)
@@ -244,7 +241,7 @@ def test_a_false_premise_whose_judge_fails_is_not_checked(
 def test_a_trick_question_still_goes_through_the_unanswerable_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    judge = _Judge('{"answered": true, "where": "port 5442"}')
+    judge = JudgeRecorder('{"answered": true, "where": "port 5442"}')
     monkeypatch.setattr(control, "chat", judge)
     row = _premise_row()
     row.generator = "unanswerable_property"

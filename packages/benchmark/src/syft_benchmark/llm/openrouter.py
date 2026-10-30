@@ -1,23 +1,8 @@
 """OpenRouter's model list, turned into catalogue entries.
 
-Their payload carries some twenty fields per model; what is kept here is what a
-measurement turns on. The snapshot is a file in the repository, read in diffs,
-and a field nobody uses is noise in every one of them.
-
-Three of their fields decide the shape of an entry:
-
-  * **``canonical_slug``** is the dated build behind a name — kept as ``build``.
-    The identifier has to be the name the provider will accept in a request,
-    which is ``id``; ``build`` is how a later reader sees that the thing behind
-    the name moved.
-
-  * **``alias_target``** marks a moving pointer such as
-    ``~anthropic/claude-sonnet-latest``. It becomes a ``pins`` entry rather than
-    a model of its own: a run under such a name cannot be repeated.
-
-  * **``:free`` and ``:batch``** are routes to the same weights at a different
-    price. They become routes on one entry, not three entries each collecting
-    its own history.
+Only the fields a measurement turns on are kept. ``canonical_slug`` becomes
+``build`` (the dated build behind ``id``), an ``alias_target`` makes a ``pins``
+entry rather than a model, and ``:free`` / ``:batch`` are routes on one entry.
 """
 
 from __future__ import annotations
@@ -29,7 +14,7 @@ import httpx
 from loguru import logger
 
 from syft_benchmark.config import ExternalCallBlocked, check_model_host
-from syft_benchmark.llm.providers import ProviderKind, kind_for_url
+from syft_benchmark.llm.providers import ProviderKind, api_root, kind_for_url
 
 if TYPE_CHECKING:
     from syft_benchmark.config import Settings
@@ -236,9 +221,8 @@ def key_spend(
         httpx.HTTPError: no answer, or an error status
         ValueError: the answer carries no usage
     """
-    root = base_url.rstrip("/").removesuffix("/v1")
     response = httpx.get(
-        f"{root}{KEY_PATH}",
+        f"{api_root(base_url)}{KEY_PATH}",
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=timeout,
     )

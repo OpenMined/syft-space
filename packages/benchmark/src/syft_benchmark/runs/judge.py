@@ -1,20 +1,13 @@
-"""Judging: reducing any answer to one of three outcomes.
-
-A port of `OMSyft/scripts/qa_judge.py`.
+"""Judging: reducing an answer to a verdict.
 
   * ``correct``     — answered to the substance of the gold answer;
   * ``abstain``     — honestly said it did not know, or answered incompletely
                       with nothing false in it: not counted as an error;
   * ``hallucinate`` — stated something that contradicts the gold answer.
 
-An explanation graded by key facts has a fourth: ``incomplete`` — nothing its
-article does not support, short of the key-facts bar.
-
-Abstention is separated from a miss deliberately, and that is the main
-distinction in the measurement. A model that says "I do not know" about a corpus
-it does not know is behaving correctly; a model that confidently invents about
-the same corpus is dangerous. Their average score might coincide — which is why
-there is no score, but three shares.
+An explanation graded by key facts can also be ``incomplete`` — nothing its
+article does not support, short of the key-facts bar; a control answer can be
+``web_sourced``; ``technical`` means nothing was measured (a failed call).
 """
 
 from __future__ import annotations
@@ -23,7 +16,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from syft_benchmark.config import ControlOutcome, Settings, Verdict, get_settings
 from syft_benchmark.llm import (
@@ -38,30 +31,17 @@ from syft_benchmark.llm.cost import spent
 from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.runs.fill_in import match_fill_in
 
+if TYPE_CHECKING:
+    from syft_benchmark.db import QaPair
 
-def judge_web_search(conf: Settings, judge: Provider | None) -> tuple[bool, str]:
+
+def judge_web_search(conf: Settings, judge: Provider) -> tuple[bool, str]:
     """Whether this judge searches the web while grading, and how."""
-    return web_search_for(
-        conf, "judge", judge.model if judge is not None else conf.judge_model
-    )
+    return web_search_for(conf, "judge", judge.model)
 
-
-# The judge answer ceiling — shared with the other answers, BENCH_ANSWER_MAX_TOKENS.
-#
-# Generous on purpose. Reasoning models spend output tokens on reasoning BEFORE
-# they print the JSON, and at a short ceiling the answer breaks off in the middle
-# of the object. Such an answer cannot be parsed, the verdict is recorded as a
-# failure, and the judge silently drops out of part of the questions — observed
-# twice: gemini could not manage 200 tokens, Opus broke off a task at 1100.
-#
-# Raising the ceiling is in itself a patch, not a solution: the next model will
-# run into the next number. The solution lives in the client — it notices a
-# truncation by finish_reason and repeats the call with a doubled budget (a port
-# of P1 from LiveTruth). The ceiling only sets where to start.
 
 ERROR_PREFIX = "ERROR:"
 
-# --- refusing to answer -----------------------------------------------------
 # The patterns are English: that is the language the answering models are asked
 # in, and an unrecognised abstention is counted as an answer rather than lost.
 _ABSTAIN_PATTERNS = (
@@ -127,6 +107,48 @@ class Grade:
         return self.verdict is Verdict.TECHNICAL
 
 
+@dataclass(slots=True, kw_only=True)
+class VerdictCounts:
+    """How many verdicts of each kind a pass produced."""
+
+    correct: int = 0
+    abstain: int = 0
+    hallucinate: int = 0
+    # Control answers its web search supports: graded, not a hallucination.
+    web_sourced: int = 0
+    # Explanations short of the key-facts bar with nothing unsupported.
+    incomplete: int = 0
+    failed: int = 0
+
+    @property
+    def graded(self) -> int:
+        """The assessed answers — the denominator of every share."""
+        return (
+            self.correct
+            + self.abstain
+            + self.hallucinate
+            + self.web_sourced
+            + self.incomplete
+        )
+
+    def count(self, verdict: Grade) -> None:
+        """Add one verdict; any other measured verdict counts as a hallucination."""
+        if verdict.failed:
+            self.failed += 1
+            return
+        match verdict.verdict:
+            case Verdict.CORRECT:
+                self.correct += 1
+            case Verdict.ABSTAIN:
+                self.abstain += 1
+            case Verdict.WEB_SOURCED:
+                self.web_sourced += 1
+            case Verdict.INCOMPLETE:
+                self.incomplete += 1
+            case _:
+                self.hallucinate += 1
+
+
 def deferred(system: str, user: str) -> Grade:
     """The verdict is deferred: there is an answer, the judge has not seen it yet.
 
@@ -151,14 +173,31 @@ def is_error(answer: str) -> bool:
     return answer.strip().startswith(ERROR_PREFIX)
 
 
-def is_technical(verdict: str, answer: str) -> bool:
-    """Whether a stored row measured nothing.
+def is_technical(verdict: str) -> bool:
+    """A stored verdict that measured nothing: the judge call failed."""
+    return verdict == Verdict.TECHNICAL.value
 
-    Two arms: rows carrying the verdict, and older rows carrying
-    ``hallucinate`` with an ``ERROR:`` answer. Counting only one of them would
-    move every headline figure without anything being remeasured.
+
+def judge_trail(verdict: Grade) -> dict[str, Any]:
+    """The judge side of an audit record.
+
+    What the judge was asked, its raw reply and its call (cost, wall seconds);
+    ``judged_without_model`` where no model was called: an option letter or
+    fill-in span matched, or an abstention was recognised.
     """
-    return verdict == Verdict.TECHNICAL.value or is_error(answer)
+    if not verdict.judge_user:
+        return {"judged_without_model": True}
+    trail: dict[str, Any] = {
+        "judge_system": verdict.judge_system,
+        "judge_prompt": verdict.judge_user,
+        "judge_raw": verdict.judge_raw,
+    }
+    if verdict.latency_s is not None:
+        trail["judge_call"] = {
+            "cost_usd": verdict.cost_usd,
+            "latency_s": verdict.latency_s,
+        }
+    return trail
 
 
 def detect_abstain(answer: str) -> bool:
@@ -320,6 +359,39 @@ def _flag(value: Any) -> bool | None:
     return None
 
 
+def _ask_judge(
+    system: str, user: str, conf: Settings, judge: Provider
+) -> tuple[str, dict[str, Any]]:
+    """One judge call with the judge's web search.
+
+    The ceiling is ``answer_max_tokens``: reasoning models spend output tokens
+    before the JSON, and the client doubles the budget on a truncation.
+    """
+    searching, engine = judge_web_search(conf, judge)
+    return chat(
+        system,
+        user,
+        provider=judge,
+        max_tokens=conf.answer_max_tokens,
+        settings=conf,
+        judging=True,
+        role=cost.JUDGES,
+        web_search=searching,
+        web_search_engine=engine or "auto",
+    )
+
+
+def _unanswered(exc: LLMError, system: str, user: str) -> Grade:
+    """The verdict when the judge call itself failed."""
+    return Grade(
+        Verdict.TECHNICAL,
+        f"the judge did not answer: {exc}",
+        fatal=isinstance(exc, LLMFatalError),
+        judge_system=system,
+        judge_user=user,
+    )
+
+
 def free_text_verdict(data: dict[str, Any]) -> tuple[Verdict, str]:
     """The free-text judge's reply as a verdict and the note to record with it.
 
@@ -368,7 +440,7 @@ def grade(
     fill_in: bool = False,
     hop_facts: Sequence[str] = (),
     settings: Settings | None = None,
-    judge: Provider | None = None,
+    judge: Provider,
     defer: bool = False,
 ) -> Grade:
     """Judge one answer.
@@ -428,28 +500,10 @@ def grade(
     if defer:
         return deferred(system, user)
     try:
-        searching, engine = judge_web_search(conf, judge)
-        raw, usage = chat(
-            system,
-            user,
-            model=None if judge is not None else conf.judge_model,
-            provider=judge,
-            max_tokens=conf.answer_max_tokens,
-            settings=conf,
-            judging=True,
-            role=cost.JUDGES,
-            web_search=searching,
-            web_search_engine=engine or "auto",
-        )
+        raw, usage = _ask_judge(system, user, conf, judge)
         data = parse_json_object(raw)
     except LLMError as exc:
-        return Grade(
-            Verdict.TECHNICAL,
-            f"the judge did not answer: {exc}",
-            fatal=isinstance(exc, LLMFatalError),
-            judge_system=system,
-            judge_user=user,
-        )
+        return _unanswered(exc, system, user)
 
     verdict, reasoning = free_text_grade(data)
     return Grade(
@@ -469,7 +523,7 @@ def grade_key_facts(
     *,
     article: str = "",
     settings: Settings | None = None,
-    judge: Provider | None = None,
+    judge: Provider,
     defer: bool = False,
 ) -> Grade:
     """Judge an extended explanation against a list of facts and its article.
@@ -504,30 +558,12 @@ def grade_key_facts(
     if defer:
         return deferred(system, user)
     try:
-        searching, engine = judge_web_search(conf, judge)
-        raw, usage = chat(
-            system,
-            user,
-            model=None if judge is not None else conf.judge_model,
-            provider=judge,
-            max_tokens=conf.answer_max_tokens,
-            settings=conf,
-            judging=True,
-            role=cost.JUDGES,
-            web_search=searching,
-            web_search_engine=engine or "auto",
-        )
+        raw, usage = _ask_judge(system, user, conf, judge)
         data = parse_json_object(raw)
     except LLMError as exc:
-        return Grade(
-            Verdict.TECHNICAL,
-            f"the judge did not answer: {exc}",
-            fatal=isinstance(exc, LLMFatalError),
-            judge_system=system,
-            judge_user=user,
-        )
+        return _unanswered(exc, system, user)
 
-    covered = [bool(x) for x in (data.get("covered") or [])][: len(facts)]
+    covered = [_flag(x) is True for x in (data.get("covered") or [])][: len(facts)]
     if not covered:
         return Grade(
             Verdict.TECHNICAL,
@@ -603,12 +639,11 @@ def _grounded_prompt(answer: str, context: str) -> str:
 
 
 def _grounded_chat(
-    user: str, conf: Settings, judge: Provider | None
+    user: str, conf: Settings, judge: Provider
 ) -> tuple[str, dict[str, Any]]:
     return chat(
         dated(_GROUNDED_SYSTEM),
         user,
-        model=None if judge is not None else conf.judge_model,
         provider=judge,
         max_tokens=conf.answer_max_tokens,
         settings=conf,
@@ -620,8 +655,9 @@ def _grounded_chat(
 def check_grounded(
     answer: str,
     fragments: list[str],
+    *,
+    judge: Provider,
     settings: Settings | None = None,
-    judge: Provider | None = None,
 ) -> tuple[bool | None, str]:
     """Whether the answer follows from what the endpoint found.
 
@@ -643,10 +679,9 @@ def check_grounded(
         data = parse_json_object(raw)
     except LLMError as exc:
         return None, f"the judge did not answer: {exc}"
-    return bool(data.get("grounded", False)), str(data.get("reasoning", ""))[:400]
+    grounded = _flag(data.get("grounded")) is True
+    return grounded, str(data.get("reasoning", ""))[:400]
 
-
-# --- control questions ------------------------------------------------------
 
 # The control kinds and what the judge is told about each.
 UNANSWERABLE = "unanswerable_property"
@@ -794,7 +829,7 @@ def grade_control(
     *,
     citations: Sequence[dict[str, Any]] = (),
     settings: Settings | None = None,
-    judge: Provider | None = None,
+    judge: Provider,
     defer: bool = False,
 ) -> Grade:
     """Judge a control answer by its behaviour.
@@ -825,28 +860,10 @@ def grade_control(
     if defer:
         return deferred(system, user)
     try:
-        searching, engine = judge_web_search(conf, judge)
-        raw, usage = chat(
-            system,
-            user,
-            model=None if judge is not None else conf.judge_model,
-            provider=judge,
-            max_tokens=conf.answer_max_tokens,
-            settings=conf,
-            judging=True,
-            role=cost.JUDGES,
-            web_search=searching,
-            web_search_engine=engine or "auto",
-        )
+        raw, usage = _ask_judge(system, user, conf, judge)
         data = parse_json_object(raw)
     except LLMError as exc:
-        return Grade(
-            Verdict.TECHNICAL,
-            f"the judge did not answer: {exc}",
-            fatal=isinstance(exc, LLMFatalError),
-            judge_system=system,
-            judge_user=user,
-        )
+        return _unanswered(exc, system, user)
 
     served_by = str(usage.get("served_by") or "")
     reasoning = str(data.get("reasoning", ""))[:400]
@@ -881,9 +898,6 @@ def grade_control(
     )
 
 
-# --- grading by the item's kind ---------------------------------------------
-
-
 @dataclass(frozen=True, slots=True)
 class Gradable:
     """What grading needs to know about an item: its text, gold answer and kind."""
@@ -895,6 +909,18 @@ class Gradable:
     meta: dict[str, Any] | None = None
     # The text the item was written from (``QaPair.context``).
     context: str = ""
+
+    @classmethod
+    def of(cls, pair: QaPair) -> Gradable:
+        """What grading needs from a stored pair."""
+        return cls(
+            question=pair.question,
+            expected=pair.answer,
+            generator=pair.generator,
+            task_type=pair.task_type,
+            meta=pair.meta,
+            context=pair.context or "",
+        )
 
     @property
     def control(self) -> bool:
@@ -914,7 +940,7 @@ def grade_item(
     *,
     citations: Sequence[dict[str, Any]] = (),
     settings: Settings | None = None,
-    judge: Provider | None = None,
+    judge: Provider,
     defer: bool = False,
     wrap: Callable[[Callable[..., Grade]], Callable[..., Grade]] | None = None,
 ) -> Grade:

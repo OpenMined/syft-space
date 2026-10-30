@@ -1,20 +1,13 @@
 """Reading the indexed chunks from one Space ChromaDB.
 
-A port of `OMSyft/scripts/qa_chroma.py`.
-
-**This is the only module that sees source text** (invariant 1). Everything
-further down the pipeline receives questions and gold answers already. The
-boundary runs here not for elegance: it can be checked by imports, whereas
-"access by agreement" cannot be checked at all.
-
-ChromaDB is raised as a subprocess inside the Space container and listens on its
+ChromaDB runs as a subprocess inside the Space container and listens on its
 own port on 0.0.0.0. Hence two transports:
 
-  * **http** — if the port is published to the host. The main path: fast and
-    without docker in the chain;
+  * **http** — when ``chroma_host:chroma_port`` is reachable (published, or on
+    the shared docker network). The main path: fast and without docker in the
+    chain;
   * **docker exec** — the fallback: the same HTTP request executed by python
-    inside the container. Needed when the port is not published — the pipeline
-    works straight away, without recreating containers.
+    inside the container, when the port is not reachable.
 
 The transport is chosen once, on the first call.
 """
@@ -264,9 +257,8 @@ class ChromaClient:
 
 # The YAML header the ETL puts on every file. The Space strips it before
 # indexing and writes its fields into every chunk's metadata as `doc_<key>`
-# (see _doc_meta). Collections indexed earlier keep it as the beginning of
-# chunk 0, where strip_header reads it: useless as a source of questions, and
-# the opposite as a source of metadata.
+# (see _doc_meta). A collection without those keys has it at the start of
+# chunk 0, where strip_header reads it.
 _HEADER_KEYS = frozenset(
     {
         "title",
@@ -287,8 +279,7 @@ _HEADER_KEYS = frozenset(
 # The rubbish an article scraper drags along with the text: consent banners,
 # footers, invitations to subscribe. Questions about them are meaningless — the
 # model honestly asks "why does the site need functional cookies", and such a
-# pair clutters the benchmark. Both languages are listed: the corpus can be in
-# either.
+# pair clutters the benchmark.
 _BOILERPLATE = (
     "cookie",
     "privacy policy",
@@ -363,9 +354,9 @@ def parse_date(raw: str) -> datetime | None:
 def _added_at(meta: dict[str, Any]) -> str:
     """When the Space added the file: its "added_at" stamp.
 
-    Files indexed before the Space wrote that stamp fall back to the file's
-    modification time, which the local-file source stores as "updated". For
-    other sources "updated" is the post's edit date, not an add time.
+    Without the stamp, a local file falls back to its modification time, which
+    that source stores as "updated". For other sources "updated" is the post's
+    edit date, not an add time.
     """
     stamped = meta.get("added_at")
     if stamped:

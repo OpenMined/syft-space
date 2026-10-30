@@ -15,8 +15,8 @@ from loguru import logger
 # Default; starting a run returns once it is queued.
 TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
-# Target checks walk the whole collection; model refresh calls the provider.
-CHECK_TIMEOUT = httpx.Timeout(120.0, connect=5.0)
+# Model refresh calls the provider.
+REFRESH_TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 
 # Summary document download.
 DOWNLOAD_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
@@ -37,11 +37,6 @@ class Reply:
     headers: dict[str, str] = field(default_factory=dict)
 
     @property
-    def missing(self) -> bool:
-        """The benchmark answered 404."""
-        return self.status == 404
-
-    @property
     def unconfigured(self) -> bool:
         """The benchmark is up but has no control key set (503)."""
         return self.status == 503
@@ -49,12 +44,11 @@ class Reply:
 
 @dataclass
 class Snapshot:
-    """The benchmark's self-description: reachability, capabilities, schema, defaults."""
+    """The benchmark's self-description: reachability, capabilities, defaults."""
 
     reachable: bool = False
     detail: str = ""
     capabilities: dict[str, Any] = field(default_factory=dict)
-    fields: dict[str, Any] = field(default_factory=dict)
     defaults: dict[str, Any] = field(default_factory=dict)
 
 
@@ -69,6 +63,32 @@ class BenchmarkClient:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
+    async def _send(
+        self,
+        http: httpx.AsyncClient,
+        method: str,
+        path: str,
+        *,
+        body: Any = None,
+        stream: bool = False,
+    ) -> httpx.Response | Reply:
+        """Send one request: the response when the benchmark answered and did
+        not refuse, otherwise the failed ``Reply``. With ``stream`` the
+        response body is left unread for the caller."""
+        url = f"{self.url}{path}"
+        try:
+            resp = await http.send(
+                http.build_request(method, url, json=body, headers=self._headers),
+                stream=stream,
+            )
+            if resp.status_code >= 400:
+                await resp.aread()
+                return Reply(ok=False, status=resp.status_code, detail=_detail(resp))
+        except httpx.HTTPError as exc:
+            logger.warning(f"benchmark {url}: {exc}")
+            return Reply(ok=False, detail=str(exc))
+        return resp
+
     async def _call(
         self,
         method: str,
@@ -77,38 +97,30 @@ class BenchmarkClient:
         body: Any = None,
         timeout: httpx.Timeout = TIMEOUT,
     ) -> Reply:
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as http:
-                resp = await http.request(
-                    method, f"{self.url}{path}", json=body, headers=self._headers
+        """A JSON call; a 204 answers ``data=None``."""
+        async with httpx.AsyncClient(timeout=timeout) as http:
+            resp = await self._send(http, method, path, body=body)
+            if isinstance(resp, Reply):
+                return resp
+            try:
+                payload = None if resp.status_code == 204 else resp.json()
+            except ValueError as exc:
+                logger.warning(
+                    f"benchmark {self.url}{path}: unreadable response: {exc}"
                 )
-        except httpx.HTTPError as exc:
-            logger.warning(f"benchmark {self.url}{path}: {exc}")
-            return Reply(ok=False, detail=str(exc))
-
-        if resp.status_code >= 400:
-            return Reply(
-                ok=False,
-                status=resp.status_code,
-                detail=_detail(resp),
-            )
-        try:
-            payload = None if resp.status_code == 204 else resp.json()
-        except ValueError as exc:
-            logger.warning(f"benchmark {self.url}{path}: unreadable response: {exc}")
-            return Reply(ok=False, status=resp.status_code, detail=str(exc))
-        return Reply(ok=True, data=payload, status=resp.status_code)
+                return Reply(ok=False, status=resp.status_code, detail=str(exc))
+            return Reply(ok=True, data=payload, status=resp.status_code)
 
     # --- what this benchmark is ------------------------------------------
 
     async def snapshot(self) -> Snapshot:
-        """Fetch health, capabilities, schema and defaults; partial results are kept."""
+        """Fetch health, capabilities and defaults; partial results are kept."""
         health = await self._call("GET", "/health")
         if not health.ok:
             return Snapshot(detail=health.detail or "benchmark is not answering")
 
         out = Snapshot(reachable=True)
-        caps = await self._call("GET", "/capabilities")
+        caps = await self.capabilities()
         if not caps.ok:
             out.reachable = False
             out.detail = (
@@ -119,8 +131,6 @@ class BenchmarkClient:
             return out
         out.capabilities = caps.data or {}
 
-        shape = await self._call("GET", "/schema")
-        out.fields = shape.data or {}
         defaults = await self._call("GET", "/defaults")
         out.defaults = defaults.data or {}
         return out
@@ -129,21 +139,16 @@ class BenchmarkClient:
 
     async def models(self, query: dict[str, Any]) -> Reply:
         """The benchmark's model catalogue, filtered by the benchmark."""
-        clean = {key: value for key, value in query.items() if value not in (None, "")}
-        suffix = f"?{urlencode(clean)}" if clean else ""
-        return await self._call("GET", f"/models{suffix}")
+        return await self._call("GET", f"/models{_query(query)}")
 
     async def refresh_models(self) -> Reply:
         """Have the benchmark refetch its provider's model list."""
-        return await self._call("POST", "/models/refresh", timeout=CHECK_TIMEOUT)
+        return await self._call("POST", "/models/refresh", timeout=REFRESH_TIMEOUT)
 
     # --- targets -----------------------------------------------------------
 
     async def put_target(self, key: str, spec: dict[str, Any]) -> Reply:
         return await self._call("PUT", f"/targets/{key}", body=spec)
-
-    async def check_target(self, key: str) -> Reply:
-        return await self._call("POST", f"/targets/{key}/check", timeout=CHECK_TIMEOUT)
 
     # --- runs --------------------------------------------------------------
 
@@ -171,12 +176,20 @@ class BenchmarkClient:
 
     # --- installation settings ----------------------------------------------
 
+    async def capabilities(self) -> Reply:
+        """What the benchmark can do, and where each provider role points."""
+        return await self._call("GET", "/capabilities")
+
     async def get_settings(self) -> Reply:
         """The benchmark's setting overrides, not the effective values."""
         return await self._call("GET", "/settings")
 
-    async def put_settings(self, values: dict[str, Any]) -> Reply:
-        return await self._call("PUT", "/settings", body={"values": values})
+    async def patch_settings(self, changes: dict[str, Any]) -> Reply:
+        """Merge ``changes`` into the overrides; a ``None`` value removes one.
+
+        Fields not named keep their overrides. Answers the whole stored document.
+        """
+        return await self._call("PATCH", "/settings", body={"values": changes})
 
     # --- secrets ---------------------------------------------------------------
     #
@@ -204,53 +217,32 @@ class BenchmarkClient:
         body: Any = None,
         params: dict[str, Any] | None = None,
     ) -> Reply:
-        clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
-        suffix = f"?{urlencode(clean)}" if clean else ""
-        return await self._call(method, f"{path}{suffix}", body=body)
+        return await self._call(method, f"{path}{_query(params)}", body=body)
 
     async def download(
         self, path: str, *, params: dict[str, Any] | None = None
     ) -> Reply:
         """A file from the console: bytes in `data`, type and name in `headers`."""
-        clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
-        suffix = f"?{urlencode(clean)}" if clean else ""
-        url = f"{self.url}{path}{suffix}"
-        try:
-            async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT) as http:
-                resp = await http.get(url, headers=self._headers)
-        except httpx.HTTPError as exc:
-            logger.warning(f"benchmark {url}: {exc}")
-            return Reply(ok=False, detail=str(exc))
-        if resp.status_code >= 400:
-            return Reply(ok=False, status=resp.status_code, detail=_detail(resp))
-        return Reply(
-            ok=True,
-            data=resp.content,
-            status=resp.status_code,
-            headers=_file_headers(resp),
-        )
-
-    async def stream(
-        self, path: str, *, params: dict[str, Any] | None = None
-    ) -> tuple[Reply, AsyncIterator[bytes] | None]:
-        """A streamed file: the reply (with `headers`) and its body, or a refusal and None."""
-        clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
-        suffix = f"?{urlencode(clean)}" if clean else ""
-        url = f"{self.url}{path}{suffix}"
-        http = httpx.AsyncClient(timeout=EXPORT_TIMEOUT)
-        try:
-            resp = await http.send(
-                http.build_request("GET", url, headers=self._headers), stream=True
+        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT) as http:
+            resp = await self._send(http, "GET", f"{path}{_query(params)}")
+            if isinstance(resp, Reply):
+                return resp
+            return Reply(
+                ok=True,
+                data=resp.content,
+                status=resp.status_code,
+                headers=_file_headers(resp),
             )
-        except httpx.HTTPError as exc:
+
+    async def stream(self, path: str, *, params: dict[str, Any] | None = None) -> Reply:
+        """A streamed file: its chunks as an ``AsyncIterator[bytes]`` in `data`,
+        type and name in `headers`. The connection stays open until the chunks
+        are consumed."""
+        http = httpx.AsyncClient(timeout=EXPORT_TIMEOUT)
+        resp = await self._send(http, "GET", f"{path}{_query(params)}", stream=True)
+        if isinstance(resp, Reply):
             await http.aclose()
-            logger.warning(f"benchmark {url}: {exc}")
-            return Reply(ok=False, detail=str(exc)), None
-        if resp.status_code >= 400:
-            await resp.aread()
-            await resp.aclose()
-            await http.aclose()
-            return Reply(ok=False, status=resp.status_code, detail=_detail(resp)), None
+            return resp
 
         async def body() -> AsyncIterator[bytes]:
             try:
@@ -260,8 +252,18 @@ class BenchmarkClient:
                 await resp.aclose()
                 await http.aclose()
 
-        reply = Reply(ok=True, status=resp.status_code, headers=_file_headers(resp))
-        return reply, body()
+        return Reply(
+            ok=True,
+            data=body(),
+            status=resp.status_code,
+            headers=_file_headers(resp),
+        )
+
+
+def _query(params: dict[str, Any] | None) -> str:
+    """A query string of the non-empty ``params``, or empty."""
+    clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+    return f"?{urlencode(clean)}" if clean else ""
 
 
 def _file_headers(resp: httpx.Response) -> dict[str, str]:

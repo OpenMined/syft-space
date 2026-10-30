@@ -1,14 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
-import { computed, defineComponent, h, ref, shallowRef } from 'vue'
+import { computed, defineComponent, h, shallowRef } from 'vue'
 import { mount, RouterLinkStub } from '@vue/test-utils'
 import type { BenchmarkRunReport } from '@/api/types'
 import RunSummaryPage from '@/components/benchmark/report/RunSummaryPage.vue'
 import { provideRun, provideRunReport } from '@/components/benchmark/report/context'
 import type { RunReport } from '@/components/benchmark/report/useRunReport'
-import { OPUS, QWEN, modelReport, runReport, runSummary } from './reportFixtures'
+import { useDetails } from '@/components/benchmark/report/details/useDetails'
+import { hintText } from './hint'
+import { GPT, OPUS, QWEN, modelReport, runReport, runSummary } from './reportFixtures'
 
 const toast = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn() }))
 vi.mock('vue-sonner', () => ({ toast }))
+const saveRunExport = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@/components/benchmark/report/useRunReport', () => ({ saveRunExport }))
 
 function mountPage(report: BenchmarkRunReport) {
   const data = shallowRef<BenchmarkRunReport | null>(report)
@@ -20,13 +24,10 @@ function mountPage(report: BenchmarkRunReport) {
       provideRunReport(actions as unknown as RunReport)
       provideRun({
         jobId: 'j1',
+        slug: 'ep',
         data,
-        loading: ref(false),
-        error: ref(null),
-        running: computed(() => false),
         model: computed(() => null),
         modelReport: computed(() => null),
-        reload: vi.fn(),
       })
       return () => h(RunSummaryPage)
     },
@@ -47,12 +48,8 @@ describe('RunSummaryPage', () => {
           articles_dated: 10,
           articles_new: 4,
         }),
-        method: {
-          ...runReport().method,
-          articles_from: '2026-09-29T06:00:00Z',
-          articles_to: '2026-09-30T06:00:00Z',
-        },
-        funnel: { written: 1000, removed: {}, removed_total: 0, asked: 100, trick: 4 },
+        method: { ...runReport().method, web_check_model: GPT },
+        funnel: { written: 1000, removed: {}, asked: 100, trick: 4 },
       }),
     )
     expect(wrapper.get('h1').text()).toMatch(/^Run of 30 Sep 2026, \d{2}:\d{2}$/)
@@ -62,7 +59,8 @@ describe('RunSummaryPage', () => {
     )
     const funnel = wrapper.get('[data-testid="funnel"]').text()
     expect(funnel).toContain('1,000 questions written')
-    expect(wrapper.get('[data-testid="funnel-removed"]').text()).toBe('—')
+    // The web check ran and removed nothing.
+    expect(wrapper.get('[data-testid="funnel-removed"]').text()).toBe('0')
     expect(funnel).toContain('100 asked to each model')
   })
 
@@ -70,18 +68,29 @@ describe('RunSummaryPage', () => {
     const { wrapper } = mountPage(
       runReport({
         run: runSummary('j1', { articles: null, questions: null, window_days: null }),
-        funnel: {
-          written: null,
-          removed: { web_answerable: 900 },
-          removed_total: 900,
-          asked: 100,
-          trick: 0,
-        },
+        funnel: { written: 1000, removed: { web_answerable: 900 }, asked: 100, trick: 0 },
       }),
     )
     expect(wrapper.find('[data-testid="run-articles"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="funnel"]').text()).toContain('— questions written')
     expect(wrapper.get('[data-testid="funnel-removed"]').text()).toBe('900')
+  })
+
+  it('shows dashes for a run that reused earlier questions', () => {
+    const { wrapper } = mountPage(
+      runReport({
+        method: { ...runReport().method, web_check_model: GPT },
+        funnel: { written: null, removed: {}, asked: 100, trick: 0 },
+      }),
+    )
+    expect(wrapper.get('[data-testid="funnel"]').text()).toContain('— questions written')
+    expect(wrapper.get('[data-testid="funnel-removed"]').text()).toBe('—')
+  })
+
+  it('shows a dash for the web check when none ran', () => {
+    const { wrapper } = mountPage(
+      runReport({ funnel: { written: 120, removed: {}, asked: 100, trick: 0 } }),
+    )
+    expect(wrapper.get('[data-testid="funnel-removed"]').text()).toBe('—')
   })
 
   it('never shows the run window as article dates', () => {
@@ -120,7 +129,7 @@ describe('RunSummaryPage', () => {
     })
   })
 
-  it('names why a model failed', () => {
+  it('names why a model failed', async () => {
     const detail = '16 answers failed: the provider refused the request (invalid request (400)).'
     const { wrapper } = mountPage(
       runReport({
@@ -129,7 +138,6 @@ describe('RunSummaryPage', () => {
           modelReport(QWEN, {
             graded_alone: 0,
             graded_with: 0,
-            technical: 16,
             failure: { label: 'Request refused', detail },
           }),
         ],
@@ -139,7 +147,7 @@ describe('RunSummaryPage', () => {
     expect(rows[0]!.find('[data-testid="model-failure"]').exists()).toBe(false)
     const badge = rows[1]!.get('[data-testid="model-failure"]')
     expect(badge.text()).toBe('Request refused')
-    expect(badge.attributes('title')).toBe(detail)
+    expect(await hintText(badge)).toBe(detail)
   })
 
   it('shows time and cost, split by role', () => {
@@ -153,8 +161,6 @@ describe('RunSummaryPage', () => {
           ...runReport().method,
           cost: {
             usd: 18.52,
-            spend_before: 1,
-            spend_after: 19.52,
             usd_calls: 18.4,
             total_usd: 18.4,
             by_role: { writer: 5.1, web_check: 2.3, subjects: 7.6, judges: 3.4 },
@@ -177,7 +183,7 @@ describe('RunSummaryPage', () => {
     expect(wrapper.get('[data-testid="cost-parts"]').text()).toContain('Models being tested$7.60')
   })
 
-  it('hides time and cost for an older run', () => {
+  it('hides time and cost when the run has neither', () => {
     const { wrapper } = mountPage(runReport())
     expect(wrapper.find('[data-testid="time-cost"]').exists()).toBe(false)
   })
@@ -187,7 +193,7 @@ describe('RunSummaryPage', () => {
       runReport({
         method: {
           ...runReport().method,
-          cost: { usd: null, spend_before: null, spend_after: null, usd_calls: 0.5 },
+          cost: { usd: null, usd_calls: 0.5 },
         },
       }),
     )
@@ -200,5 +206,23 @@ describe('RunSummaryPage', () => {
     const { wrapper, actions } = mountPage(runReport())
     await wrapper.get('[data-testid="download-summary"]').trigger('click')
     expect(actions.downloadSummary).toHaveBeenCalledWith('j1')
+    expect(wrapper.find('[data-testid="download-excel"]').exists()).toBe(false)
+  })
+
+  it('offers the Excel download with Details on', async () => {
+    const details = useDetails()
+    details.value = true
+    const { wrapper } = mountPage(runReport())
+    await wrapper.get('[data-testid="download-excel"]').trigger('click')
+    expect(saveRunExport).toHaveBeenCalledWith('ep', 'j1')
+    details.value = false
+  })
+
+  it('points a build-only run to the method page', () => {
+    const base = runReport()
+    const { wrapper } = mountPage({ ...base, run: { ...base.run, build_only: true } })
+    expect(wrapper.find('[data-testid="build-only"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="download-summary"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="model-row"]').exists()).toBe(false)
   })
 })

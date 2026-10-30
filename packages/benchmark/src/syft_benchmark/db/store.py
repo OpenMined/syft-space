@@ -1,19 +1,8 @@
 """The installation's settings and its secrets, as they are actually stored.
 
-One place where a setting is **written** — the row. A value that can be written
-in two places is a value that disagrees with itself on the day somebody edits
-the wrong one.
-
-The environment is not a seed; it is the layer **under** the row, read-only and
-supplied by whoever deployed the service:
-
-    the built-in defaults -> the environment -> this row
-        -> the Space's instrument -> the node's probe
-
-Seeding was the first design and it was wrong. The container's compose file sets
-the addresses that differ inside a container, and a one-time seed would have
-applied them on the first start and ignored them for ever after — leaving an
-installation pointed at a model provider inside itself.
+A setting is written in one place, the row. The environment is the read-only
+layer under it, so a compose file's addresses apply on every start; for the
+whole chain of layers see docs/01-setup.md.
 
 Secrets follow the same order, and nothing copies them into the store by itself:
 ``set_secret`` does that, and until it is called the service says at startup
@@ -44,9 +33,9 @@ from syft_benchmark.config import (
 from syft_benchmark.db.crypto import Cipher, SecretsNotConfigured, cipher_from
 from syft_benchmark.db.models import Credential, InstallationSettings
 from syft_benchmark.db.session import session_scope
+from syft_benchmark.llm.catalog import pin_values
 
-# The one row. A constant rather than a magic number in four queries, and the
-# table has a constraint that agrees with it.
+# The one row; the table's constraint agrees.
 ROW_ID = 1
 
 # How a Space's token is named among the credentials. Prefixed rather than bare
@@ -185,9 +174,8 @@ def _row_values(session: Session) -> dict[str, Any]:
     if row is None:
         return {}
     allowed = stored_fields()
-    # Filtered on the way out as well as on the way in. A field that stopped
-    # being a setting, or one that moved into the bootstrap, must not come back
-    # to life because it is still sitting in an old row.
+    # Filtered on the way out as well as on the way in: a key in the row that
+    # is not a stored field (removed, or bootstrap-only) must not take effect.
     return {k: v for k, v in (row.values or {}).items() if k in allowed}
 
 
@@ -222,27 +210,47 @@ def _secret_values(session: Session, base: Settings) -> dict[str, str]:
 # --- writing ----------------------------------------------------------------
 
 
-def write(base: Settings, values: dict[str, Any]) -> dict[str, Any]:
-    """Replace the installation's overrides with these.
+def update(base: Settings, changes: dict[str, Any]) -> dict[str, Any]:
+    """Merge these into the installation's overrides and return the result.
 
-    A whole document rather than a patch: "absent means unchanged" would give
-    the owner no way to unset a field ever again.
+    JSON Merge Patch semantics: a field with a value is set, a field that is
+    ``null`` loses its override and falls back to the default, and a field not
+    named keeps what it has. Read, merge and write happen in one transaction
+    with the row locked, so two concurrent updates cannot erase each other.
 
     Raises:
         SettingRejected: a field the settings do not have, or one that may not
             be stored here
     """
-    checked = validate(base, values)
+    _check_fields(changes)
     with session_scope(base) as session:
-        row = session.get(InstallationSettings, ROW_ID)
-        if row is None:
-            row = InstallationSettings(id=ROW_ID, values=checked)
-            session.add(row)
-        else:
-            row.values = checked
-            row.updated_at = datetime.now(UTC)
+        row = session.get(InstallationSettings, ROW_ID, with_for_update=True)
+        stored = (row.values or {}) if row else {}
+        allowed = stored_fields()
+        merged = {k: v for k, v in stored.items() if k in allowed}
+        for field, value in changes.items():
+            if value is None:
+                merged.pop(field, None)
+            else:
+                merged[field] = value
+        checked = validate(base, merged)
+        _store_row(session, checked, row)
     invalidate()
     return checked
+
+
+def _store_row(
+    session: Session,
+    values: dict[str, Any],
+    row: InstallationSettings | None = None,
+) -> None:
+    """Write the overrides into the one row, creating it on first use."""
+    row = row or session.get(InstallationSettings, ROW_ID)
+    if row is None:
+        session.add(InstallationSettings(id=ROW_ID, values=values))
+    else:
+        row.values = values
+        row.updated_at = datetime.now(UTC)
 
 
 def validate(base: Settings, values: dict[str, Any]) -> dict[str, Any]:
@@ -256,9 +264,19 @@ def validate(base: Settings, values: dict[str, Any]) -> dict[str, Any]:
     different model every few months, so what is stored is what it meant on the
     day it was chosen.
     """
-    from syft_benchmark.llm.catalog import pin_values
-
     values = pin_values(values, base)
+    _check_fields(values)
+
+    merged: dict[str, Any] = base.model_dump()
+    merged.update(values)
+    # ValidationError from here becomes a 422; its message names the field.
+    checked = type(base)(**merged)
+    dumped = checked.model_dump(mode="json")
+    return {field: dumped[field] for field in values}
+
+
+def _check_fields(values: dict[str, Any]) -> None:
+    """Refuse a field that may not be stored with the settings."""
     allowed = stored_fields()
     for field in values:
         if field in SECRET_FIELDS:
@@ -274,13 +292,6 @@ def validate(base: Settings, values: dict[str, Any]) -> dict[str, Any]:
             )
         if field not in allowed:
             raise SettingRejected(f"the settings do not know the field {field!r}")
-
-    merged: dict[str, Any] = base.model_dump()
-    merged.update(values)
-    # ValidationError from here becomes a 422; its message names the field.
-    checked = type(base)(**merged)
-    dumped = checked.model_dump(mode="json")
-    return {field: dumped[field] for field in values}
 
 
 def set_secret(

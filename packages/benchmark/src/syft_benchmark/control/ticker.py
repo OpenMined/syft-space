@@ -1,16 +1,9 @@
-"""The schedule, executed.
+"""The schedule thread: fires each target's ``schedule`` / ``schedule_at``.
 
-A target's ``schedule`` and ``schedule_at`` are fired from here, beside the
-queue, inside the service. This thread decides *when*, the
-worker decides *what next*, and both go through the same table, so a scheduled
-measurement differs from a pressed button only by ``trigger``.
-
-**The hour is UTC**, because nothing else can be honest: a container knows
-nothing of the owner's night, and a service that took its own clock for it would
-shift every schedule the day the host moved.
-
-The planned moment is stored rather than recomputed — see ``Target.next_run_at``
-for why.
+This thread decides *when*, the worker decides *what next*; a scheduled job
+differs from a pressed button only by ``trigger``. The hour is UTC: a container
+knows nothing of the owner's night. The planned moment is stored, see
+``Target.next_run_at``.
 """
 
 from __future__ import annotations

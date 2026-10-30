@@ -3,56 +3,30 @@
 The endpoint unreachable, the provider refusing, the key out, the judge
 silent — the row says something about the rig and nothing about the model.
 
-Two properties are checked: such a row says so in its verdict, and older rows
-carrying ``hallucinate`` with an ``ERROR:`` answer still count the same way.
+Such a row says so in its verdict; a failed judge call and a failed answer
+are told apart, neither enters a share, and the verdict cannot be set by hand.
 """
 
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete
 
 from syft_benchmark.config import ContextMode, EvalBlock, Settings, Verdict
 from syft_benchmark.control.schemas import VerdictOverride
 from syft_benchmark.db import QaPair, Result, Run, session_scope
+from syft_benchmark.llm import judge_provider
 from syft_benchmark.report.slices import by_generator
 from syft_benchmark.runs.judge import (
     ERROR_PREFIX,
     Grade,
     grade,
     grade_key_facts,
+    is_error,
     is_technical,
 )
-from syft_benchmark.runs.judge_stage import list_results
+from syft_benchmark.runs.result_views import list_results
 
 SPACE = "pytest-technical"
-
-
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean():  # type: ignore[no-untyped-def]
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Result).where(Result.space == SPACE))
-            session.execute(delete(Run).where(Run.space == SPACE))
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-
-    wipe()
-    yield
-    wipe()
 
 
 def test_a_call_that_did_not_happen_is_not_a_hallucination() -> None:
@@ -60,13 +34,24 @@ def test_a_call_that_did_not_happen_is_not_a_hallucination() -> None:
     broken = f"{ERROR_PREFIX} the endpoint returned an empty answer"
     conf = Settings()
 
-    assert grade("q", "a", broken, settings=conf).verdict is Verdict.TECHNICAL
     assert (
-        grade_key_facts(broken, ["a fact"], settings=conf).verdict is Verdict.TECHNICAL
+        grade("q", "a", broken, settings=conf, judge=judge_provider(conf)).verdict
+        is Verdict.TECHNICAL
+    )
+    assert (
+        grade_key_facts(
+            broken, ["a fact"], settings=conf, judge=judge_provider(conf)
+        ).verdict
+        is Verdict.TECHNICAL
     )
     # No facts to check against is the same kind of fact about the rig: the
     # item was built wrong, and grading it would invent a measurement.
-    assert grade_key_facts("an answer", [], settings=conf).verdict is Verdict.TECHNICAL
+    assert (
+        grade_key_facts(
+            "an answer", [], settings=conf, judge=judge_provider(conf)
+        ).verdict
+        is Verdict.TECHNICAL
+    )
 
 
 def test_failed_is_derived_from_the_verdict() -> None:
@@ -75,22 +60,20 @@ def test_failed_is_derived_from_the_verdict() -> None:
     assert Grade(Verdict.ABSTAIN, "").failed is False
 
 
-def test_the_old_rows_count_exactly_as_they_did() -> None:
-    """Older rows carry `hallucinate` and an `ERROR:` answer, and are still
-    not in the shares: counting them as inventions would move every published
-    figure with nothing remeasured.
-    """
-    assert is_technical(Verdict.TECHNICAL.value, "anything at all") is True
-    assert is_technical(Verdict.HALLUCINATE.value, f"{ERROR_PREFIX} boom") is True
-    assert is_technical(Verdict.HALLUCINATE.value, "Paris, probably") is False
-    assert is_technical(Verdict.CORRECT.value, "5442") is False
+def test_a_failed_judge_call_and_a_failed_answer_are_told_apart() -> None:
+    """A technical verdict is the judge's failure, an `ERROR:` answer the
+    answerer's; neither enters a share."""
+    assert is_technical(Verdict.TECHNICAL.value) is True
+    assert is_technical(Verdict.HALLUCINATE.value) is False
+    assert is_error(f"{ERROR_PREFIX} boom") is True
+    assert is_error("Paris, probably") is False
 
 
-@needs_db
-def test_neither_shape_of_failure_enters_a_share(clean: None) -> None:
-    """Four rows, two of them failures of either shape, one share of 50%."""
+@pytest.mark.needs_db
+def test_a_failed_judge_call_does_not_enter_a_share(clean: None) -> None:
+    """Three rows, one of them a failed judge call, one share of 50%."""
     with session_scope() as session:
-        for number in range(1, 5):
+        for number in range(1, 4):
             session.add(
                 QaPair(
                     id=f"p-tech-{number}",
@@ -110,8 +93,6 @@ def test_neither_shape_of_failure_enters_a_share(clean: None) -> None:
             ("correct", "5442"),
             ("hallucinate", "1234"),
             ("technical", f"{ERROR_PREFIX} unreachable"),
-            # The older shape.
-            ("hallucinate", f"{ERROR_PREFIX} unreachable"),
         ]
         for number, (verdict, answer) in enumerate(rows, start=1):
             session.add(
@@ -128,14 +109,14 @@ def test_neither_shape_of_failure_enters_a_share(clean: None) -> None:
     (slice_,) = by_generator(
         SPACE, ContextMode.CLOSED_BOOK, EvalBlock.DIRECT, model="m"
     )
-    assert slice_.failed == 2
+    assert slice_.failed == 1
     assert slice_.graded == 2
     assert slice_.correct == 1
     assert slice_.hallucinate == 1
     assert slice_.accuracy == 0.5
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_technical_row_is_visible_as_itself_in_the_console(clean: None) -> None:
     """The row says what happened, rather than naming an invention."""
     with session_scope() as session:

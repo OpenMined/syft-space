@@ -10,40 +10,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import delete
 
 from syft_benchmark.config import PairStatus
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.generation.pairs import delete_pair, get_pair, list_pairs
 
 SPACE = "pytest-pairs"
-
-
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean():  # type: ignore[no-untyped-def]
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Result).where(Result.space == SPACE))
-            session.execute(delete(Run).where(Run.space == SPACE))
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-
-    wipe()
-    yield
-    wipe()
 
 
 def _pair(
@@ -63,7 +35,7 @@ def _pair(
     )
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_pair_with_no_results_is_deleted_outright(clean: None) -> None:
     with session_scope() as session:
         session.add(_pair("p-lonely"))
@@ -72,7 +44,7 @@ def test_a_pair_with_no_results_is_deleted_outright(clean: None) -> None:
     assert get_pair("p-lonely") is None
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_pair_with_a_result_is_never_hard_deleted(clean: None) -> None:
     with session_scope() as session:
         session.add(_pair("p-measured", status=PairStatus.ACTIVE.value))
@@ -103,12 +75,12 @@ def test_a_pair_with_a_result_is_never_hard_deleted(clean: None) -> None:
     assert view.has_results is True
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_deleting_an_unknown_pair_says_so(clean: None) -> None:
     assert delete_pair("no-such-pair") == "not_found"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_listing_filters_by_status_and_reports_has_results(clean: None) -> None:
     with session_scope() as session:
         session.add(_pair("p-pending", status=PairStatus.PENDING.value))

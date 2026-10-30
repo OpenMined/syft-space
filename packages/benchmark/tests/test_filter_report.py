@@ -9,7 +9,6 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
 
 from syft_benchmark.config import (
     JobState,
@@ -19,77 +18,30 @@ from syft_benchmark.config import (
     StatusReason,
     get_settings,
 )
-from syft_benchmark.control.app import create_app
-from syft_benchmark.control.schemas import TargetSpec
-from syft_benchmark.db import Job, QaPair, Result, Run, Target, session_scope
+from syft_benchmark.db import Job, QaPair, Run, session_scope
 from syft_benchmark.generation import decisions, filter_stage, web_check
 from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.llm import LLMError
-from syft_benchmark.report import run_view
+from syft_benchmark.report import filter_view, job_params
 from syft_benchmark.runs import judge as run_judge
 
+from fakes import openrouter_settings
+from support import add_rows, console_auth
+
 KEY = "pytest-filter-report"
-TOKEN = "test-filter-report-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
-OPENROUTER = "https://openrouter.ai/api/v1"
 T0 = datetime(2026, 10, 1, 6, 0, tzinfo=UTC)
 WRITER, CHECKER = "fr-job-a", "fr-job-b"
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Any:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Result).where(Result.space == KEY))
-            session.execute(delete(Run).where(Run.space == KEY))
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-            session.execute(delete(Job).where(Job.target == KEY))
-            session.execute(delete(Target).where(Target.key == KEY))
-
-    wipe()
-    yield
-    wipe()
-
-
-@pytest.fixture
-def client() -> TestClient:
-    conf = get_settings().model_copy(update={"control_token": TOKEN})
-    return TestClient(create_app(conf))
-
-
-def _console(client: TestClient) -> dict[str, str]:
-    body = TargetSpec(key=KEY, url="http://space.invalid").model_dump(mode="json")
-    assert client.put(f"/targets/{KEY}", json=body, headers=AUTH).status_code == 200
-    minted = client.post(f"/targets/{KEY}/session", headers=AUTH)
-    assert minted.status_code == 200, minted.text
-    return {"Authorization": f"Bearer {minted.json()['token']}"}
+pytestmark = pytest.mark.needs_db
 
 
 def _settings(**kwargs: Any) -> Settings:
     base: dict[str, Any] = {
         "filter_model": "openai/gpt-5.1",
-        "subject_url": OPENROUTER,
-        "subject_key": "sk-test",
-        "allow_external_models": True,
-        "external_hosts": ["openrouter.ai"],
-        "max_consecutive_failures": 0,
         "concurrency": 1,
     }
-    return Settings(**{**base, **kwargs})
+    return openrouter_settings(**{**base, **kwargs})
 
 
 def _pair(pair_id: str, generator: str = "qa", **extra: Any) -> QaPair:
@@ -118,13 +70,6 @@ def _job(job_id: str, *, at: datetime = T0, **extra: Any) -> Job:
         finished_at=at + timedelta(minutes=5),
         **extra,
     )
-
-
-def _add(*rows: Any) -> None:
-    with session_scope() as session:
-        for row in rows:
-            session.add(row)
-            session.flush()
 
 
 def _stub_web(
@@ -167,7 +112,7 @@ def _meta(pair_id: str) -> dict[str, Any]:
 def test_every_decision_is_stamped_with_the_job(
     clean: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _add(
+    add_rows(
         _pair("p-web", job_id=WRITER),
         _pair("p-keep", job_id=WRITER),
         _pair("p-fail", job_id=WRITER),
@@ -205,7 +150,7 @@ def test_every_decision_is_stamped_with_the_job(
 
 
 def test_no_job_no_stamp(clean: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    _add(_pair("p1"))
+    add_rows(_pair("p1"))
     _stub_web(monkeypatch, answerable=set())
 
     filter_stage.filter_pending(_space(), settings=_settings())
@@ -231,9 +176,9 @@ def test_records_are_bounded() -> None:
 def test_a_jobs_filter_list_includes_pairs_written_earlier(
     client: TestClient, clean: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    auth = _console(client)
-    _add(_job(WRITER), _job(CHECKER, at=T0 + timedelta(days=1)))
-    _add(
+    auth = console_auth(client, KEY)
+    add_rows(_job(WRITER), _job(CHECKER, at=T0 + timedelta(days=1)))
+    add_rows(
         _pair("old-1", job_id=WRITER),
         _pair("old-2", job_id=WRITER),
         _pair("new-1", job_id=CHECKER),
@@ -245,7 +190,7 @@ def test_a_jobs_filter_list_includes_pairs_written_earlier(
     assert got.status_code == 200, got.text
     body = got.json()
     assert body["total"] == 3
-    assert body["counts"] == {"kept": 2, "removed": 1, "failed": 0, "skipped": 0}
+    assert body["counts"] == {"kept": 2, "removed": 1, "failed": 0}
     rows = {item["qa_id"]: item for item in body["items"]}
     old = rows["old-1"]
     assert old["earlier"] is True
@@ -286,12 +231,44 @@ def test_a_jobs_filter_list_includes_pairs_written_earlier(
     assert writer["total"] == 0
 
 
+def test_limit_zero_returns_one_kinds_decisions_in_one_page(
+    client: TestClient, clean: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The details dialog reads a kind in one request; other callers page."""
+    auth = console_auth(client, KEY)
+    add_rows(_job(WRITER))
+    add_rows(
+        *(
+            _pair(f"z-{n}", job_id=WRITER, status=PairStatus.ACTIVE.value)
+            for n in range(3)
+        )
+    )
+    add_rows(_pair("z-mcq", "mcq", job_id=WRITER, status=PairStatus.ACTIVE.value))
+    monkeypatch.setattr(filter_view, "MAX_PAGE", 1)
+    url = f"/console/report/runs/{WRITER}/filter"
+
+    every = client.get(url, params={"generator": "qa", "limit": 0}, headers=auth)
+    assert every.status_code == 200, every.text
+    body = every.json()
+    assert sorted(i["qa_id"] for i in body["items"]) == ["z-0", "z-1", "z-2"]
+    assert body["total"] == 3
+    rest = client.get(
+        url, params={"generator": "qa", "limit": 0, "offset": 2}, headers=auth
+    ).json()
+    assert len(rest["items"]) == 1
+    paged = client.get(url, params={"generator": "qa", "limit": 1}, headers=auth)
+    assert paged.status_code == 200, paged.text
+    assert len(paged.json()["items"]) == 1
+    unbounded = client.get(url, params={"limit": 0}, headers=auth)
+    assert unbounded.status_code == 422
+
+
 def test_an_unstamped_job_gets_decisions_inferred(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
-    _add(_job(WRITER))
-    _add(
+    auth = console_auth(client, KEY)
+    add_rows(_job(WRITER))
+    add_rows(
         _pair(
             "l-rejected",
             job_id=WRITER,
@@ -318,20 +295,20 @@ def test_an_unstamped_job_gets_decisions_inferred(
 def test_build_only_jobs_are_listed(
     client: TestClient, clean: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     measured = "fr-measured"
-    _add(
+    add_rows(
         _job(WRITER),
         _job(CHECKER, at=T0 + timedelta(days=1), kind="filter"),
         _job(measured, at=T0 + timedelta(days=2)),
         _job("fr-nothing", at=T0 + timedelta(days=3)),
     )
-    _add(
+    add_rows(
         _pair("b-1", job_id=WRITER),
         _pair("b-2", job_id=WRITER),
         _pair("m-1", job_id=measured, status=PairStatus.ACTIVE.value),
     )
-    _add(
+    add_rows(
         Run(
             id="fr-run",
             space=KEY,
@@ -358,7 +335,6 @@ def test_build_only_jobs_are_listed(
         "kept": 1,
         "removed": 1,
         "failed": 0,
-        "skipped": 0,
     }
     assert items[CHECKER]["state"] == JobState.SUCCEEDED.value
     assert items[CHECKER]["models"] == []
@@ -372,25 +348,25 @@ def test_build_only_jobs_are_listed(
 
 
 def test_how_tested_reads_the_jobs_snapshot(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     cost = {"spend_before": 1.0, "spend_after": 1.25, "usd": 0.25, "usd_calls": 0.24}
-    _add(
+    add_rows(
         _job(
             WRITER,
             params={
-                run_view.WEB_CHECK_MODEL: "openai/gpt-5.1",
-                run_view.WEB_CHECK_JUDGE: "judge/one",
-                run_view.COST: cost,
+                job_params.WEB_CHECK_MODEL: "openai/gpt-5.1",
+                job_params.WEB_CHECK_JUDGE: "judge/one",
+                job_params.COST: cost,
             },
         ),
         _job(CHECKER),
     )
-    _add(_pair("h-1", job_id=WRITER), _pair("h-2", job_id=CHECKER))
+    add_rows(_pair("h-1", job_id=WRITER), _pair("h-2", job_id=CHECKER))
 
     method = client.get(f"/console/report/runs/{WRITER}", headers=auth).json()["method"]
     assert method["web_check_model"] == "openai/gpt-5.1"
     assert method["web_check_judge"] == "judge/one"
-    # An older job: no cost by role.
+    # A job recorded without a cost by role.
     assert method["cost"] == {**cost, "total_usd": None, "by_role": None}
     bare = client.get(f"/console/report/runs/{CHECKER}", headers=auth).json()["method"]
     assert bare["web_check_model"] is None
@@ -400,11 +376,11 @@ def test_how_tested_reads_the_jobs_snapshot(client: TestClient, clean: Any) -> N
 
 def test_the_web_check_judge_is_resolved() -> None:
     conf = Settings(judge_models=["judge/one", "judge/two"])
-    assert run_view.web_check_judge(conf) == ""
+    assert job_params.web_check_judge(conf) == ""
     on = conf.model_copy(update={"filter_model": "m/web"})
-    assert run_view.web_check_judge(on) == "judge/one"
+    assert job_params.web_check_judge(on) == "judge/one"
     chosen = on.model_copy(update={"filter_judge_model": "judge/web"})
-    assert run_view.web_check_judge(chosen) == "judge/web"
+    assert job_params.web_check_judge(chosen) == "judge/web"
 
 
 def test_a_job_records_what_it_spent(
@@ -415,7 +391,7 @@ def test_a_job_records_what_it_spent(
     from syft_benchmark.control import jobs
     from syft_benchmark.llm import cost
 
-    _console(client)
+    console_auth(client, KEY)
     reads = iter([10.0, 10.5])
     monkeypatch.setattr(jobs, "openrouter_spend", lambda conf: next(reads))
 
@@ -426,14 +402,14 @@ def test_a_job_records_what_it_spent(
         return SimpleNamespace(line=lambda: "", notes=[])
 
     monkeypatch.setattr(jobs, "judge_pending", judging)
-    _add(Job(id=WRITER, target=KEY, kind="judge", state="queued", params={}))
+    add_rows(Job(id=WRITER, target=KEY, kind="judge", state="queued", params={}))
 
     jobs.execute(WRITER)
 
     with session_scope() as session:
         row = session.get(Job, WRITER)
         assert row is not None and row.state == JobState.SUCCEEDED.value
-        spent = row.params[run_view.COST]
+        spent = row.params[job_params.COST]
     assert spent["spend_before"] == 10.0 and spent["spend_after"] == 10.5
     assert spent["usd"] == pytest.approx(0.5)
     assert spent["usd_calls"] == pytest.approx(0.3)
@@ -449,7 +425,7 @@ def test_a_failed_spend_read_leaves_usd_empty(
 
     from syft_benchmark.control import jobs
 
-    _console(client)
+    console_auth(client, KEY)
 
     def broken(conf: Any) -> float:
         raise RuntimeError("no network")
@@ -460,14 +436,14 @@ def test_a_failed_spend_read_leaves_usd_empty(
         "judge_pending",
         lambda *a, **k: SimpleNamespace(line=lambda: "", notes=[]),
     )
-    _add(Job(id=WRITER, target=KEY, kind="judge", state="queued", params={}))
+    add_rows(Job(id=WRITER, target=KEY, kind="judge", state="queued", params={}))
 
     jobs.execute(WRITER)
 
     with session_scope() as session:
         row = session.get(Job, WRITER)
         assert row is not None and row.state == JobState.SUCCEEDED.value
-        assert row.params[run_view.COST] == {
+        assert row.params[job_params.COST] == {
             "spend_before": None,
             "spend_after": None,
             "usd": None,
@@ -491,9 +467,9 @@ def test_the_build_per_kind_is_kept_with_the_job(
     from syft_benchmark import scheduler
     from syft_benchmark.generation import pipeline
 
-    auth = _console(client)
-    _add(_job(WRITER, params={}))
-    _add(_pair("g-1", job_id=WRITER), _pair("g-2", "mcq", job_id=WRITER))
+    auth = console_auth(client, KEY)
+    add_rows(_job(WRITER, params={}))
+    add_rows(_pair("g-1", job_id=WRITER), _pair("g-2", "mcq", job_id=WRITER))
 
     def built(*_: Any, **__: Any) -> pipeline.GenerationReport:
         report = pipeline.GenerationReport(space=KEY)
@@ -545,6 +521,35 @@ def test_the_build_per_kind_is_kept_with_the_job(
     ).json()
     assert [item["id"] for item in only["items"]] == ["g-2"]
 
-    _add(_job(CHECKER))
+    add_rows(_job(CHECKER))
     bare = client.get(f"/console/report/runs/{CHECKER}/generated", headers=auth)
     assert bare.json() == {"kinds": [], "items": [], "total": 0}
+
+
+def test_one_pair_is_read_with_its_meta_from_a_run(
+    client: TestClient, clean: None
+) -> None:
+    auth = console_auth(client, KEY)
+    add_rows(_job(WRITER))
+    add_rows(
+        _pair(
+            "one-1",
+            job_id=WRITER,
+            status=PairStatus.REJECTED.value,
+            status_reason=StatusReason.WRONG_LANGUAGE.value,
+            meta={"writer": {"call": "c1"}},
+        )
+    )
+
+    got = client.get(f"/console/report/runs/{WRITER}/pairs/one-1", headers=auth)
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["id"] == "one-1"
+    assert body["meta"] == {"writer": {"call": "c1"}}
+    assert body["status_reason"] == StatusReason.WRONG_LANGUAGE.value
+    assert body["has_results"] is False
+
+    missing = client.get(f"/console/report/runs/{WRITER}/pairs/nope", headers=auth)
+    assert missing.status_code == 404
+    unknown = client.get("/console/report/runs/nope/pairs/one-1", headers=auth)
+    assert unknown.status_code == 404

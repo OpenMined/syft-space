@@ -1,16 +1,10 @@
-"""Verifying the control set's labelling.
+"""Checking questions against live retrieval: the control gate and the archive check.
 
-A generated negative is no more than the model's conjecture about what is not
-in the corpus. A conjecture can be wrong: the generator sees ONE chunk, while
-retrieval searches the whole collection, and the answer may well lie in a
-neighbouring document. Letting such a question into the measurement means
-recording a correct answer as a hallucination — and that is exactly the error
-because of which, in the original, "a bad question" and "the model does not
-know" produced the same row.
-
-So a candidate goes through a gate: it is put to live retrieval and we look at
-whether among what was found there is a chunk that answers it. A judge decides,
-not the generator — there is no reason for the generator to judge its own work.
+A generated negative is the writer's conjecture from ONE chunk; retrieval
+searches the whole collection, and the answer may be in a neighbouring
+document. Unchecked, a correct answer would be recorded as a hallucination. So
+a candidate is put to live retrieval, and a judge (not the writer) decides
+whether a fragment found answers it.
 
 Two gates share that search and that judge. ``gate_unanswerable`` keeps a
 question retrieval does NOT answer (a missing detail). ``gate_answerable``
@@ -18,9 +12,8 @@ keeps a question retrieval DOES answer; a false premise goes through it with
 its correction as the expected answer, since refuting the premise needs the
 archive to state the true fact.
 
-The gate uses THE SAME retrieval that is measured afterwards. This is not a
-simplification but a definition: the label "there is no answer" is meaningful
-only relative to a specific endpoint, not to an abstract corpus.
+The gate uses the same retrieval that is measured afterwards: "there is no
+answer" is meaningful only relative to a specific endpoint.
 """
 
 from __future__ import annotations
@@ -33,9 +26,8 @@ from syft_benchmark.config import Settings, get_settings
 from syft_benchmark.llm import LLMError, Provider, chat, cost, parse_json_object
 from syft_benchmark.llm.roles import web_search_for
 
-# What to query retrieval with: a question in, the texts of the chunks found
-# out. A callable rather than an endpoint client, for two reasons: generation
-# must not depend on the runs module, and the gate has to be testable offline.
+# A question in, the texts of the chunks found out. A callable, so generation
+# does not depend on the runs module and the gate is testable offline.
 Retriever = Callable[[str], list[str]]
 
 _GATE_SYSTEM = """\
@@ -107,15 +99,13 @@ def _search(question: str, retrieve: Retriever) -> list[str] | Gate:
 
 
 def _ask(
-    system: str, user: str, conf: Settings, judge: Provider | None
+    system: str, user: str, conf: Settings, judge: Provider
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """The judge's parsed reply and the call record; raises ``LLMError``."""
-    model = judge.model if judge is not None else conf.judge_model
-    searching, engine = web_search_for(conf, "judge", model)
+    searching, engine = web_search_for(conf, "judge", judge.model)
     raw, usage = chat(
         system,
         user,
-        model=None if judge is not None else conf.judge_model,
         provider=judge,
         max_tokens=600,
         settings=conf,
@@ -125,7 +115,7 @@ def _ask(
         role=cost.WEB_CHECK,
     )
     call = {
-        "model": model,
+        "model": judge.model,
         "system": system,
         "user": user,
         "reply": raw,
@@ -138,8 +128,8 @@ def gate_unanswerable(
     question: str,
     retrieve: Retriever,
     *,
+    judge: Provider,
     settings: Settings | None = None,
-    judge: Provider | None = None,
 ) -> Gate:
     """Make sure live retrieval does not answer this question.
 
@@ -159,8 +149,7 @@ def gate_unanswerable(
         return fragments
 
     if not fragments:
-        # Retrieval found nothing — the question is certainly unanswerable by
-        # this endpoint. There is nothing to check and no reason to call a model.
+        # Nothing found: unanswerable by this endpoint, no judge needed.
         return Gate(True, "retrieval returned nothing", fragments=0)
 
     listed = "\n---\n".join(fragments)[:_FRAGMENTS_CHARS]
@@ -168,8 +157,7 @@ def gate_unanswerable(
     try:
         data, call = _ask(_GATE_SYSTEM, user, conf, judge)
     except LLMError as exc:
-        # Unknown is not fit: a candidate about which one cannot say whether it
-        # is answerable does not go into the measurement.
+        # Unknown is not fit.
         return Gate(
             False, f"the gate did not run: {exc}", len(fragments), checked=False
         )
@@ -198,8 +186,8 @@ def gate_answerable(
     *,
     facts: Sequence[str] = (),
     premise: str = "",
+    judge: Provider,
     settings: Settings | None = None,
-    judge: Provider | None = None,
 ) -> Gate:
     """Make sure live retrieval finds the expected answer to this question.
 

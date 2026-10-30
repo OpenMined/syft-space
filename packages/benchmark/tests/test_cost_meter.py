@@ -13,7 +13,7 @@ from syft_benchmark.config import Settings
 from syft_benchmark.llm import chat, cost
 from syft_benchmark.llm.openrouter import openrouter_spend
 
-ROUTER = "https://openrouter.ai/api/v1"
+from fakes import OPENROUTER
 
 
 def _reply(content: str, price: float | None, finish: str = "stop") -> dict[str, Any]:
@@ -44,7 +44,7 @@ def _local() -> Settings:
 
 def _router(**extra: Any) -> Settings:
     return Settings(  # type: ignore[call-arg]
-        ollama_url=ROUTER,
+        ollama_url=OPENROUTER,
         llm_api_key="sk-shared",
         allow_external_models=True,
         external_hosts=["openrouter.ai"],
@@ -93,23 +93,19 @@ def test_meter_reaches_plain_pool_workers_when_one_is_open(
     assert cost.meter_for(7) is None
 
 
-def test_pool_kwargs_and_bind_keep_two_meters_apart() -> None:
+def test_pool_kwargs_keep_two_meters_apart() -> None:
     with cost.cost_meter(job_id="a") as first:
         with ThreadPoolExecutor(max_workers=4, **cost.pool_kwargs()) as pool:
             list(pool.map(lambda _: cost.charge(1.0), range(10)))
-        bound = cost.bind(lambda: cost.charge(0.5))
         with cost.cost_meter(job_id="b") as second:
             # Two meters open: a worker without context charges nowhere.
             with ThreadPoolExecutor(max_workers=2) as pool:
                 list(pool.map(lambda _: cost.charge(100.0), range(4)))
             with ThreadPoolExecutor(max_workers=4, **cost.pool_kwargs()) as pool:
                 list(pool.map(lambda _: cost.charge(2.0), range(5)))
-            worker = threading.Thread(target=bound)
-            worker.start()
-            worker.join()
             cost.charge(3.0)
         assert second.total_usd == pytest.approx(13.0)
-    assert first.total_usd == pytest.approx(10.5)
+    assert first.total_usd == pytest.approx(10.0)
 
 
 def _key_get(usage: Any, seen: list[str]) -> Any:

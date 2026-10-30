@@ -1,9 +1,8 @@
-"""Item types: a prompt plus the parsing of the model answer.
+"""The generator registry: each kind's prompt, unit scope, grading and cleaner.
 
-The registry ``GENERATORS``: masking, free-form, choice and control kinds. The
-prompts are in English deliberately — a 4B model follows an instruction
-noticeably more precisely in it, while the language of the pair is set by the
-last rule and taken from the language of the chunk.
+``GENERATORS`` holds the masking, free-form, choice and control kinds. Prompts
+are in English (small models follow English instructions more precisely); the
+pair's language comes from the chunk, by the last rule of each prompt.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from syft_benchmark.config import ExpectedBehavior
@@ -28,7 +28,7 @@ from syft_benchmark.generation.negative import (
     clean_false_premise,
     clean_unanswerable,
 )
-from syft_benchmark.generation.pair import Pair
+from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.shuffle import LETTERS, shuffle_options
 from syft_benchmark.generation.wording import ANCHOR_RULE
@@ -94,7 +94,14 @@ No markdown fences, no commentary.
 """
 
 
-Cleaner = Callable[[list[dict[str, Any]], int, str], tuple[list[Pair], list[str]]]
+Cleaner = Callable[[list[dict[str, Any]], int, str], tuple[list[Pair], list[Dropped]]]
+
+
+class Scope(StrEnum):
+    """What one writer call is fed."""
+
+    CHUNK = "chunk"
+    DOCUMENT = "document"
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,33 +110,36 @@ class Generator:
 
     Args:
         key: The name in the CLI and in the database
-        task_type: The item class — it determines both the screening rules and
-            how the item is judged afterwards
-        scope: What is fed in. ``chunk`` — one chunk; ``document`` — the whole
-            document. This is not a performance setting: you cannot connect two
-            facts or lay out the core of a topic from a single paragraph, such
-            items degenerate into paraphrase at chunk scope
-        grading: What the answer is measured by. ``letter`` — matching the
-            option letter, no judge needed; ``judge`` — a judge model;
-            ``key_facts`` — checking the listed facts rather than a text match
+        task_type: The item class; it sets both the screening rules and how
+            the item is judged
+        scope: What is fed in. Connecting two facts or laying out a topic
+            needs the whole document: at chunk scope such items degenerate
+            into paraphrase
+        grading: What the answer is measured by. ``letter`` — the option
+            letter, no judge; ``judge`` — a judge model; ``key_facts`` — the
+            listed facts rather than a text match; ``behavior`` — the expected
+            behaviour
         system: The system prompt; ``{n}`` is substituted with the item count
         clean: Parsing and screening of the model answer
         tokens_per_pair: The answer ceiling, reckoned per item
-        expected: What counts as the correct behaviour for such an item. For all
-            the ordinary generators it is to answer: the item was built OUT OF a
-            chunk and is therefore answerable. For the control ones it is to
-            abstain or to refute the premise, and that changes both the screening
-            (there is no gold answer, nothing to ground) and the judging
+        expected: The correct behaviour. Ordinary items are built out of a
+            chunk and are answerable; control items expect abstaining or
+            refuting the premise, which changes both screening (no gold answer
+            to ground) and judging
+        single_item: The reply is one JSON object holding one item per unit,
+            not an array of ``n`` items. Such an item is long, so its call
+            starts from the shared answer ceiling
     """
 
     key: str
     task_type: str
-    scope: str
+    scope: Scope
     grading: str
     system: str
     clean: Cleaner
     tokens_per_pair: int
     expected: ExpectedBehavior = ExpectedBehavior.ANSWER
+    single_item: bool = False
 
     @property
     def is_control(self) -> bool:
@@ -149,6 +159,26 @@ def document_header(doc: Document) -> list[str]:
     return lines
 
 
+def document_text(doc: Document) -> str:
+    """The whole document — the pool the endpoint answers from."""
+    return "\n\n".join(chunk.text for chunk in doc.chunks)
+
+
+def writer_passage(doc: Document, chunk: Chunk | None) -> str:
+    """The text a writer prompt shows: the chunk, or the whole document for a
+    document-scope kind, each cut at its limit. Stored as the pair's ``context``."""
+    if chunk is None:
+        return document_text(doc)[:MAX_DOCUMENT_CHARS]
+    return chunk.text[:MAX_FRAGMENT_CHARS]
+
+
+def document_prompt(doc: Document, tasks: int) -> str:
+    """The whole document and how many items are wanted from it."""
+    header = "\n".join(document_header(doc))
+    text = writer_passage(doc, None)
+    return f'{header}\n\nText:\n"""\n{text}\n"""\n\nGenerate {tasks}.'
+
+
 def user_prompt(doc: Document, chunk: Chunk, pairs: int) -> str:
     """The chunk and how many pairs are wanted from it."""
     lines = document_header(doc)
@@ -158,7 +188,7 @@ def user_prompt(doc: Document, chunk: Chunk, pairs: int) -> str:
         "",
         "Fragment:",
         '"""',
-        chunk.text[:MAX_FRAGMENT_CHARS],
+        writer_passage(doc, chunk),
         '"""',
         "",
         f"Generate exactly {pairs} pairs.",
@@ -168,20 +198,19 @@ def user_prompt(doc: Document, chunk: Chunk, pairs: int) -> str:
 
 def _clean_qa(
     items: list[dict[str, Any]], pairs: int, document: str
-) -> tuple[list[Pair], list[str]]:
+) -> tuple[list[Pair], list[Dropped]]:
     """Select the valid free-answer pairs."""
     good: list[Pair] = []
-    rejected: list[str] = []
-    # We take extra: some will be filtered out, and it is better to have a choice.
+    rejected: list[Dropped] = []
     for item in items[: pairs * 2]:
         question = str(item.get("question") or "").strip()
         answer = str(item.get("answer") or "").strip()
         if len(question) < 10 or len(answer) < 2:
-            rejected.append("empty question or answer")
+            rejected.append(Dropped("empty question or answer", question, answer))
             continue
         reason = reject_reason(question, document, task_type="abstractive")
         if reason:
-            rejected.append(reason)
+            rejected.append(Dropped(reason, question, answer))
             continue
         good.append(
             Pair(
@@ -194,12 +223,21 @@ def _clean_qa(
     return good[:pairs], rejected
 
 
+def _mcq_draft(reason: str, question: str, options: Any, correct: str) -> Dropped:
+    """A dropped multiple-choice draft: the question with its options listed."""
+    if not isinstance(options, dict):
+        return Dropped(reason, question)
+    listed = [f"  {key}) {value}" for key, value in sorted(options.items())]
+    answer = f"{correct}) {options[correct]}" if correct in options else ""
+    return Dropped(reason, "\n".join([question, *listed]), answer)
+
+
 def _clean_mcq(
     items: list[dict[str, Any]], pairs: int, document: str
-) -> tuple[list[Pair], list[str]]:
+) -> tuple[list[Pair], list[Dropped]]:
     """Select the valid multiple-choice questions."""
     good: list[Pair] = []
-    rejected: list[str] = []
+    rejected: list[Dropped] = []
     for item in items[: pairs * 2]:
         question = str(item.get("question") or "").strip()
         options = item.get("options") or {}
@@ -210,30 +248,35 @@ def _clean_mcq(
             or len(options) != 4
             or correct not in options
         ):
-            rejected.append("a question without four options or without a correct one")
+            rejected.append(
+                _mcq_draft(
+                    "a question without four options or without a correct one",
+                    question,
+                    options,
+                    correct,
+                )
+            )
             continue
         # The answer options make the question unambiguous by themselves, so only
         # self-sufficiency is checked here.
         reason = reject_reason(question, document, task_type="choice")
         if reason:
-            rejected.append(reason)
+            rejected.append(_mcq_draft(reason, question, options, correct))
             continue
-        # We shuffle rather than take the generator order: the model numbers the
-        # options as it pleases, and the correct one ends up in a predictable
-        # place. Then "a correct answer without access to the corpus" would mean
-        # not a leak but a match with the generator favourite letter.
+        # The writer puts the correct option in a predictable place; shuffled,
+        # a correct answer cannot come from matching its favourite letter.
         ordered = [options[key] for key in sorted(options)]
-        was = sorted(options).index(correct)
-        values, now, seed = shuffle_options(ordered, was, question)
+        written_at = sorted(options).index(correct)
+        values, at, seed = shuffle_options(ordered, written_at, question)
 
-        letter = LETTERS[now]
+        letter = LETTERS[at]
         listed = "\n".join(f"  {LETTERS[i]}) {v}" for i, v in enumerate(values))
         good.append(
             Pair(
                 question=f"{question}\n{listed}",
-                answer=f"{letter}) {values[now]}",
+                answer=f"{letter}) {values[at]}",
                 distractors=[
-                    f"{LETTERS[i]}) {v}" for i, v in enumerate(values) if i != now
+                    f"{LETTERS[i]}) {v}" for i, v in enumerate(values) if i != at
                 ],
                 meta={
                     "correct": letter,
@@ -256,14 +299,12 @@ def reasons(rejected: Iterable[str]) -> str:
 
 
 GENERATORS: dict[str, Generator] = {
-    # --- extractive: span masking ----------------------------------------
-    # The only class where the gold answer is a span of the text. The three
-    # categories are built by one call but live separately in the database —
-    # their numbers are about different things.
+    # Span masking: the only kinds whose gold answer is a span of the text.
+    # One call builds all three categories; they are stored as separate kinds.
     "named_entity_masking": Generator(
         key="named_entity_masking",
         task_type="extractive",
-        scope="chunk",
+        scope=Scope.CHUNK,
         grading="judge",
         system="",  # the prompt is shared, see extractive.COMBINED_SYSTEM
         clean=_clean_qa,
@@ -272,7 +313,7 @@ GENERATORS: dict[str, Generator] = {
     "numeric_masking": Generator(
         key="numeric_masking",
         task_type="extractive",
-        scope="chunk",
+        scope=Scope.CHUNK,
         grading="judge",
         system="",
         clean=_clean_qa,
@@ -281,17 +322,16 @@ GENERATORS: dict[str, Generator] = {
     "temporal_masking": Generator(
         key="temporal_masking",
         task_type="extractive",
-        scope="chunk",
+        scope=Scope.CHUNK,
         grading="judge",
         system="",
         clean=_clean_qa,
         tokens_per_pair=90,
     ),
-    # --- abstractive ------------------------------------------------------
     "mcq": Generator(
         key="mcq",
         task_type="choice",
-        scope="chunk",
+        scope=Scope.CHUNK,
         grading="letter",
         system=_MCQ_SYSTEM,
         clean=_clean_mcq,
@@ -300,7 +340,7 @@ GENERATORS: dict[str, Generator] = {
     "two_truths_one_lie": Generator(
         key="two_truths_one_lie",
         task_type="choice",
-        scope="chunk",
+        scope=Scope.CHUNK,
         grading="letter",
         system=TTIL_SYSTEM,
         clean=clean_ttil,
@@ -309,7 +349,7 @@ GENERATORS: dict[str, Generator] = {
     "multihop_synthesis": Generator(
         key="multihop_synthesis",
         task_type="abstractive",
-        scope="document",
+        scope=Scope.DOCUMENT,
         grading="judge",
         system=MULTIHOP_SYSTEM,
         clean=clean_multihop,
@@ -318,38 +358,31 @@ GENERATORS: dict[str, Generator] = {
     "tiered_explanation": Generator(
         key="tiered_explanation",
         task_type="abstractive",
-        scope="document",
+        scope=Scope.DOCUMENT,
         grading="key_facts",
         system=TIERED_SYSTEM,
         clean=clean_tiered,
-        # The longest item of them all: three explanations of differing levels
-        # plus a list of facts, in one JSON object. Only an estimate: the
-        # pipeline starts this generator from the shared answer ceiling, and a
-        # cut-off call is repeated with a larger budget.
         tokens_per_pair=1400,
+        single_item=True,
     ),
-    # --- our addition -----------------------------------------------------
-    # A free-form question with a short answer. There is nothing like it in
-    # LiveTruth: there, knowledge of paid content was tested, whereas we also need
-    # the ordinary shape in which a real user comes to the endpoint.
+    # A free-form question with a short answer: the ordinary shape in which a
+    # real user comes to the endpoint.
     "qa": Generator(
         key="qa",
         task_type="abstractive",
-        scope="chunk",
+        scope=Scope.CHUNK,
         grading="judge",
         system=_QA_SYSTEM,
         clean=_clean_qa,
         tokens_per_pair=190,
     ),
-    # --- the control set: there is NO answer in the corpus ----------------
-    # Without these two the dataset consists of answerable questions only and
-    # measures half the behaviour: what the pair does when there is no answer is
-    # not measured at all. The labelling is verified by live retrieval (control.py)
-    # — a negative without that check is an unfounded accusation of invention.
+    # The control set: no answer in the corpus. Without it only answering is
+    # measured, not what the pair does when there is nothing to answer from.
+    # Its labelling is verified against live retrieval (control.py).
     "unanswerable_property": Generator(
         key="unanswerable_property",
         task_type="negative",
-        scope="chunk",
+        scope=Scope.CHUNK,
         grading="behavior",
         system=UNANSWERABLE_SYSTEM,
         clean=clean_unanswerable,
@@ -359,7 +392,7 @@ GENERATORS: dict[str, Generator] = {
     "false_premise": Generator(
         key="false_premise",
         task_type="negative",
-        scope="chunk",
+        scope=Scope.CHUNK,
         grading="judge",
         system=FALSE_PREMISE_SYSTEM,
         clean=clean_false_premise,
@@ -368,35 +401,21 @@ GENERATORS: dict[str, Generator] = {
     ),
 }
 
-# The control generators. Listed separately because they have their own road: a
-# gate instead of gold-answer screening, and their own correct behaviour.
+# Screened by the retrieval gate instead of gold-answer grounding.
 CONTROL_KEYS = tuple(key for key, spec in GENERATORS.items() if spec.is_control)
 
-# The extractive ones are built together: one call gives all three categories
-# at once, and there is no reason to call the model three times over one chunk.
+# Built together: one call gives all three categories.
 EXTRACTIVE_KEYS = ("named_entity_masking", "numeric_masking", "temporal_masking")
 
-# The mapping "category in the model answer -> generator key".
+# Category in the model answer -> generator key.
 EXTRACTIVE_CATEGORIES = {
     "named_entity": "named_entity_masking",
     "numeric": "numeric_masking",
     "temporal": "temporal_masking",
 }
 
-# By default ALL the generators work: each tests its own property, and choosing
-# on the user behalf which property is uninteresting to them is wrong. They are
-# switched off through disabled_generators — deliberately and by name.
-DEFAULT_GENERATORS = tuple(GENERATORS)
-
 
 def enabled_generators(disabled: list[str] | None = None) -> tuple[str, ...]:
-    """The generators that should be run.
-
-    Args:
-        disabled: The names of the disabled ones, from the settings
-
-    Returns:
-        All the known ones except the disabled
-    """
+    """Every known generator key except the ``disabled`` ones, in registry order."""
     off = set(disabled or ())
     return tuple(key for key in GENERATORS if key not in off)

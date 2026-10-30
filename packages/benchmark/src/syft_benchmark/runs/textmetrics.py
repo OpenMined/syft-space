@@ -1,34 +1,18 @@
 """Text metrics: how far the answer RESEMBLES the gold answer.
 
-A port of BLEU / ROUGE / BERTScore from LiveTruth's `eval_arena/scoring.py`. Off
-by default, and that is not caution but what they are here.
+BLEU, ROUGE and BERTScore are a second view of an answer, computed without any
+judge: where the verdict and the textual match diverge, the answer is worth a
+look. They measure word overlap, not correctness, so they enter no share of the
+report and no verdict, and are comparable only between the models of one
+report. Off by default.
 
-**What they are here for.** Our headline assessment is the judge verdict, that
-is, a model opinion about a text. And it should be the headline one: comparing
-prose with prose is a lottery, an explanation can be correct and unlike the gold
-answer. But the judge opinion has exactly one trouble: there is nothing to check
-it with except another opinion. Text metrics are computed mechanically, do not
-depend on any judge, and therefore work as a second, independent view. If the
-verdict and the textual match diverge, that is grounds for a look with your own
-eyes, not a headline figure.
+They apply only where the answer is prose (``PROSE_GENERATORS``): a one-word
+or one-letter gold answer reduces them to "matched or not", which the judge
+already measures.
 
-**What they are not.** Neither BLEU nor ROUGE knows whether the answer is right:
-they measure word overlap. A retelling in one own words gets a low score with a
-correct answer, while a verbatim quotation off the point gets a high one. So they
-enter no share of the report and take no part in the verdict.
-It makes sense to compare them between the models of ONE report, not against
-numbers from other people papers.
-
-**Where they apply.** Only where the answer is prose: ``multihop_synthesis``,
-``tiered_explanation``, ``qa``. Masking has a one-word gold answer, and ROUGE
-over it degenerates into "matched or not", which the judge already measures; for
-multiple-choice the answer is a letter.
-
-BLEU and ROUGE are computed right here, without third-party packages: the
-definitions are settled and short, and an extra dependency for two formulas costs
-more than they do. BERTScore is built differently — it is a model run — and lives
-behind an optional dependency: no package, the metric is skipped with a note in
-the log, and the run carries on.
+BLEU and ROUGE are computed here without third-party packages. BERTScore is a
+model run behind an optional dependency: without the package it is skipped
+with a note in the log.
 """
 
 from __future__ import annotations

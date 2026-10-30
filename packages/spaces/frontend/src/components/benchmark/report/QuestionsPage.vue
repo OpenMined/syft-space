@@ -63,6 +63,7 @@
         <span class="w-[110px] shrink-0">On its own</span>
         <span class="w-[110px] shrink-0">With your data</span>
         <span class="w-[18px] shrink-0" />
+        <span v-if="details" class="-ml-2 w-7 shrink-0" />
       </div>
 
       <div
@@ -71,33 +72,47 @@
         class="border-b border-border last:border-b-0"
         data-testid="question-row"
       >
-        <button
-          type="button"
-          class="flex w-full min-w-[680px] items-center gap-4 px-4 py-3 text-left hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-          :class="openId === q.qa_id && 'bg-muted/40'"
-          :aria-expanded="openId === q.qa_id"
-          :aria-controls="`question-${q.qa_id}`"
-          @click="toggle(q.qa_id)"
-        >
-          <span class="w-7 shrink-0 text-muted-foreground tabular-nums">{{ q.n }}</span>
-          <span class="flex min-w-0 flex-[1_1_420px] flex-col gap-0.5">
-            <span class="break-words">{{ q.question }}</span>
-            <span class="text-xs text-muted-foreground"
-              >{{ kindLabel(q.generator) }} · {{ articleOf(q) }}</span
+        <div class="flex min-w-[680px] items-center" :class="openId === q.qa_id && 'bg-muted/40'">
+          <button
+            type="button"
+            class="flex min-w-0 flex-1 items-center gap-4 py-3 pl-4 text-left hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            :class="details ? 'pr-2' : 'pr-4'"
+            :aria-expanded="openId === q.qa_id"
+            :aria-controls="`question-${q.qa_id}`"
+            @click="toggle(q.qa_id)"
+          >
+            <span class="w-7 shrink-0 text-muted-foreground tabular-nums">{{ q.n }}</span>
+            <span class="flex min-w-0 flex-[1_1_420px] flex-col gap-0.5">
+              <span class="break-words">{{ q.question }}</span>
+              <span class="text-xs text-muted-foreground"
+                >{{ kindLabel(q.generator) }} · {{ articleOf(q) }}</span
+              >
+            </span>
+            <span class="w-[110px] shrink-0" data-testid="verdict-closed">
+              <VerdictPill :verdict="q.verdict_alone" :generator="q.generator" :focusable="false" />
+            </span>
+            <span class="w-[110px] shrink-0" data-testid="verdict-ctx">
+              <VerdictPill :verdict="q.verdict_with" :generator="q.generator" :focusable="false" />
+            </span>
+            <ChevronDown
+              class="size-[18px] shrink-0 text-muted-foreground transition-transform"
+              :class="openId === q.qa_id && 'rotate-180'"
+              aria-hidden="true"
+            />
+          </button>
+          <Hint v-if="details" text="What was sent, replied and judged">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="mr-2 size-7 shrink-0 text-muted-foreground"
+              aria-label="What was sent, replied and judged"
+              data-testid="question-audit"
+              @click="audited = q"
             >
-          </span>
-          <span class="w-[110px] shrink-0" data-testid="verdict-closed">
-            <VerdictPill :verdict="q.verdict_alone" :generator="q.generator" />
-          </span>
-          <span class="w-[110px] shrink-0" data-testid="verdict-ctx">
-            <VerdictPill :verdict="q.verdict_with" :generator="q.generator" />
-          </span>
-          <ChevronDown
-            class="size-[18px] shrink-0 text-muted-foreground transition-transform"
-            :class="openId === q.qa_id && 'rotate-180'"
-            aria-hidden="true"
-          />
-        </button>
+              <CircleHelp class="size-4" />
+            </Button>
+          </Hint>
+        </div>
 
         <div
           v-if="openId === q.qa_id"
@@ -167,32 +182,21 @@
                 :data-testid="`answer-${arm}`"
               >
                 <span>{{ armOf(detail, arm)?.answer || DASH }}</span>
-                <span
+                <Hint
                   v-if="armOf(detail, arm)?.web_search_unused"
-                  class="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                  :title="
-                    armOf(detail, arm)?.web_search_unused_reason ||
-                    'Asked to search the web, but cited nothing.'
-                  "
-                  data-testid="searched-no"
-                  >Searched: no</span
+                  :text="armOf(detail, arm)?.web_search_unused_reason || SEARCH_UNUSED_TIP"
                 >
-                <span
-                  v-if="armOf(detail, arm)?.citations?.length"
-                  class="flex flex-wrap gap-x-2 gap-y-0.5 text-xs"
-                  data-testid="citations"
-                >
-                  <a
-                    v-for="(cite, n) in armOf(detail, arm)!.citations"
-                    :key="`${n}-${cite.url}`"
-                    :href="safeUrl(cite.url)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="max-w-60 truncate text-primary hover:underline"
-                    :title="cite.url"
-                    >{{ cite.title || hostOf(cite.url) }}</a
+                  <span
+                    class="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                    data-testid="searched-no"
+                    >Searched: no</span
                   >
-                </span>
+                </Hint>
+                <CitationLinks
+                  v-if="armOf(detail, arm)?.citations?.length"
+                  :citations="armOf(detail, arm)!.citations!"
+                  data-testid="citations"
+                />
               </span>
             </div>
 
@@ -319,21 +323,20 @@
         </div>
       </DialogContent>
     </Dialog>
+
+    <QuestionDialog
+      v-if="audited"
+      v-model:open="auditOpen"
+      :qa-id="audited.qa_id"
+      :question="audited.question"
+      :generator="audited.generator"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import {
-  computed,
-  defineComponent,
-  h,
-  onBeforeUnmount,
-  ref,
-  shallowRef,
-  watch,
-  type PropType,
-} from 'vue'
-import { ChevronDown } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { ChevronDown, CircleHelp } from 'lucide-vue-next'
 import type {
   BenchmarkQuestionDetail,
   BenchmarkQuestionJudge,
@@ -361,20 +364,17 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { apiErrorDetail } from '@/lib/errors'
-import { cn } from '@/lib/utils'
+import Hint from '../Hint.vue'
+import CitationLinks from './CitationLinks.vue'
 import { useReport, useRun } from './context'
+import QuestionDialog from './details/QuestionDialog.vue'
+import VerdictPill from './details/VerdictPill.vue'
+import { useDetails } from './details/useDetails'
 import { DASH } from './figures'
-import {
-  GROUP_LABEL,
-  KIND_LABEL,
-  VERDICT_COLORS,
-  kindLabel,
-  modelName,
-  outcomeLabel,
-  verdictTip,
-} from './labels'
+import { kindLabel } from '../kinds'
+import { GROUP_LABEL, SEARCH_UNUSED_TIP, judgesText, modelName } from './labels'
 import { heldOf, isTrick } from './selectors'
-import { sortKinds, sortQuestions } from '../questionOrder'
+import { KIND_ORDER, sortKinds, sortQuestions } from '../questionOrder'
 import { ARM_KEY, type Arm, type Group } from './types'
 
 const PAGE_SIZE = 25
@@ -386,34 +386,18 @@ const ARMS: Arm[] = ['closed', 'ctx']
 const GRID_ROW =
   'grid grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-border/60 px-3 py-2.5 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)]'
 
-const VerdictPill = defineComponent({
-  props: {
-    verdict: { type: String as PropType<string | null>, default: null },
-    /** Control kinds show the fine outcome. */
-    generator: { type: String as PropType<string | null>, default: null },
-    behavior: { type: String as PropType<string | null>, default: null },
-  },
-  setup(props) {
-    return () =>
-      props.verdict
-        ? h(
-            'span',
-            {
-              class: cn(
-                'inline-block rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap',
-                VERDICT_COLORS[props.verdict] ?? 'bg-muted text-muted-foreground',
-              ),
-              title: verdictTip(props.verdict) || undefined,
-              'data-verdict': props.verdict,
-            },
-            outcomeLabel(props.generator, props.verdict, props.behavior),
-          )
-        : h('span', { class: 'text-muted-foreground' }, DASH)
-  },
-})
-
 const report = useReport()
 const run = useRun()
+const details = useDetails()
+
+/** The question whose model calls are shown. */
+const audited = shallowRef<BenchmarkQuestionRow | null>(null)
+const auditOpen = computed({
+  get: () => audited.value !== null,
+  set: (shown) => {
+    if (!shown) audited.value = null
+  },
+})
 
 const group = ref<GroupFilter>('all')
 const kind = ref('all')
@@ -428,8 +412,6 @@ watch(search, (text) => {
   searchTimer = setTimeout(() => (query.value = text.trim()), SEARCH_DEBOUNCE_MS)
 })
 onBeforeUnmount(() => clearTimeout(searchTimer))
-
-// --- the page of questions ------------------------------------------------------
 
 const pageData = shallowRef<BenchmarkQuestionPage | null>(null)
 const listLoading = ref(false)
@@ -487,16 +469,15 @@ const subtitle = computed(() => {
   const model = run.model.value
   const asked = run.modelReport.value?.asked ?? counts.value?.all
   const parts = [model ? modelName(model) : null, asked !== undefined ? `${asked} questions` : null]
-  const graders = (run.data.value?.judges ?? []).map((j, i) => `Judge ${i + 1} (${modelName(j)})`)
-  const last = graders.pop()
-  if (last) parts.push(`graded by ${graders.length ? `${graders.join(', ')} and ${last}` : last}`)
+  const judges = judgesText(run.data.value?.judges ?? [])
+  if (judges) parts.push(`graded by ${judges}`)
   return parts.filter(Boolean).join(' · ')
 })
 
 /** The run's kinds in the canonical order. */
 const kinds = computed(() => {
   const recorded = run.data.value?.method.kinds ?? []
-  return sortKinds(recorded.length ? recorded : Object.keys(KIND_LABEL)).filter((k) => !isTrick(k))
+  return sortKinds(recorded.length ? recorded : KIND_ORDER).filter((k) => !isTrick(k))
 })
 
 const chips = computed(() => {
@@ -533,8 +514,6 @@ function sentence(text: string): string {
   const t = text.trim()
   return /[.!?…”"')]$/.test(t) ? t : `${t}.`
 }
-
-// --- the open question ----------------------------------------------------------
 
 const openRow = computed(() => rows.value.find((q) => q.qa_id === openId.value) ?? null)
 const detail = shallowRef<BenchmarkQuestionDetail | null>(null)
@@ -594,19 +573,6 @@ function judgeBehavior(judge: BenchmarkQuestionJudge, arm: Arm): string | null {
 
 function armOf(d: BenchmarkQuestionDetail, arm: Arm) {
   return d.arms[ARM_KEY[arm]]
-}
-
-/** Only web links; anything else would run in the page. */
-function safeUrl(url: string): string | undefined {
-  return /^https?:\/\//i.test(url) ? url : undefined
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
 }
 
 function heldText(d: BenchmarkQuestionDetail, arm: Arm): string {

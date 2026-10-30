@@ -18,7 +18,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from sqlalchemy import delete
 
 from syft_benchmark.config import Settings, env_settings
 from syft_benchmark.control import targets as registry
@@ -31,10 +30,14 @@ from syft_benchmark.db.crypto import (
     cipher_from,
     new_key,
 )
-from syft_benchmark.db.models import Credential, InstallationSettings, Target
+from syft_benchmark.db.models import Target
 from syft_benchmark.db.session import session_scope
 
+from support import AUTH, TOKEN
+
 KEY = "pytest-store-target"
+# The store's tests clear the settings row and the credentials.
+CLEARS_SETTINGS = True
 
 
 # --- the sealing ------------------------------------------------------------
@@ -164,59 +167,25 @@ def test_what_is_stored_is_only_what_was_sent() -> None:
 # --- the store over a live table --------------------------------------------
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(Target).where(Target.key == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Any:
-    """Nothing of this test's survives it — and the cache is not carried over."""
-
-    def wipe() -> None:
-        # The environment's settings, so that opening a session does not go
-        # through get_settings and seed the very row about to be deleted.
-        with session_scope(env_settings()) as session:
-            session.execute(delete(Target).where(Target.key == KEY))
-            session.execute(delete(Credential))
-            session.execute(delete(InstallationSettings))
-        # After the deletes, not before: the cache is what the store would
-        # otherwise go on answering from.
-        store.invalidate()
-
-    wipe()
-    yield
-    wipe()
-
-
-@needs_db
+@pytest.mark.needs_db
 def test_a_stored_setting_beats_the_built_in_default(clean: Any) -> None:
     conf = _conf()
-    store.write(conf, {"retrieval_top_k": 9})
+    store.update(conf, {"retrieval_top_k": 9})
     assert store.apply(conf).retrieval_top_k == 9
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_an_override_dropped_goes_back_to_the_default(clean: Any) -> None:
-    """The document is written whole, so removing a key is how a field is
-    unset. With "absent means unchanged" there would be no way back."""
+    """A null in the patch is how a field is unset: the override goes and
+    the default applies."""
     conf = _conf()
     default = conf.retrieval_top_k
-    store.write(conf, {"retrieval_top_k": 9})
-    store.write(conf, {})
+    store.update(conf, {"retrieval_top_k": 9})
+    store.update(conf, {"retrieval_top_k": None})
     assert store.apply(conf).retrieval_top_k == default
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_secret_is_never_handed_back(clean: Any) -> None:
     """What may be said is that there is one and when it was set."""
     conf = _conf()
@@ -226,7 +195,7 @@ def test_a_secret_is_never_handed_back(clean: Any) -> None:
     assert "sk-secret" not in str(listed)
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_stored_key_reaches_the_settings(clean: Any) -> None:
     """The point of storing it: the call that needs it sees it as a setting,
     and nothing downstream had to learn where keys live now."""
@@ -235,7 +204,7 @@ def test_a_stored_key_reaches_the_settings(clean: Any) -> None:
     assert store.apply(conf).llm_api_key == "sk-stored"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_secret_can_be_taken_away(clean: Any) -> None:
     conf = _conf()
     store.set_secret(conf, "judge_key", "sk-judge")
@@ -244,7 +213,7 @@ def test_a_secret_can_be_taken_away(clean: Any) -> None:
     assert store.secrets(conf) == []
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_rotation_moves_the_secrets_and_can_be_run_twice(clean: Any) -> None:
     """Interrupted halfway, it is finished by running it again: rows already on
     the active key are skipped rather than re-sealed."""
@@ -262,7 +231,7 @@ def test_rotation_moves_the_secrets_and_can_be_run_twice(clean: Any) -> None:
     assert store.secret(rotated, "llm_api_key") == "sk-rotating"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_target_token_is_sealed_and_still_reaches_the_call(clean: Any) -> None:
     """The token reaches the Space's endpoint. It is sealed in credentials and
     never stored as a column."""
@@ -281,12 +250,12 @@ def test_a_target_token_is_sealed_and_still_reaches_the_call(clean: Any) -> None
     assert space.token == "tok-1"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_saving_a_target_without_a_token_keeps_the_one_it_has(clean: Any) -> None:
     """The form does not know the previous token and cannot send it back.
 
     Without that provision any edit to a target's title would wipe its access,
-    and it would come to light at night, at the publishing of the card.
+    and it would come to light at night, in a failed scheduled run.
     """
     conf = _conf()
     with session_scope(conf) as session:
@@ -304,7 +273,7 @@ def test_saving_a_target_without_a_token_keeps_the_one_it_has(clean: Any) -> Non
     assert store.secret(conf, store.target_secret(KEY)) == "tok-1"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_an_empty_token_withdraws_access(clean: Any) -> None:
     """The owner must be able to take it back, and an empty string is that."""
     conf = _conf()
@@ -323,7 +292,7 @@ def test_an_empty_token_withdraws_access(clean: Any) -> None:
         assert registry.has_token(session, KEY) is False
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_environment_is_the_layer_under_the_row(clean: Any) -> None:
     """Read-only, and it goes on applying — it is not copied in and forgotten.
 
@@ -345,7 +314,7 @@ def test_the_environment_is_the_layer_under_the_row(clean: Any) -> None:
     assert store.apply(from_deploy).ollama_url == "http://ollama:11434"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_row_beats_the_environment_and_nothing_beats_the_row(
     clean: Any,
 ) -> None:
@@ -353,14 +322,14 @@ def test_the_row_beats_the_environment_and_nothing_beats_the_row(
     whole point of there being a row — and it survives a restart."""
     conf = _conf()
     from_deploy = conf.model_copy(update={"ollama_url": "http://ollama:11434"})
-    store.write(conf, {"ollama_url": "https://openrouter.ai/api/v1"})
+    store.update(conf, {"ollama_url": "https://openrouter.ai/api/v1"})
 
     assert store.apply(from_deploy).ollama_url == "https://openrouter.ai/api/v1"
     store.invalidate()
     assert store.apply(from_deploy).ollama_url == "https://openrouter.ai/api/v1"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_key_left_in_the_environment_is_named_rather_than_hidden(
     clean: Any,
 ) -> None:
@@ -381,10 +350,6 @@ def test_a_key_left_in_the_environment_is_named_rather_than_hidden(
 # --- through the API --------------------------------------------------------
 
 
-TOKEN = "test-store-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
-
 @pytest.fixture
 def client() -> Any:
     """An API client with a key and a master key.
@@ -403,10 +368,10 @@ def client() -> Any:
     return TestClient(create_app(conf))
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_settings_go_in_and_come_back(client: Any, clean: Any) -> None:
     assert (
-        client.put(
+        client.patch(
             "/settings", json={"values": {"retrieval_top_k": 9}}, headers=AUTH
         ).status_code
         == 200
@@ -416,35 +381,86 @@ def test_the_settings_go_in_and_come_back(client: Any, clean: Any) -> None:
     }
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_api_refuses_a_secret_among_the_settings(client: Any, clean: Any) -> None:
     """With the reason, not a bare 422: the form is drawn by somebody else."""
-    reply = client.put(
+    reply = client.patch(
         "/settings", json={"values": {"llm_api_key": "sk-nope"}}, headers=AUTH
     )
     assert reply.status_code == 422
     assert "secret" in reply.json()["detail"]
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_api_refuses_to_open_the_perimeter(client: Any, clean: Any) -> None:
     """The check exists because the corpus is private. A key to the API is not
     authority over where the corpus may go."""
-    reply = client.put(
+    reply = client.patch(
         "/settings", json={"values": {"external_hosts": ["evil.example"]}}, headers=AUTH
     )
     assert reply.status_code == 422
 
 
-@needs_db
+@pytest.mark.needs_db
+def test_a_patch_leaves_the_fields_it_does_not_name(client: Any, clean: Any) -> None:
+    """A form that owns only the addresses must not erase the models."""
+    client.patch(
+        "/settings",
+        json={"values": {"retrieval_top_k": 9, "subject_url": "http://a:1"}},
+        headers=AUTH,
+    )
+    reply = client.patch(
+        "/settings", json={"values": {"judge_url": "http://b:2"}}, headers=AUTH
+    )
+    assert reply.status_code == 200
+    expected = {
+        "retrieval_top_k": 9,
+        "subject_url": "http://a:1",
+        "judge_url": "http://b:2",
+    }
+    assert reply.json() == {"values": expected}
+    assert client.get("/settings", headers=AUTH).json() == {"values": expected}
+
+
+@pytest.mark.needs_db
+def test_a_patch_null_puts_a_field_back_to_its_default(client: Any, clean: Any) -> None:
+    client.patch(
+        "/settings",
+        json={"values": {"retrieval_top_k": 9, "ollama_url": "http://a:1"}},
+        headers=AUTH,
+    )
+    reply = client.patch(
+        "/settings",
+        json={"values": {"ollama_url": None, "concurrency": None}},
+        headers=AUTH,
+    )
+    assert reply.json() == {"values": {"retrieval_top_k": 9}}
+    assert store.apply(_conf()).ollama_url == env_settings().ollama_url
+
+
+@pytest.mark.needs_db
+def test_a_refused_patch_stores_nothing(client: Any, clean: Any) -> None:
+    """Even a null may not name a bootstrap field, and a bad bound stores nothing."""
+    client.patch("/settings", json={"values": {"retrieval_top_k": 9}}, headers=AUTH)
+    for values in (
+        {"external_hosts": None},
+        {"llm_api_key": "sk-nope"},
+        {"retrieval_top_k": 3, "llm_temperature": 11.0},
+    ):
+        reply = client.patch("/settings", json={"values": values}, headers=AUTH)
+        assert reply.status_code == 422, values
+    assert store.read(_conf()) == {"retrieval_top_k": 9}
+
+
+@pytest.mark.needs_db
 def test_a_bound_is_checked_before_the_value_is_stored(client: Any, clean: Any) -> None:
-    reply = client.put(
+    reply = client.patch(
         "/settings", json={"values": {"llm_temperature": 11.0}}, headers=AUTH
     )
     assert reply.status_code == 422
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_secret_goes_in_through_the_api_and_does_not_come_out(
     client: Any, clean: Any
 ) -> None:
@@ -462,7 +478,7 @@ def test_a_secret_goes_in_through_the_api_and_does_not_come_out(
     assert client.delete("/credentials/llm_api_key", headers=AUTH).status_code == 404
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_credential_may_not_take_a_bootstrap_name(client: Any, clean: Any) -> None:
     """It would be a secret that is definitely set and definitely never read —
     and nothing is harder to work out than that."""
@@ -470,7 +486,7 @@ def test_a_credential_may_not_take_a_bootstrap_name(client: Any, clean: Any) -> 
     assert reply.status_code == 422
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_without_a_master_key_the_api_refuses_rather_than_storing_plain_text(
     clean: Any,
 ) -> None:
@@ -487,7 +503,7 @@ def test_without_a_master_key_the_api_refuses_rather_than_storing_plain_text(
     assert "BENCH_SECRET_KEY" in reply.json()["detail"]
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_changed_setting_is_visible_to_the_very_next_request(
     client: Any, clean: Any
 ) -> None:
@@ -498,14 +514,14 @@ def test_a_changed_setting_is_visible_to_the_very_next_request(
     and the only cure they would find is restarting the service.
     """
     before = client.get("/defaults", headers=AUTH).json()["probe"]["retrieval_top_k"]
-    client.put(
+    client.patch(
         "/settings", json={"values": {"retrieval_top_k": before + 3}}, headers=AUTH
     )
     after = client.get("/defaults", headers=AUTH).json()["probe"]["retrieval_top_k"]
     assert after == before + 3
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_form_can_be_drawn_for_all_three_layers(client: Any, clean: Any) -> None:
     """A layer with no schema is a layer no UI can offer.
 
@@ -518,7 +534,7 @@ def test_the_form_can_be_drawn_for_all_three_layers(client: Any, clean: Any) -> 
     assert all(field["group"] in schema["groups"] for field in schema["installation"])
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_no_secret_and_no_bootstrap_field_is_ever_offered_or_answered(
     client: Any, clean: Any
 ) -> None:
@@ -540,16 +556,16 @@ def test_no_secret_and_no_bootstrap_field_is_ever_offered_or_answered(
     assert answered & forbidden == set()
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_defaults_show_what_is_actually_in_force(client: Any, clean: Any) -> None:
     """Not the built-in value — the one this installation will really use."""
-    client.put("/settings", json={"values": {"concurrency": 3}}, headers=AUTH)
+    client.patch("/settings", json={"values": {"concurrency": 3}}, headers=AUTH)
     assert (
         client.get("/defaults", headers=AUTH).json()["installation"]["concurrency"] == 3
     )
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_naming_an_external_provider_does_not_kill_the_settings_page(
     client: Any, clean: Any
 ) -> None:
@@ -563,7 +579,7 @@ def test_naming_an_external_provider_does_not_kill_the_settings_page(
     is not an attempt to act on it.
     """
     assert (
-        client.put(
+        client.patch(
             "/settings",
             json={"values": {"ollama_url": "https://openrouter.ai/api/v1"}},
             headers=AUTH,

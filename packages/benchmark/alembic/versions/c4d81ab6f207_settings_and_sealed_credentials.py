@@ -1,36 +1,20 @@
 """settings and sealed credentials
 
-Two tables and one column removed, and together they say where a setting is
-allowed to live.
+``installation_settings`` is the bottom of the three settings layers: one row,
+a sparse set of overrides in JSONB, since an unset field means "take the
+built-in default" and for several fields the empty value is itself a decision.
 
-``installation_settings`` is the bottom of the three settings layers. The other
-two — the Space's instrument and the node's probe — have always been rows here;
-this one was the environment, which is why .env.example ran to three hundred
-lines and why changing a default meant going to the host. It is the same kind
-of thing as the other two and it is stored the same way: one row, a sparse set
-of overrides in JSONB, because an unset field means "take the built-in default"
-and for several fields the empty value is itself a decision.
+``credentials`` holds the secrets, kept out of that document because the
+settings are copied into job snapshots, run params and logs. Each row is sealed
+with AES-256-GCM, bound to its name, and stamped with the fingerprint of the
+key that sealed it.
 
-``credentials`` holds what must not be in that document. The settings are read
-on every launch, copied into a job's snapshot and every run's params, handed
-out by /defaults and written to the log; a provider key kept with them would
-travel to all of those places. Each row is sealed with AES-256-GCM, bound to
-its own name so a row cannot be moved from one slot into another, and stamped
-with the fingerprint of the key that sealed it so that rotation is a step
-rather than a guess.
+``targets.token`` is dropped and its values are sealed into ``credentials``.
+With tokens present and no master key, the upgrade refuses rather than
+drop them.
 
-``targets.token`` goes away and its contents move into that table. The Space
-tokens speak for their owners and sat in a plain text column, which means they
-were in every dump, backup and replica. They are carried over here rather than
-discarded — but only if there is a master key to seal them with. Without one
-this refuses to run rather than dropping them: an upgrade that silently loses
-the access tokens of every endpoint would be discovered at the next
-publication, which is exactly when it is most expensive.
-
-The sealing is written out in full below rather than imported from the
-package. A migration has to keep working when the code around it has moved on,
-and pinning it to a function somebody may rename is how a chain of migrations
-stops being replayable.
+The sealing is written out here rather than imported, so the migration keeps
+replaying when the package code changes.
 
 Revision ID: c4d81ab6f207
 Revises: b1c7f2a90e14

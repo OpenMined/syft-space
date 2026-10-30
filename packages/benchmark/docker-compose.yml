@@ -5,7 +5,7 @@
 #   docker compose up -d                       — the database alone
 #   docker compose --profile service up -d     — the database and the service
 #
-# The first is for working from the console: the CLI runs on the host against
+# The first is for working from the command line: the CLI runs on the host against
 # this database, and that is how the pipeline is developed and a measurement is
 # taken apart by hand. The second is the deployment — the service holds the
 # control API, the job queue and the schedule, and the Space's UI drives it.

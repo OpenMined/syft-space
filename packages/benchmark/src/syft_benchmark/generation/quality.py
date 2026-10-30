@@ -1,10 +1,7 @@
 """Screening out questions that cannot be asked apart from the source.
 
-A port from `OMSyft/scripts/generate_qa.py`. Every check here appeared after
-analysing a specific pair that was spoiling the metrics: the endpoint answered
-correctly and the benchmark scored it a miss.
-
-There are two groups of checks. Self-sufficiency is always needed: during
+Each check targets a question shape on which a correct endpoint answer gets
+scored a miss. There are two groups of checks. Self-sufficiency is always needed: during
 testing the answerer sees only the question, without the chunk. Unambiguity only
 where the answer is not picked from ready-made options; the options make the
 question unambiguous by themselves.
@@ -19,16 +16,10 @@ import re
 
 from syft_benchmark.generation.extractive import FILL_IN_PREFIX
 
-# A question that refers to "the text" or "the article" is useless in a
-# benchmark: during testing the answerer will see only the question itself,
-# without the source.
-#
-# We catch a REFERENCE, not a mention. In LiveTruth's news corpus a list of
-# words was enough: "the document" there almost always meant "this article".
-# Our corpus is documentation about storing documents, and "the documents are
-# never uploaded" is an ordinary subject-matter phrase, not a reference to the
-# source. The difference is in the construction: a reference stands with a
-# preposition or beside a verb of speech.
+# A question that refers to "the text" or "the article": the answerer sees
+# only the question. A REFERENCE is caught, not a mention ("the documents are
+# never uploaded" is subject matter): a reference stands with a preposition or
+# beside a verb of speech.
 _SOURCE_NOUNS = r"article|text|document|fragment|passage|excerpt"
 _SAID_VERBS = r"says?|said|states?|mentions?|describes?|notes?|explains?|claims?"
 _REFERRING_RE = re.compile(

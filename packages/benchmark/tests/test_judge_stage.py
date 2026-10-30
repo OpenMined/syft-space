@@ -8,52 +8,34 @@ for here.
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import select
 
 import syft_benchmark.runs.judge as judge
-from syft_benchmark.config import SpaceConfig, Verdict
-from syft_benchmark.db import QaPair, Result, Run, session_scope
-from syft_benchmark.llm import Provider
+from syft_benchmark.config import JobState, Settings, SpaceConfig, Verdict
+from syft_benchmark.db import Job, QaPair, Result, Run, RunAggregate, session_scope
+from syft_benchmark.runs.console import export_judging, import_judging
 from syft_benchmark.runs.judge_stage import (
     OWNER_OVERRIDE,
     judge_pending,
-    list_results,
     override_verdict,
+    pending_tasks,
     withdraw_override,
 )
+from syft_benchmark.runs.result_views import list_results
+
+from support import add_rows
 
 SPACE = "pytest-judge-stage"
+JOB = "pytest-judge-stage-job-1"
+OTHER_JOB = "pytest-judge-stage-job-2"
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean():  # type: ignore[no-untyped-def]
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Result).where(Result.space == SPACE))
-            session.execute(delete(Run).where(Run.space == SPACE))
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-
-    wipe()
-    yield
-    wipe()
-
-
-@needs_db
+@pytest.mark.needs_db
 def test_override_inserts_a_new_row_and_leaves_the_old_one_alone(clean: None) -> None:
     with session_scope() as session:
         session.add(
@@ -80,6 +62,15 @@ def test_override_inserts_a_new_row_and_leaves_the_old_one_alone(clean: None) ->
                 answer="5443",
                 verdict=Verdict.HALLUCINATE.value,
                 reasoning="off by one",
+                latency_s=1.75,
+                served_by="upstream-a",
+                audit={
+                    "responder_prompt": "asked",
+                    "judge_system": "js",
+                    "judge_prompt": "jp",
+                    "judge_raw": "jr",
+                    "judge_call": {"cost_usd": 0.02, "latency_s": 1.0},
+                },
             )
         )
 
@@ -100,10 +91,20 @@ def test_override_inserts_a_new_row_and_leaves_the_old_one_alone(clean: None) ->
         assert overridden is not None
         assert overridden.verdict == Verdict.CORRECT.value
         assert overridden.qa_id == "p-override"
-        assert overridden.audit.get("judged_by_owner") == "pytest"
+        # The answer's trail stays; the replaced judge's call is not the owner's.
+        assert overridden.audit == {
+            "responder_prompt": "asked",
+            "judged_by_owner": "pytest",
+        }
+        # The same answer: what was measured about it carries over.
+        assert (overridden.answer, overridden.latency_s, overridden.served_by) == (
+            "5443",
+            1.75,
+            "upstream-a",
+        )
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_an_override_belongs_to_the_launch_it_overrides(clean: None) -> None:
     """Otherwise the run's own page shows the verdict the owner replaced.
 
@@ -154,7 +155,7 @@ def test_an_override_belongs_to_the_launch_it_overrides(clean: None) -> None:
     assert stands[0].judge_model == OWNER_OVERRIDE
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_block_row_carries_what_the_block_did(clean: None) -> None:
     """Otherwise it is the direct row printed again, with a stranger verdict.
 
@@ -251,7 +252,7 @@ def test_a_block_row_carries_what_the_block_did(clean: None) -> None:
     assert rows["result-repeats"].denial is None
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_direct_row_has_no_block_outcome(clean: None) -> None:
     """Asking once does nothing beyond asking, and must not claim it did."""
     with session_scope() as session:
@@ -287,7 +288,7 @@ def test_a_direct_row_has_no_block_outcome(clean: None) -> None:
     assert row.repeats is None
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_withdrawing_an_override_puts_the_panel_back(clean: None) -> None:
     """A verdict recorded by hand is a statement, not a measurement.
 
@@ -335,7 +336,7 @@ def test_withdrawing_an_override_puts_the_panel_back(clean: None) -> None:
     assert rows[0].verdict == Verdict.HALLUCINATE.value
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_withdrawing_will_not_touch_a_graders_verdict(clean: None) -> None:
     """The one deletion in the module refuses everything but the owner's own row.
 
@@ -376,7 +377,7 @@ def test_withdrawing_will_not_touch_a_graders_verdict(clean: None) -> None:
         assert session.get(Result, "result-keep") is not None
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_withdrawing_from_another_target_is_not_found(clean: None) -> None:
     """Same rule as the rest of the module: a token scoped to one target must
     not reach another's rows by guessing an id."""
@@ -415,12 +416,12 @@ def test_withdrawing_from_another_target_is_not_found(clean: None) -> None:
         assert session.get(Result, new_id) is not None
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_overriding_an_unknown_result_returns_none(clean: None) -> None:
     assert override_verdict("no-such-result", Verdict.CORRECT) is None
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_judging_a_pending_answer_survives_the_session_closing(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -476,9 +477,9 @@ def test_judging_a_pending_answer_survives_the_session_closing(
         "chat",
         lambda *a, **k: ('{"behavior": "declined", "reasoning": "r"}', {}),
     )
-    seat = Provider(role="judge", url="http://judge.invalid", api_key="k", model="t")
     report = judge_pending(
-        SpaceConfig(key=SPACE, url="http://space.invalid", endpoint="e"), judge=seat
+        SpaceConfig(key=SPACE, url="http://space.invalid", endpoint="e"),
+        settings=Settings(judge_model="t"),
     )
     assert report.checked == 1
     assert report.abstain == 1
@@ -490,7 +491,7 @@ def test_judging_a_pending_answer_survives_the_session_closing(
     assert latest[0].generator == "cloze"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_judging_reports_progress_as_it_grades(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -541,17 +542,64 @@ def test_judging_reports_progress_as_it_grades(
         lambda *a, **k: ('{"behavior": "declined", "reasoning": "r"}', {}),
     )
     seen: list[tuple[int, int]] = []
-    seat = Provider(role="judge", url="http://judge.invalid", api_key="k", model="t")
     report = judge_pending(
         SpaceConfig(key=SPACE, url="http://space.invalid", endpoint="e"),
-        judge=seat,
+        settings=Settings(judge_model="t"),
         watch=lambda progress: seen.append((progress.done, progress.total)),
     )
     assert report.checked == 2
     assert seen == [(1, 2), (2, 2)]
 
 
-@needs_db
+@pytest.mark.needs_db
+def test_export_only_pending_shows_a_deferred_answer_stamped_with_the_judge(
+    clean: None, tmp_path: Path
+) -> None:
+    """A deferred answer carries the name of the judge it waits for; the
+    export under that name is where it has to appear."""
+    with session_scope() as session:
+        session.add(
+            QaPair(
+                id="p-export",
+                space=SPACE,
+                generator="cloze",
+                question="q",
+                answer="a",
+                status="active",
+                model="m",
+                question_hash="h-export",
+            )
+        )
+        session.add(
+            Run(
+                id="run-export",
+                space=SPACE,
+                context_mode="closed_book",
+                block="direct",
+                model="m",
+                judge_model="t",
+            )
+        )
+        session.add(
+            Result(
+                id="result-export",
+                run_id="run-export",
+                qa_id="p-export",
+                space=SPACE,
+                answer="a real answer",
+                verdict=Verdict.PENDING.value,
+                judge_model="t",
+            )
+        )
+    out = tmp_path / "tasks.txt"
+
+    report = export_judging(SPACE, out, "t", only_pending=True)
+
+    assert report.exported == 1
+    assert "--- result-export" in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.needs_db
 def test_listing_marks_only_the_freshest_row_per_question_as_latest(
     clean: None,
 ) -> None:
@@ -590,7 +638,7 @@ def test_listing_marks_only_the_freshest_row_per_question_as_latest(
     assert latest[0].verdict == Verdict.CORRECT.value
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_second_judge_does_not_supersede_the_first(clean: None) -> None:
     """A panel is two opinions on one answer, not one replacing the other.
 
@@ -632,7 +680,7 @@ def test_a_second_judge_does_not_supersede_the_first(clean: None) -> None:
     assert {row.judge_model for row in rows if row.is_latest} == {"judge/a", "judge/b"}
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_an_owner_override_stands_over_the_whole_panel(clean: None) -> None:
     """Overriding is the owner saying the panel got it wrong.
 
@@ -676,3 +724,196 @@ def test_an_owner_override_stands_over_the_whole_panel(clean: None) -> None:
     assert len(standing) == 1
     assert standing[0].judge_model == OWNER_OVERRIDE
     assert standing[0].verdict == Verdict.CORRECT.value
+
+
+@pytest.mark.needs_db
+def test_console_verdicts_belong_to_the_launch_that_asked(
+    clean: None, tmp_path: Path
+) -> None:
+    with session_scope() as session:
+        for n in (1, 2):
+            session.add(
+                QaPair(
+                    id=f"p-console-{n}",
+                    space=SPACE,
+                    generator="cloze",
+                    question=f"Question {n}?",
+                    answer="yes",
+                    status="active",
+                    model="m",
+                    question_hash=f"h-console-{n}",
+                )
+            )
+            session.add(
+                Run(
+                    id=f"run-console-{n}",
+                    space=SPACE,
+                    context_mode="closed_book",
+                    model="m",
+                    job_id=f"job-console-{n}",
+                )
+            )
+            session.add(
+                Result(
+                    id=f"result-console-{n}",
+                    run_id=f"run-console-{n}",
+                    qa_id=f"p-console-{n}",
+                    space=SPACE,
+                    answer="yes",
+                    verdict=Verdict.PENDING.value,
+                    audit={"responder_prompt": "asked", "judge_raw": "jr"},
+                )
+            )
+    verdicts = tmp_path / "verdicts.json"
+    verdicts.write_text(
+        json.dumps(
+            [
+                {"id": f"result-console-{n}", "correct": True, "false_claims": False}
+                for n in (1, 2)
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = import_judging(SPACE, verdicts, "a person")
+
+    assert len(report.run_ids) == 2
+    with session_scope() as session:
+        jobs = {session.get(Run, run_id).job_id for run_id in report.run_ids}  # type: ignore[union-attr]
+    assert jobs == {"job-console-1", "job-console-2"}
+    with session_scope() as session:
+        audits = [
+            row.audit
+            for row in session.scalars(
+                select(Result).where(Result.run_id.in_(report.run_ids))
+            )
+        ]
+    assert (
+        audits == [{"responder_prompt": "asked", "judged_by_console": "a person"}] * 2
+    )
+
+
+def _answer(
+    n: int,
+    *,
+    job: str,
+    verdict: Verdict,
+    at: datetime,
+    answer: str = "a real answer",
+    block: str = "direct",
+) -> list[object]:
+    """One answer row and its run, at a set time."""
+    return [
+        Run(
+            id=f"run-launch-{n}",
+            space=SPACE,
+            context_mode="closed_book",
+            block=block,
+            model="m",
+            judge_model="t",
+            job_id=job,
+        ),
+        Result(
+            id=f"result-launch-{n}",
+            run_id=f"run-launch-{n}",
+            qa_id="p-launch",
+            space=SPACE,
+            answer=answer,
+            verdict=verdict.value,
+            judge_model="t",
+            created_at=at,
+        ),
+    ]
+
+
+def _launch_pair() -> QaPair:
+    return QaPair(
+        id="p-launch",
+        space=SPACE,
+        generator="cloze",
+        question="q",
+        answer="a",
+        status="active",
+        model="m",
+        question_hash="h-launch",
+    )
+
+
+@pytest.mark.needs_db
+@pytest.mark.parametrize("only_pending", [True, False])
+def test_a_later_launch_is_wanted_again_by_the_judge_that_graded_an_earlier_one(
+    clean: None, only_pending: bool
+) -> None:
+    """A verdict counts for the launch whose answer it grades: judge `t`
+    graded launch 1 live, launch 2 was deferred and waits for `t`."""
+    day = datetime(2026, 10, 1, tzinfo=UTC)
+    add_rows(
+        _launch_pair(),
+        Job(id=JOB, target=SPACE, state=JobState.SUCCEEDED.value),
+        Job(id=OTHER_JOB, target=SPACE, state=JobState.SUCCEEDED.value),
+        *_answer(1, job=JOB, verdict=Verdict.CORRECT, at=day),
+        *_answer(2, job=OTHER_JOB, verdict=Verdict.PENDING, at=day + timedelta(1)),
+    )
+
+    tasks = pending_tasks(
+        SPACE, judge_name="t", only_pending=only_pending, settings=Settings()
+    )
+
+    assert [task.result_id for task in tasks] == ["result-launch-2"]
+
+
+@pytest.mark.needs_db
+def test_every_verdict_writer_drops_the_cached_figures(
+    clean: None, tmp_path: Path
+) -> None:
+    day = datetime(2026, 10, 1, tzinfo=UTC)
+    add_rows(
+        _launch_pair(),
+        Job(id=JOB, target=SPACE, state=JobState.SUCCEEDED.value),
+        *_answer(1, job=JOB, verdict=Verdict.PENDING, at=day),
+    )
+
+    def cached() -> bool:
+        with session_scope() as session:
+            return session.get(RunAggregate, JOB) is not None
+
+    add_rows(RunAggregate(job_id=JOB, version=1, payload={"x": 1}))
+    verdicts = tmp_path / "verdicts.json"
+    verdicts.write_text(
+        json.dumps([{"id": "result-launch-1", "correct": True}]), encoding="utf-8"
+    )
+    assert import_judging(SPACE, verdicts, "a person").matched == 1
+    assert not cached()
+
+    add_rows(RunAggregate(job_id=JOB, version=1, payload={"x": 1}))
+    assert override_verdict("result-launch-1", Verdict.CORRECT) is not None
+    assert not cached()
+
+
+@pytest.mark.needs_db
+def test_console_verdicts_skip_failed_calls_and_block_rows(
+    clean: None, tmp_path: Path
+) -> None:
+    """A hand-edited file cannot grade what the export never offers."""
+    day = datetime(2026, 10, 1, tzinfo=UTC)
+    add_rows(
+        _launch_pair(),
+        *_answer(1, job="", verdict=Verdict.PENDING, at=day),
+        *_answer(2, job="", verdict=Verdict.TECHNICAL, at=day, answer="ERROR: 502"),
+        *_answer(3, job="", verdict=Verdict.CORRECT, at=day, block="denial_loop"),
+    )
+    verdicts = tmp_path / "verdicts.json"
+    verdicts.write_text(
+        json.dumps([{"id": f"result-launch-{n}", "correct": True} for n in (1, 2, 3)]),
+        encoding="utf-8",
+    )
+
+    report = import_judging(SPACE, verdicts, "a person")
+
+    assert report.matched == 1
+    assert any(note.startswith("2 verdicts skipped") for note in report.notes)
+    with session_scope() as session:
+        graded = session.scalars(
+            select(Result.answer).where(Result.judge_model == "a person")
+        ).all()
+    assert graded == ["a real answer"]

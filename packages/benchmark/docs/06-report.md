@@ -5,13 +5,17 @@ uv run syft-benchmark report docs --out reports/latest.md
 uv run syft-benchmark report docs --docx reports/latest.docx   # with charts
 ```
 
-The Markdown report is for the console and line-by-line diffs; `--docx` builds
+The Markdown report is for the terminal and line-by-line diffs; `--docx` builds
 a document from the same metrics with charts, explanations, computed
-observations and a conclusion. The daily cycle writes both
-(`reports/benchmark-<stamp>.md` / `.docx`).
+observations and a conclusion. `cycle` writes both
+(`reports/benchmark-<stamp>.md` / `.docx`) and prints their paths.
 
 Neither contains corpus text: both are built from aggregates. Raw records are
 in the [audit export](07-audit.md).
+
+One launch's report — its figures (`report/run_view.py`), questions, summary
+docx (`run_document.py`) and Excel export (`export_xlsx.py`) — is served by
+the control API ([control-api.md](control-api.md)) and counts the same way.
 
 ---
 
@@ -32,9 +36,10 @@ flowchart LR
 ```
 
 * **One verdict per question** in each cut. This report is cut by judge:
-  each judge's freshest verdict. The card and every headline figure take the
-  counted verdict instead: the owner override, else the primary judge's, else
-  the next judge's in panel order ([05-judging.md](05-judging.md)). Only items
+  each figure is one judge's freshest verdict per question, and owner
+  overrides are not included. The run report the control API serves takes the
+  counted verdict instead: the owner override, else the primary judge
+  ([05-judging.md](05-judging.md#the-panel)). Only items
   in the set now (`active`) count, unless the selection is one launch (`job`)
   or one cohort.
 * **The denominator** is graded answers: `correct + abstain + hallucinate +
@@ -131,7 +136,7 @@ uv sync --extra metrics     # only for bertscore (pulls in torch)
 Off by default. A mechanical, judge-independent view of the same answers: a
 large divergence from the verdict is a reason to look by eye. Word overlap
 does not know correctness, so these numbers enter no share, take no part in
-the verdict and are not in the card. Computed only for prose items
+the verdict. Computed only for prose items
 (`multihop_synthesis`, `tiered_explanation`, `qa`) and never for failed calls.
 
 | Metric | What it computes |
@@ -160,10 +165,6 @@ the verdict and are not in the card. Computed only for prose items
   and the build continues.
 
 Sections are numbered by what was written, so there are no gaps for
-unmeasured blocks. The builder (`document.py`, `narrative.py`, `charts.py`)
-takes only metrics; a test forbids it importing the database or `sources`.
-
-Different Spaces cannot be compared on accuracy: each has its own corpus and
-questions ([08-card.md](08-card.md)).
+unmeasured blocks.
 
 Next — [stage 7: the audit](07-audit.md).

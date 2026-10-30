@@ -1,7 +1,7 @@
 """The Excel export of one run (job): everything that took part, full texts.
 
-Eight sheets (report API, "Excel export"): Run, Generated, Rejected, Kept,
-Filter, Answers, Judging, Timing. Rows follow the question order
+Nine sheets (report API, "Excel export"): Run, Generated, Rejected, Kept,
+Writer calls, Filter, Answers, Judging, Timing. Rows follow the question order
 (``question_order``). A text longer than an Excel cell holds continues in
 "(part 2)", "(part 3)" columns of the same row. What a run did not record is
 left empty.
@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -31,13 +30,26 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from syft_benchmark.config import PairStatus, StatusReason
-from syft_benchmark.db.models import Job, QaPair, Result, Run, Target
+from syft_benchmark.db.models import Job, QaPair, Result, Run, Target, WriterCall
 from syft_benchmark.generation import decisions, entities, recorded
 from syft_benchmark.generation.article_dates import DATE_KEY
 from syft_benchmark.question_order import answer_order, pair_key, pair_order
-from syft_benchmark.report import run_view
-from syft_benchmark.report.filter_view import _inferred, _rows
-from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE, behavior_of
+from syft_benchmark.report import job_params, pair_calls, run_view, writing_view
+from syft_benchmark.report.counted import (
+    AnswerKey,
+    Panel,
+    group_answers,
+    pick,
+    primary_judge,
+)
+from syft_benchmark.report.filter_view import (
+    Decision,
+    counts_of,
+    job_decisions,
+    job_pairs,
+)
+from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
+from syft_benchmark.runs.result_views import behavior_of
 
 # Excel's limit on the characters of one cell.
 CELL_LIMIT = 32_767
@@ -49,6 +61,7 @@ SHEETS = (
     "Generated",
     "Rejected",
     "Kept",
+    "Writer calls",
     "Filter",
     "Answers",
     "Judging",
@@ -231,7 +244,6 @@ PAIR_COLS = (
     Col("Article date", 12),
     Col("Passage", 60, long=True),
     Col("Writer model", 26),
-    Col("Masked by", 24),
     Col("Writer prompt (system)", 60, long=True),
     Col("Writer prompt (user)", 60, long=True),
     Col("Writer reply", 60, long=True),
@@ -262,33 +274,17 @@ PAIR_COLS = (
 Calls = dict[str, dict[str, Any]]
 
 
-def _call_id(row: QaPair) -> str:
-    writer = (row.meta or {}).get(recorded.WRITER)
-    return str(writer.get("call") or "") if isinstance(writer, dict) else ""
-
-
 def _check(row: QaPair) -> dict[str, Any]:
     return _dict((row.meta or {}).get(entities.META))
 
 
-def _writer_calls(session: Session, rows: Sequence[QaPair]) -> Calls:
-    """The writer and entity check calls behind ``rows``, by call id. A call's
-    texts sit on one of its pairs only; one not among ``rows`` is read from
-    the database."""
-    calls = recorded.writer_calls(rows)
-    missing = sorted({_call_id(row) for row in rows} - set(calls) - {""})
-    if missing:
-        column = QaPair.meta[recorded.WRITER]["call"].astext
-        found = session.scalars(select(QaPair).where(column.in_(missing))).all()
-        calls.update(recorded.writer_calls(found))
-    checks = recorded.check_calls(rows, entities.META)
-    missing = sorted({str(_check(row).get("call") or "") for row in rows})
-    missing = [c for c in missing if c and c not in checks]
-    if missing:
-        column = QaPair.meta[entities.META]["call"].astext
-        found = session.scalars(select(QaPair).where(column.in_(missing))).all()
-        checks.update(recorded.check_calls(found, entities.META))
-    return {**calls, **checks}
+def _writer_calls(session: Session, target: str, rows: Sequence[QaPair]) -> Calls:
+    """The writer and entity check calls behind ``rows``, by call id; a writer
+    call whose texts are on no pair comes from the writer-call log."""
+    return {
+        **pair_calls.writer_calls(session, target, rows),
+        **pair_calls.check_calls(session, target, rows),
+    }
 
 
 def _details(row: QaPair) -> str:
@@ -314,15 +310,6 @@ def _details(row: QaPair) -> str:
     return "\n\n".join(out)
 
 
-def _masked_by(meta: dict[str, Any]) -> str:
-    """Masking kinds: "LLM", or "spaCy <model>" on older rows; else empty."""
-    if meta.get("mode") == "spacy":
-        return " ".join(["spaCy", str(meta.get("spacy_model") or "")]).strip()
-    if meta.get("mode") == "llm":
-        return "LLM"
-    return ""
-
-
 def _entities(check: dict[str, Any]) -> str:
     """``- Mariam: not identifiable (first name only)`` per entity."""
     lines = []
@@ -344,7 +331,7 @@ def _entities(check: dict[str, Any]) -> str:
 
 
 def _pair_cells(row: QaPair, calls: Calls) -> list[Any]:
-    call_id = _call_id(row)
+    call_id = pair_calls.call_id(row, recorded.WRITER)
     call = calls.get(call_id, {})
     check = _check(row)
     check_id = str(check.get("call") or "")
@@ -358,7 +345,6 @@ def _pair_cells(row: QaPair, calls: Calls) -> list[Any]:
         (row.meta or {}).get(DATE_KEY),
         call.get("passage") or row.context,
         call.get("model") or row.model,
-        _masked_by(row.meta or {}),
         call.get("system"),
         call.get("user"),
         call.get("reply"),
@@ -386,36 +372,72 @@ def _pair_cells(row: QaPair, calls: Calls) -> list[Any]:
     ]
 
 
+# --- the job's writer-call log ---------------------------------------------
+
+WRITER_LOG_COLS = (
+    Col("Writer call", 34),
+    Col("Kinds", 22),
+    Col("Article", 30, long=True),
+    Col("File", 24),
+    Col("Passage", 60, long=True),
+    Col("Writer model", 26),
+    Col("Writer prompt (system)", 60, long=True),
+    Col("Writer prompt (user)", 60, long=True),
+    Col("Writer reply", 60, long=True),
+    Col("Dropped drafts", 60, long=True),
+    Col("Error", 30, long=True),
+    Col("Writer call time (s)", 10),
+    Col("Writer call cost (USD)", 10),
+    Col("Called at (UTC)", 20),
+)
+
+
+def _drafts(dropped: dict[str, list[dict[str, Any]]]) -> str:
+    """Each dropped draft as ``kind: reason`` with its question and answer."""
+    out = []
+    for kind in sorted(dropped, key=run_view.generator_order):
+        for draft in dropped[kind]:
+            out.append(
+                f"{kind}: {draft.get('reason') or ''}\n"
+                f"Q: {draft.get('question') or ''}\n"
+                f"A: {draft.get('answer') or ''}"
+            )
+    return "\n\n".join(out)
+
+
+def _writer_log_rows(session: Session, job_id: str) -> list[list[Any]]:
+    """The job's writer calls that dropped drafts or failed, one row per call,
+    in call order."""
+    calls = session.scalars(
+        select(WriterCall)
+        .where(WriterCall.job_id == job_id)
+        .order_by(WriterCall.created_at, WriterCall.id)
+    ).all()
+    systems = writing_view.system_prompts(session, calls)
+    return [_writer_log_cells(call, systems[call.id]) for call in calls]
+
+
+def _writer_log_cells(call: WriterCall, system: str) -> list[Any]:
+    dropped = call.dropped or {}
+    return [
+        call.call,
+        ", ".join(sorted(dropped, key=run_view.generator_order)),
+        call.document_title,
+        call.file_name,
+        call.passage,
+        call.model,
+        system,
+        call.user.replace(recorded.PASSAGE_MARK, call.passage),
+        call.reply,
+        _drafts(dropped),
+        call.error,
+        call.latency_s,
+        call.cost_usd,
+        call.created_at,
+    ]
+
+
 # --- the job's filter decisions --------------------------------------------
-
-
-@dataclass(slots=True)
-class _Decision:
-    row: QaPair
-    entry: dict[str, Any]
-    web: dict[str, Any]
-    recorded: bool
-
-
-def _decisions(rows: Sequence[QaPair], job_id: str) -> list[_Decision]:
-    """Every filter decision of the job, as ``filter_view`` lists them."""
-    out: list[_Decision] = []
-    for row in rows:
-        meta = row.meta or {}
-        entry = decisions.of_job(meta, job_id)
-        recorded = entry is not None
-        if entry is None:
-            if row.job_id != job_id or meta.get(decisions.SCREENING):
-                continue
-            entry = _inferred(row)
-            if entry is None:
-                continue
-            web = _dict(meta.get("web_check"))
-        else:
-            web = _dict(entry.get("web"))
-        out.append(_Decision(row, entry, web, recorded))
-    return out
-
 
 FILTER_COLS = (
     Col("Question id", 34),
@@ -463,8 +485,8 @@ def _total(*values: Any) -> float | None:
     return round(sum(found), 6) if found else None
 
 
-def _filter_cells(d: _Decision, job_id: str) -> list[Any]:
-    row, entry, web = d.row, d.entry, d.web
+def _filter_cells(d: Decision, job_id: str) -> list[Any]:
+    row, entry, web = d.row, d.entry, _dict(d.web)
     gate = _dict(entry.get("gate"))
     requests = web.get("web_search_requests")
     return [
@@ -594,21 +616,6 @@ def _job_answers(session: Session, job_id: str) -> list[_Answer]:
     ]
 
 
-def _grouped(rows: Sequence[_Answer]) -> dict[tuple[str, ...], list[_Answer]]:
-    """The rows of one answer (model x arm x block x question) together."""
-    groups: dict[tuple[str, ...], list[_Answer]] = defaultdict(list)
-    for a in rows:
-        key = (
-            a.run.context_mode,
-            a.run.context_source,
-            a.run.block,
-            a.run.model,
-            a.result.qa_id,
-        )
-        groups[key].append(a)
-    return groups
-
-
 def _log(block: dict[str, Any]) -> list[dict[str, Any]]:
     log = block.get("log")
     return [e for e in log if isinstance(e, dict)] if isinstance(log, list) else []
@@ -624,10 +631,15 @@ def _trial(entry: dict[str, Any]) -> str:
     )
 
 
-def _answer_rows(rows: Sequence[_Answer]) -> list[list[Any]]:
+def _answer_rows(rows: Sequence[_Answer], panel: Sequence[str]) -> list[list[Any]]:
     """One answer, then the challenge rounds and repeats of each judge's
-    block (every judge seat drives its own)."""
-    lead = rows[0]
+    block (every judge seat drives its own).
+
+    The answer shown is the counted row's: after a re-ask the rows also hold
+    the failed reply, and the figures count the fresh one.
+    """
+    counted = pick([a.result for a in rows], panel).counted
+    lead = next(a for a in rows if a.result is counted)
     result, run = lead.result, lead.run
     audit = _dict(result.audit)
     call = _dict(audit.get("call"))
@@ -667,7 +679,8 @@ def _answer_rows(rows: Sequence[_Answer]) -> list[list[Any]]:
         row[_A["Cost (USD)"]] = entry.get("cost_usd")
         return row
 
-    for a in rows:
+    graded = [a for a in rows if a.result.judge_model != OWNER_OVERRIDE]
+    for a in graded or rows:
         extra = _dict(a.result.extra)
         own = _dict(a.result.audit)
         for entry in _log(_dict(extra.get("denial"))):
@@ -703,7 +716,7 @@ def _judging_rows(a: _Answer, primary: str | None, counted: bool) -> list[list[A
         result.verdict,
         behavior_of(result.extra),
         result.reasoning,
-        audit.get("judged_without_model") if audit else None,
+        audit.get("judged_without_model"),
         result.judge_served_by,
         judge.get("latency_s"),
         judge.get("cost_usd"),
@@ -757,8 +770,8 @@ def _run_rows(
     run = _dict(report.get("run"))
     method = _dict(report.get("method"))
     funnel = _dict(report.get("funnel"))
-    cost = _dict(params.get(run_view.COST))
-    timing = _dict(params.get(run_view.TIMING))
+    cost = _dict(params.get(job_params.COST))
+    timing = _dict(params.get(job_params.TIMING))
     rows: list[list[Any]] = [
         ["Endpoint", target.endpoint or target.key],
         ["Target", target.key],
@@ -784,7 +797,6 @@ def _run_rows(
         ["Kept", counts.get("kept")],
         ["Rejected", counts.get("removed")],
         ["Filter failed", counts.get("failed")],
-        ["Filter skipped", counts.get("skipped")],
         ["Asked", asked],
         ["Questions in the figures", run.get("questions")],
         ["Cost total (USD)", cost.get("total_usd")],
@@ -811,12 +823,12 @@ def _run_rows(
     )
     rows += [
         ["Tested models", "\n".join(models)],
-        ["Judges", "\n".join(str(j) for j in method.get("judges") or [])],
-        ["Judge panel (launch)", "\n".join(run_view.job_panel(job))],
-        ["Primary judge", params.get(run_view.PRIMARY_JUDGE)],
-        ["Judge policy", params.get(run_view.JUDGE_POLICY)],
-        ["Web check model", params.get(run_view.WEB_CHECK_MODEL)],
-        ["Web check judge", params.get(run_view.WEB_CHECK_JUDGE)],
+        ["Judges", "\n".join(str(j) for j in report.get("judges") or [])],
+        ["Judge panel (launch)", "\n".join(job_params.job_panel(job))],
+        ["Primary judge", params.get(job_params.PRIMARY_JUDGE)],
+        ["Judge policy", params.get(job_params.JUDGE_POLICY)],
+        ["Web check model", params.get(job_params.WEB_CHECK_MODEL)],
+        ["Web check judge", params.get(job_params.WEB_CHECK_JUDGE)],
         ["Question writer", method.get("generator_model")],
         ["Kinds", "\n".join(str(k) for k in method.get("kinds") or [])],
     ]
@@ -834,19 +846,19 @@ def _run_rows(
 
     # Everything else the launch kept: the request and settings snapshot.
     shown = {
-        run_view.COST,
-        run_view.TIMING,
-        run_view.GENERATION,
-        run_view.PRIMARY_JUDGE,
-        run_view.JUDGE_POLICY,
-        run_view.WEB_CHECK_MODEL,
-        run_view.WEB_CHECK_JUDGE,
-        run_view.JUDGE_PANEL,
+        job_params.COST,
+        job_params.TIMING,
+        job_params.GENERATION,
+        job_params.PRIMARY_JUDGE,
+        job_params.JUDGE_POLICY,
+        job_params.WEB_CHECK_MODEL,
+        job_params.WEB_CHECK_JUDGE,
+        job_params.JUDGE_PANEL,
     }
     for key, value in params.items():
         if key not in shown:
             _flat(f"Launch: {key}", value, rows)
-    for kind in run_view.generation_of(job):
+    for kind in job_params.generation_of(job):
         _flat(f"Build: {kind.get('kind')}", kind, rows)
 
     # The methodology snapshot of the job's runs; a value that differed
@@ -868,7 +880,7 @@ def _run_rows(
 
 
 def _timing_rows(job: Job) -> list[list[Any]]:
-    timing = _dict((job.params or {}).get(run_view.TIMING))
+    timing = _dict((job.params or {}).get(job_params.TIMING))
     rows: list[list[Any]] = []
     if timing.get("total_s") is not None:
         rows.append(["total", *[None] * 5, timing.get("total_s")])
@@ -943,28 +955,20 @@ def write(
     target: Target,
     out: IO[bytes] | str,
     *,
-    configured: run_view.Panel = (),
+    configured: Panel = (),
 ) -> None:
     """Write the run's workbook to ``out`` (a path or a binary file)."""
     wb = Workbook(write_only=True)
     report = run_view.report_part(session, job, configured=configured)
-    primary = run_view.primary_judge(session, job, configured=configured)
-    judges = run_view.judge_order(
-        (), primary, run_view.job_panel(job) or _resolved(configured)
-    )
+    primary = primary_judge(session, job, configured=configured)
+    # The figures' precedence, so "Counted" marks the verdict they count.
+    judges = run_view.counting_judges(session, job, configured=configured)
 
-    pairs = _rows(session, job.target, [job.id])
-    found = _decisions(pairs, job.id)
-    counts = {
-        "written": sum(1 for row in pairs if row.job_id == job.id),
-        "checked": len(found),
-        **decisions.outcome_counts([d.entry for d in found]),
-    }
+    pairs = job_pairs(session, job.target, [job.id])
+    found = job_decisions(pairs, job.id)
+    counts = counts_of(pairs, job.id)
     answers = _job_answers(session, job.id)
     asked_ids = list(dict.fromkeys(a.result.qa_id for a in answers))
-    judges = run_view.judge_order(
-        (a.result.judge_model for a in answers), primary, judges
-    )
 
     _sheet(
         wb,
@@ -975,7 +979,7 @@ def write(
 
     written = _ordered(row for row in pairs if row.job_id == job.id)
     kept = _kept(session, job, pairs, found, asked_ids)
-    calls = _writer_calls(session, [*pairs, *kept])
+    calls = _writer_calls(session, job.target, [*pairs, *kept])
     _sheet(wb, "Generated", PAIR_COLS, [_pair_cells(r, calls) for r in written])
     _sheet(
         wb,
@@ -984,23 +988,30 @@ def write(
         _rejected(written, found, calls),
     )
     _sheet(wb, "Kept", PAIR_COLS, [_pair_cells(r, calls) for r in kept])
+    _sheet(wb, "Writer calls", WRITER_LOG_COLS, _writer_log_rows(session, job.id))
 
     found.sort(key=lambda d: _key(d.row))
     _sheet(wb, "Filter", FILTER_COLS, [_filter_cells(d, job.id) for d in found])
     del pairs, found, written, kept, calls
 
-    groups = _grouped(answers)
+    groups = group_answers(
+        answers,
+        lambda a: AnswerKey.of(
+            a.run.model, a.run.context_mode, a.run.block, a.result.qa_id
+        ),
+    )
+    panel = [*judges, ""]
     answer_rows: list[list[Any]] = []
     for rows in groups.values():
-        graded = [a for a in rows if a.result.judge_model != OWNER_OVERRIDE]
-        answer_rows.extend(_answer_rows(graded or rows))
+        answer_rows.extend(_answer_rows(rows, panel))
     _sheet(wb, "Answers", ANSWER_COLS, answer_rows)
     del answer_rows
 
-    panel = [*judges, ""]
     judging: list[list[Any]] = []
-    for rows in groups.values():
-        chosen = run_view.pick([a.result for a in rows], panel).counted
+    for key, rows in groups.items():
+        # The figures count only the measured arms.
+        measured = key.context_mode in run_view.ARM_OF
+        chosen = pick([a.result for a in rows], panel).counted if measured else None
         for a in rows:
             if a.result.judge_model == "":
                 continue
@@ -1012,10 +1023,6 @@ def write(
     wb.save(out)
 
 
-def _resolved(configured: run_view.Panel) -> list[str]:
-    return list(configured() if callable(configured) else configured)
-
-
 def _key(row: QaPair) -> tuple[Any, ...]:
     return pair_key(row.generator, row.created_at, row.id)
 
@@ -1025,7 +1032,7 @@ def _ordered(rows: Iterable[QaPair]) -> list[QaPair]:
 
 
 def _rejected(
-    written: Sequence[QaPair], found: Sequence[_Decision], calls: Calls
+    written: Sequence[QaPair], found: Sequence[Decision], calls: Calls
 ) -> list[list[Any]]:
     """The job's removals: its filter decisions, and its questions the set cap
     took out."""
@@ -1053,7 +1060,7 @@ def _kept(
     session: Session,
     job: Job,
     pairs: Sequence[QaPair],
-    found: Sequence[_Decision],
+    found: Sequence[Decision],
     asked_ids: Sequence[str],
 ) -> list[QaPair]:
     """The questions the run asked; for a build-only job, the ones it let

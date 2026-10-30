@@ -4,22 +4,21 @@
       <div class="space-y-0.5">
         <div class="flex flex-wrap items-center gap-2.5">
           <h1 class="heading-3">Run of {{ dayTime(utcStamp(data.run.created_at)) }}</h1>
-          <Badge
+          <AlertBadge
             v-if="stoppedLabel(data.run)"
-            variant="outline"
-            :class="STOPPED_TONE"
-            :title="stoppedTip(data.run)"
+            :tip="stoppedTip(data.run)"
             data-testid="run-stopped"
           >
             {{ stoppedLabel(data.run) }}
-          </Badge>
+          </AlertBadge>
         </div>
         <p v-if="header" class="text-sm text-muted-foreground" data-testid="run-articles">
           {{ header }}
         </p>
       </div>
-      <div v-if="!buildOnly" class="flex flex-wrap gap-2">
+      <div v-if="!buildOnly || details" class="flex flex-wrap gap-2">
         <Button
+          v-if="!buildOnly"
           variant="outline"
           :disabled="downloading"
           data-testid="download-summary"
@@ -27,6 +26,16 @@
         >
           Download summary
         </Button>
+        <Hint v-if="details" text="Everything in this run, one sheet per part.">
+          <Button
+            variant="outline"
+            :disabled="exporting"
+            data-testid="download-excel"
+            @click="downloadExcel"
+          >
+            Download Excel
+          </Button>
+        </Hint>
       </div>
     </div>
 
@@ -49,10 +58,12 @@
       </span>
       <template v-if="other">
         <span class="text-muted-foreground" aria-hidden="true">→</span>
-        <span :title="other.tip" class="cursor-help" data-testid="funnel-other">
-          <b class="font-semibold text-amber-700 dark:text-amber-400">{{ count(other.total) }}</b>
-          not asked for other reasons
-        </span>
+        <Hint :text="other.tip">
+          <span class="cursor-help" data-testid="funnel-other">
+            <b class="font-semibold text-amber-700 dark:text-amber-400">{{ count(other.total) }}</b>
+            not asked for other reasons
+          </span>
+        </Hint>
       </template>
       <span class="text-muted-foreground" aria-hidden="true">→</span>
       <span>
@@ -60,7 +71,12 @@
       </span>
     </div>
 
-    <BuildPhases v-if="buildOnly && slug" :slug="slug" :job="jobId" />
+    <p v-if="buildOnly" class="text-sm text-muted-foreground" data-testid="build-only">
+      No model was asked: this run only wrote questions. See
+      <RouterLink :to="methodLocation(jobId)" class="text-primary hover:underline"
+        >How this was tested</RouterLink
+      >.
+    </p>
 
     <section v-if="!buildOnly" class="space-y-2.5" aria-labelledby="models-title">
       <div class="flex flex-wrap items-end justify-between gap-3">
@@ -93,16 +109,15 @@
             <span v-if="vendorName(m.model)" class="text-xs text-muted-foreground">
               {{ vendorName(m.model) }}
             </span>
-            <Badge
+            <!-- Not focusable inside the row link; the model page shows it to keyboard focus. -->
+            <AlertBadge
               v-if="m.failure"
-              variant="outline"
-              :class="STOPPED_TONE"
-              :title="m.failure.detail"
-              class="mt-1 w-fit cursor-help"
+              :tip="m.failure.detail"
+              class="mt-1 w-fit"
               data-testid="model-failure"
             >
               {{ m.failure.label }}
-            </Badge>
+            </AlertBadge>
           </span>
           <span
             class="order-3 flex basis-full flex-col gap-2 md:order-none md:flex-[1_1_23.75rem] md:basis-auto"
@@ -114,7 +129,7 @@
               >
                 <span
                   class="block h-full rounded bg-primary"
-                  :style="{ width: width(m.rate_with) }"
+                  :style="{ width: barWidth(m.rate_with) }"
                 />
               </span>
               <span class="text-sm md:w-[13.5rem] md:shrink-0" data-testid="right-with">
@@ -129,7 +144,7 @@
               >
                 <span
                   class="block h-full rounded bg-muted-foreground/60"
-                  :style="{ width: width(m.rate_alone) }"
+                  :style="{ width: barWidth(m.rate_alone) }"
                 />
               </span>
               <span
@@ -225,21 +240,22 @@
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { ChevronRight } from 'lucide-vue-next'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import BuildPhases from '../BuildPhases.vue'
 import { apiErrorDetail } from '@/lib/errors'
+import Hint from '../Hint.vue'
+import AlertBadge from './AlertBadge.vue'
 import { useReport, useRun } from './context'
-import { count, DASH, dayTime, points } from './figures'
+import { useDetails } from './details/useDetails'
+import { barWidth, count, DASH, dayTime, points, utcStamp } from './figures'
 import { modelName, vendorName } from './labels'
 import { methodLocation, modelLocation } from './routing'
+import { saveRunExport } from './useRunReport'
 import {
   otherNotAsked,
   runHeaderText,
   stoppedLabel,
   stoppedTip,
   usdText,
-  utcStamp,
   webRemoved,
 } from './selectors'
 import {
@@ -251,12 +267,12 @@ import {
   tookText,
 } from './timeCost'
 
-const STOPPED_TONE = 'border-transparent bg-amber-500/10 text-amber-700 dark:text-amber-400'
 const TILE =
   'flex flex-col gap-0.5 border-b border-border px-5 py-4 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0'
 
 const report = useReport()
 const { jobId, slug, data } = useRun()
+const details = useDetails()
 
 /** No model was asked: the page shows what the job wrote and filtered. */
 const buildOnly = computed(() => data.value?.run.build_only ?? false)
@@ -285,10 +301,6 @@ const lead = computed(() => {
   return `Your data added ${lo === hi ? lo : `${lo} to ${hi}`} points. ${tail}`
 })
 
-function width(rate: number | null): string {
-  return `${Math.min(Math.max(rate ?? 0, 0), 1) * 100}%`
-}
-
 function ofText(right: number, graded: number): string {
   return graded > 0 ? `${count(right)} of ${count(graded)}` : DASH
 }
@@ -303,6 +315,19 @@ async function download(): Promise<void> {
     toast.error(apiErrorDetail(e, 'Could not download the summary'))
   } finally {
     downloading.value = false
+  }
+}
+
+const exporting = ref(false)
+
+async function downloadExcel(): Promise<void> {
+  exporting.value = true
+  try {
+    await saveRunExport(slug, jobId)
+  } catch (e) {
+    toast.error(apiErrorDetail(e, 'Could not download the Excel file'))
+  } finally {
+    exporting.value = false
   }
 }
 </script>

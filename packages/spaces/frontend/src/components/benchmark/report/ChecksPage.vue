@@ -33,7 +33,7 @@
               <span
                 v-if="line.value !== null"
                 class="block h-full rounded bg-chart-5"
-                :style="{ width: `${Math.min(Math.max(line.value, 0), 1) * 100}%` }"
+                :style="{ width: barWidth(line.value) }"
               />
             </span>
             <b class="w-10 shrink-0 text-right text-sm font-medium tabular-nums">
@@ -41,33 +41,32 @@
             </b>
           </div>
           <div v-if="row.squares?.length" class="flex flex-wrap gap-1.5" aria-hidden="true">
-            <span
-              v-for="(outcome, i) in row.squares"
-              :key="i"
-              class="size-7 rounded border"
-              :class="SQUARE_TONE[outcome]"
-              :title="BEHAVIOR_LABEL[outcome]"
-              data-testid="check-square"
-              :data-bad="outcome === 'made_up'"
-              :data-outcome="outcome"
-            />
+            <!-- Hover only: the squares are decorative and the reading below sums them up. -->
+            <Hint v-for="(outcome, i) in row.squares" :key="i" :text="BEHAVIOR_LABEL[outcome]">
+              <span
+                class="size-7 rounded border"
+                :class="SQUARE_TONE[outcome]"
+                data-testid="check-square"
+                :data-bad="outcome === 'made_up'"
+                :data-outcome="outcome"
+              />
+            </Hint>
           </div>
           <p class="text-sm" data-testid="check-reading">{{ row.reading }}</p>
         </div>
       </div>
     </div>
-    <p v-else class="py-4 text-sm text-muted-foreground" data-testid="checks-missing">
-      This model is not part of this run.
-    </p>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { BenchmarkRunMethod } from '@/api/types'
+import Hint from '../Hint.vue'
+import { plural } from '../labels'
 import { useRun } from './context'
-import { DASH, pct } from './figures'
-import { BEHAVIOR_LABEL, modelName, type Behavior } from './labels'
+import { barWidth, DASH, pct } from './figures'
+import { BEHAVIOR_LABEL, judgesText, modelName, type Behavior } from './labels'
 import { trickReading, trickSquares } from './selectors'
 
 const SQUARE_TONE: Record<Behavior, string> = {
@@ -95,10 +94,6 @@ const run = useRun()
 
 const name = computed(() => (run.model.value ? modelName(run.model.value) : 'the model'))
 
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`
-}
-
 const TIMES = ['', 'once', 'twice', 'three times', 'four times']
 
 function times(n: number): string {
@@ -116,12 +111,6 @@ function repeatsText(repeats: BenchmarkRunMethod['repeats']): string {
   }
   if (settings === 1) return `Each question was asked ${total} more times at the same setting.`
   return `Each question was asked ${total} more times, ${times(repeats.trials)} at each of ${settings} settings.`
-}
-
-function judgesList(judges: string[]): string {
-  const named = judges.map((j, i) => `Judge ${i + 1} (${modelName(j)})`)
-  if (named.length < 2) return named.join('')
-  return `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`
 }
 
 const rows = computed<CheckRow[]>(() => {
@@ -181,7 +170,7 @@ const rows = computed<CheckRow[]>(() => {
   const judges: CheckRow = {
     key: 'judges',
     title: 'Judges agreeing',
-    what: data.judges.length ? `${judgesList(data.judges)} graded every answer.` : DASH,
+    what: data.judges.length ? `${judgesText(data.judges)} graded every answer.` : DASH,
     lines: [{ label: 'Agreed', value: c.answers ? c.agreement : null }],
     reading:
       c.answers && c.agreement !== null

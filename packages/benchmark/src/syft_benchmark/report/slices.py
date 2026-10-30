@@ -1,32 +1,15 @@
-"""Two cuts, without which the summary answers the wrong question.
+"""The cuts of a Space's metrics: by item type, judge agreement, text scores.
 
-A summary share says "how many times the model erred". The node owner and an
-auditor need something else: **where** it erred and **whether whoever counted it**
-can be trusted. Both cuts are ports from LiveTruth: ``by_dataset`` and the
-analysis of judge bias.
-
-**The cut by generator.** There are ten generators, and they measure different
-skills: number masking — precision about a figure, multihop — the ability to
-connect two facts, tiered — an extended explanation, the control ones — the
-ability to stay silent. One share laid over all ten hides exactly what the owner
-needs: a model can hold dates confidently and fall apart on connecting facts,
-while in the summary that will be "accuracy 71%". There is nothing to fix by such
-a number.
-
-**Judge agreement.** A panel is set up so that the divergence of assessments can
-be seen — but by itself the presence of three columns in the report shows
-nothing. The question this cut answers is: do the judges agree. If two out of
-three diverge on a third of the questions, then any difference between models
-smaller than a third is noise, and that has to be said outright rather than
-leaving the reader to compare percentages that mean nothing.
-
-Both are computed over the same latest verdict per question as the whole report,
-and over the same half of the set: mixing the halves means getting a quantity
-that drops simply because there came to be more control questions.
+A summary share says how many times the model erred; these cuts say where it
+erred and whether the judges that counted it agree. They are computed over the
+same counted verdict per question as the whole report, and over one half of
+the set at a time: mixing the halves gives a share that drops simply because
+there came to be more control questions.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from itertools import combinations
 
@@ -40,7 +23,13 @@ from syft_benchmark.config import (
     Verdict,
 )
 from syft_benchmark.db import QaPair, session_scope
-from syft_benchmark.report.metrics import Metrics, _latest_results, judges_seen
+from syft_benchmark.report.counted import OUTCOMES
+from syft_benchmark.report.metrics import (
+    Metrics,
+    VerdictShares,
+    judges_seen,
+    latest_results,
+)
 from syft_benchmark.runs.judge import is_technical
 from syft_benchmark.runs.textmetrics import average
 
@@ -147,7 +136,7 @@ def corpus_exposure(
 
 
 @dataclass(frozen=True, slots=True)
-class GeneratorSlice:
+class GeneratorSlice(VerdictShares):
     """The shares of one generator within one arm and block."""
 
     generator: str
@@ -160,22 +149,6 @@ class GeneratorSlice:
     web_sourced: int = 0
     # Explanations short of the key-facts bar: graded, neither right nor wrong.
     incomplete: int = 0
-
-    @property
-    def accuracy(self) -> float:
-        return self.correct / self.graded if self.graded else 0.0
-
-    @property
-    def hallucination_rate(self) -> float:
-        return self.hallucinate / self.graded if self.graded else 0.0
-
-    @property
-    def abstain_rate(self) -> float:
-        return self.abstain / self.graded if self.graded else 0.0
-
-    @property
-    def incomplete_rate(self) -> float:
-        return self.incomplete / self.graded if self.graded else 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,13 +190,10 @@ def by_generator(
         job: Narrow it to one launch; None — whatever is graded now
 
     Returns:
-        One row per generator, from the worst accuracy to the best
-
-    A generator switched off before a launch has no row in that launch's
-    slice at all — as against a row at zero, which says it was asked and
-    got everything wrong. The two must not look alike.
+        One row per generator, from the worst accuracy to the best; a generator
+        not asked has no row (a row at zero means asked and all wrong)
     """
-    rows = _latest_results(space, mode, block, model, judge, expected, job=job)
+    rows = latest_results(space, mode, block, model, judge, expected, job=job)
     if not rows:
         return []
 
@@ -237,48 +207,22 @@ def by_generator(
             ).all()
         }
 
-    tally: dict[str, dict[str, int]] = {}
+    tally: dict[str, Counter[str]] = {}
     for row in rows:
         key = str(generators.get(row.qa_id) or "—")
-        counts = tally.setdefault(
-            key,
-            {
-                "correct": 0,
-                "abstain": 0,
-                "hallucinate": 0,
-                "web": 0,
-                "incomplete": 0,
-                "failed": 0,
-            },
-        )
-        # Out of the denominator, by the same mark as in the summary.
-        if is_technical(row.verdict, row.answer):
-            counts["failed"] += 1
-        elif row.verdict == Verdict.CORRECT.value:
-            counts["correct"] += 1
-        elif row.verdict == Verdict.ABSTAIN.value:
-            counts["abstain"] += 1
-        elif row.verdict == Verdict.HALLUCINATE.value:
-            counts["hallucinate"] += 1
-        elif row.verdict == Verdict.WEB_SOURCED.value:
-            counts["web"] += 1
-        elif row.verdict == Verdict.INCOMPLETE.value:
-            counts["incomplete"] += 1
+        # Failed calls leave the denominator by the same mark as in the summary.
+        tally.setdefault(key, Counter())[row.verdict] += 1
 
     slices = [
         GeneratorSlice(
             generator=key,
-            graded=counts["correct"]
-            + counts["abstain"]
-            + counts["hallucinate"]
-            + counts["web"]
-            + counts["incomplete"],
-            correct=counts["correct"],
-            abstain=counts["abstain"],
-            hallucinate=counts["hallucinate"],
-            failed=counts["failed"],
-            web_sourced=counts["web"],
-            incomplete=counts["incomplete"],
+            graded=sum(counts[v] for v in OUTCOMES),
+            correct=counts[Verdict.CORRECT.value],
+            abstain=counts[Verdict.ABSTAIN.value],
+            hallucinate=counts[Verdict.HALLUCINATE.value],
+            failed=counts[Verdict.TECHNICAL.value],
+            web_sourced=counts[Verdict.WEB_SOURCED.value],
+            incomplete=counts[Verdict.INCOMPLETE.value],
         )
         for key, counts in tally.items()
     ]
@@ -318,13 +262,12 @@ def judge_agreement(
 
     verdicts: dict[str, dict[str, str]] = {}
     for name in judges:
-        rows = _latest_results(space, mode, block, model, name, expected, job=job)
+        rows = latest_results(space, mode, block, model, name, expected, job=job)
         verdicts[name] = {
             row.qa_id: row.verdict
             for row in rows
             # A failure is not a judge opinion, and cannot be a disagreement.
-            if not is_technical(row.verdict, row.answer)
-            and row.verdict != Verdict.PENDING.value
+            if not is_technical(row.verdict) and row.verdict != Verdict.PENDING.value
         }
 
     pairs: list[JudgePair] = []
@@ -353,15 +296,13 @@ def average_agreement(pairs: list[JudgePair]) -> float | None:
     return sum(p.agreed for p in pairs) / shared
 
 
-# --- the report sections ---------------------------------------------------
-
-
 def _combos(results: list[Metrics]) -> list[tuple[str, ContextMode, EvalBlock, str]]:
     """The combinations it makes sense to compute the cut for.
 
     Only the answerable half and only the rows where someone was assessed: on the
     control half "accuracy by generator" is a quantity that does not exist, and an
-    empty row takes up space and says nothing.
+    empty row takes up space and says nothing. One entry per combination whatever
+    the judge: the cuts are over the counted verdict.
     """
     seen: list[tuple[str, ContextMode, EvalBlock, str]] = []
     for m in results:
@@ -373,97 +314,64 @@ def _combos(results: list[Metrics]) -> list[tuple[str, ContextMode, EvalBlock, s
     return seen
 
 
-def generator_lines(results: list[Metrics]) -> list[str]:
-    """The Markdown section "by item type".
+def _arm_label(mode: ContextMode) -> str:
+    return f"{ARM_LETTER.get(mode.value, '?')} {mode.value}"
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratorRow:
+    """One generator's shares within one combination of the report."""
+
+    space: str
+    arm: str
+    block: str
+    model: str
+    entry: GeneratorSlice
+
+
+@dataclass(frozen=True, slots=True)
+class AgreementRow:
+    """One pair of judges within one combination of the report."""
+
+    space: str
+    arm: str
+    model: str
+    pair: JudgePair
+
+
+def generator_rows(results: list[Metrics]) -> list[GeneratorRow]:
+    """The cut by item type for every combination of ``results``: the rows of
+    the "by item type" section, whichever renderer draws it.
 
     The summary answers how many times the model erred; this cut answers where
     exactly. A model can hold dates confidently and fall apart on connecting
-    facts, while in the summary that will be one share, by which there is nothing
-    to fix.
+    facts, while in the summary that is one share, by which there is nothing to
+    fix.
     """
-    rows: list[tuple[str, str, str, str, GeneratorSlice]] = []
+    rows: list[GeneratorRow] = []
     for space, mode, block, model in _combos(results):
-        arm = f"{ARM_LETTER.get(mode.value, '?')} {mode.value}"
         for entry in by_generator(space, mode, block, model or None):
             if entry.graded:
-                rows.append((space, arm, block.value, model or "—", entry))
-    if not rows:
-        return []
-
-    lines = [
-        "",
-        "## By item type",
-        "",
-        "The generators measure different skills: number masking — precision",
-        "about a figure, multihop — the ability to connect two facts, tiered —",
-        "an extended explanation. One share laid over all of them hides exactly",
-        "what the owner needs; worst first.",
-        "",
-        "| Space | Arm | Block | Model | Item type | Questions | Accuracy "
-        "| Hallucinations | Abstentions | Incomplete |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for space, arm, block_name, model, entry in rows:
-        lines.append(
-            f"| {space} | {arm} | {block_name} | {model} | {entry.generator} "
-            f"| {entry.graded} | {entry.accuracy:.0%} "
-            f"| {entry.hallucination_rate:.0%} | {entry.abstain_rate:.0%} "
-            f"| {entry.incomplete_rate:.0%} |"
-        )
-    return lines
-
-
-def agreement_lines(results: list[Metrics]) -> list[str]:
-    """The Markdown section "judge agreement".
-
-    Three columns with different verdicts show that the judges diverged but not
-    by how much. Without that number the reader compares percentages whose
-    difference may lie entirely within the spread of the assessments.
-    """
-    rows: list[tuple[str, str, str, JudgePair]] = []
-    for space, mode, block, model in _combos(results):
-        for pair in judge_agreement(space, mode, block, model or None):
-            rows.append(
-                (
-                    space,
-                    f"{ARM_LETTER.get(mode.value, '?')} {mode.value}",
-                    model or "—",
-                    pair,
+                rows.append(
+                    GeneratorRow(space, _arm_label(mode), block.value, model, entry)
                 )
-            )
-    if not rows:
-        return []
+    return rows
 
-    average = average_agreement([pair for *_, pair in rows])
-    lines = [
-        "",
-        "## Judge agreement",
-        "",
-        "The share of questions on which two judges issued ONE verdict. Computed",
-        "over the questions both of them saw: a recusal and an interrupted run",
-        "leave the judges with different sets, and someone else gap is not a",
-        "disagreement.",
-        "",
-        "| Space | Arm | Model | Judge | Judge | Shared | Agreement |",
-        "| --- | --- | --- | --- | --- | ---: | ---: |",
+
+def agreement_rows(results: list[Metrics]) -> list[AgreementRow]:
+    """Judge agreement for every combination of ``results``: the rows of the
+    "judge agreement" section, whichever renderer draws it.
+
+    Columns with different verdicts show that the judges diverged but not by how
+    much. If they diverge on a third of the questions, any difference between
+    models smaller than a third is noise, and the reader has to be told so before
+    comparing percentages.
+    """
+    return [
+        AgreementRow(space, _arm_label(mode), model, pair)
+        for space, mode, block, model in _combos(results)
+        for pair in judge_agreement(space, mode, block, model or None)
     ]
-    for space, arm, model, pair in rows:
-        lines.append(
-            f"| {space} | {arm} | {model} | {pair.left} | {pair.right} "
-            f"| {pair.shared} | {pair.rate:.0%} |"
-        )
-    if average is not None:
-        lines += ["", f"Average agreement — {average:.0%}."]
-        if average < AGREEMENT_FLOOR:
-            lines.append(
-                f"That is below {AGREEMENT_FLOOR:.0%}: the judges diverge too "
-                f"often, and the difference between models is smaller than that "
-                f"spread — noise. Models cannot be compared on such a measurement."
-            )
-    return lines
-
-
-# --- the text metrics ------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -490,7 +398,7 @@ def text_scores(results: list[Metrics]) -> list[TextScores]:
     for m in results:
         if not m.graded:
             continue
-        rows = _latest_results(
+        rows = latest_results(
             m.space,
             m.context_mode,
             m.block,
@@ -508,7 +416,7 @@ def text_scores(results: list[Metrics]) -> list[TextScores]:
         out.append(
             TextScores(
                 space=m.space,
-                arm=f"{m.arm} {m.context_mode.value}",
+                arm=m.arm_label,
                 block=m.block.value,
                 model=m.model or m.endpoint or "—",
                 judge=m.judge,
@@ -517,37 +425,3 @@ def text_scores(results: list[Metrics]) -> list[TextScores]:
             )
         )
     return out
-
-
-def text_metric_lines(results: list[Metrics]) -> list[str]:
-    """The Markdown section "similarity to the gold answer"."""
-    rows = text_scores(results)
-    if not rows:
-        return []
-
-    keys = sorted({key for row in rows for key in row.scores})
-    header = " | ".join(keys)
-    dashes = " | ".join("---:" for _ in keys)
-    lines = [
-        "",
-        "## Similarity to the gold answer",
-        "",
-        "Mechanical measures of word overlap. They do NOT know correctness: a",
-        "retelling in one own words gets a low score with a correct answer,",
-        "while a verbatim quotation off the point gets a high one. They enter no",
-        "share of the report; they are needed as a view of",
-        "the same answers that is independent of the judge. Comparing them makes",
-        "sense within one report, not against other people numbers.",
-        "",
-        f"| Space | Arm | Block | Model | Judge | Answers | {header} |",
-        f"| --- | --- | --- | --- | --- | ---: | {dashes} |",
-    ]
-    for row in rows:
-        values = " | ".join(
-            f"{row.scores[key]:.3f}" if key in row.scores else "—" for key in keys
-        )
-        lines.append(
-            f"| {row.space} | {row.arm} | {row.block} | {row.model} "
-            f"| {row.judge or '—'} | {row.counted} | {values} |"
-        )
-    return lines

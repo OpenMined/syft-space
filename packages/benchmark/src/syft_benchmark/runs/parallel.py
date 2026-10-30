@@ -1,44 +1,20 @@
-"""The parallel progress of a run and a cache of what has already been asked.
+"""Concurrency for a run: lanes for calls, a cache of what was asked, progress.
 
-A port of the design of `eval_arena/base.py` from LiveTruth, brought to three
-arms and a panel of judges. Two different troubles of one run are solved here.
+**Waiting.** A run computes almost nothing: its time is an open socket to the
+model under test, the judge or the endpoint, so calls are kept in flight in a
+batch. There are two lanes: a model provider takes dozens of simultaneous
+requests, while the endpoint under test is one foreign node whose queue only
+accumulates timeouts.
 
-**The first is waiting.** The benchmark computes almost nothing: its time is an
-open socket to the model under test, to the judge, to the endpoint. A sequential
-walk pays each such wait once, and on a live set the count runs into days: a
-measurement interrupted at fifteen percent after seventeen hours is exactly that
-case. Waits add up, so they are kept in flight in a batch rather than one at a time.
+**Repeats.** The endpoint's retrieval for a question is a property of the
+corpus, shared by every model under test and every block; a model's answer at
+zero temperature is the same in every block (``denial_loop`` starts from the
+direct test's answer). The cache asks each once, and concurrent askers of the
+same thing wait for the one call in flight.
 
-There are two lanes, and that is not configuration for its own sake. An external
-model provider is built for dozens of simultaneous requests; the endpoint under
-test is one foreign node with one model, and a queue to it does not speed it up
-but accumulates timeouts. One number for both would mean choosing between an idle
-provider and a swamped node.
-
-**The second is repeats.** One and the same work is ordered many times over, and
-that is visible directly in the design of the measurement:
-
-  * arm C puts the same question to the endpoint for the sake of the same
-    retrieval — once per model under test. Nine models mean nine identical trips
-    to RAG, and `denial_loop` and `monte_carlo` multiply them again, because each
-    block starts from a question of its own;
-  * a model first answer at zero temperature is the same in every block:
-    `denial_loop` starts its pressure from exactly the answer the direct test has
-    already obtained.
-
-The retrieval for one question is a property of the corpus, not of the model under
-test, and it cannot change depending on who is shown it afterwards. Which means
-there is nothing to ask a second time.
-
-The cache does not merely "look in a dictionary": nine tasks start at once and all
-nine would miss. The first asker creates the call, the rest wait for its result —
-and then even at the start the question goes out once.
-
-The responsibilities are split deliberately: the blocking code of the run stays
-blocking and the only one, while parallelism lives outside — a call goes off to a
-thread and the event loop gets on with the next. There are no async twins of
-``chat``, of judging or of the blocks, and there must not be: two copies of the
-delicate logic of retries and truncations will diverge on the very first edit.
+The blocking code (``chat``, judging, the blocks) stays blocking and single;
+calls go off to worker threads. There are no async twins of it: two copies of
+the retry and truncation logic would diverge.
 """
 
 from __future__ import annotations
@@ -49,25 +25,21 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, TypeVar
+from typing import Any
 
 from loguru import logger
 
 from syft_benchmark.config import Settings, SpaceConfig
 from syft_benchmark.llm import Provider, chat, cost
-from syft_benchmark.llm.ollama import search_mechanism
+from syft_benchmark.llm.web_search import search_mechanism
 from syft_benchmark.runs.endpoint import RETRIEVAL_ONLY_TOKENS, ask_endpoint
 from syft_benchmark.runs.timing import ANSWER, CallClock
 
-T = TypeVar("T")
-
-# After how many finished tasks to say how many are left. A run goes for hours,
-# and a silent console is indistinguishable from a hung one.
+# After how many finished tasks to log how many are left: a silent console
+# looks like a hung one.
 _PROGRESS_EVERY = 10
 
-# How many database writes to keep in flight. The database is ours and close, but
-# it is still a socket: waiting for it right in the loop means stopping, for that
-# time, all the other answers that are in flight at that moment.
+# How many database writes to keep in flight, off the event loop.
 _STORAGE_LANE = 4
 
 
@@ -87,10 +59,8 @@ class Pool:
         self._model = asyncio.Semaphore(self.model_limit)
         self._endpoint = asyncio.Semaphore(self.endpoint_limit)
         self._storage = asyncio.Semaphore(_STORAGE_LANE)
-        # There are exactly as many threads as calls are allowed in flight: the
-        # asyncio default is computed from the number of cores and has nothing to do
-        # with the number of sockets — with a generous lane it would become a second,
-        # undeclared ceiling.
+        # As many threads as calls allowed in flight: the asyncio default is
+        # sized by cores and would become a second, undeclared ceiling.
         self._workers = ThreadPoolExecutor(
             max_workers=self.model_limit + self.endpoint_limit + _STORAGE_LANE,
             thread_name_prefix="bench",
@@ -99,15 +69,17 @@ class Pool:
     def close(self) -> None:
         self._workers.shutdown(wait=False)
 
-    async def to_model(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    async def to_model[T](self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """Make a call to a model — the one under test or a judge."""
         return await self._offload(self._model, fn, *args, **kwargs)
 
-    async def to_endpoint(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    async def to_endpoint[T](
+        self, fn: Callable[..., T], *args: Any, **kwargs: Any
+    ) -> T:
         """Make a call to the endpoint under test."""
         return await self._offload(self._endpoint, fn, *args, **kwargs)
 
-    async def to_storage(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    async def to_storage[T](self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """Write a result to the database.
 
         The lane is separate and narrow: writing must not take room from the calls
@@ -115,7 +87,7 @@ class Pool:
         """
         return await self._offload(self._storage, fn, *args, **kwargs)
 
-    async def _offload(
+    async def _offload[T](
         self, gate: asyncio.Semaphore, fn: Callable[..., T], *args: Any, **kwargs: Any
     ) -> T:
         async with gate:
@@ -154,12 +126,10 @@ class _Cached:
 class RunCache:
     """What has already been asked and is therefore not asked again.
 
-    It lives longer than one run: one object is passed into all the arms, blocks and
-    models of a single launch, and for that reason it holds nothing bound to the
-    event loop except tasks that finish within that loop.
-
-    Switched off by the ``reuse_answers`` setting: measuring the spread of repeated
-    calls itself is a legitimate task, and the cache gets directly in its way.
+    One object serves every arm, block and model of a launch, so it holds
+    nothing bound to the event loop except tasks that finish within it.
+    Switched off by ``reuse_answers``, for measuring the spread of repeated
+    calls itself.
     """
 
     def __init__(self, *, enabled: bool = True) -> None:
@@ -171,8 +141,6 @@ class RunCache:
             tuple[str, dict[str, Any]],
         ] = {}
         self._running: dict[Any, asyncio.Task[Any]] = {}
-
-    # --- the endpoint -----------------------------------------------------
 
     async def endpoint(
         self,
@@ -226,8 +194,6 @@ class RunCache:
                 self._endpoint[key] = _Cached(outcome=outcome, prose=need_prose)
         return outcome
 
-    # --- the models -------------------------------------------------------
-
     async def answer(
         self,
         provider: Provider,
@@ -239,19 +205,11 @@ class RunCache:
         web_search: bool = False,
         web_search_engine: str = "auto",
     ) -> tuple[str, dict[str, Any]]:
-        """A model answer to a prompt at zero temperature.
+        """A model answer to a prompt at zero temperature, asked once.
 
-        The key is the pair of prompts itself, not the question: in arm C material
-        is mixed in with the question, and the answer to a question with material is
-        not the same as without it. If the whole prompt matched, the answer will
-        match too, because the temperature is zero; that is the condition under
-        which a repeat measures nothing.
-
-        This is the only thing the blocks use: ``denial_loop`` starts its pressure
-        from the same first answer the direct test has already obtained, and there
-        is no reason to pay for it twice. The repeats of ``monte_carlo`` go past the
-        cache — their temperature is different, and the spread is precisely what is
-        being measured.
+        Keyed by the whole prompt (in arm C it carries the material) and the
+        search setup. The repeats of ``monte_carlo`` go past the cache: their
+        temperature is not zero and their spread is what is measured.
         """
         # Searching or not, and how, changes the answer: all of it is in the key.
         searching = (
@@ -284,11 +242,8 @@ class RunCache:
                 web_search_engine=web_search_engine,
                 role=cost.SUBJECTS,
             )
-            # What the answer really cost. A reused answer would otherwise be
-            # recorded as instantaneous: there was no call, and timing it would show
-            # the cost of a dictionary lookup. In the log that would look like a
-            # model answering in zero seconds — a number an auditor must not and
-            # cannot believe.
+            # What the call took, so a reused answer carries it rather than
+            # the time of a dictionary lookup.
             usage = dict(usage)
             usage["elapsed"] = round(time.monotonic() - started, 3)
             return answer, usage
@@ -305,9 +260,7 @@ class RunCache:
             self._answers[key] = (answer, usage)
         return (answer, {**usage, "reused": True}) if waited else (answer, usage)
 
-    # --- one call for everyone waiting ------------------------------------
-
-    async def _once(
+    async def _once[T](
         self,
         key: Any,
         make: Callable[[], Awaitable[T]],
@@ -316,11 +269,12 @@ class RunCache:
     ) -> T:
         """Create the call once, however many tasks are waiting for it.
 
-        Without this the cache would not help where it is needed most: nine models
-        come to one question at the same time, all nine miss — and all nine go to
-        the endpoint. A dictionary saves only those who arrive later, and they start
-        together.
+        Concurrent askers all miss the dictionary at once; they wait for the one
+        call in flight instead. With the cache off every asker makes its own
+        call: the spread of repeated calls is then what is measured.
         """
+        if not self.enabled:
+            return await make()
         running = self._running.get(key)
         if running is not None:
             on_wait()
@@ -338,23 +292,10 @@ class RunCache:
 class Progress:
     """How much is done out of how much — and when it is time to stop.
 
-    A progress report is needed not for elegance: a run goes for hours, and a silent
-    console is indistinguishable from a hung one.
-
-    The threshold of consecutive failures is a port of ``max_consecutive_failures``
-    from LiveTruth. A wrong key, exhausted credits, a rejected model name, a node
-    that has gone down — failures a retry does not cure: a sequential run found out
-    about them anew on every question and honestly paid for that in hours, and the
-    result was a table of nothing but failures. Not the first failure but a series:
-    a single failure can also be a one-off — too long a prompt, one unlucky pair —
-    and dropping the whole measurement over it would be a trade in the wrong
-    direction.
-
-    ``watch`` is the only point through which anyone besides the log learns about
-    the progress of a run. The observer both sees the movement and stops it: to end
-    a run at the owner request it is enough for it to call ``stop``. A separate
-    cancellation check would be a second walk over the same questions and a second
-    place where it is decided whether to carry on.
+    A pass stops after ``give_up_after`` consecutive failures: a wrong key,
+    spent credits, a rejected name or a node that is down fail every question,
+    while a single failure can be a one-off. ``watch`` is the one observer of
+    the progress, and it ends the pass by calling ``stop``.
     """
 
     total: int
@@ -409,8 +350,7 @@ class Progress:
             try:
                 self.watch(self)
             except Exception as exc:  # noqa: BLE001 - the observer outranks nothing
-                # A failed progress record is not worth the run itself: it goes for
-                # hours and costs money, whereas a bar in a UI does not.
+                # A failed progress record is not worth failing the run over.
                 logger.warning(f"{self.label}: the progress observer failed: {exc}")
 
     @property
@@ -418,25 +358,12 @@ class Progress:
         return bool(self.fatal)
 
     def refuse(self, model: str) -> None:
-        """The provider refused this name outright — stop now, not in twenty.
+        """The provider refused this name outright — stop now, not after a streak.
 
-        The streak threshold is the right grain for "the answerer has gone
-        quiet": a node that has rebooted answers again, and abandoning it over
-        one failure would be a trade in the wrong direction. A refusal is not
-        that. The key, the money, the name — the provider has already said that
-        no question will be answered, and every further one buys the same
-        sentence at the price of a call.
-
-        The threshold cannot cover this case even in principle: it counts
-        within one pass, and a trial run's pass is shorter than the threshold.
-        On the rig a single misspelt model name went through every pass of
-        every arm and came back, eighteen minutes later, with nothing.
-
-        ``give_up_after`` of zero switches this off along with the streak. The
-        setting names a streak and this is not one, but what an owner turns off
-        there is abandoning a run early, and a rig deliberately measured while
-        hostile is exactly the case the zero was left in for. An explicit
-        decision outranks a saving.
+        A refusal (key, money, name) says no question will be answered, and
+        the streak threshold, counted within one pass, may never be reached by
+        a short pass. ``give_up_after`` of zero switches this off along with
+        the streak: the owner chose not to abandon a run early.
         """
         if not self.give_up_after:
             return

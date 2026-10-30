@@ -15,12 +15,12 @@ function stub(name: string) {
   })
 }
 
-vi.mock('@/components/BenchmarkResults.vue', () => ({ default: stub('BenchmarkResults') }))
 vi.mock('@/components/benchmark/report/RunsList.vue', () => ({ default: stub('RunsList') }))
 vi.mock('@/components/benchmark/report/useRunReport', () => ({ useRunReport: () => ({}) }))
 vi.mock('@/components/benchmark/report/RunReport.vue', () => ({ default: stub('RunReport') }))
 
 const { default: ResultsHome } = await import('@/components/benchmark/report/ResultsHome.vue')
+const { useDetails } = await import('@/components/benchmark/report/details/useDetails')
 
 function shown(wrapper: ReturnType<typeof mount>): {
   name: string
@@ -31,10 +31,10 @@ function shown(wrapper: ReturnType<typeof mount>): {
 }
 
 describe('ResultsHome', () => {
-  it('switches between the list, the report and the technical view', async () => {
+  it('switches between the list and the report', async () => {
     route.query = { tab: 'results' }
     const wrapper = mount(ResultsHome, { props: { slug: 'ep' } })
-    expect(shown(wrapper)).toEqual({ name: 'RunsList', props: { slug: 'ep' } })
+    expect(shown(wrapper)).toEqual({ name: 'RunsList', props: {} })
 
     route.query = { tab: 'results', job: 'j1', model: 'm1' }
     await wrapper.vm.$nextTick()
@@ -46,9 +46,23 @@ describe('ResultsHome', () => {
     route.query = { tab: 'results', job: 'j1' }
     await wrapper.vm.$nextTick()
     expect(shown(wrapper).props.modelId).toBeNull()
+  })
 
-    route.query = { tab: 'results', view: 'technical', job: 'j1' }
+  it('shows the Details toggle on the list and on a run, and remembers it', async () => {
+    const details = useDetails()
+    details.value = false
+    route.query = { tab: 'results' }
+    const wrapper = mount(ResultsHome, { props: { slug: 'ep' } })
+    const toggle = wrapper.get('[data-testid="details-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+
+    await toggle.trigger('click')
+    expect(details.value).toBe(true)
+    expect(localStorage.getItem('benchmark-results-details')).toBe('1')
+
+    route.query = { tab: 'results', job: 'j1' }
     await wrapper.vm.$nextTick()
-    expect(shown(wrapper)).toEqual({ name: 'BenchmarkResults', props: { slug: 'ep' } })
+    expect(wrapper.get('[data-testid="details-toggle"]').attributes('aria-checked')).toBe('true')
+    details.value = false
   })
 })

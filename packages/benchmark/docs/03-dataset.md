@@ -61,8 +61,8 @@ How the window applies:
 
 ### Recomputing the set
 
-After `generate` and after a `filter` pass that made pairs active, the set is
-recomputed:
+After a build and after a `filter` pass that made pairs active (or re-checked
+pairs in the set), the set is recomputed:
 
 - **Only the current cohort is active.** Older cohorts' items are retired.
 - **The window** (where it applies) retires items whose document left it, and
@@ -75,17 +75,18 @@ recomputed:
 - Items that leave become `retired` (`status_reason = rotation`), never
   deleted: results reference them with a cascading foreign key. `rejected` is
   not touched by recomputing.
-- A document's date is the ETL header `published_date`, else when it was
-  added to the Space, else `ingested_at`. The header comes from the chunks'
-  `doc_*` metadata; indexes built before the Space wrote it keep the header
-  at the start of chunk 0, where it is cut off and read.
+- A document's date is the ETL header `published_date` (a bare date counts
+  as its whole day, UTC), else when it was added to the Space, else
+  `ingested_at`. The header is read from the chunks' `doc_*` metadata, or,
+  when they carry none, cut off the start of chunk 0.
   Undated documents are not cut by the window; their count is printed.
 - If no documents were read (empty collection, index rebuilding), the set is
   left as it is.
 - A build that was stopped does not recompute the set.
 
-The report covers only the items in the measurement now; verdicts on retired
-items stay in the database and audit export. `status` shows both counts.
+A node report counts only the items in the measurement now; a run's report
+counts what that job asked. Verdicts on retired items stay in the database
+and the audit export. `status` shows both counts.
 
 ---
 
@@ -163,10 +164,7 @@ A rolling set moves under a slice; freeze within one window.
 | `freeze` | 10 questions per generator in the slice |
 
 Per generator, not total: each generator is a distinct skill, and a total
-limit would leave some untested or overweight the two control generators. Each
-generator produces items of exactly one half (answerable, unanswerable, false
-premise), so all halves are represented. Which generators exist in the set is
-decided by `disabled_generators`, not by the limit.
+limit would leave some untested or overweight the two control generators.
 
 ### Selection
 

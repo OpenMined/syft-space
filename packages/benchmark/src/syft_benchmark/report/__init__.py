@@ -1,4 +1,4 @@
-"""Stage 6: aggregating verdicts into metrics and a report."""
+"""Stage 6: verdicts folded into metrics, run figures, reports and exports."""
 
 from syft_benchmark.report.audit import (
     AuditExport,
@@ -7,6 +7,7 @@ from syft_benchmark.report.audit import (
     render_audit_markdown,
 )
 from syft_benchmark.report.document import build_docx
+from syft_benchmark.report.markdown import render_markdown
 from syft_benchmark.report.metrics import (
     Metrics,
     abstention_discrimination,
@@ -15,7 +16,6 @@ from syft_benchmark.report.metrics import (
     discrimination_pairs,
     judges_seen,
     models_seen,
-    render_markdown,
     summarize,
 )
 from syft_benchmark.report.narrative import Finding, findings

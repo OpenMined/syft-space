@@ -9,6 +9,7 @@ from syft_benchmark.db.models import (
     Run,
     RunAggregate,
     Target,
+    WriterCall,
 )
 from syft_benchmark.db.session import get_engine, session_scope
 
@@ -21,6 +22,7 @@ __all__ = [
     "Run",
     "RunAggregate",
     "Target",
+    "WriterCall",
     "get_engine",
     "session_scope",
 ]

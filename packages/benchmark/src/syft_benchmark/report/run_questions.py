@@ -7,7 +7,7 @@ aggregate (``run_view``); only the rows of the page are read from the pairs.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -15,10 +15,17 @@ from sqlalchemy.orm import Session
 
 from syft_benchmark.config import EvalBlock
 from syft_benchmark.db.models import Job, QaPair, Result, Run
-from syft_benchmark.llm.ollama import unused_reason
+from syft_benchmark.llm.web_search import unused_reason
 from syft_benchmark.report import run_view
-from syft_benchmark.report.run_view import ALONE, ARM_OF, GROUPS, OUTCOMES, WITH
-from syft_benchmark.runs.judge_stage import behavior_of
+from syft_benchmark.report.counted import (
+    OUTCOMES,
+    AnswerKey,
+    Panel,
+    group_answers,
+    pick,
+)
+from syft_benchmark.report.run_view import ALONE, ARM_OF, GROUPS, WITH
+from syft_benchmark.runs.result_views import behavior_of
 
 MAX_PAGE = 100
 
@@ -65,7 +72,7 @@ def list_questions(
     q: str | None = None,
     limit: int = 25,
     offset: int = 0,
-    configured: run_view.Panel = (),
+    configured: Panel = (),
 ) -> dict[str, Any]:
     """A page of the run's questions for one model, with counts per group.
 
@@ -146,6 +153,43 @@ def _answer_rows(
     ]
 
 
+def counted_ids(
+    session: Session, job: Job, qa_ids: Collection[str], *, configured: Panel = ()
+) -> set[str]:
+    """The rows the job's figures count among its answers to ``qa_ids``: one
+    per answer (``AnswerKey``) of the measured arms, picked as every figure
+    picks it."""
+    if not qa_ids:
+        return set()
+    panel = [*run_view.counting_judges(session, job, configured=configured), ""]
+    rows = session.execute(
+        select(
+            Result.id,
+            Result.judge_model,
+            Result.qa_id,
+            Run.model,
+            Run.context_mode,
+            Run.block,
+        )
+        .join(Run, Run.id == Result.run_id)
+        .where(
+            Result.space == job.target,
+            Run.job_id == job.id,
+            Run.context_mode.in_(list(ARM_OF)),
+            Result.qa_id.in_(sorted(qa_ids)),
+        )
+        .order_by(Result.created_at, Result.id)
+    ).all()
+    answers = group_answers(
+        rows, lambda r: AnswerKey.of(r.model, r.context_mode, r.block, r.qa_id)
+    )
+    return {
+        counted.id
+        for group in answers.values()
+        if (counted := pick(group, panel).counted) is not None
+    }
+
+
 def _context_docs(run: Run) -> int | None:
     value = (run.params or {}).get("context_docs")
     return int(value) if isinstance(value, int) else None
@@ -190,7 +234,7 @@ def _arm(
         if ARM_OF[run.context_mode] == arm:
             by_block[run.block].append(result)
             run_of[result.id] = run
-    picked = run_view.pick(by_block.get(EvalBlock.DIRECT.value, []), panel)
+    picked = pick(by_block.get(EvalBlock.DIRECT.value, []), panel)
     counted = picked.counted
     if counted is None:
         return None
@@ -198,12 +242,12 @@ def _arm(
     override = picked.override
 
     def block_extra(block: str) -> Any:
-        chosen = run_view.pick(by_block.get(block, []), panel).counted
+        chosen = pick(by_block.get(block, []), panel).counted
         return chosen.extra if chosen is not None else None
 
     return {
         "answer": counted.answer,
-        "verdict": run_view.verdict_of(counted.verdict, counted.answer),
+        "verdict": counted.verdict,
         "reasoning": counted.reasoning,
         "result_id": base.id,
         "override": (
@@ -255,7 +299,7 @@ def _judges(
     for result, run in rows:
         if run.block == EvalBlock.DIRECT.value and result.judge_model in judges:
             key = (result.judge_model, ARM_OF[run.context_mode])
-            latest[key] = run_view.verdict_of(result.verdict, result.answer)
+            latest[key] = result.verdict
             reasoning[key] = result.reasoning or None
             behavior[key] = behavior_of(result.extra)
     out = [
@@ -285,7 +329,7 @@ def question_detail(
     qa_id: str,
     *,
     model: str | None = None,
-    configured: run_view.Panel = (),
+    configured: Panel = (),
 ) -> dict[str, Any] | None:
     """One question of the run in full; None — it did not take part.
 
@@ -332,12 +376,8 @@ def _entry_of(
             for r, run in rows
             if ARM_OF[run.context_mode] == arm and run.block == EvalBlock.DIRECT.value
         ]
-        picked = run_view.pick(direct, panel)
-        verdicts[arm] = (
-            run_view.verdict_of(picked.counted.verdict, picked.counted.answer)
-            if picked.counted is not None
-            else None
-        )
+        picked = pick(direct, panel)
+        verdicts[arm] = picked.counted.verdict if picked.counted is not None else None
         overridden = overridden or picked.override is not None
     model = rows[0][1].model if rows else ""
     return {
@@ -362,7 +402,7 @@ def fragments(
     qa_id: str,
     *,
     model: str | None = None,
-    configured: run_view.Panel = (),
+    configured: Panel = (),
 ) -> list[dict[str, Any]] | None:
     """The passages sent with the with-data answer; None — not in this run.
 
@@ -387,7 +427,7 @@ def fragments(
     ]
     if not rows:
         return None if not run_view.took_part(session, job.id, qa_id) else []
-    picked = run_view.pick([r for r, _ in rows], [*judges, ""])
+    picked = pick([r for r, _ in rows], [*judges, ""])
     counted = picked.judged or picked.counted
     assert counted is not None
     run_row = next(run for result, run in rows if result.id == counted.id)

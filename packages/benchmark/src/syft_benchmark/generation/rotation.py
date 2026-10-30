@@ -1,54 +1,21 @@
-"""The rolling set: what is in the measurement now and what has left it.
+"""Recomputing the set: which items are in the measurement now.
 
-The corpus grows, the measurement does not. Three arms across nine models multiply
-by every item, and sooner or later you have to choose not "how much we can manage"
-but "what exactly we are measuring". That choice is substantive rather than
-technical: last year document answers a question nobody asks any more.
+Incremental mode accumulates; rolling and rebuild modes keep only items from
+documents inside the freshness window. The rules:
 
-Hence two set modes, and the difference between them is in their attitude to time.
-The incremental one accumulates: that is how a stable corpus is measured, where a
-correct answer does not go out of date. The rolling one moves with time: in the
-measurement is what grew out of documents from the last N days.
+* an item that leaves is ``retired``, never deleted — it carries the verdicts
+  of every earlier run;
+* an item whose document is back in the window becomes active again, so the
+  generator is paid only where no items exist yet;
+* an undated document is not cut off by the window, and how many there are is
+  reported;
+* an empty document list leaves the set as it is: it means nothing was read,
+  not that everything aged out;
+* only the current cohort is measured: two pools over one material would give
+  two verdicts for the same thing;
+* the set cap (``dataset_max_pairs``) is shared round-robin across generators.
 
-**What leaves the set is not deleted.** This is the main decision of the module,
-and it is the only possible one: an item carries the verdicts of every previous
-run, and the foreign key is set with a cascade. Deleting a question means carrying
-off the history of measurements with it, that is, precisely what the benchmark is
-kept for. So what leaves is moved to ``retired``: out of the measurement, not out
-of the database.
-
-**What returns comes back.** A one-week window, shifting by a day, keeps six
-sevenths of yesterday documents inside it. Building items over them again would
-mean paying the generator for what has already been bought and getting duplicates
-that the unique index would reject anyway. So recomputing the set is not "delete
-and generate" but "recompute what is active": items from documents in the window
-are active, items from documents outside it are not, and the generator is called
-only where items do not yet exist.
-
-**A document without a date is not cut off by the window.** The header is written
-by the node ETL, and it is sometimes incomplete. Silently discarding an undated
-document would mean emptying the set because of a foreign format; so it stays, and
-the number of such documents is said out loud — otherwise "took a week worth" would
-be an untruth nobody learned about.
-
-**An empty list of documents is no reason to empty the set.** Zero documents means
-not "all the material has aged out" but that there was nothing to read: the
-collection is empty, all the chunks are below the threshold, the index is being
-rebuilt. Deciding on such an input is not allowed: a recompute would take every
-last item out of the measurement, the next run would measure emptiness, and it
-would look like the ordinary progress of the window.
-
-**The cohort decides on a par with the window.** There can be only one pool of
-questions in the measurement: two builds over the same material would give two
-verdicts for one and the same thing, and the share would be computed over the union
-of two different sets. So the current cohort stays active and the previous ones are
-taken out whole — without being deleted: they carry the verdicts the new one will
-be compared against.
-
-This module does not see the documents — only their identifiers and dates. Corpus
-text is read by one package, ``sources`` (invariant 1), and the decision "what is
-in the measurement now" must not know it: it is about time and bookkeeping, not
-about content.
+This module sees only document ids and dates, never their text (invariant 1).
 """
 
 from __future__ import annotations
@@ -59,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from syft_benchmark.config import (
     DatasetMode,
@@ -70,7 +37,7 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
-from syft_benchmark.generation.web_check import filter_model, web_checked
+from syft_benchmark.generation.web_check import web_checked
 
 _EPOCH = datetime.min.replace(tzinfo=UTC)
 # The note on an item the set cap took out; the filter stage re-checks these.
@@ -89,9 +56,8 @@ class RotationReport:
     undated: int = 0
     window_days: int = 0
     cohort: str = ""
-    # Items of previous cohorts taken out of the measurement by this recompute.
-    # Counted separately from those that left by the window: the reason is different,
-    # and so is the cure.
+    # Items of earlier cohorts taken out of the measurement by this recompute,
+    # counted apart from those that left by the window.
     other_cohorts: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -108,10 +74,8 @@ class RotationReport:
         return ", ".join(parts)
 
 
-# How many days in a unit of the period. A month and a year are approximate here,
-# and that is deliberate: the freshness window answers the question "how long ago",
-# not "since what date". Calendar precision would add a difference of a day or two
-# to a quantity that is set by eye in the first place.
+# Days per unit of a period. A month and a year are approximate: the window
+# answers "how long ago", not "since what date".
 _PERIOD_UNITS = {"d": 1, "w": 7, "m": 30, "y": 365}
 
 
@@ -123,12 +87,7 @@ def parse_period(text: str) -> int:
     """The period in days from a human notation.
 
     Accepts ``7d``, ``2w``, ``1m``, ``1y`` and a bare number of days. Zero means "no
-    window" — the whole corpus.
-
-    Days, not dates: the period is counted backwards from "now", not from midnight.
-    For the nightly cycle it makes no difference, and for a run in the middle of the
-    day "since yesterday" is more honestly read as "over the last 24 hours" than to
-    guess that a human meant a calendar day.
+    window" — the whole corpus. The period counts back from now, not from midnight.
 
     Args:
         text: The period notation
@@ -191,8 +150,7 @@ def fresh_ids(
     undated = 0
     for doc_id, at in dated.items():
         if at is None:
-            # No publication date and no add time: kept, so an incomplete header
-            # does not empty the set silently.
+            # Kept, so an incomplete header does not empty the set silently.
             undated += 1
             kept.add(doc_id)
             continue
@@ -230,16 +188,14 @@ def window_count(
 def _count_active(space: str, settings: Settings) -> int:
     """How many items are in the measurement now."""
     with session_scope(settings) as session:
-        return len(
-            list(
-                session.execute(
-                    select(QaPair.id).where(
-                        QaPair.space == space,
-                        QaPair.status == PairStatus.ACTIVE.value,
-                    )
-                ).scalars()
+        return session.execute(
+            select(func.count())
+            .select_from(QaPair)
+            .where(
+                QaPair.space == space,
+                QaPair.status == PairStatus.ACTIVE.value,
             )
-        )
+        ).scalar_one()
 
 
 def _round_robin(rows: list[QaPair], cap: int) -> list[str]:
@@ -272,22 +228,17 @@ def _pick_within_cap(
 ) -> set[str]:
     """Which items to keep in the measurement when there are more than the cap.
 
-    The cap is a total, so it is divided round-robin across the generators: an item
-    to each in turn, until either the budget or the items run out. That way all the
-    skills are represented rather than those that happened to come first. Within a
-    generator the items go in ``order`` (default: already active first, then the
-    oldest, so a recompute does not reshuffle a set that still fits).
+    The cap is divided round-robin across the generators, so every skill is
+    represented. Within a generator the items go in ``order`` (default: already
+    active first, then the oldest, so a recompute does not reshuffle a set that
+    still fits). Each generator builds items of one half of the set only
+    (ordinary or control), so both halves are represented too; a round over
+    the halves instead would give the two control generators as much room as
+    all the ordinary ones.
 
     With ``checked`` (the web check is on) the items that passed it fill the cap
     first, and an unchecked one only takes a place nobody checked wants. Only
-    active and retired items reach here: a question the web check rejected or one
-    still pending never takes a place.
-
-    There is deliberately no round-robin over the halves of the set here, and that is
-    not a simplification. Each generator produces items of exactly one half, so
-    having the generators represented already entails having the halves represented —
-    whereas a separate round over halves would give the two control generators as
-    much room as the eight ordinary ones.
+    active and retired items reach here.
     """
     if cap <= 0 or len(rows) <= cap:
         return {row.id for row in rows}
@@ -332,9 +283,6 @@ def rotate(
 ) -> RotationReport:
     """Recompute which items are in the measurement now.
 
-    Called after generation: it adds items from new material, and here it is decided
-    what of what has accumulated takes part in the measurement today.
-
     The freshness window takes items out only in rolling and rebuild modes, or on
     a rebuild; the cohort and the cap apply in every mode.
 
@@ -348,10 +296,7 @@ def rotate(
         now: The moment to count from; None — now
 
     Returns:
-        # There was nothing to read. This is a state of the rig rather than a
-        # sentence on the set: a recompute over such an input would take every
-        # last item out of the measurement, and the next run would measure
-        # emptiness.
+        What became of the set; with no documents read, the set is left as it is
     """
     conf = settings or get_settings()
     report = RotationReport(
@@ -359,9 +304,7 @@ def rotate(
     )
 
     if not dated:
-        # There was nothing to read. This is a state of the rig rather than a sentence
-        # on the set: a recompute over such an input would take every last item out of
-        # the measurement, and the next run would measure emptiness.
+        # Nothing was read: a recompute would empty the measurement.
         report.notes.append(
             "no documents were read — the set was left as it is: "
             "an empty corpus is no reason to take items out of the measurement"
@@ -369,10 +312,8 @@ def rotate(
         report.active = _count_active(space, conf)
         return report
 
-    # The freshness window takes items out of the measurement where the set moves with
-    # time, and on every rebuild. In incremental mode without a rebuild it limits what
-    # to BUILD from, while what has been built stays: an accumulating set accumulates
-    # for a reason.
+    # In incremental mode without a rebuild the window only limits what to build
+    # from; what has been built stays.
     windowed = rebuilding or conf.dataset_mode in (
         DatasetMode.ROLLING,
         DatasetMode.REBUILD,
@@ -386,13 +327,10 @@ def rotate(
                 f"window does not apply to them, and they stay in the set"
             )
     else:
-        # Without a window the document is beside the point: the set accumulates, and
-        # a document that has disappeared from the collection is no reason to take out
-        # of the measurement an item that already has verdicts collected.
+        # A document gone from the collection does not take its items out.
         fresh = set()
 
-    # Fit ones are the active and the retired: screened-out ones never come back —
-    # their gold answer failed the check, and the window has nothing to do with it.
+    # Rejected items never come back: their failure has nothing to do with time.
     with session_scope(conf) as session:
         rows = list(
             session.execute(
@@ -407,9 +345,7 @@ def rotate(
         for row in rows:
             session.expunge(row)
 
-    # Only the current cohort is in the measurement. Two builds over the same material
-    # would give two verdicts for one question, and the share would be computed over
-    # the union of two different sets.
+    # Only the current cohort is in the measurement.
     eligible = [
         row
         for row in rows
@@ -420,7 +356,7 @@ def rotate(
         for row in rows
         if (row.cohort or "") != cohort and row.status == PairStatus.ACTIVE.value
     )
-    model = filter_model(conf)
+    model = conf.filter_model or ""
     keep = _pick_within_cap(
         eligible,
         conf.dataset_max_pairs,

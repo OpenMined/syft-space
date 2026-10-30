@@ -9,6 +9,7 @@ erDiagram
     RUNS ||--o{ RESULTS : "contains"
     JOBS ||--o{ RUNS : "opened"
     JOBS ||--o| RUN_AGGREGATES : "cached figures"
+    JOBS ||--o{ WRITER_CALLS : "dropped drafts"
     TARGETS ||--o{ JOBS : "measured by"
     PROCESSED_UNITS
 
@@ -47,7 +48,7 @@ erDiagram
         string space
         string endpoint
         string job_id "no FK; NULL from the CLI"
-        string context_mode "closed_book-open_book-model_with_context"
+        string context_mode "closed_book-model_with_context"
         string context_source "what arm C is given"
         string profile "methodology profile"
         jsonb params "settings snapshot"
@@ -57,7 +58,7 @@ erDiagram
         string model_sent_as "the name the provider was given"
         string model_provider "whose API answered"
         string model_build "the dated build behind the name"
-        string judge_model
+        string judge_model "the judge of this run; owner override on a hand verdict"
     }
     RESULTS {
         string id PK
@@ -68,7 +69,7 @@ erDiagram
         string verdict "correct-abstain-hallucinate-incomplete-pending-technical-web_sourced"
         text reasoning
         string expected_behavior "copy of the label at run time"
-        boolean grounded "arms B and C"
+        boolean grounded "arm C"
         boolean retrieval_hit
         int retrieval_rank
         jsonb retrieved "SENSITIVE: chunks"
@@ -88,8 +89,9 @@ erDiagram
 | `runs` | one pass: arm × block × model, with its settings snapshot |
 | `results` | one answer and its verdict; judges and hand verdicts add rows, never rewrite |
 | `targets` | nodes under test: address, endpoint, index location, `instrument` and `probe` overrides, `enabled`, `schedule`, `schedule_at`, `next_run_at` |
-| `jobs` | launches: `state`, `phase`, `kind`, `trigger`, progress, `params` (request and timing), `card`, `error` |
+| `jobs` | launches: `state`, `phase`, `kind`, `trigger`, progress, `params` (request, launch snapshot, cost and timing), `error` |
 | `run_aggregates` | cached figures of one job; no row means recompute |
+| `writer_calls` | a job's writer calls that dropped drafts or failed, one row per call (unique `(job_id, call)`): prompt, reply, the dropped drafts per kind with their reason; no FK, deleted with the job |
 | `installation_settings` | the single (`id = 1`) row of installation overrides |
 | `credentials` | sealed secrets: provider keys and Space tokens |
 | `model_catalog` | one provider's model list per row, as a whole document |
@@ -115,8 +117,8 @@ resuming.
 
 ### Other columns
 
-* **`runs.context_mode`** — tells the arms apart; a string, so a new arm needs
-  no migration.
+* **`runs.context_mode`** — tells the arms apart (`closed_book` is A,
+  `model_with_context` is C); a string, so a new arm needs no migration.
 * **`runs.context_source`** — arm C on raw chunks and arm C on the endpoint's
   finished answer measure different things.
 * **`runs.profile`, `runs.params`** — how each row was obtained, so the report
@@ -124,7 +126,8 @@ resuming.
 * **`qa_pairs.expected_behavior`** — on the pair: correct behaviour depends on
   the question, not the arm. Copied into `results`, since labelling can change.
 * **`qa_pairs.status`** — `pending` (built, not screened), `active`,
-  `rejected` (screened out), `retired` (left the window or a previous cohort).
+  `rejected` (screened out), `retired` (taken out by the window, a newer
+  cohort or the set cap).
   `status_reason`: `grounding`, `retrieval_gate`, `not_answerable`,
   `duplicate`, `owner`, `rotation`, `web_answerable`, `public_knowledge`,
   `wrong_language`, `ambiguous_entity`, `other`. Screened-out pairs are kept.
@@ -140,8 +143,15 @@ resuming.
 * **`results.audit`** — the prompts as sent.
 * **Deleting a pair** (`db/pair_guard.py`) — refused once any result
   references it (`results.qa_id` cascades); retire it instead.
-* **`jobs.card`** — the card built after measuring; replaced when the card is
-  rebuilt with `record`. `card_outdated` is measured against it.
+* **`jobs.params`** — the request plus what the launch ran with
+  (`report/job_params.py`): the judge panel and policy, the web check gate,
+  the article window (`window_days`), then the cost, the build per kind, the
+  timing and, once fixed, `primary_judge`. Reports read these, never today's
+  settings.
+* **`writer_calls.dropped`** — `{kind: [drafts]}`: a masking call writes
+  several kinds in one reply and is one row; `GET /console/report/runs/{job}/writing`
+  lists it once per kind. The system prompt is stored on the first row of a build that carries
+  it (`system_digest` finds it).
 * **`targets.instrument` / `probe`, `installation_settings.values`** — sparse
   overrides, not snapshots, so a changed default reaches every target.
 * **`model_catalog`** — read and written whole. The shipped
@@ -151,8 +161,5 @@ See [control-api.md](control-api.md) for how the service uses its tables.
 
 ---
 
-## The database is a third copy of the corpus
-
-`qa_pairs.answer` often quotes the source, `results.retrieved` holds chunks,
-`results.audit` whole prompts. It must be protected like the corpus; see
-[privacy.md](privacy.md).
+The database holds corpus text and is protected like the corpus
+([privacy.md](privacy.md#3-the-database-is-protected-like-the-corpus)).

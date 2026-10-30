@@ -55,6 +55,8 @@ class Watcher:
 
     def planned(self, passes: int) -> None: ...
 
+    def plan(self, plan: dict[str, Any]) -> None: ...
+
     def phase(self, phase: JobPhase, message: str = "") -> None:
         self.phases.append(phase)
         if message:
@@ -203,6 +205,10 @@ class _Built:
     pairs_made = 0
     failures = 0
     failure_sample = ""
+    screened = None
+
+    def kind_rows(self) -> list[dict[str, Any]]:
+        return []
 
 
 # --- within a pass ----------------------------------------------------------

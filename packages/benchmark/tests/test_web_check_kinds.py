@@ -1,20 +1,20 @@
-"""The web check end to end over one pair of every kind, with the models stubbed.
+"""The web check end to end, with the models stubbed.
 
 The web check model gets the bare question and nothing of the publisher's;
 its answer is graded the way the main run grades that kind; a right answer
 removes the question, a failed grading leaves it pending for the next pass,
-and the set cap counts only what is left.
+and the set cap counts only what is left. Without a filter model there is no
+web check; failures in a row end the pass.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from syft_benchmark.config import (
     DatasetMode,
@@ -30,34 +30,13 @@ from syft_benchmark.llm import LLMError, Provider
 from syft_benchmark.runs import judge as run_judge
 from syft_benchmark.sources import Document
 
-SPACE = "pytest-wp3-webkinds"
-OPENROUTER = "https://openrouter.ai/api/v1"
+from fakes import OPENROUTER, ChromaStub, openrouter_settings
+
+SPACE = "pytest-web-check-kinds"
 SECRET = "Only-in-the-archive"
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Iterator[None]:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-
-    wipe()
-    yield
-    wipe()
+pytestmark = pytest.mark.needs_db
 
 
 def _space() -> SpaceConfig:
@@ -67,17 +46,12 @@ def _space() -> SpaceConfig:
 def _settings(**kwargs: Any) -> Settings:
     base: dict[str, Any] = {
         "filter_model": "openai/gpt-5.1",
-        "subject_url": OPENROUTER,
-        "subject_key": "sk-test",
         "judge_url": OPENROUTER,
         "judge_key": "sk-test",
         "judge_model": "anthropic/claude-opus-5",
-        "allow_external_models": True,
-        "external_hosts": ["openrouter.ai"],
-        "max_consecutive_failures": 0,
         "concurrency": 2,
     }
-    return Settings(**{**base, **kwargs})
+    return openrouter_settings(**{**base, **kwargs})
 
 
 OPTIONS = "\n  A) The pier\n  B) The lighthouse\n  C) The quay\n  D) The mill"
@@ -331,6 +305,7 @@ def test_without_web_search_it_answers_from_its_own_training(
         assert row.meta["web_check"]["note"] == web_check.NO_SEARCH_NOTE
     assert report.web is not None and report.web.own_training_only
     assert "own training only" in report.line()
+    assert any("own training" in note for note in report.notes)
     # The judge is Judge 1 when no web check judge is set.
     assert models.judges == {"anthropic/claude-opus-5"}
 
@@ -380,16 +355,10 @@ def test_the_cap_spreads_across_kinds_after_the_check(
         session.add_all(_pairs())
     _Models(monkeypatch)
 
-    class _Chroma:
-        def __init__(self, *_: Any) -> None: ...
-
-        def collection_id(self, _name: str) -> str:
-            return "cid"
-
     document = Document(
         doc_id="d1", title="T", url="", source="", file_name="t.md", chunks=[]
     )
-    monkeypatch.setattr(pipeline, "ChromaClient", _Chroma)
+    monkeypatch.setattr(pipeline, "ChromaClient", ChromaStub)
     monkeypatch.setattr(pipeline, "load_documents", lambda *_: [document])
 
     report = pipeline.filter_and_rotate(
@@ -409,7 +378,7 @@ def test_the_cap_spreads_across_kinds_after_the_check(
     assert report.rotation is not None and report.rotation.over_cap == 2
 
 
-# --- the set already in the measurement -------------------------------------
+# --- the set already in the measurement ------------------------------------
 
 
 def _in_set(
@@ -447,12 +416,6 @@ def _in_set(
 
 
 def _corpus(monkeypatch: pytest.MonkeyPatch, dates: dict[str, datetime]) -> None:
-    class _Chroma:
-        def __init__(self, *_: Any) -> None: ...
-
-        def collection_id(self, _name: str) -> str:
-            return "cid"
-
     docs = []
     for doc_id, at in dates.items():
         docs.append(
@@ -466,7 +429,7 @@ def _corpus(monkeypatch: pytest.MonkeyPatch, dates: dict[str, datetime]) -> None
                 published_at=at,
             )
         )
-    monkeypatch.setattr(pipeline, "ChromaClient", _Chroma)
+    monkeypatch.setattr(pipeline, "ChromaClient", ChromaStub)
     monkeypatch.setattr(pipeline, "load_documents", lambda *_: docs)
 
 
@@ -596,7 +559,13 @@ def test_the_job_message_carries_the_stage_summaries(
     from syft_benchmark import scheduler
     from syft_benchmark.generation.filter_stage import FilterSummary
 
-    made = SimpleNamespace(pairs_made=20, failures=0, failure_sample="")
+    made = SimpleNamespace(
+        pairs_made=20,
+        failures=0,
+        failure_sample="",
+        screened=None,
+        kind_rows=lambda: [],
+    )
     filtered = FilterSummary(space=SPACE, checked=15, active=6, rejected=9)
     monkeypatch.setattr(scheduler, "generate_for_space", lambda *_, **__: made)
     monkeypatch.setattr(scheduler, "filter_and_rotate", lambda *_, **__: filtered)
@@ -664,3 +633,137 @@ def test_a_trick_answer_without_citations_is_kept(
 
     assert trick.status == PairStatus.ACTIVE.value
     assert trick.meta["web_check"]["behavior"] == "made_up"
+
+
+# --- one kind, the judge's verdict by question -----------------------------
+
+
+def _landmark(
+    pair_id: str, generator: str = "qa", *, answer: str = "Harbourton lighthouse"
+) -> QaPair:
+    """A pending pair whose question names its id, so the judge stub can."""
+    return QaPair(
+        id=pair_id,
+        space=SPACE,
+        generator=generator,
+        task_type=GENERATORS[generator].task_type,
+        doc_id="d1",
+        question=f"Question {pair_id}: which landmark was restored?",
+        answer=answer,
+        context=f"The council restored the {answer} this spring.",
+        status=PairStatus.PENDING.value,
+        model="test-model",
+        question_hash=uuid.uuid4().hex,
+    )
+
+
+def _stub_web(
+    monkeypatch: pytest.MonkeyPatch, answerable: set[str], *, fail: bool = False
+) -> list[dict[str, Any]]:
+    """The web model answers every question; the judge says which were right."""
+    calls: list[dict[str, Any]] = []
+
+    def web_chat(system: str, user: str, **kwargs: Any) -> tuple[str, dict[str, Any]]:
+        calls.append({"user": user, **kwargs})
+        if fail:
+            raise LLMError("the provider is down")
+        return f"An answer to: {user}", {}
+
+    def judge_chat(system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
+        right = any(f"Question {pid}:" in user for pid in answerable)
+        return f'{{"correct": {"true" if right else "false"}}}', {}
+
+    monkeypatch.setattr(web_check, "chat", web_chat)
+    monkeypatch.setattr(run_judge, "chat", judge_chat)
+    return calls
+
+
+def test_the_web_check_rejects_what_the_web_answers(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with session_scope() as session:
+        session.add_all(
+            [_landmark("w1"), _landmark("w2"), _landmark("w3", "unanswerable_property")]
+        )
+    calls = _stub_web(monkeypatch, answerable={"w1"})
+
+    report = filter_stage.filter_pending(_space(), settings=_settings())
+
+    rows = _rows()
+    assert (rows["w1"].status, rows["w1"].status_note, rows["w1"].status_reason) == (
+        PairStatus.REJECTED.value,
+        "web_answerable",
+        StatusReason.WEB_ANSWERABLE.value,
+    )
+    assert rows["w2"].status == PairStatus.ACTIVE.value
+    # A control question is not put to the web.
+    assert rows["w3"].status_reason == StatusReason.RETRIEVAL_GATE.value
+    assert len(calls) == 2
+    assert all(call["web_search"] is True for call in calls)
+    assert report.web_answerable == 1
+    assert report.active == 1
+
+
+def test_no_filter_model_means_no_web_check(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with session_scope() as session:
+        session.add(_landmark("w1"))
+    calls = _stub_web(monkeypatch, answerable={"w1"})
+
+    filter_stage.filter_pending(_space(), settings=_settings(filter_model=None))
+
+    assert _rows()["w1"].status == PairStatus.ACTIVE.value
+    assert calls == []
+
+
+def test_failures_in_a_row_end_the_pass_and_leave_the_pairs_pending(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with session_scope() as session:
+        session.add_all([_landmark(f"w{i}") for i in range(5)])
+    calls = _stub_web(monkeypatch, answerable=set(), fail=True)
+
+    report = filter_stage.filter_pending(
+        _space(), settings=_settings(concurrency=1, max_consecutive_failures=3)
+    )
+
+    assert {row.status for row in _rows().values()} == {PairStatus.PENDING.value}
+    # Three failures in a row and the pass gives up.
+    assert len(calls) == 3
+    assert any("in a row failed" in note for note in report.notes)
+
+
+def test_the_lone_survivor_of_a_kind_keeps_its_place_under_the_cap(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pairs = [_landmark(f"q{i}", answer=f"Harbourton pier {i}") for i in range(4)]
+    pairs += [
+        _landmark(f"m{i}", "multihop_synthesis", answer=f"Harbourton quay {i}")
+        for i in range(4)
+    ]
+    with session_scope() as session:
+        session.add_all(pairs)
+    # Every qa pair but one, and no multihop pair, is answerable from the web.
+    _stub_web(monkeypatch, answerable={"q0", "q1", "q2"})
+    document = Document(
+        doc_id="d1", title="T", url="", source="", file_name="t.md", chunks=[]
+    )
+    monkeypatch.setattr(pipeline, "ChromaClient", ChromaStub)
+    monkeypatch.setattr(pipeline, "load_documents", lambda *_: [document])
+
+    report = pipeline.filter_and_rotate(
+        _space(),
+        settings=_settings(dataset_mode=DatasetMode.ROLLING, dataset_max_pairs=4),
+    )
+
+    rows = _rows()
+    active = {k for k, r in rows.items() if r.status == "active"}
+    web = {k for k, r in rows.items() if r.status_note == "web_answerable"}
+    assert web == {"q0", "q1", "q2"}
+    assert not active & web
+    # Kept evenly across kinds: the one qa survivor, and multihop fills the rest.
+    assert len(active) == 4
+    assert "q3" in active
+    assert report.rotation is not None
+    assert report.rotation.over_cap == 1

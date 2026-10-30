@@ -1,32 +1,12 @@
 """The set's stability: same material, different questions — same numbers?
 
-The benchmark measures a model with questions it composed itself, and that is
-its weak spot. A gold answer can be inaccurate, a wording ambiguous, and the
-generator is of the same breed as the models under test and errs in similar
-ways. The questions cannot be checked directly: that would take other questions.
-
-Indirectly they can be, and the answer comes out convincing. We take the same
-material and build a set over it afresh, as a separate cohort. The corpus is the
-same, the endpoint is the same, the models under test are the same, the judge is
-the same. One thing changes — the pool of questions. Then:
-
-  * **the numbers matched** — the questions are beside the point, and the
-    difference between models speaks about the models;
-  * **the numbers diverged** — then they speak about the questions. Where
-    exactly to look is hinted at by the screening rate: a generator that had a
-    third of its gold answers rejected probably did not build the other two
-    thirds any better.
-
-Cohorts have to be compared over items that are no longer in the measurement:
-the previous pool has been taken out but not deleted — it is kept for exactly
-this comparison. So the computation goes past the ordinary "what is in the
-measurement now" selection and takes a cohort by name.
-
-**What this comparison does not prove.** Matching numbers do not mean the
-questions are good: two passes of one and the same model over one prompt will
-err identically, and the match will mean no more than the reproducibility of the
-error. The comparison becomes convincing when the cohorts are built by DIFFERENT
-generators: that is a real independent check rather than a repeat.
+Two cohorts of questions over the same corpus, endpoint, models and judge are
+compared by their metrics. Matching numbers mean the difference between models
+speaks about the models; diverged numbers mean it speaks about the questions.
+A cohort is taken by name, whether or not its items are still in the set.
+A match between cohorts built by one generator proves only that it
+reproduces its own decisions; cohorts built by different generators are an
+independent check.
 """
 
 from __future__ import annotations

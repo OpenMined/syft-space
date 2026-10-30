@@ -1,38 +1,14 @@
-"""A cohort of the set: the same material, a different pool of questions.
+"""Cohorts: pools of questions, each built in one pass over the material.
 
-The benchmark measures a model with questions it composed itself. Hence the
-question everyone who looks at its numbers asks sooner or later: **are the
-questions themselves any good?** A gold answer can be inaccurate, a wording
-ambiguous, and the generator is of the same breed as the models under test and
-errs in similar ways.
+Rebuilding the set from the same material as a new cohort shows whether
+diverging metrics come from the questions rather than the models. Hence:
 
-This question cannot be answered directly: to check questions you need other
-questions. But it can be answered indirectly, and the answer comes out
-convincing. We take **the same material** and build a set over it afresh — with
-a different model, a different prompt, simply a different pass. The material is
-the same, the corpus is the same, the endpoint is the same, the models under
-test are the same. If the metrics matched, the questions are beside the point,
-and the figure speaks about the model. If they diverged, it speaks about the
-questions, and it is the generator that has to be looked into.
-
-That is what a cohort is: one pool of questions built in a single pass, with a
-label and a date. Three things hold its design together.
-
-**Duplicates are forbidden within a cohort, not in general.** A question
-repeating between cohorts is legitimate and meaningful: it means the generator
-produced the same question from the same material — that is, it is stable. Had
-we forbidden such a repeat, rebuilds would be impossible: the second pass would
-be rejected wholesale by the unique index.
-
-**The processed mark belongs to the cohort too.** A rebuild is a fresh pass over
-the same material, and the previous build mark must not stop it. Clearing
-``processed_units`` is not needed for that: the new cohort simply has no marks,
-while the previous one keeps its own — and so it is reproducible.
-
-**The previous cohort is not deleted but taken out of the measurement.** Its
-items carry the verdicts of every run that went over it — the very thing we
-want to compare the new one against. Deleting it would mean destroying the
-second half of the comparison.
+* duplicates are forbidden within a cohort only — a question repeated across
+  cohorts means a stable generator, and forbidding it would block rebuilds;
+* processed marks belong to the cohort, so a rebuild parses everything afresh
+  while the earlier cohort keeps its marks;
+* an earlier cohort is taken out of the measurement, never deleted: its
+  verdicts are the other half of the comparison.
 """
 
 from __future__ import annotations
@@ -45,10 +21,8 @@ from sqlalchemy import func, select
 from syft_benchmark.config import PairStatus, Settings, get_settings
 from syft_benchmark.db import QaPair, session_scope
 
-# The cohort label: the date and time of the build. It reads by eye, sorts as a
-# string and needs no counter that would have to be stored somewhere. The
-# minutes in the label are needed: two builds in a day is an ordinary thing
-# while tuning the generator prompts.
+# The cohort label: the build's date and time, to the minute. It reads by eye
+# and sorts as a string, with no stored counter.
 _LABEL = "%Y%m%d-%H%M"
 
 
@@ -81,12 +55,10 @@ def new_label(*, now: datetime | None = None) -> str:
 
 
 def current(space: str, settings: Settings | None = None) -> str:
-    """The cohort new items go into.
+    """The cohort new items go into: the latest label (labels sort as strings).
 
-    It is the latest of the existing ones: the label sorts as a string because
-    that is how it is built — a date and a time. An empty string means either an
-    empty set or a set built before cohorts existed; both are topped up as
-    before, without any rebuild.
+    Empty for an empty set or one built before cohorts; both are topped up
+    without a rebuild.
     """
     conf = settings or get_settings()
     with session_scope(conf) as session:
@@ -119,9 +91,8 @@ class _Tally:
 def listing(space: str, settings: Settings | None = None) -> list[Cohort]:
     """All the cohorts of the set, newest first.
 
-    Screened-out items are counted separately: the screening rate is the first
-    thing to look at when cohorts diverge. A generator that had a third of its
-    gold answers rejected probably did not build the other two thirds any better.
+    Rejected items are counted separately: the screening rate is the first
+    thing to look at when cohorts diverge.
     """
     conf = settings or get_settings()
     with session_scope(conf) as session:

@@ -8,17 +8,12 @@ const RUN_KEY: InjectionKey<RunContext> = Symbol('runContext')
 /** The run a report page shows, shared by its sections. */
 export interface RunContext {
   jobId: string
-  slug?: string
+  slug: string
   data: Ref<BenchmarkRunReport | null>
-  loading: Ref<boolean>
-  error: Ref<string | null>
-  /** Queued or running: there is no report yet. */
-  running: ComputedRef<boolean>
-  /** The model the sections describe: the `model` query param, else the run's first model. */
+  /** The model the sections describe: the `model` query param; null on run-wide screens. */
   model: ComputedRef<string | null>
   /** The selected model's figures. */
   modelReport: ComputedRef<BenchmarkModelReport | null>
-  reload: () => Promise<void>
 }
 
 export function provideRunReport(report: RunReport): void {

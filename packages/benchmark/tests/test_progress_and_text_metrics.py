@@ -10,7 +10,6 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
 
 from syft_benchmark.config import (
     ContextMode,
@@ -19,20 +18,20 @@ from syft_benchmark.config import (
     JobState,
     Settings,
     SpaceConfig,
-    get_settings,
 )
 from syft_benchmark.control import jobs
-from syft_benchmark.control.app import create_app
-from syft_benchmark.control.schemas import JobView, TargetSpec
-from syft_benchmark.db import Job, QaPair, Result, Run, Target, session_scope
+from syft_benchmark.control.schemas import JobView
+from syft_benchmark.db import Job, QaPair, Result, Run, session_scope
 from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.generation.pairs import list_pairs
 from syft_benchmark.llm import Provider, catalog
 from syft_benchmark.llm.catalog import Catalog, ModelEntry
 from syft_benchmark.question_order import KIND_ORDER, pair_key
-from syft_benchmark.runs.judge_stage import list_results
 from syft_benchmark.runs.parallel import Progress
+from syft_benchmark.runs.result_views import list_results
 from syft_benchmark.scheduler import measure
+
+from support import console_auth
 
 SPACE = SpaceConfig(key="pytest-plan-space", url="http://localhost:0", endpoint="kb")
 OPENROUTER = "https://openrouter.ai/api/v1"
@@ -45,7 +44,6 @@ PLAN = {
     "conditions": ["closed_book", "model_with_context"],
     "checks": ["direct", "denial_loop"],
     "skipped_monte_carlo": [],
-    "passes": 3,
     "steps": 30,
     "started_at": "2026-10-08T00:00:00+00:00",
 }
@@ -131,8 +129,8 @@ def test_the_plan_is_known_before_any_pass(monkeypatch: pytest.MonkeyPatch) -> N
     assert plan["models"] == [WARM, COLD]
     assert plan["conditions"] == ["closed_book", "model_with_context"]
     assert plan["checks"] == ["direct", "monte_carlo"]
-    assert plan["passes"] == done.passes == 6
-    assert plan["steps"] == plan["passes"] * 7
+    assert done.passes == 6
+    assert plan["steps"] == 6 * 7
     assert datetime.fromisoformat(plan["started_at"]).tzinfo is not None
 
 
@@ -148,7 +146,7 @@ def _no_db(*_a: Any, **_k: Any) -> Any:
 def test_the_total_is_fixed_and_the_bar_never_goes_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reporter = jobs.Reporter("pytest-plan")
+    reporter = jobs.Reporter("pytest-plan", Settings())
     monkeypatch.setattr(reporter, "_write", lambda **k: None)
     monkeypatch.setattr(jobs, "session_scope", _no_db)
     reporter.plan(PLAN)
@@ -178,7 +176,7 @@ def test_the_total_is_fixed_and_the_bar_never_goes_back(
 def test_without_a_plan_the_total_is_the_sum_of_the_passes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reporter = jobs.Reporter("pytest-judging")
+    reporter = jobs.Reporter("pytest-judging", Settings())
     monkeypatch.setattr(reporter, "_write", lambda **k: None)
     reporter.watcher("judging")(Progress(total=8, done=5))
     assert (reporter.step_done, reporter.step_total) == (5, 8)
@@ -216,54 +214,9 @@ def test_the_job_view_carries_the_plan() -> None:
 # --- the database -----------------------------------------------------------
 
 KEY = "pytest-text-metrics"
-TOKEN = "test-text-metrics-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 JOB = "tm-job"
 T0 = datetime(2026, 9, 1, 6, 0, tzinfo=UTC)
 M1 = "vendor/model-one"
-
-
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Any:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Result).where(Result.space == KEY))
-            session.execute(delete(Run).where(Run.space == KEY))
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-            session.execute(delete(Job).where(Job.target == KEY))
-            session.execute(delete(Target).where(Target.key == KEY))
-
-    wipe()
-    yield
-    wipe()
-
-
-@pytest.fixture
-def client() -> TestClient:
-    conf = get_settings().model_copy(update={"control_token": TOKEN})
-    return TestClient(create_app(conf))
-
-
-def _console(client: TestClient) -> dict[str, str]:
-    body = TargetSpec(key=KEY, url="http://space.invalid").model_dump(mode="json")
-    assert client.put(f"/targets/{KEY}", json=body, headers=AUTH).status_code == 200
-    minted = client.post(f"/targets/{KEY}/session", headers=AUTH)
-    assert minted.status_code == 200, minted.text
-    return {"Authorization": f"Bearer {minted.json()['token']}"}
 
 
 def _seed(
@@ -332,7 +285,7 @@ def _seed(
             )
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_answers_listing_carries_text_metrics(clean: Any) -> None:
     scores = {"bleu": 0.25, "rougeL_f": 0.5}
     _seed(
@@ -346,11 +299,11 @@ def test_the_answers_listing_carries_text_metrics(clean: Any) -> None:
     assert by_qa == {"q1": scores, "q2": None}
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_report_averages_per_model_and_condition(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     _seed(
         [
             # Two judges of one answer count it once.
@@ -375,16 +328,13 @@ def test_the_report_averages_per_model_and_condition(
     ]
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_running_job_shows_its_plan(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     _seed([], state=JobState.RUNNING.value, params={jobs.PROGRESS_PLAN: PLAN})
 
     listed = client.get("/console/report/runs", headers=auth).json()
     assert [p["progress_plan"] for p in listed["in_progress"]] == [PLAN]
-    one = client.get(f"/jobs/{JOB}", headers=AUTH)
-    assert one.status_code == 200, one.text
-    assert one.json()["progress_plan"] == PLAN
 
 
 # --- the question order -------------------------------------------------------
@@ -415,11 +365,11 @@ ORDERED = {
 EXPECTED = ["o-names", "o-mcq", "o-qa-early", "o-qa-late", "o-trick"]
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_every_list_shows_questions_in_one_order(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     answers = [
         (qa, arm, "direct", judge, None)
         for qa in reversed(EXPECTED)

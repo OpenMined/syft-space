@@ -50,7 +50,7 @@
       <section class="space-y-2.5">
         <h2 class="text-base font-semibold">3. Kinds of question</h2>
         <div class="overflow-x-auto rounded-lg border border-border bg-card">
-          <table class="w-full min-w-[42.5rem]">
+          <table class="w-full" :class="details ? 'min-w-[64rem]' : 'min-w-[42.5rem]'">
             <thead class="bg-muted/40 text-xs text-muted-foreground">
               <tr class="border-b border-border">
                 <th scope="col" class="px-4 py-2.5 text-left font-medium">Kind</th>
@@ -58,6 +58,18 @@
                   What it asks the model to do
                 </th>
                 <th scope="col" class="px-4 py-2.5 text-right font-medium">Asked</th>
+                <template v-if="details">
+                  <Hint v-for="stat in KIND_BUILD_STATS" :key="stat.key" :text="stat.tip">
+                    <th
+                      scope="col"
+                      class="px-4 py-2.5 font-medium"
+                      :class="stat.key === 'stopped' ? 'text-left' : 'text-right'"
+                    >
+                      {{ stat.label }}
+                    </th>
+                  </Hint>
+                  <th scope="col" class="w-10 px-2 py-2.5"><span class="sr-only">How</span></th>
+                </template>
               </tr>
             </thead>
             <tbody>
@@ -72,10 +84,42 @@
                 <td class="w-20 px-4 py-3 text-right text-muted-foreground tabular-nums">
                   {{ count(k.asked) }}
                 </td>
+                <template v-if="details">
+                  <td
+                    v-for="stat in KIND_BUILD_STATS"
+                    :key="stat.key"
+                    class="px-4 py-3 whitespace-nowrap"
+                    :class="stat.key === 'stopped' ? 'text-left' : 'text-right'"
+                  >
+                    <KindBuildValue v-if="k.build" :build="k.build" :stat="stat.key" />
+                    <span v-else class="text-muted-foreground">{{ DASH }}</span>
+                  </td>
+                  <td class="px-2 py-3 text-right">
+                    <Hint text="How these questions were written and filtered.">
+                      <button
+                        type="button"
+                        class="text-muted-foreground hover:text-foreground"
+                        :aria-label="`How ${k.label} were made`"
+                        data-testid="kind-help"
+                        @click="openKind = k.generator"
+                      >
+                        <CircleHelp class="h-4 w-4" />
+                      </button>
+                    </Hint>
+                  </td>
+                </template>
               </tr>
             </tbody>
           </table>
         </div>
+        <GeneratorDialog
+          v-if="details"
+          :slug="run.slug"
+          :job-id="run.jobId"
+          :generator="openKind"
+          :build="openKind ? buildOf(openKind) : null"
+          @close="openKind = null"
+        />
       </section>
 
       <section class="space-y-2.5">
@@ -129,19 +173,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { CircleHelp } from 'lucide-vue-next'
+import { benchmarksApi } from '@/api/endpoints/benchmarks'
+import type { BenchmarkKindBuild } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
+import { KIND_BUILD_STATS } from '../filter'
+import Hint from '../Hint.vue'
 import InfoTip from '../InfoTip.vue'
+import { kindDescription, kindLabel } from '../kinds'
+import { sortKinds } from '../questionOrder'
+import GeneratorDialog from './details/GeneratorDialog.vue'
+import KindBuildValue from './details/KindBuildValue.vue'
+import { useDetails } from './details/useDetails'
 import { useRun } from './context'
-import { count, DASH, dayTime } from './figures'
-import {
-  INCOMPLETE_TIP,
-  WEB_SOURCED_TIP,
-  kindDescription,
-  kindLabel,
-  verdictLabel,
-  verdictTone,
-} from './labels'
+import { count, DASH, day as dayOf, utcStamp, windowWords } from './figures'
+import { INCOMPLETE_TIP, WEB_SOURCED_TIP, verdictLabel, verdictTone } from './labels'
 import {
   hasIncomplete,
   hasWebSourced,
@@ -149,7 +196,6 @@ import {
   methodKinds,
   methodSettings,
   repeatsTotal,
-  utcStamp,
   webRemoved,
 } from './selectors'
 
@@ -165,7 +211,28 @@ const WEB_GRADE = { verdict: 'web_sourced', text: WEB_SOURCED_TIP }
 /** Shown only when a run has incomplete explanations. */
 const INCOMPLETE_GRADE = { verdict: 'incomplete', text: INCOMPLETE_TIP }
 
-const { data } = useRun()
+const run = useRun()
+const { data } = run
+const details = useDetails()
+
+const builds = ref<BenchmarkKindBuild[]>([])
+const openKind = ref<string | null>(null)
+
+async function loadBuilds(): Promise<void> {
+  if (!details.value) return
+  try {
+    const page = await benchmarksApi.getRunGenerated(run.slug, run.jobId, { limit: 1 })
+    builds.value = page.kinds ?? []
+  } catch {
+    builds.value = []
+  }
+}
+
+watch(details, loadBuilds, { immediate: true })
+
+function buildOf(generator: string): BenchmarkKindBuild | null {
+  return builds.value.find((b) => b.kind === generator) ?? null
+}
 
 const grades = computed(() => {
   const report = data.value
@@ -177,14 +244,14 @@ const grades = computed(() => {
   ]
 })
 
-const day = computed(() => dayTime(utcStamp(data.value?.run.created_at)).split(', ')[0])
+const day = computed(() => dayOf(utcStamp(data.value?.run.created_at)) ?? DASH)
 
 const settings = computed(() => (data.value ? methodSettings(data.value) : []))
 
 const windowPhrase = computed(() => {
   const days = data.value?.run.window_days
   if (typeof days !== 'number' || days <= 0) return ''
-  return ` in the ${days === 1 ? '24 hours' : `${days} days`} before the run`
+  return ` in the ${windowWords(days)} before the run`
 })
 
 const funnelPhrase = computed(() => {
@@ -198,11 +265,14 @@ const funnelPhrase = computed(() => {
 const kinds = computed(() => {
   const report = data.value
   if (!report) return []
-  return methodKinds(report).map((generator) => ({
+  const shown = methodKinds(report)
+  const all = details.value ? sortKinds([...shown, ...builds.value.map((b) => b.kind)]) : shown
+  return all.map((generator) => ({
     generator,
     label: kindLabel(generator),
     description: kindDescription(generator),
     asked: kindAsked(report, generator),
+    build: details.value ? buildOf(generator) : null,
   }))
 })
 

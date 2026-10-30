@@ -9,49 +9,25 @@ without a retriever the check is skipped. Control items keep their own gate.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from syft_benchmark.config import PairStatus, Settings, SpaceConfig, StatusReason
 from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.generation import control, decisions, filter_stage, web_check
 from syft_benchmark.generation.generators import GENERATORS
-from syft_benchmark.llm import LLMError
+from syft_benchmark.llm import LLMError, judge_provider
 from syft_benchmark.runs import endpoint as run_endpoint
 from syft_benchmark.runs import judge as run_judge
 
+from fakes import OPENROUTER, openrouter_settings
+from support import add_rows
+
 SPACE = "pytest-archive-check"
 JOB = "pytest-archive-check-job"
-OPENROUTER = "https://openrouter.ai/api/v1"
 FOUND = "Harbourton council restored the lighthouse in March."
-
-
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Iterator[None]:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-
-    wipe()
-    yield
-    wipe()
 
 
 def _space() -> SpaceConfig:
@@ -61,18 +37,13 @@ def _space() -> SpaceConfig:
 def _settings(**kwargs: Any) -> Settings:
     base: dict[str, Any] = {
         "filter_model": "openai/gpt-5.1",
-        "subject_url": OPENROUTER,
-        "subject_key": "sk-test",
         "judge_url": OPENROUTER,
         "judge_key": "sk-test",
         "judge_model": "anthropic/claude-opus-5",
         "judge_models": ["anthropic/claude-opus-5"],
-        "allow_external_models": True,
-        "external_hosts": ["openrouter.ai"],
-        "max_consecutive_failures": 0,
         "concurrency": 2,
     }
-    return Settings(**{**base, **kwargs})
+    return openrouter_settings(**{**base, **kwargs})
 
 
 def _pair(
@@ -96,11 +67,6 @@ def _pair(
         model="gen/model",
         question_hash=uuid.uuid4().hex,
     )
-
-
-def _add(*rows: QaPair) -> None:
-    with session_scope() as session:
-        session.add_all(rows)
 
 
 def _rows() -> dict[str, QaPair]:
@@ -148,11 +114,11 @@ class _Models:
         return "I don't know", {}
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_an_answerable_question_goes_on_to_the_web_check(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _add(_pair("ok", ANSWERABLE))
+    add_rows(_pair("ok", ANSWERABLE))
     models = _Models(monkeypatch)
 
     report = filter_stage.filter_pending(
@@ -175,11 +141,11 @@ def test_an_answerable_question_goes_on_to_the_web_check(
     assert report.active == 1
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_question_the_archive_cannot_answer_never_reaches_the_web_check(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _add(_pair("nonsense", NONSENSE, answer="$40 million"))
+    add_rows(_pair("nonsense", NONSENSE, answer="$40 million"))
     models = _Models(monkeypatch)
 
     report = filter_stage.filter_pending(
@@ -200,11 +166,11 @@ def test_a_question_the_archive_cannot_answer_never_reaches_the_web_check(
     assert report.rejected == 1
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_judge_that_finds_no_answer_rejects_the_question(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _add(_pair("off", "Who repainted the lighthouse?", answer="The keeper"))
+    add_rows(_pair("off", "Who repainted the lighthouse?", answer="The keeper"))
     models = _Models(monkeypatch)
 
     filter_stage.filter_pending(
@@ -218,12 +184,12 @@ def test_a_judge_that_finds_no_answer_rejects_the_question(
     assert len(models.gate) == 1 and models.web == []
 
 
-@needs_db
+@pytest.mark.needs_db
 @pytest.mark.parametrize("broken", ["retrieval", "judge"])
 def test_a_failed_archive_check_leaves_the_pair_pending(
     clean: None, monkeypatch: pytest.MonkeyPatch, broken: str
 ) -> None:
-    _add(_pair("ok", ANSWERABLE))
+    add_rows(_pair("ok", ANSWERABLE))
     models = _Models(monkeypatch)
     models.gate_down = broken == "judge"
 
@@ -255,11 +221,11 @@ def test_a_failed_archive_check_leaves_the_pair_pending(
     assert models.web == [ANSWERABLE]
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_without_a_retriever_the_archive_check_is_skipped(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _add(_pair("ok", ANSWERABLE), _pair("nonsense", NONSENSE, answer="$40 million"))
+    add_rows(_pair("ok", ANSWERABLE), _pair("nonsense", NONSENSE, answer="$40 million"))
     models = _Models(monkeypatch)
 
     filter_stage.filter_pending(_space(), settings=_settings(), job_id=JOB)
@@ -272,11 +238,11 @@ def test_without_a_retriever_the_archive_check_is_skipped(
     assert sorted(models.web) == sorted([ANSWERABLE, NONSENSE])
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_control_items_keep_their_own_gate(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _add(
+    add_rows(
         _pair(
             "missing",
             "What colour is the keeper's car?",
@@ -305,8 +271,9 @@ def test_control_items_keep_their_own_gate(
 
 
 def _screen(row: QaPair, retrieve: Any) -> tuple[Any, ...]:
+    conf = _settings()
     return filter_stage._screen_pair(
-        row, GENERATORS[row.generator], retrieve, _settings(), None
+        row, GENERATORS[row.generator], retrieve, conf, judge_provider(conf)
     )
 
 

@@ -8,31 +8,23 @@ the unit's questions only. A failed call keeps the questions.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from syft_benchmark.config import PairStatus, Settings, SpaceConfig, StatusReason
-from syft_benchmark.db import Job, ProcessedUnit, QaPair, session_scope
+from syft_benchmark.db import Job, QaPair, session_scope
 from syft_benchmark.generation import decisions, entities, pipeline
-from syft_benchmark.generation.abstractive import (
-    MULTIHOP_SYSTEM,
-    TIERED_SYSTEM,
-    TTIL_HEAD,
-    TTIL_SYSTEM,
-)
+from syft_benchmark.generation.abstractive import TTIL_HEAD
 from syft_benchmark.generation.extractive import COMBINED_SYSTEM, FILL_IN_PREFIX
-from syft_benchmark.generation.generators import _MCQ_SYSTEM, _QA_SYSTEM
-from syft_benchmark.generation.negative import (
-    FALSE_PREMISE_SYSTEM,
-    UNANSWERABLE_SYSTEM,
-)
+from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.generation.pair import Pair
 from syft_benchmark.llm import LLMError, Provider, cost
 from syft_benchmark.report import export_xlsx, filter_view
 from syft_benchmark.sources import Chunk, Document
+
+from fakes import ChromaStub
 
 SPACE = "pytest-entity-check"
 JOB = "pytest-entity-job"
@@ -139,20 +131,15 @@ def _flat(system: str) -> str:
     return " ".join(system.format(n=2).split())
 
 
-@pytest.mark.parametrize(
-    "system",
-    [
-        _QA_SYSTEM,
-        _MCQ_SYSTEM,
-        MULTIHOP_SYSTEM,
-        TTIL_SYSTEM,
-        TIERED_SYSTEM,
-        UNANSWERABLE_SYSTEM,
-        FALSE_PREMISE_SYSTEM,
-        COMBINED_SYSTEM,
-    ],
-)
-def test_every_writer_asks_for_identifiable_names(system: str) -> None:
+# Every writer's prompt as the registry hands it to the model; the fill-in
+# kinds share the combined prompt.
+WRITER_PROMPTS = {key: spec.system for key, spec in GENERATORS.items() if spec.system}
+WRITER_PROMPTS["fill_in"] = COMBINED_SYSTEM
+
+
+@pytest.mark.parametrize("writer", sorted(WRITER_PROMPTS))
+def test_every_writer_asks_for_identifiable_names(writer: str) -> None:
+    system = WRITER_PROMPTS[writer]
     flat = _flat(system)
     assert "identifiable without the story" in flat
     assert "full name plus role or affiliation" in flat
@@ -212,6 +199,7 @@ def test_the_mariam_questions_are_rejected_and_trump_is_kept(
 ) -> None:
     checker = _Checker()
     monkeypatch.setattr(pipeline, "chat", checker)
+    # The screen is one step of a build; called alone, the stub sees one check.
     kept, rejected, call = pipeline._screen_entities(
         {"mcq": [_pair(MARIAM_MCQ)], "qa": [_pair(MARIAM_QA), _pair(TRUMP_QA)]},
         _settings(),
@@ -270,28 +258,7 @@ def test_the_setting_turns_the_check_off(monkeypatch: pytest.MonkeyPatch) -> Non
 # --- through a build ----------------------------------------------------------
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-@pytest.fixture
-def clean() -> Iterator[None]:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-            session.execute(delete(ProcessedUnit).where(ProcessedUnit.space == SPACE))
-
-    wipe()
-    yield
-    wipe()
-
-
-@pytest.mark.skipif(not _db_ready(), reason="the benchmark database is unavailable")
+@pytest.mark.needs_db
 def test_a_build_stores_the_rejects_where_the_run_shows_them(
     monkeypatch: pytest.MonkeyPatch, clean: None
 ) -> None:
@@ -335,13 +302,7 @@ def test_a_build_stores_the_rejects_where_the_run_shows_them(
             return checker(system, user, **kwargs)
         return written, {"cost_usd": 0.01}
 
-    class _Chroma:
-        def __init__(self, *_: Any) -> None: ...
-
-        def collection_id(self, _name: str) -> str:
-            return "cid"
-
-    monkeypatch.setattr(pipeline, "ChromaClient", _Chroma)
+    monkeypatch.setattr(pipeline, "ChromaClient", ChromaStub)
     monkeypatch.setattr(pipeline, "load_documents", lambda *_: [document])
     monkeypatch.setattr(pipeline, "chat", chat)
     monkeypatch.setattr(pipeline, "rotate", lambda *a, **k: _NoRotation())
@@ -391,9 +352,10 @@ def test_a_build_stores_the_rejects_where_the_run_shows_them(
         assert decision["outcome"] == decisions.REMOVED
 
     pairs = [mariam, trump]
-    found = export_xlsx._decisions(pairs, JOB)
+    found = filter_view.job_decisions(pairs, JOB)
     calls = export_xlsx.recorded.check_calls(pairs, entities.META)
     calls.update(export_xlsx.recorded.writer_calls(pairs))
+    # The sheet's row builder: the workbook itself is checked in test_export_xlsx.
     (sheet_row,) = export_xlsx._rejected(pairs, found, calls)
     assert sheet_row[:2] == [decisions.WRITING, StatusReason.AMBIGUOUS_ENTITY.value]
     titles = [c.title for c in export_xlsx.PAIR_COLS]

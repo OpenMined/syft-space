@@ -4,6 +4,7 @@ import { mount } from '@vue/test-utils'
 import type { BenchmarkRunChecks, BenchmarkRunReport } from '@/api/types'
 import ChecksPage from '@/components/benchmark/report/ChecksPage.vue'
 import { provideRun, type RunContext } from '@/components/benchmark/report/context'
+import { hintText } from './hint'
 import { modelReport, OPUS, runReport } from './reportFixtures'
 
 const MEASURED: BenchmarkRunChecks = {
@@ -19,8 +20,6 @@ const MEASURED: BenchmarkRunChecks = {
   ],
   trick_asked: 4,
   trick_answered: 0,
-  trick_alone_asked: null,
-  trick_alone_answered: null,
   searched: 100,
   search_found: 0.96,
   missed: 4,
@@ -39,17 +38,14 @@ function report(checks: Partial<BenchmarkRunChecks>, extra: Partial<BenchmarkRun
 }
 
 function mountPage(data: BenchmarkRunReport, model = OPUS) {
-  const dataRef = ref(data)
-  const run = {
+  const dataRef = ref<BenchmarkRunReport | null>(data)
+  const run: RunContext = {
     jobId: 'j1',
+    slug: 'ep',
     data: dataRef,
-    loading: ref(false),
-    error: ref(null),
-    running: computed(() => false),
     model: computed(() => model),
-    modelReport: computed(() => dataRef.value.models.find((m) => m.model === model) ?? null),
-    reload: async () => {},
-  } as unknown as RunContext
+    modelReport: computed(() => dataRef.value?.models.find((m) => m.model === model) ?? null),
+  }
   const Host = defineComponent({
     setup() {
       provideRun(run)
@@ -133,7 +129,7 @@ describe('ChecksPage', () => {
     expect(reading(wrapper, 'trick')).toBe('Hallucinated an answer to 1 of 4.')
   })
 
-  it('marks trick questions answered from the web apart from made-up ones', () => {
+  it('marks trick questions answered from the web apart from made-up ones', async () => {
     const wrapper = mountPage(report({ trick_asked: 4, trick_answered: 1, trick_web: 2 }))
     const squares = wrapper.findAll('[data-testid="check-square"]')
     expect(squares.map((s) => s.attributes('data-outcome'))).toEqual([
@@ -142,7 +138,7 @@ describe('ChecksPage', () => {
       'web_sourced',
       'declined',
     ])
-    expect(squares[1]!.attributes('title')).toBe('From the web')
+    expect(await hintText(squares[1]!)).toBe('From the web')
     expect(reading(wrapper, 'trick')).toBe(
       'Hallucinated an answer to 1 of 4. Answered 2 from the web.',
     )
@@ -190,10 +186,5 @@ describe('ChecksPage', () => {
     expect(text({ trials: 2, temperatures: [0.1, 0.5, 0.9] })).toContain(
       'Each question was asked 6 more times, twice at each of 3 settings.',
     )
-  })
-
-  it('shows a short empty state for a model not in the run', () => {
-    const wrapper = mountPage(report({}), 'nobody/unknown')
-    expect(wrapper.find('[data-testid="checks-missing"]').exists()).toBe(true)
   })
 })

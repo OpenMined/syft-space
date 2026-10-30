@@ -48,7 +48,7 @@ def _queues(documents: list[Document], cohort: str = "c1") -> list[pipeline._Que
         extractive,
         documents,
         cohort,
-        Settings(spaces_file="config/spaces.json"),  # type: ignore[arg-type]
+        Settings(),
         GenerationReport(space="pytest-space", cohort=cohort),
     )
 

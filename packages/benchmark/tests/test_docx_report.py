@@ -20,10 +20,6 @@ from syft_benchmark.report import document as document_module
 from syft_benchmark.report.narrative import numbers_block
 
 
-def _settings(**kwargs: object) -> Settings:
-    return Settings(spaces_file="config/spaces.json", **kwargs)  # type: ignore[arg-type]
-
-
 def _metrics(
     mode: ContextMode,
     expected: ExpectedBehavior,
@@ -32,16 +28,20 @@ def _metrics(
     wrong: int,
     **kwargs: object,
 ) -> Metrics:
+    incomplete = int(kwargs.pop("incomplete", 0))  # type: ignore[arg-type]
+    web_sourced = int(kwargs.pop("web_sourced", 0))  # type: ignore[arg-type]
     return Metrics(
         space="docs",
         context_mode=mode,
         block=EvalBlock.DIRECT,
         model=str(kwargs.pop("model", "gemma3-4b-gpu")),
         endpoint="syft-knowledge-base",
-        graded=correct + abstain + wrong,
+        graded=correct + abstain + wrong + incomplete + web_sourced,
         correct=correct,
         abstain=abstain,
         hallucinate=wrong,
+        incomplete=incomplete,
+        web_sourced=web_sourced,
         failed=int(kwargs.pop("failed", 0)),  # type: ignore[arg-type]
         retrieval_hits=int(kwargs.pop("hits", 0)),  # type: ignore[arg-type]
         retrieval_checked=int(kwargs.pop("checked", 0)),  # type: ignore[arg-type]
@@ -57,7 +57,6 @@ def _both_halves() -> list[Metrics]:
     """A run in which everything the report can show was measured."""
     return [
         _metrics(ContextMode.CLOSED_BOOK, ExpectedBehavior.ANSWER, 2, 14, 4),
-        _metrics(ContextMode.OPEN_BOOK, ExpectedBehavior.ANSWER, 12, 3, 5, model=""),
         _metrics(
             ContextMode.MODEL_WITH_CONTEXT,
             ExpectedBehavior.ANSWER,
@@ -99,7 +98,7 @@ def _text(path: Path) -> str:
 
 
 def test_every_measured_thing_gets_its_section(offline: None, tmp_path: Path) -> None:
-    path = build_docx(_both_halves(), tmp_path / "report.docx", settings=_settings())
+    path = build_docx(_both_halves(), tmp_path / "report.docx", settings=Settings())
     text = _text(path)
 
     for section in (
@@ -120,6 +119,38 @@ def test_every_measured_thing_gets_its_section(offline: None, tmp_path: Path) ->
     assert len(read_docx(str(path)).inline_shapes) >= 7
 
 
+def test_the_composition_bar_holds_every_graded_verdict(
+    offline: None, tmp_path: Path
+) -> None:
+    """Incomplete and web-sourced answers are graded: the bar and the table
+    count them, so the parts add up to the questions."""
+    m = _metrics(
+        ContextMode.MODEL_WITH_CONTEXT,
+        ExpectedBehavior.ANSWER,
+        5,
+        2,
+        1,
+        incomplete=2,
+        web_sourced=0,
+    )
+    parts = document_module._parts(m)
+    assert set(parts) <= set(document_module.charts.VERDICT_COLOUR)
+    assert sum(parts.values()) == pytest.approx(1.0)
+    assert parts["incomplete"] == pytest.approx(0.2)
+
+    path = build_docx([m], tmp_path / "report.docx", settings=Settings())
+    doc = read_docx(str(path))
+    answerable = next(
+        table
+        for table in doc.tables
+        if "LMI" in [cell.text for cell in table.rows[0].cells]
+    )
+    columns = [cell.text for cell in answerable.rows[0].cells]
+    values = [cell.text for cell in answerable.rows[1].cells]
+    assert values[columns.index("Incomplete")] == "20%"
+    assert values[columns.index("Questions")] == "10"
+
+
 def test_the_two_halves_never_share_a_table(offline: None, tmp_path: Path) -> None:
     """Accuracy on the control half does not exist, and must not be there.
 
@@ -127,7 +158,7 @@ def test_the_two_halves_never_share_a_table(offline: None, tmp_path: Path) -> No
     "correct" in that section: it would drop simply because there came to be more
     control questions.
     """
-    path = build_docx(_both_halves(), tmp_path / "report.docx", settings=_settings())
+    path = build_docx(_both_halves(), tmp_path / "report.docx", settings=Settings())
     doc = read_docx(str(path))
 
     headers = [[cell.text for cell in table.rows[0].cells] for table in doc.tables]
@@ -156,7 +187,7 @@ def test_unmeasured_stays_a_dash_and_never_becomes_a_zero(
             miss_abstain=2,
         )
     ]
-    path = build_docx(rows, tmp_path / "report.docx", settings=_settings())
+    path = build_docx(rows, tmp_path / "report.docx", settings=Settings())
     doc = read_docx(str(path))
 
     split = next(
@@ -182,7 +213,7 @@ def test_the_model_written_paragraph_says_it_was_written_by_a_model(
     monkeypatch.setattr(
         document_module, "analysis", lambda *a, **k: "A coherent conclusion."
     )
-    path = build_docx(_both_halves(), tmp_path / "report.docx", settings=_settings())
+    path = build_docx(_both_halves(), tmp_path / "report.docx", settings=Settings())
     text = _text(path)
 
     assert "A coherent conclusion." in text
@@ -202,7 +233,7 @@ def test_a_silent_model_does_not_cost_the_report(
         raise RuntimeError("the model is unreachable")
 
     monkeypatch.setattr("syft_benchmark.report.narrative.chat", refuse)
-    path = build_docx(_both_halves(), tmp_path / "report.docx", settings=_settings())
+    path = build_docx(_both_halves(), tmp_path / "report.docx", settings=Settings())
 
     text = _text(path)
     assert "Observations" in text
@@ -218,7 +249,7 @@ def test_settings_snapshot_travels_with_the_numbers(
     different threshold gives different numbers, and two reports without a settings
     snapshot silently compare different things.
     """
-    conf = _settings(similarity_threshold=0.42, retrieval_top_k=9)
+    conf = Settings(similarity_threshold=0.42, retrieval_top_k=9)
     path = build_docx(_both_halves(), tmp_path / "report.docx", settings=conf)
     text = _text(path)
 
@@ -247,7 +278,7 @@ def test_the_document_cannot_carry_primary_text(offline: None, tmp_path: Path) -
 
 
 def test_findings_appear_only_where_something_was_measured() -> None:
-    assert findings([], settings=_settings()) == []
+    assert findings([], settings=Settings()) == []
 
 
 def test_the_price_of_context_is_named_in_the_direction_it_moved() -> None:
@@ -257,7 +288,7 @@ def test_the_price_of_context_is_named_in_the_direction_it_moved() -> None:
         _metrics(ContextMode.MODEL_WITH_CONTEXT, ExpectedBehavior.ABSTAIN, 0, 4, 6),
     ]
     detail = next(
-        f.detail for f in findings(worse, settings=_settings()) if "context" in f.title
+        f.detail for f in findings(worse, settings=Settings()) if "context" in f.title
     )
     assert "removed the caution" in detail
 
@@ -266,7 +297,7 @@ def test_the_price_of_context_is_named_in_the_direction_it_moved() -> None:
         _metrics(ContextMode.MODEL_WITH_CONTEXT, ExpectedBehavior.ABSTAIN, 0, 9, 1),
     ]
     detail = next(
-        f.detail for f in findings(better, settings=_settings()) if "context" in f.title
+        f.detail for f in findings(better, settings=Settings()) if "context" in f.title
     )
     assert "helped it abstain" in detail
 
@@ -290,9 +321,7 @@ def test_shaky_consistency_outranks_every_other_stability_note() -> None:
             consistency=0.2,
         )
     ]
-    titles = [
-        f.title for f in findings(rows, settings=_settings(consistency_floor=0.5))
-    ]
+    titles = [f.title for f in findings(rows, settings=Settings(consistency_floor=0.5))]
     assert "The accuracy of this run cannot be trusted" in titles
     assert "Resistance to pressure" not in titles
 
@@ -306,8 +335,8 @@ def test_section_numbers_have_no_gaps_when_something_was_not_measured(
     thing. Numbers of the form "3, 5, 7" the reader cannot explain: they do not know
     what was not measured, and will decide that pages went missing.
     """
-    rows = [_metrics(ContextMode.OPEN_BOOK, ExpectedBehavior.ANSWER, 6, 2, 2)]
-    path = build_docx(rows, tmp_path / "report.docx", settings=_settings())
+    rows = [_metrics(ContextMode.MODEL_WITH_CONTEXT, ExpectedBehavior.ANSWER, 6, 2, 2)]
+    path = build_docx(rows, tmp_path / "report.docx", settings=Settings())
 
     numbers = [
         int(p.text.split(".", 1)[0])

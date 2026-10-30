@@ -1,5 +1,7 @@
 """The schema reflects the decisions from the brief, not just "some tables"."""
 
+import pytest
+
 from syft_benchmark.db.models import Base, QaPair, Result, Run
 
 
@@ -30,6 +32,7 @@ def test_the_schema_is_measurement_plus_control_plus_configuration() -> None:
         "credentials",
         "model_catalog",
         "run_aggregates",
+        "writer_calls",
     }
 
 
@@ -153,3 +156,24 @@ def test_pair_says_what_correct_behaviour_is() -> None:
 def test_result_keeps_the_audit_trail() -> None:
     """The benchmark's number is a model's verdict: this is where it is checked."""
     assert "audit" in Result.__table__.columns
+
+
+def test_the_migrations_and_the_models_describe_one_schema() -> None:
+    """``alembic upgrade head`` and ``Base.metadata`` must agree: an index the
+    model declares but no migration creates exists only in the tests."""
+    from sqlalchemy import create_engine
+
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+    from syft_benchmark.config import env_settings
+
+    try:
+        engine = create_engine(env_settings().database_url)
+        with engine.connect() as connection:
+            context = MigrationContext.configure(
+                connection, opts={"compare_type": True}
+            )
+            diff = compare_metadata(context, Base.metadata)
+    except Exception as error:  # noqa: BLE001 - no database, no comparison
+        pytest.skip(f"the benchmark database is unavailable: {error}")
+    assert diff == []

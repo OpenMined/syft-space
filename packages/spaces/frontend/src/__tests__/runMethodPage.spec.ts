@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { computed, defineComponent, h, ref, shallowRef } from 'vue'
+import { describe, expect, it } from 'vitest'
+import { computed, defineComponent, h, shallowRef } from 'vue'
 import { mount } from '@vue/test-utils'
 import type { BenchmarkRunReport } from '@/api/types'
 import RunMethodPage from '@/components/benchmark/report/RunMethodPage.vue'
@@ -11,13 +11,10 @@ function mountPage(report: BenchmarkRunReport) {
     setup() {
       provideRun({
         jobId: 'j1',
+        slug: 'ep',
         data: shallowRef(report),
-        loading: ref(false),
-        error: ref(null),
-        running: computed(() => false),
         model: computed(() => null),
         modelReport: computed(() => null),
-        reload: vi.fn(),
       })
       return () => h(RunMethodPage)
     },
@@ -28,16 +25,14 @@ function mountPage(report: BenchmarkRunReport) {
 function full(): BenchmarkRunReport {
   const base = runReport()
   return runReport({
-    funnel: { written: 1000, removed: {}, removed_total: 0, asked: 100, trick: 4 },
+    funnel: { written: 1000, removed: {}, asked: 100, trick: 4 },
     judges: [GPT, GEMINI],
     method: {
       ...base.method,
-      articles_from: '2026-09-29T06:00:00Z',
-      articles_to: '2026-09-30T06:00:00Z',
       generator_model: 'anthropic/claude-opus-5.5',
       kinds: ['temporal_masking', 'named_entity_masking', 'mcq', 'unanswerable_property'],
       trick: 4,
-      judges: [GPT, GEMINI],
+      web_check_model: GPT,
       profile: 'demosyft',
       denial_rounds: 3,
       repeats: { trials: 2, temperatures: [0.3, 0.9] },
@@ -58,7 +53,9 @@ describe('RunMethodPage', () => {
     )
     expect(setting(wrapper, 'articles')).toBe('9 articles')
     expect(setting(wrapper, 'written')).toBe('1,000, by Claude Opus 5.5 inside your Syft Space')
-    expect(setting(wrapper, 'removed')).toBe('—')
+    // The web check ran and removed nothing.
+    expect(setting(wrapper, 'removed')).toBe('0')
+    expect(setting(wrapper, 'webcheck')).toBe('GPT-5.1')
     expect(setting(wrapper, 'asked')).toBe('100, plus 4 trick questions')
     expect(setting(wrapper, 'models')).toBe('Claude Opus 4.8, Qwen 3.8 27B')
     expect(setting(wrapper, 'judges')).toBe('GPT-5.1, Gemini 3.1 Pro')
@@ -73,10 +70,11 @@ describe('RunMethodPage', () => {
   it('shows dashes for settings the run did not record', () => {
     const wrapper = mountPage(
       runReport({
-        funnel: { written: null, removed: {}, removed_total: null, asked: 100, trick: 0 },
+        funnel: { written: null, removed: {}, asked: 100, trick: 0 },
       }),
     )
     expect(setting(wrapper, 'written')).toBe('—')
+    expect(setting(wrapper, 'removed')).toBe('—')
     expect(setting(wrapper, 'asked')).toBe('100')
     expect(setting(wrapper, 'rounds')).toBe('—')
     expect(setting(wrapper, 'repeats')).toBe('—')
@@ -86,13 +84,18 @@ describe('RunMethodPage', () => {
     )
   })
 
-  it('states the web check counts only when they are known', () => {
-    expect(mountPage(full()).get('[data-testid="web-check"]').text()).not.toContain('Of 1,000')
+  it('states the web check counts only when a web check ran', () => {
+    expect(mountPage(full()).get('[data-testid="web-check"]').text()).toContain(
+      'Of 1,000 questions written, 0 were removed and 100 were asked.',
+    )
     const known = full()
     known.funnel.removed = { web_answerable: 900 }
     expect(mountPage(known).get('[data-testid="web-check"]').text()).toContain(
       'Of 1,000 questions written, 900 were removed and 100 were asked.',
     )
+    const none = full()
+    none.method.web_check_model = null
+    expect(mountPage(none).get('[data-testid="web-check"]').text()).not.toContain('Of 1,000')
   })
 
   it('lists kinds in the canonical order with the asked counts, trick included', () => {

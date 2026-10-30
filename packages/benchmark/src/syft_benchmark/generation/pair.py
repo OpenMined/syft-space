@@ -1,8 +1,7 @@
-"""A finished item, before it is written to the database.
+"""A generated item before it is stored (``Pair``) and a dropped draft (``Dropped``).
 
-A separate module, because the type is needed both by the generator registry
-and by the generators themselves: without it they would import one another in
-a circle.
+Kept apart from the registry, which the generator modules would otherwise
+import in a circle.
 """
 
 from __future__ import annotations
@@ -19,3 +18,12 @@ class Pair:
     answer: str
     distractors: list[str]
     meta: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class Dropped:
+    """A draft thrown away as written, and why."""
+
+    reason: str
+    question: str = ""
+    answer: str = ""

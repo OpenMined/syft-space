@@ -1,17 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildText,
-  countsText,
   droppedLines,
   droppedTotal,
-  readText,
-  stoppedLabel,
-  hasDetails,
+  kindStoppedLabel,
   outcomeLabel,
+  readText,
   reasonText,
-  reasonTip,
   stageLabel,
-  writtenInText,
   writtenText,
 } from '@/components/benchmark/filter'
 import {
@@ -21,32 +17,11 @@ import {
   webCheckText,
 } from '@/components/benchmark/report/selectors'
 import { customerCost } from '@/components/benchmark/report/timeCost'
-import type { BenchmarkWebCheck } from '@/api/types'
 import { runReport } from './reportFixtures'
 
-function webCheck(over: Partial<BenchmarkWebCheck> = {}): BenchmarkWebCheck {
-  return {
-    model: 'openai/gpt-5.1',
-    judge: 'google/gemini-3.1-pro-preview',
-    answer: '',
-    verdict: '',
-    reasoning: '',
-    citations: [],
-    searches: null,
-    engine: 'plugin',
-    searched: null,
-    search_unused: false,
-    error: null,
-    checked_at: null,
-    ...over,
-  }
-}
-
 describe('filter decisions', () => {
-  it('labels outcomes and counts', () => {
+  it('labels outcomes', () => {
     expect(outcomeLabel('removed')).toBe('Removed')
-    expect(countsText({ kept: 3, removed: 2, failed: 0, skipped: 0 })).toBe('3 kept · 2 removed')
-    expect(countsText({})).toBe('')
   })
 
   it('words the reason from its code and keeps a fuller note', () => {
@@ -73,45 +48,15 @@ describe('filter decisions', () => {
       reason_code: 'ambiguous_entity',
     }
     expect(reasonText(unclear)).toBe('Unclear subject: Mariam (first name only)')
-    expect(reasonTip(unclear)).toMatch(/identify/)
     expect(reasonText({ reason: '', reason_code: 'wrong_language' })).toBe('Wrong language')
-    expect(reasonTip({ reason_code: 'grounding' })).toBeUndefined()
     const trick = { reason: 'public knowledge', reason_code: 'public_knowledge' }
     expect(reasonText(trick)).toBe('Public knowledge')
-    expect(reasonTip(trick)).toMatch(/found on the web/)
-  })
-
-  it('names the earlier run a question came from', () => {
-    expect(
-      writtenInText({
-        earlier: false,
-        written_by_job_at: null,
-        written_at: '2026-09-30T10:00:00Z',
-      }),
-    ).toBeNull()
-    expect(
-      writtenInText({
-        earlier: true,
-        written_by_job_at: '2026-09-29T10:00:00Z',
-        written_at: '2026-09-30T10:00:00Z',
-      }),
-    ).toBe('Written in 29 Sep 2026')
-    expect(
-      writtenInText({ earlier: true, written_by_job_at: null, written_at: '2026-09-30T10:00:00Z' }),
-    ).toBe('Written in 30 Sep 2026')
-  })
-
-  it('unfolds only a web check with something to show', () => {
-    expect(hasDetails(null)).toBe(false)
-    expect(hasDetails(webCheck())).toBe(false)
-    expect(hasDetails(webCheck({ answer: 'Paris' }))).toBe(true)
-    expect(hasDetails(webCheck({ citations: [{ url: 'https://a.b' }] }))).toBe(true)
   })
 
   it('sums up a build-only job', () => {
     expect(buildText(null)).toBeNull()
     expect(
-      buildText({ written: 12, checked: 12, kept: 8, removed: 4, failed: 0, skipped: 0 }),
+      buildText({ written: 12, checked: 12, kept: 8, removed: 4, failed: 0 }),
     ).toBe('12 written · 4 removed')
   })
 })
@@ -120,14 +65,14 @@ describe('how tested: web check and cost', () => {
   it('prefers the per-call total, then the per-call sum, then the key spend', () => {
     const base = runReport().method
     expect(customerCost(base)).toBeNull()
-    const cost = { usd: 1.234, spend_before: 1, spend_after: 2.234, usd_calls: 1 }
+    const cost = { usd: 1.234, usd_calls: 1 }
     expect(customerCost({ ...base, cost: { ...cost, total_usd: 0.9 } })).toBe(0.9)
     expect(customerCost({ ...base, cost })).toBe(1)
     expect(customerCost({ ...base, cost: { ...cost, usd_calls: 0 } })).toBe(1.234)
     expect(
       customerCost({
         ...base,
-        cost: { usd: null, spend_before: null, spend_after: null, usd_calls: 0 },
+        cost: { usd: null, usd_calls: 0 },
       }),
     ).toBeNull()
     expect(usdText(1.234)).toBe('$1.23')
@@ -158,7 +103,7 @@ describe('how tested: web check and cost', () => {
         method: {
           ...base.method,
           web_check_model: 'openai/gpt-5.1',
-          cost: { usd: 0.42, spend_before: 1, spend_after: 1.42, usd_calls: 0.4 },
+          cost: { usd: 0.42, usd_calls: 0.4 },
         },
       }),
     )
@@ -194,10 +139,10 @@ describe('generation per kind', () => {
   }
 
   it('words the stop reason as a chip', () => {
-    expect(stoppedLabel('budget reached')).toBe('Budget reached')
-    expect(stoppedLabel('ran out of material')).toBe('Out of material')
-    expect(stoppedLabel('failure streak')).toBe('Failures')
-    expect(stoppedLabel('cancelled')).toBe('Cancelled')
+    expect(kindStoppedLabel('budget reached')).toBe('Budget reached')
+    expect(kindStoppedLabel('ran out of material')).toBe('Out of material')
+    expect(kindStoppedLabel('failure streak')).toBe('Failures')
+    expect(kindStoppedLabel('cancelled')).toBe('Cancelled')
   })
 
   it('sums drops and lists reasons largest first', () => {
@@ -215,6 +160,6 @@ describe('generation per kind', () => {
   it('shows what was written of the budget, top-up noted', () => {
     expect(writtenText({ written: 8, budget: 10 })).toBe('8 / 10')
     expect(writtenText({ written: 14, budget: 10, topped_up: 4 })).toBe('14 / 10, 4 topped up')
-    expect(stoppedLabel('top-up cost limit')).toBe('Cost limit')
+    expect(kindStoppedLabel('top-up cost limit')).toBe('Cost limit')
   })
 })

@@ -1,20 +1,9 @@
-"""Jobs: the queue, progress and stopping.
+"""Jobs: the queue, the worker thread, progress, cost and stopping.
 
-A measurement runs for hours, and an HTTP request does not live that long. So
-the launch is torn in two: the route puts a job in the queue and answers at
-once, while a worker thread does the work, checking in on the same row. The
-owner watches the row rather than waiting for a response.
-
-The queue is shared and strictly sequential. This is not a simplification: a
-measurement is bounded not by the processor but by the model provider and by
-the node under test itself, and two jobs at once will speed up neither — they
-will spoil both. A node answering under double load is not the same node that
-answered yesterday, and the numbers will diverge for a reason of their own.
-
-Stopping is a request, not a kill. A run finishes the current question and
-exits by itself: half a measurement is data too, its verdicts are already in
-the database, and cutting a write off mid-transaction would mean trading a
-whole database for a few seconds of waiting.
+A route puts a job in the queue and answers at once; a worker thread runs the
+queue one job at a time and writes progress into the row the owner watches.
+Stopping is a request, not a kill: a run finishes the current question and
+exits, and what it measured stays in the database.
 """
 
 from __future__ import annotations
@@ -42,14 +31,13 @@ from syft_benchmark.db.models import (
     Run,
     RunAggregate,
     Target,
+    WriterCall,
 )
 from syft_benchmark.db.run_cache import invalidate_run
 from syft_benchmark.db.session import session_scope
 from syft_benchmark.generation import decisions, filter_and_rotate
 from syft_benchmark.llm.cost import CostMeter, cost_meter, meter_for, openrouter_spend
-from syft_benchmark.report import run_view
-from syft_benchmark.report.card import build as build_card
-from syft_benchmark.report.card import payload_for
+from syft_benchmark.report import job_params, run_view
 from syft_benchmark.runs import endpoint_retriever, judge_pending
 from syft_benchmark.runs.parallel import Progress
 from syft_benchmark.runs.timing import CallClock, JobClock, PassTime
@@ -68,17 +56,19 @@ POLL_SECONDS = 1.0
 BEAT_SECONDS = 2.0
 
 # Our own reasons for a job not finishing — as codes. The job's row is read by
-# someone else's UI, in their reader's language; the same rule by which the card
-# hands out trust.flags. Anything that came from a failed call passes through as
-# is: the text of someone else's exception cannot be enumerated, and hiding it
-# is worse than showing it untranslated.
+# someone else's UI, in their reader's language. Anything that came from a
+# failed call passes through as is: the text of someone else's exception cannot
+# be enumerated, and hiding it is worse than showing it untranslated.
 TARGET_GONE = "target_gone"
-NO_CARD = "no_card"
 SERVICE_RESTARTED = "service_restarted"
 NOTHING_GRADED = "nothing_graded"
 NO_QUESTIONS = "no_questions"
 NOTHING_GENERATED = "nothing_generated"
 OVER_BUDGET = "over_budget"
+
+# How many recent jobs a target's history shows: enough to see that yesterday's
+# measurement failed.
+JOBS_PER_TARGET = 20
 
 # The job's evaluation plan in its params (report API, "Progress plan").
 PROGRESS_PLAN = "progress_plan"
@@ -115,8 +105,9 @@ class Reporter:
     database.
     """
 
-    def __init__(self, job_id: str, settings: Settings | None = None) -> None:
+    def __init__(self, job_id: str, settings: Settings) -> None:
         self.job_id = job_id
+        # The installation's settings: the base every write here goes through.
         self.settings = settings
         self.passes = 0
         self.total = 0
@@ -126,11 +117,7 @@ class Reporter:
         self.over_budget: float | None = None
         # The job's cap (``max_job_usd``); the node's value is set once the
         # job's layers are known. Zero — no cap.
-        self.max_usd: float = (
-            settings.max_job_usd
-            if settings is not None
-            else Settings.model_fields["max_job_usd"].default
-        )
+        self.max_usd: float = settings.max_job_usd
         self.arm = ""
         self.block = ""
         self.model = ""
@@ -343,6 +330,18 @@ def enqueue(
     return job
 
 
+def recent_jobs(session: Session, target_key: str) -> list[Job]:
+    """The target's newest jobs, newest first, at most ``JOBS_PER_TARGET``."""
+    return list(
+        session.scalars(
+            select(Job)
+            .where(Job.target == target_key)
+            .order_by(Job.created_at.desc())
+            .limit(JOBS_PER_TARGET)
+        )
+    )
+
+
 def cancel(session: Session, job_id: str) -> bool:
     """Ask a job to stop.
 
@@ -363,14 +362,15 @@ def cancel(session: Session, job_id: str) -> bool:
 def discard_run(session: Session, job: Job) -> None:
     """Delete a finished job and everything only it owns.
 
-    Its runs, answers, verdicts and overrides, cached figures, and
-    its build and filter records on the questions. The questions themselves
-    stay: a question once asked is never deleted.
+    Its runs, answers, verdicts and overrides, cached figures, kept writer
+    calls, and its build and filter records on the questions. The questions
+    themselves stay: a question once asked is never deleted.
     """
     runs = select(Run.id).where(Run.job_id == job.id)
     session.execute(sa_delete(Result).where(Result.run_id.in_(runs)))
     session.execute(sa_delete(Run).where(Run.job_id == job.id))
     session.execute(sa_delete(RunAggregate).where(RunAggregate.job_id == job.id))
+    session.execute(sa_delete(WriterCall).where(WriterCall.job_id == job.id))
     session.execute(
         update(QaPair)
         .where(QaPair.space == job.target, QaPair.job_id == job.id)
@@ -428,7 +428,7 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
             params = {
                 k: v
                 for k, v in (job.params or {}).items()
-                if k not in run_view.SNAPSHOT_KEYS and k != PROGRESS_PLAN
+                if k not in job_params.SNAPSHOT_KEYS and k != PROGRESS_PLAN
             }
             job.state = JobState.RUNNING.value
             job.started_at = datetime.now(UTC)
@@ -443,19 +443,19 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
         with cost_meter(job_id=job_id) as meter:
             before = _spend(node_conf)
             try:
-                if kind == JobKind.FILTER.value:
-                    _execute_filter(job_id, space, node_conf, params, reporter=reporter)
-                elif kind == JobKind.JUDGE.value:
-                    _execute_judge(job_id, space, node_conf, params, reporter=reporter)
-                else:
-                    _execute_pipeline(
-                        job_id,
-                        space,
-                        node_conf,
-                        params,
-                        base_settings=conf,
-                        reporter=reporter,
-                    )
+                match kind:
+                    case JobKind.FILTER:
+                        _execute_filter(
+                            job_id, space, node_conf, params, reporter=reporter
+                        )
+                    case JobKind.JUDGE:
+                        _execute_judge(
+                            job_id, space, node_conf, params, reporter=reporter
+                        )
+                    case _:
+                        _execute_pipeline(
+                            job_id, space, node_conf, params, reporter=reporter
+                        )
             finally:
                 _record_cost(job_id, before, _spend(node_conf), meter, conf)
                 _record_timing(job_id, reporter, conf)
@@ -470,19 +470,15 @@ def _execute_pipeline(
     node_conf: Settings,
     params: dict[str, Any],
     *,
-    base_settings: Settings,
-    reporter: Reporter | None = None,
+    reporter: Reporter,
 ) -> None:
-    """The original, uninterrupted run: generate, filter, evaluate, the card.
+    """The whole launch in one pass: generate, filter, evaluate.
 
-    Also what a lone generate, a lone evaluate and either console-facing
-    group are — all of it is one call to ``measure()``, distinguished only by
-    which of ``RunRequest``'s booleans are set.
+    A lone generate and a lone evaluate are the same call to ``measure()``,
+    distinguished only by which of ``RunRequest``'s booleans are set.
     """
-    # Reads jobs queued before `publish` was dropped: the key is ignored.
-    request = RunRequest.model_validate(
-        {key: value for key, value in params.items() if key != "publish"}
-    )
+    base_settings = reporter.settings
+    request = RunRequest.model_validate(params)
 
     # The layers from the request itself lie on top of the ones saved on the
     # target and do not change the target: a trial run with a different
@@ -491,18 +487,22 @@ def _execute_pipeline(
     extra = [x for x in (request.instrument, request.probe) if x is not None]
     if extra:
         node_conf = merge(node_conf, *extra)
-    _snapshot_judging(job_id, node_conf, base_settings)
+    _snapshot(
+        job_id,
+        {
+            **job_params.judging_snapshot(node_conf),
+            **job_params.dataset_snapshot(node_conf),
+        },
+        base_settings,
+    )
 
     # None means "yes" — the ordinary shape of a launch that measures. False
     # is for a launch that only wants the question set refreshed: the runs
-    # below, and the card built from them, describe an evaluation that did
-    # not happen and have no business existing for this one.
+    # below describe an evaluation that did not happen and have no business
+    # existing for this one.
     want_evaluate = request.evaluate if request.evaluate is not None else True
 
-    if reporter is None:
-        reporter = Reporter(job_id, base_settings)
     reporter.max_usd = node_conf.max_job_usd
-    card_payload: dict[str, Any] | None = None
     done = measure(
         space,
         node_conf,
@@ -536,26 +536,12 @@ def _execute_pipeline(
             # the provider sent back.
             failures.append(_with_sample(NOTHING_GRADED, done.failure_sample))
 
-        # The card is built from the verdicts in the database. A thin sample
-        # is not hidden but named — `trust.flags` carries `few_samples`.
-        # Cancelled: a run cut off halfway was not a statement. Deferred: there
-        # is not a single verdict yet — judge_stage builds it once the owner
-        # runs it.
-        if not reporter.cancelled and not request.defer_judging:
-            reporter.phase(JobPhase.REPORT)
-            card = build_card(space.key, space.endpoint, settings=node_conf, job=job_id)
-            if card is None:
-                failures.append(NO_CARD)
-            else:
-                card_payload = payload_for(card)
-
     state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
     _finish(
         job_id,
         state,
         error="; ".join(failures),
         message="; ".join(done.notes),
-        card=card_payload,
         settings=base_settings,
     )
 
@@ -571,7 +557,7 @@ def _execute_filter(
     """Screen this target's pending pairs on their own — no fresh generate."""
     base_settings = reporter.settings
     request = FilterRequest.model_validate(params)
-    _snapshot_judging(job_id, node_conf, base_settings)
+    _snapshot(job_id, job_params.judging_snapshot(node_conf), base_settings)
     reporter.phase(JobPhase.FILTER)
     outcome = filter_and_rotate(
         space,
@@ -608,7 +594,7 @@ def _execute_judge(
     """Grade this target's pending verdicts on their own — no fresh evaluate."""
     base_settings = reporter.settings
     request = JudgeRequest.model_validate(params)
-    _snapshot_judging(job_id, node_conf, base_settings)
+    _snapshot(job_id, job_params.judging_snapshot(node_conf), base_settings)
     reporter.phase(JobPhase.JUDGE)
     outcome = judge_pending(
         space,
@@ -643,7 +629,7 @@ def _record_cost(
     meter: CostMeter,
     settings: Settings,
 ) -> None:
-    """Keep what the job spent in its params (``run_view.COST``).
+    """Keep what the job spent in its params (``job_params.COST``).
 
     ``total_usd`` is the sum of ``by_role``: the calls made for the writer,
     the web check, the tested models and the judges; ``usd_calls`` is every
@@ -667,13 +653,13 @@ def _record_cost(
         with session_scope(settings) as session:
             job = session.get(Job, job_id)
             if job is not None:
-                job.params = {**(job.params or {}), run_view.COST: cost}
+                job.params = {**(job.params or {}), job_params.COST: cost}
     except Exception:  # noqa: BLE001 - as above
         logger.exception(f"job {job_id}: its cost was not recorded")
 
 
 def _record_timing(job_id: str, reporter: Reporter, settings: Settings) -> None:
-    """Keep where the job's time went in its params (``run_view.TIMING``).
+    """Keep where the job's time went in its params (``job_params.TIMING``).
 
     ``total_s`` is the job's own time: finished (or now) minus started.
     """
@@ -685,17 +671,17 @@ def _record_timing(job_id: str, reporter: Reporter, settings: Settings) -> None:
                 if job.started_at is not None:
                     end = job.finished_at or datetime.now(UTC)
                     timing["total_s"] = round((end - job.started_at).total_seconds(), 2)
-                job.params = {**(job.params or {}), run_view.TIMING: timing}
+                job.params = {**(job.params or {}), job_params.TIMING: timing}
     except Exception:  # noqa: BLE001 - the timing is never worth a failed job
         logger.exception(f"job {job_id}: its timing was not recorded")
 
 
-def _snapshot_judging(job_id: str, conf: Settings, settings: Settings | None) -> None:
-    """Keep the judge panel and policy the job runs with in its params."""
+def _snapshot(job_id: str, values: dict[str, Any], settings: Settings | None) -> None:
+    """Keep what the job is launched with in its params (``job_params``)."""
     with session_scope(settings) as session:
         job = session.get(Job, job_id)
         if job is not None:
-            job.params = {**(job.params or {}), **run_view.judging_snapshot(conf)}
+            job.params = {**(job.params or {}), **values}
 
 
 def _finish(
@@ -704,7 +690,6 @@ def _finish(
     *,
     error: str = "",
     message: str | None = None,
-    card: dict[str, Any] | None = None,
     settings: Settings | None = None,
 ) -> None:
     """Close a job.
@@ -716,8 +701,6 @@ def _finish(
     Failed runs do not make a job a failure: the node may have rebooted in the
     middle of one arm while the others went through and gave numbers. A failure
     is when the job did not reach the end at all.
-
-    ``card``, when given, is kept regardless of ``state`` or ``error``.
     """
     with session_scope(settings) as session:
         job = session.get(Job, job_id)
@@ -728,7 +711,6 @@ def _finish(
         job.error = error
         if message is not None:
             job.message = message
-        job.card = card
         job.finished_at = datetime.now(UTC)
         invalidate_run(session, job_id)
         # There is no separate "passed, but not whole" message here: it is

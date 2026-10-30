@@ -15,6 +15,8 @@ import pytest
 from syft_benchmark.llm import catalog, openrouter
 from syft_benchmark.llm.providers import ProviderKind, kind_for_url
 
+from support import AUTH, TOKEN
+
 
 def _raw(model_id: str, **extra: Any) -> dict[str, Any]:
     """One record in the shape the provider hands it over."""
@@ -160,6 +162,8 @@ def test_an_unset_field_does_not_become_a_value(
         ("https://api.openai.com/v1", ProviderKind.OPENAI),
         ("http://ollama:11434", ProviderKind.OLLAMA),
         ("http://localhost:11434", ProviderKind.OLLAMA),
+        ("http://[::1]:11434", ProviderKind.OLLAMA),
+        ("http://192.168.1.20:11434", ProviderKind.UNKNOWN),
         ("https://llm.example.com/v1", ProviderKind.UNKNOWN),
     ],
 )
@@ -256,21 +260,6 @@ def test_a_local_model_has_no_search_and_takes_temperature() -> None:
     assert entry.takes_temperature is True
 
 
-def test_a_row_stored_before_the_field_still_loads() -> None:
-    """It takes what the shipped snapshot knew, else the plugin."""
-    older = openrouter.snapshot(
-        [_raw("a/known", supported_parameters=["web_search_options"])]
-    )
-    stored = openrouter.snapshot([_raw("a/known"), _raw("b/only-stored")])
-    for entry in stored["models"]:
-        del entry["web_search"]
-
-    built = catalog.from_documents([older, stored])
-
-    assert built.web_search_of("a/known") == "native"
-    assert built.web_search_of("b/only-stored") == "plugin"
-
-
 def test_the_filter_reads_search_and_the_lack_of_temperature() -> None:
     built = _catalogue(
         _raw("a/native", supported_parameters=["temperature", "web_search_options"]),
@@ -329,11 +318,8 @@ def _client(**overrides: Any) -> Any:
     from syft_benchmark.control.app import create_app
 
     catalog.invalidate()
-    conf = Settings(control_token="test-control-token", **overrides)
+    conf = Settings(control_token=TOKEN, **overrides)
     return TestClient(create_app(conf))
-
-
-AUTH = {"Authorization": "Bearer test-control-token"}
 
 
 def test_the_form_is_offered_the_catalogue_over_the_wire() -> None:
@@ -623,7 +609,7 @@ def test_a_gateway_is_not_asked_for_the_models_it_has_pulled() -> None:
 
     from syft_benchmark.config import Settings
 
-    control = import_module("syft_benchmark.control.app")
+    control = import_module("syft_benchmark.control.installation_routes")
     gateway = Settings(ollama_url="https://openrouter.ai/api/v1")  # type: ignore[call-arg]
 
-    assert control._local_models(gateway, query="", vendor="") == []
+    assert control.local_models(gateway, query="", vendor="") == []

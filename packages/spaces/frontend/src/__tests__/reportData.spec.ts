@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick } from 'vue'
 import type { BenchmarkRunList } from '@/api/types'
 import { dispositionFileName } from '@/api/endpoints/benchmarks'
-import { heldOf, progressText, shortStamp } from '@/components/benchmark/report/selectors'
-import { points, pointsRange } from '@/components/benchmark/report/figures'
+import { heldOf, progressText } from '@/components/benchmark/report/selectors'
+import { points, pointsRange, shortStamp } from '@/components/benchmark/report/figures'
 import { modelName, vendorName, verdictLabel } from '@/components/benchmark/report/labels'
 import { progress, runReport, runSummary } from './reportFixtures'
 
@@ -22,7 +22,8 @@ vi.mock('@/api/endpoints/benchmarks', async (importOriginal) => ({
 }))
 
 const { benchmarksApi } = await import('@/api/endpoints/benchmarks')
-const { useRunReport, POLL_MS, RUNS_PAGE } = await import(
+const { ACTIVE_POLL_MS } = await import('@/composables/useBenchmarkJobs')
+const { useRunReport, RUNS_PAGE } = await import(
   '@/components/benchmark/report/useRunReport'
 )
 const api = vi.mocked(benchmarksApi)
@@ -146,16 +147,16 @@ describe('useRunReport', () => {
     await vi.waitFor(() => expect(report.isRunning('j2')).toBe(true))
     const revision = report.revision.value
 
-    await vi.advanceTimersByTimeAsync(POLL_MS)
+    await vi.advanceTimersByTimeAsync(ACTIVE_POLL_MS)
     expect(report.isRunning('j2')).toBe(true)
 
-    await vi.advanceTimersByTimeAsync(POLL_MS)
+    await vi.advanceTimersByTimeAsync(ACTIVE_POLL_MS)
     await nextTick()
     expect(report.isRunning('j2')).toBe(false)
     expect(report.runs.value.map((r) => r.job_id)).toEqual(['j2', 'j1'])
     expect(report.revision.value).toBeGreaterThan(revision)
 
-    await vi.advanceTimersByTimeAsync(POLL_MS * 3)
+    await vi.advanceTimersByTimeAsync(ACTIVE_POLL_MS * 3)
     expect(api.listReportRuns).toHaveBeenCalledTimes(3)
     scope.stop()
   })

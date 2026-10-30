@@ -1,13 +1,16 @@
 /** A run's time and cost in words. */
 import type { BenchmarkCostByRole, BenchmarkRunReport, BenchmarkRunSummary } from '@/api/types'
-import { runSpan } from '../timing'
 import { clock, shortStamp, utcStamp } from './figures'
 
 /** Seconds from job start to finish; null when unknown or still running. */
 export function runDuration(
   run: Pick<BenchmarkRunSummary, 'started_at' | 'finished_at'>,
 ): number | null {
-  return runSpan(utcStamp(run.started_at), utcStamp(run.finished_at))
+  const from = utcStamp(run.started_at)
+  const to = utcStamp(run.finished_at)
+  if (!from || !to) return null
+  const s = (Date.parse(to) - Date.parse(from)) / 1000
+  return Number.isFinite(s) && s >= 0 ? s : null
 }
 
 /** `54 min`, `1 h 52 min`, `<1 min`. */
@@ -43,12 +46,6 @@ export function customerCost(method: BenchmarkRunReport['method']): number | nul
   return typeof cost.usd === 'number' ? cost.usd : null
 }
 
-/** OpenRouter key spend during the run (technical view); null when unread. */
-export function keySpend(method: BenchmarkRunReport['method']): number | null {
-  const usd = method.cost?.usd
-  return typeof usd === 'number' ? usd : null
-}
-
 const ROLES: { key: keyof BenchmarkCostByRole; label: string; color: string }[] = [
   { key: 'writer', label: 'Writing questions', color: '#00614F' },
   { key: 'web_check', label: 'Web check', color: '#008574' },
@@ -56,7 +53,7 @@ const ROLES: { key: keyof BenchmarkCostByRole; label: string; color: string }[] 
   { key: 'judges', label: 'Judges', color: '#B7DCD6' },
 ]
 
-export interface CostPart {
+interface CostPart {
   key: keyof BenchmarkCostByRole
   label: string
   color: string

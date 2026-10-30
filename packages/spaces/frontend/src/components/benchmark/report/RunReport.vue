@@ -13,7 +13,14 @@
           <Button variant="outline" size="sm" @click="reload">Try again</Button>
         </AlertDescription>
       </Alert>
-      <component :is="SCREENS[screen]" v-if="data" />
+      <p
+        v-if="data && modelId && !modelReport"
+        class="py-4 text-sm text-muted-foreground"
+        data-testid="model-missing"
+      >
+        This model is not part of this run.
+      </p>
+      <component :is="SCREENS[screen]" v-else-if="data" />
       <div v-else-if="!error" class="space-y-4" aria-busy="true" data-testid="run-loading">
         <span class="sr-only">Loading this run</span>
         <Skeleton class="h-6 w-60" />
@@ -38,9 +45,8 @@ import ReportCrumbs from './ReportCrumbs.vue'
 import RunMethodPage from './RunMethodPage.vue'
 import RunSummaryPage from './RunSummaryPage.vue'
 import { provideRun, useReport } from './context'
-import { day as dayOf } from './figures'
+import { day as dayOf, utcStamp } from './figures'
 import { modelName } from './labels'
-import { utcStamp } from './selectors'
 import { modelLocation, runLocation, runsListLocation, type RunScreen } from './routing'
 
 const props = defineProps<{
@@ -60,21 +66,17 @@ const SCREENS: Record<RunScreen, Component> = {
 
 const report = useReport()
 const data = shallowRef<BenchmarkRunReport | null>(null)
-const loading = ref(false)
 const error = ref<string | null>(null)
 
 const running = computed(() => report.isRunning(props.jobId))
 
 async function reload(): Promise<void> {
   if (running.value) return
-  loading.value = true
   error.value = null
   try {
     data.value = await report.loadReport(props.jobId)
   } catch (e) {
     error.value = apiErrorDetail(e, 'Could not load this run')
-  } finally {
-    loading.value = false
   }
 }
 
@@ -87,12 +89,8 @@ provideRun({
   jobId: props.jobId,
   slug: props.slug,
   data,
-  loading,
-  error,
-  running,
   model,
   modelReport,
-  reload,
 })
 
 const SCREEN_TITLE: Partial<Record<RunScreen, string>> = {

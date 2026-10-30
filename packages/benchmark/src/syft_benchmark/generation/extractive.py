@@ -1,14 +1,9 @@
-"""Extractive generators: masking a span in a sentence.
+"""Extractive generators: masking one span of a sentence taken verbatim.
 
-A port of three LiveTruth generators — `named_entity_masking`,
-`numeric_masking`, `temporal_masking`. The shape is one: take a sentence,
-replace one span with "______", and the span itself becomes the gold answer.
+``named_entity_masking``, ``numeric_masking`` and ``temporal_masking`` share
+the shape, and the masked span is the gold answer:
 
     Fill in the blank: The Hub stores endpoint metadata in ______.
-
-The value of this shape is that **the gold answer is a span of the text**:
-the sentence is taken verbatim and the blank is a part of it, not a composed
-answer.
 
 One LLM call writes all three categories for a chunk, in the chunk's language;
 ``parse_combined`` keeps only items whose blank and answer fit the sentence.
@@ -27,8 +22,7 @@ _MASK = "______"
 # The fixed words a masked sentence is asked with.
 FILL_IN_PREFIX = "Fill in the blank:"
 
-# There is no point masking a vague time: "recently" is restored out of thin air
-# and checks nothing.
+# A vague time ("recently") is guessable and checks nothing.
 _VAGUE_TIME = re.compile(
     r"^(now|today|tomorrow|yesterday|recently|later|soon|currently|then|ago|"
     r"early|late)$",
@@ -45,11 +39,8 @@ _RELATIVE_TIME = re.compile(
     re.IGNORECASE,
 )
 
-# Markup that does not make a sentence. LiveTruth worked over news prose, where
-# there is none of this; technical documentation, though, is half made of code
-# blocks, tables and parameter lists. Masking "Bearer" inside an example request
-# is meaningless: what gets tested is not knowledge of the corpus but the
-# ability to guess the syntax.
+# Markup that does not make a sentence: masking a token of a code block or a
+# table tests guessing the syntax, not knowing the corpus.
 _MARKUP = (
     "```",
     "|",
@@ -70,11 +61,7 @@ _MIN_LETTER_SHARE = 0.55
 
 
 def is_prose(sentence: str) -> bool:
-    """Whether the sentence looks like text rather than markup.
-
-    The check stands before masking: a masked fragment of code gives an item that
-    measures nothing yet lands confidently in the metrics.
-    """
+    """Whether the sentence looks like text rather than markup."""
     if any(marker in sentence for marker in _MARKUP):
         return False
     # Lines like "  key: value" and "- item" are parameter lists, not speech.
@@ -95,13 +82,11 @@ class Masked:
 
     question: str
     answer: str
-    context: str
     meta: dict[str, Any]
 
 
-# What a real gold answer looks like: words, numbers, versions, units. Anything
-# with punctuation and operators in it is a shard of markup, not an entity, and
-# such an item measures nothing yet lands confidently in the metrics.
+# What a real gold answer looks like: words, numbers, versions, units.
+# Punctuation and operators mark a shard of markup, not an entity.
 _ANSWER_SHAPE = re.compile(r"^[\w\s.,'’%$№#-]+$", re.UNICODE)
 
 
@@ -178,12 +163,10 @@ Respond with ONLY a JSON object with three arrays. No markdown, no commentary.
 def parse_combined(
     data: dict[str, Any], categories: tuple[str, ...]
 ) -> dict[str, list[Masked]]:
-    """Parse the LLM answer into pairs by category.
+    """Parse the LLM answer into masked items by category.
 
-    We skip everything where there is no mask or the gold answer was not
-    substituted into the sentence: the model sometimes returns the original
-    sentence whole, and such a "pair" tests not the endpoint but the ability to
-    repeat a text.
+    An item without a blank, or with the answer still in the sentence, is
+    skipped: it tests repeating the text, not the endpoint.
     """
     out: dict[str, list[Masked]] = {name: [] for name in categories}
     seen: set[str] = set()
@@ -203,8 +186,7 @@ def parse_combined(
             if answer.lower() in question.replace(_MASK, " ").lower():
                 continue
 
-            # One item per sentence: a second blank tests the same passage
-            # again. The prompt asks for it; this holds when the model does not.
+            # One item per sentence, even when the model ignores the prompt.
             sentence = question.replace(_MASK, answer)
             if sentence in seen:
                 continue
@@ -214,10 +196,8 @@ def parse_combined(
                 Masked(
                     question=f"{FILL_IN_PREFIX} {question}",
                     answer=answer,
-                    context=question,
                     meta={
                         "entity_label": str(item.get("entity_type") or ""),
-                        "mode": "llm",
                         "category": category,
                     },
                 )

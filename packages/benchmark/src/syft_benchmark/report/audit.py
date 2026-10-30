@@ -1,31 +1,19 @@
-"""The audit export: the raw records of the measurement.
+"""The audit export: the raw records behind the measurement, one per question.
 
-The benchmark metrics are shares computed from a judge model verdicts. They
-cannot be checked against the shares themselves: to say whether a measurement is
-honest you need to see what exactly was asked, with what prompt, what was
-answered in each arm and how the judge justified its sentence. Hence this export
-— it hands over exactly the raw records, one record per question:
+Each record carries:
 
-  * the question and the gold answer, together with their provenance: which
-    document and chunk it grew from, by which generator, whether it passed
-    screening and with what note;
-  * the answer in each arm — A, B, C — side by side rather than in three
-    different exports: the comparison of the arms is the subject of the check;
-  * the prompts: system and user, and for arm C together with the material mixed
-    in, verbatim;
+  * the question and the gold answer with their provenance: document and chunk,
+    generator, screening status and note;
+  * the answer in each arm, A and C, side by side;
+  * the system and user prompts, for arm C with the mixed-in material verbatim;
   * each judge verdict with its prompt and its raw answer before parsing;
-  * the settings the run was obtained with: the similarity threshold, the number
-    of chunks, the methodology profile.
+  * the settings the run was obtained with.
 
-The format is JSON Lines: one record per line, read line by line and requiring
-nothing to be loaded into memory whole. The second format, Markdown, is for
-reading by eye.
+The format is JSON Lines, one record per line; Markdown is for reading by eye.
 
-**The export contains corpus text.** Arm C prompt carries the retrieved chunks
-in full, and gold answers not infrequently quote the source verbatim. This is not
-a side effect but the point of the export: an auditor has nothing to check
-without the original text. The file should be handled like the corpus itself, and
-handed only to someone who has access to the corpus anyway.
+**The export contains corpus text.** Arm C prompts carry the retrieved chunks in
+full, and gold answers often quote the source verbatim. Handle the file like the
+corpus itself and hand it only to someone who has access to the corpus anyway.
 """
 
 from __future__ import annotations
@@ -33,7 +21,6 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +28,7 @@ from sqlalchemy import select
 
 from syft_benchmark.config import ARM_LETTER
 from syft_benchmark.db import QaPair, Result, Run, session_scope
+from syft_benchmark.report.job_params import iso
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,10 +41,6 @@ class AuditExport:
     arms: tuple[str, ...]
     judges: tuple[str, ...]
     with_prompts: int
-
-
-def _stamp(moment: datetime | None) -> str | None:
-    return moment.isoformat() if moment else None
 
 
 def _answer_record(
@@ -104,10 +88,10 @@ def _answer_record(
             "id": run.id,
             "profile": run.profile,
             "params": run.params or {},
-            "started_at": _stamp(run.started_at),
+            "started_at": iso(run.started_at),
         },
         "latency_s": result.latency_s,
-        "at": _stamp(result.created_at),
+        "at": iso(result.created_at),
     }
 
 
@@ -121,8 +105,8 @@ def audit_records(
     """The raw records of the measurement, one per question.
 
     The answers of all the arms are gathered into one record: the comparison of
-    A, B and C is the subject of the check, and laying them out in different
-    files would mean making the auditor stitch the export together themselves.
+    A and C is the subject of the check, and laying them out in different files
+    would mean making the auditor stitch the export together themselves.
 
     The LATEST answer is taken for each combination of arm, block, answerer and
     judge — by the same rule the metrics are computed with. Otherwise the audit
@@ -190,7 +174,7 @@ def audit_records(
                         "status_note": pair.status_note,
                         "built_by": pair.model,
                         "meta": pair.meta or {},
-                        "created_at": _stamp(pair.created_at),
+                        "created_at": iso(pair.created_at),
                     },
                     "answers": [],
                 }
@@ -228,6 +212,7 @@ def export_audit(
     """Export the raw records to a file.
 
     The format follows the extension: ``.md`` for reading by eye, anything else
+    JSON Lines.
     """
     records = list(
         audit_records(space, judge=judge, include_context=include_context, job=job)
@@ -255,9 +240,9 @@ def export_audit(
 def render_audit_markdown(records: list[dict[str, Any]]) -> str:
     """The same records, but for reading by eye.
 
-    The order within a question is by arm: A, B, C. That shows the main thing the
-    export is made for: what the model answered without data, what the endpoint
-    returned, and what the same model said once it got the material.
+    The order within a question is by arm: A, then C. That shows the main thing
+    the export is made for: what the model answered without data, and what the
+    same model said once it got the endpoint's material.
     """
     lines = [
         "# Audit export",

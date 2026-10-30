@@ -10,72 +10,41 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import uuid
-from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from syft_benchmark.config import PairStatus, Settings, SpaceConfig, StatusReason
-from syft_benchmark.db import ProcessedUnit, QaPair, session_scope
-from syft_benchmark.generation import pipeline, web_check
+from syft_benchmark.db import QaPair, session_scope
+from syft_benchmark.generation import pipeline, top_up, web_check
 from syft_benchmark.generation.generators import GENERATORS
-from syft_benchmark.generation.pair import Pair
+from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.llm import cost
 from syft_benchmark.runs import judge as run_judge
 from syft_benchmark.sources import Chunk, Document
 
+from fakes import OPENROUTER, ChromaStub, openrouter_settings
+
 SPACE = "pytest-top-up"
-OPENROUTER = "https://openrouter.ai/api/v1"
 ANSWER = "Harbourton lighthouse"
 # The web check model answers these correctly: they never survive.
 EASY = "Which council restored"
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Iterator[None]:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-            session.execute(delete(ProcessedUnit).where(ProcessedUnit.space == SPACE))
-
-    wipe()
-    yield
-    wipe()
-
-
 def _settings(**kwargs: Any) -> Settings:
     base: dict[str, Any] = {
-        "subject_url": OPENROUTER,
-        "subject_key": "sk-test",
         "judge_url": OPENROUTER,
         "judge_key": "sk-test",
         "judge_model": "anthropic/claude-opus-5",
         "judge_models": ["anthropic/claude-opus-5"],
         "filter_model": "openai/gpt-5.1",
-        "allow_external_models": True,
-        "external_hosts": ["openrouter.ai"],
         "document_window_days": 0,
         "pairs_per_chunk": 2,
         "chunks_per_run": 2,
         "concurrency": 1,
-        "max_consecutive_failures": 0,
     }
-    return Settings(**{**base, **kwargs})
+    return openrouter_settings(**{**base, **kwargs})
 
 
 def _space() -> SpaceConfig:
@@ -115,13 +84,7 @@ class _Build:
         self.calls = 0
         self._ids = itertools.count()
 
-        class _Chroma:
-            def __init__(self, *_: Any) -> None: ...
-
-            def collection_id(self, _name: str) -> str:
-                return "cid"
-
-        monkeypatch.setattr(pipeline, "ChromaClient", _Chroma)
+        monkeypatch.setattr(pipeline, "ChromaClient", ChromaStub)
         monkeypatch.setattr(pipeline, "load_documents", lambda *_: _documents(4, 4))
         monkeypatch.setattr(pipeline, "chat", self.chat)
         monkeypatch.setattr(web_check, "chat", self.web)
@@ -139,7 +102,7 @@ class _Build:
         return '[{"unit": 1}]', {}
 
     def _clean(self, opening: str) -> Any:
-        def clean(_items: Any, n: int, _whole: str) -> tuple[list[Pair], list[str]]:
+        def clean(_items: Any, n: int, _whole: str) -> tuple[list[Pair], list[Dropped]]:
             return [
                 Pair(
                     question=f"{opening} the {ANSWER} in spring {next(self._ids)}?",
@@ -180,14 +143,14 @@ KINDS = ("qa", "multihop_synthesis")
 
 def test_a_kind_targets_its_budget_or_an_even_share_of_the_cap() -> None:
     keys = ["qa", "mcq", "unanswerable_property"]
-    assert pipeline.kind_targets(keys, 10, Settings()) == dict.fromkeys(keys, 10)
+    assert top_up.kind_targets(keys, 10, Settings()) == dict.fromkeys(keys, 10)
     capped = Settings(dataset_max_pairs=10)
-    assert pipeline.kind_targets(keys, 10, capped) == dict.fromkeys(keys, 4)
-    assert pipeline.kind_targets(keys, 2, capped) == dict.fromkeys(keys, 2)
+    assert top_up.kind_targets(keys, 10, capped) == dict.fromkeys(keys, 4)
+    assert top_up.kind_targets(keys, 2, capped) == dict.fromkeys(keys, 2)
 
 
 def test_the_plan_writes_more_of_a_kind_that_usually_gets_filtered() -> None:
-    plan = pipeline.top_up_plan(
+    plan = top_up.top_up_plan(
         {"qa": 10, "mcq": 10, "hop": 10, "tiered": 10},
         {"qa": 4, "mcq": 4, "hop": 10},
         {"qa": 0.5, "mcq": 0.01, "hop": 0.5},
@@ -197,10 +160,10 @@ def test_the_plan_writes_more_of_a_kind_that_usually_gets_filtered() -> None:
     # hop: at its target;
     # tiered: nothing survived and no history reads as one half.
     assert plan == {"qa": 12, "mcq": 50, "tiered": 20}
-    assert pipeline.top_up_plan({"qa": 10}, {}, {"qa": 0.1}, cap=50) == {"qa": 50}
+    assert top_up.top_up_plan({"qa": 10}, {}, {"qa": 0.1}, cap=50) == {"qa": 50}
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_survival_is_read_per_kind_from_the_target(clean: None) -> None:
     def pair(generator: str, status: str, reason: str | None = None) -> QaPair:
         return QaPair(
@@ -232,7 +195,7 @@ def test_survival_is_read_per_kind_from_the_target(clean: None) -> None:
             ]
         )
 
-    rates = pipeline.survival_rates(SPACE, ["qa", "mcq"], _settings())
+    rates = top_up.survival_rates(SPACE, ["qa", "mcq"], _settings())
 
     assert rates == {"qa": pytest.approx(3 / 8), "mcq": 0.5}
 
@@ -240,7 +203,7 @@ def test_survival_is_read_per_kind_from_the_target(clean: None) -> None:
 # --- the build -----------------------------------------------------------------
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_short_kind_is_written_again_and_checked(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -252,7 +215,7 @@ def test_a_short_kind_is_written_again_and_checked(
 
     qa, hop = report.kinds["qa"], report.kinds["multihop_synthesis"]
     # Each round adds the kind's whole budget: nothing of it survives.
-    assert (qa.written, qa.topped_up) == (4 * (1 + pipeline.TOP_UP_ROUNDS), 8)
+    assert (qa.written, qa.topped_up) == (4 * (1 + top_up.TOP_UP_ROUNDS), 8)
     assert (hop.written, hop.topped_up) == (4, 0)
     assert any(note.startswith("top-up round 2: qa +4") for note in report.notes)
     assert _active() == {"multihop_synthesis": 4}
@@ -260,7 +223,7 @@ def test_a_short_kind_is_written_again_and_checked(
     assert report.screened.web_answerable == qa.written
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_top_up_stops_at_its_cost_limit(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -279,7 +242,7 @@ def test_the_top_up_stops_at_its_cost_limit(
     assert "top-up stopped at its cost limit, $0.5" in report.notes
 
 
-@needs_db
+@pytest.mark.needs_db
 @pytest.mark.parametrize("off", ["limit", "screening"])
 def test_no_top_up_without_screening_or_a_limit(
     clean: None, monkeypatch: pytest.MonkeyPatch, off: str

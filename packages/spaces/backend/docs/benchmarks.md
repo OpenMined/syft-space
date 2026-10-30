@@ -2,9 +2,8 @@
 
 The Space measures nothing. A **benchmark** — a separate service
 (`packages/benchmark`) — builds questions from an endpoint's own index, asks
-them, grades the answers and keeps a **card** (the run's headline figures) on
-each job. The Space configures it, starts runs and shows the results. Results
-stay inside the Space.
+them and grades the answers. The Space configures it, starts runs and shows
+the results. Results stay inside the Space.
 
 ```mermaid
 sequenceDiagram
@@ -18,15 +17,6 @@ sequenceDiagram
     S->>B: jobs, /console/report/* (session token)
 ```
 
-## Two kinds of product
-
-| `kind` | Measured | `score` means |
-| --- | --- | --- |
-| `answering` | the endpoint's own answer (`summary`, `both`) | the answer matched the reference |
-| `retrieval` | what the search returned (`raw`) | the search found the right material |
-
-Never render `score` without `kind`.
-
 ## Connecting a benchmark
 
 A Space ships with no benchmark. **Settings → Model access**
@@ -34,42 +24,48 @@ A Space ships with no benchmark. **Settings → Model access**
 key; this Space's address, index host/port and container name as the
 benchmark sees them — and the model providers: an address and a key for the shared default and for each role
 (question writer, web check, models being tested, judges). Each address shows
-whether it stays on this machine; saving a benchmark URL outside this machine
-asks for confirmation, since the keys are sent there.
+whether it stays on this machine or its Docker network: for a provider role
+the benchmark decides (`local` in its `/capabilities`, passed on by
+`GET /connections/{id}/provider`); for the benchmark URL and this Space's
+address the Space does (`GET /locality`, `locality.py`, the same rule). Saving
+a benchmark URL outside this machine asks for confirmation, since the keys are
+sent there.
 
 | Route (`/api/v1/benchmarks/...`) | What it does |
 | --- | --- |
 | `GET/POST /connections`, `PUT/DELETE /connections/{id}` | List, connect, edit, forget a benchmark |
-| `POST /connections/{id}/check` | Re-read the benchmark's health, capabilities, `/schema` and `/defaults` |
-| `PUT /connections/{id}/settings` | Space-wide `instrument` and `probe` (whole document, not patched) |
+| `POST /connections/{id}/check` | Re-read the benchmark's health, capabilities and `/defaults` |
 | `GET /connections/{id}/models`, `POST .../models/refresh` | The benchmark's model catalogue, passed through |
-| `GET/PUT /connections/{id}/provider` | Provider addresses (proxied to the benchmark's `GET/PUT /settings`) |
-| `PUT/DELETE /connections/{id}/provider/credentials/{name}` | One provider key: `llm_api_key`, `generator_key`, `filter_key`, `subject_key`, `judge_key` |
+| `GET /locality?url=` | Whether an address stays on this machine or its Docker network (`host`, `local`) |
+| `GET/PUT /connections/{id}/provider` | Provider addresses (proxied to the benchmark's `GET`/`PATCH /settings`), each role's `local` from its `/capabilities`. Only the five URL fields change; a blank one removes that override, so the benchmark's default applies |
+| `PUT/DELETE /connections/{id}/provider/credentials/{name}` | One provider key: `llm_api_key`, `generator_key`, `filter_key`, `subject_key`, `judge_key`; answers that key's `key_set`, `key_updated_at` |
 
 - **Keys** go straight to the benchmark's `PUT /credentials/{name}`, sealed
   there. The Space stores none and reads none back — only whether one is set
   and when. They are installation-wide: setting one changes the bill for every
-  Space sharing that benchmark.
+  Space sharing that benchmark. Once the benchmark has stored or cleared a key
+  the call succeeds; the key state it returns is read back from the key list,
+  or taken from the operation when that read fails.
 - **Index access**: the benchmark reads the endpoint's ChromaDB directly — by
   host and port, or via `docker exec` into the container when the port is 0.
   Corpus text never goes through the Space API. The collection name is
   resolved from the endpoint's dataset unless set explicitly.
-- **Settings layers**: the benchmark's own defaults, then the connection's
-  `instrument`/`probe`, then the endpoint's. An unset field inherits from the
-  layer above. The Space stores both layers as opaque documents, merges
-  connection and endpoint itself and pushes the result with
-  `PUT /targets/{slug}`.
+- **Settings**: the endpoint's `instrument`/`probe` over the benchmark's own
+  defaults; an unset field takes the default. The Space stores them as opaque
+  documents and pushes them with `PUT /targets/{slug}`.
 
 ## The endpoint's tabs
 
 **Benchmark setup** — the setup of one endpoint: five steps (*Your articles*, *Write
 questions*, *Remove what the web already knows*, *Ask the models*, *Grade the
-answers*), *Run settings* (schedule, hour in UTC, stop after failures, reuse
-identical answers, concurrency, *Stop measuring*), and a bottom bar with **Run
+answers*), *Run settings* (schedule, hour in UTC, stop after failures in a
+row, spending cap per run, reuse identical answers, concurrency, *Stop
+measuring*), and a bottom bar with **Run
 benchmark** / **Stop run** and live progress. Settings are locked while a run
 is in progress. A judge from the same company as a model under test is flagged,
 or blocks saving and running, depending on the *Same-company rule*. *Stop
-measuring* pauses the target (`enabled: false`) and keeps settings and runs.
+measuring* disables the target (`enabled: false`) and keeps settings and runs;
+*Resume measuring* enables it again.
 
 **Benchmark results** — what the runs found:
 
@@ -78,27 +74,25 @@ measuring* pauses the target (`enabled: false`) and keeps settings and runs.
 - A model with failed calls carries a failure badge; an answer that was
   allowed to search the web and did not shows *Searched: no*, with the reason
   in a tooltip.
+- Tooltips open on hover, keyboard focus or a tap.
 - **A run** (`?job=`): summary with *Download summary*
   (`.docx`); *How this run was tested* (`&screen=method`); per model under
   test (`&model=`): the model, every question and answer (`&screen=questions`),
   reliability checks (`&screen=checks`).
-- **Technical view** (`?tab=results&view=technical`): one card per finished
-  run (the card stored on its job; the newest measuring run's card is rebuilt
-  from what is graded right now), newest first. Each card: six tiles
-  (`correct`/`found`, `invented`, `questions`, `repeats`, `flipped`, `models`;
-  a dash means not computed), up to six charts, and **More data**: the run's
-  *Generate*, *Filter* and *Execute & Judge* tabs, *Download Excel*, and hand
-  verdict overrides.
+- **Details** switch (remembered in the browser): adds how the run was made —
+  per-kind build figures, what was sent, replied and judged for each question,
+  filter decisions, writer calls, and *Download Excel*.
 
 | Route (`/api/v1/benchmarks/endpoints/{slug}...`) | What it does |
 | --- | --- |
 | `GET`, `PUT` | Target settings |
-| `POST /check`, `GET /window?days=` | Can the benchmark reach the index and the endpoint; articles in the window |
+| `GET /window?days=` | Articles in the window |
 | `POST /runs` | Start a run (202) |
 | `GET /jobs`, `POST /jobs/{id}/cancel` | Runs, stop one |
-| `/console/pairs`, `/console/results`, `/console/report` | The benchmark's console, proxied |
+| `PATCH /console/pairs/{id}`, `POST/DELETE /console/results/{id}/verdict` | The benchmark's console, proxied |
 | `GET /report/runs?from=&to=` | Runs in progress, and finished runs paged |
-| `GET /report/runs/{job}` and `/questions`, `/generated`, `/filter`, `/questions/{qa}`, `/questions/{qa}/fragments` | One run's report, passed through |
+| `GET /report/runs/{job}` and `/questions`, `/generated`, `/filter`, `/writing`, `/pairs?ids=`, `/pairs/{qa}`, `/questions/{qa}`, `/questions/{qa}/fragments` | One run's report, passed through with its query (`filter?generator=`) |
+| `GET /console/results?qa_id=&model=&job=&prompts=` | One question's verdicts for one model; with `job`, `counted` marks the row the figures count |
 | `DELETE /report/runs/{job}` | Delete a finished run and its answers; questions stay |
 | `GET /report/runs/{job}/summary.docx`, `/export.xlsx` | Downloads |
 
@@ -106,16 +100,5 @@ Console and report calls are proxied: for each call the Space mints a session
 token scoped to this target and calls the benchmark's `/console/*` routes with
 it (see [control-api.md](../../../benchmark/docs/control-api.md)). The token
 never reaches the browser.
-
-## The card
-
-A job's card (`card` in `GET /jobs`) holds shares, counts and identifiers only:
-`kind`, `score`, `fabrication_rate`, `reliable`, `samples`, `answerable` /
-`unanswerable`, `models` (one row per model under test, never averaged),
-`skills`, `trust` (`flags` as codes: `few_samples`, `judges_disagree`,
-`uneven_coverage`, `pending_verdicts`, `failed_calls`), `dataset`,
-`instrument`, and `pressure` / `stability` when those blocks ran. The shape is
-documented in the benchmark's [08-card.md](../../../benchmark/docs/08-card.md).
-Questions, reference answers and corpus fragments stay with the benchmark.
 
 Benchmark wiring lives in `benchmark_connections` and `benchmark_targets`.

@@ -1,4 +1,4 @@
-"""The three arms, building the context and the audit trail.
+"""The arms, building the context and the audit trail.
 
 What is checked here is what the interpretation rests on: arms A and C differ
 by exactly the presence of context, an arm's incompatibility with the
@@ -8,7 +8,11 @@ answer.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+from typing import Any
+
+import pytest
 
 from syft_benchmark.config import (
     ARM_LETTER,
@@ -18,23 +22,22 @@ from syft_benchmark.config import (
     SpaceConfig,
     Verdict,
 )
+from syft_benchmark.llm import Provider
 from syft_benchmark.runs import (
     Asked,
     Grade,
+    Pool,
+    RunCache,
     arm_blocker,
     audit_record,
     build_context,
     pick_pairs,
     with_context_prompt,
 )
-from syft_benchmark.runs.endpoint import check_retrieval
-from syft_benchmark.runs.execute import (
-    _NEEDS_ANSWER,
-    _WITH_CONTEXT_SYSTEM,
-    CLOSED_BOOK_SYSTEM,
-    RETRIEVAL_ONLY_TOKENS,
-    _material_for,
-)
+from syft_benchmark.runs.endpoint import RETRIEVAL_ONLY_TOKENS, check_retrieval
+from syft_benchmark.runs.execute import CLOSED_BOOK_SYSTEM, aask_once
+
+from fakes import FakePair
 
 FRAGMENTS = [
     {
@@ -47,24 +50,79 @@ FRAGMENTS = [
 ]
 
 
-def _settings(**kwargs: object) -> Settings:
-    return Settings(**kwargs)  # type: ignore[arg-type]
+def _ask(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: ContextMode,
+    *,
+    source: ContextSource = ContextSource.ENDPOINT_FRAGMENTS,
+    documents: list[dict[str, Any]] | None = None,
+    pair: Any = None,
+    **settings: Any,
+) -> tuple[Asked, list[dict[str, Any]], list[tuple[str, str]]]:
+    """One question through ``aask_once``: what was asked, of the node and the model.
+
+    The node answers with ``documents`` (one port fragment by default) and a
+    ready answer; the model answers "Port 5442.".
+    """
+    node: list[dict[str, Any]] = []
+    model: list[tuple[str, str]] = []
+    found = documents or [
+        {
+            "content": "The port is published as 5442.",
+            "metadata": {"doc_id": "doc-1", "file_name": "setup.md"},
+            "similarity_score": 0.81,
+        }
+    ]
+
+    def endpoint(space: SpaceConfig, question: str, **kwargs: Any) -> Any:
+        node.append(kwargs)
+        return {"answer": "Port 5442.", "documents": found, "latency": 0.1}
+
+    def chat(system: str, user: str, **kwargs: Any) -> Any:
+        model.append((system, user))
+        return "Port 5442.", {"finish_reason": "stop"}
+
+    monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", endpoint)
+    monkeypatch.setattr("syft_benchmark.runs.parallel.chat", chat)
+    conf = Settings(**settings)
+
+    async def go() -> Asked:
+        pool = Pool(conf)
+        try:
+            return await aask_once(
+                pair or FakePair(),  # type: ignore[arg-type]
+                mode,
+                space=SpaceConfig(key="docs", url="http://node.local", endpoint="kb"),
+                settings=conf,
+                subject=Provider(
+                    role="subject", url="http://localhost:11434", api_key="", model="m"
+                ),
+                source=source,
+                pool=pool,
+                cache=RunCache(),
+            )
+        finally:
+            pool.close()
+
+    return asyncio.run(go()), node, model
 
 
 def test_every_arm_has_a_letter() -> None:
     """Every arm has a letter: the report speaks the methodology's language."""
     for mode in ContextMode:
-        assert ARM_LETTER[mode.value] in {"A", "B", "C"}
+        assert ARM_LETTER[mode.value] in {"A", "C"}
 
 
-def test_arms_a_and_c_differ_only_by_context() -> None:
+def test_arms_a_and_c_differ_only_by_context(monkeypatch: pytest.MonkeyPatch) -> None:
     """Arm C's instruction repeats the form of arm A's instruction.
 
     Let them diverge in style and the difference between the arms would measure
     the wording of the prompt, whereas it has to measure exactly the appearance
     of context.
     """
-    for system in (CLOSED_BOOK_SYSTEM, _WITH_CONTEXT_SYSTEM):
+    for mode in (ContextMode.CLOSED_BOOK, ContextMode.MODEL_WITH_CONTEXT):
+        _, _, model = _ask(monkeypatch, mode)
+        ((system, _user),) = model
         assert "I don't know" in system
         assert "Do not guess" in system or "do not guess" in system
 
@@ -159,17 +217,11 @@ def test_unknown_endpoint_mode_does_not_block_the_run() -> None:
     )
 
 
-def test_audit_keeps_prompts_and_the_judge_trail() -> None:
+def test_audit_keeps_prompts_and_the_judge_trail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A verdict can be rechecked: both prompts and the judge's answer are stored."""
-    asked = Asked(
-        answer="Port 5442.",
-        latency=0.4,
-        system=_WITH_CONTEXT_SYSTEM,
-        user=with_context_prompt("Which port?", "[1] setup.md\nPort 5442."),
-        retrieval={"retrieval_hit": True, "retrieval_rank": 1, "retrieved": FRAGMENTS},
-        context_source=ContextSource.ENDPOINT_FRAGMENTS,
-        context="[1] setup.md\nPort 5442.",
-    )
+    asked, _, _ = _ask(monkeypatch, ContextMode.MODEL_WITH_CONTEXT)
     verdict = Grade(
         Verdict.CORRECT,
         "matches the reference answer",
@@ -177,11 +229,11 @@ def test_audit_keeps_prompts_and_the_judge_trail() -> None:
         judge_user="judge user",
         judge_raw='{"correct": true}',
     )
-    record = audit_record(asked, verdict, _settings())
+    record = audit_record(asked, verdict, Settings())
 
     assert record["responder_prompt"].startswith("Question:")
     assert record["context_source"] == "endpoint_fragments"
-    assert record["context"] == "[1] setup.md\nPort 5442."
+    assert record["context"] == "[1] setup.md\nThe port is published as 5442."
     assert record["judge_raw"] == '{"correct": true}'
 
 
@@ -199,7 +251,7 @@ def test_audit_marks_verdicts_that_cost_no_model_call() -> None:
         context_source=ContextSource.NONE,
     )
     record = audit_record(
-        asked, Grade(Verdict.ABSTAIN, "refused to answer"), _settings()
+        asked, Grade(Verdict.ABSTAIN, "refused to answer"), Settings()
     )
     assert record["judged_without_model"] is True
     assert "judge_prompt" not in record
@@ -215,41 +267,26 @@ def test_audit_can_be_switched_off() -> None:
         retrieval={"retrieval_hit": None, "retrieval_rank": None, "retrieved": []},
         context_source=ContextSource.NONE,
     )
-    off = _settings(audit_log=False)
+    off = Settings(audit_log=False)
     assert audit_record(asked, Grade(Verdict.CORRECT, ""), off) == {}
-
-
-def test_space_overrides_the_retrieval_knobs() -> None:
-    """The threshold is tuned to the corpus, so it lives on the Space."""
-    conf = _settings(retrieval_top_k=5, similarity_threshold=0.0)
-    common = SpaceConfig(key="a", url="http://x", endpoint="e")
-    tuned = SpaceConfig(
-        key="b",
-        url="http://x",
-        endpoint="e",
-        retrieval_top_k=8,
-        similarity_threshold=0.45,
-    )
-    assert conf.retrieval_for(common) == (5, 0.0)
-    assert conf.retrieval_for(tuned) == (8, 0.45)
 
 
 def test_run_records_the_settings_that_produced_it() -> None:
     """A configurable methodology has to leave a trail in every run."""
-    conf = _settings(methodology_profile="strict", similarity_threshold=0.45)
-    params = conf.measurement_params(SpaceConfig(key="a", url="http://x", endpoint="e"))
+    conf = Settings(methodology_profile="strict", similarity_threshold=0.45)
+    params = conf.measurement_params()
     assert params["profile"] == "strict"
     assert params["similarity_threshold"] == 0.45
     assert "context_source" in params
 
 
-class _Pair:
-    """A pair as the pick needs it: the labelling, the generator and the time."""
-
-    def __init__(self, behavior: str, number: int, generator: str = "cloze") -> None:
-        self.expected_behavior = behavior
-        self.generator = generator
-        self.id = f"{behavior}-{generator}-{number}"
+def _pair(behavior: str, number: int, generator: str = "cloze") -> FakePair:
+    """A pair as the pick needs it: the labelling and the generator."""
+    return FakePair(
+        f"{behavior}-{generator}-{number}",
+        expected_behavior=behavior,
+        generator=generator,
+    )
 
 
 def test_every_generator_gets_its_share() -> None:
@@ -261,7 +298,7 @@ def test_every_generator_gets_its_share() -> None:
     at all, while the report called the result the model's accuracy.
     """
     rows = [
-        _Pair("answer", i, generator)
+        _pair("answer", i, generator)
         for generator in ("cloze", "mcq", "multihop", "tiered")
         for i in range(20)
     ]
@@ -276,8 +313,8 @@ def test_every_generator_gets_its_share() -> None:
 
 def test_a_generator_with_less_than_the_limit_gives_what_it_has() -> None:
     """A poor generator neither cancels the others' limit nor takes their place."""
-    rows = [_Pair("answer", i, "cloze") for i in range(10)]
-    rows += [_Pair("answer", i, "multihop") for i in range(2)]
+    rows = [_pair("answer", i, "cloze") for i in range(10)]
+    rows += [_pair("answer", i, "multihop") for i in range(2)]
     picked = pick_pairs(rows, 5)  # type: ignore[arg-type]
 
     by_generator: dict[str, int] = {}
@@ -296,12 +333,12 @@ def test_a_limit_never_drops_the_control_half() -> None:
     sample.
     """
     rows = [
-        _Pair("answer", i, generator)
+        _pair("answer", i, generator)
         for generator in ("cloze", "mcq", "multihop", "tiered")
         for i in range(20)
     ]
-    rows += [_Pair("abstain", i, "unanswerable") for i in range(20)]
-    rows += [_Pair("correct_premise", i, "false_premise") for i in range(20)]
+    rows += [_pair("abstain", i, "unanswerable") for i in range(20)]
+    rows += [_pair("correct_premise", i, "false_premise") for i in range(20)]
     picked = pick_pairs(rows, 4)  # type: ignore[arg-type]
 
     halves = {pair.expected_behavior for pair in picked}
@@ -316,12 +353,12 @@ def test_the_control_half_does_not_swallow_the_sample() -> None:
     checking silence, and half the skills were not measured at all.
     """
     rows = [
-        _Pair("answer", i, generator)
+        _pair("answer", i, generator)
         for generator in ("a", "b", "c", "d", "e", "f", "g", "h")
         for i in range(20)
     ]
-    rows += [_Pair("abstain", i, "unanswerable") for i in range(20)]
-    rows += [_Pair("correct_premise", i, "false_premise") for i in range(20)]
+    rows += [_pair("abstain", i, "unanswerable") for i in range(20)]
+    rows += [_pair("correct_premise", i, "false_premise") for i in range(20)]
     picked = pick_pairs(rows, 2)  # type: ignore[arg-type]
 
     control = sum(1 for p in picked if p.expected_behavior != "answer")
@@ -330,15 +367,15 @@ def test_the_control_half_does_not_swallow_the_sample() -> None:
 
 
 def test_a_limit_larger_than_the_set_returns_everything() -> None:
-    rows = [_Pair("answer", i) for i in range(3)]
+    rows = [_pair("answer", i) for i in range(3)]
     assert pick_pairs(rows, 10) == rows  # type: ignore[arg-type]
     assert pick_pairs(rows, None) == rows  # type: ignore[arg-type]
 
 
 def test_the_pick_is_deterministic() -> None:
     """Two runs with one limit must take the same items."""
-    rows = [_Pair("answer", i) for i in range(10)] + [
-        _Pair("abstain", i) for i in range(10)
+    rows = [_pair("answer", i) for i in range(10)] + [
+        _pair("abstain", i) for i in range(10)
     ]
     first = [p.id for p in pick_pairs(rows, 7)]  # type: ignore[arg-type]
     second = [p.id for p in pick_pairs(rows, 7)]  # type: ignore[arg-type]
@@ -347,11 +384,21 @@ def test_the_pick_is_deterministic() -> None:
 
 def test_one_half_alone_still_fills_the_limit() -> None:
     """While there are no control items, the limit works as it did before."""
-    rows = [_Pair("answer", i) for i in range(10)]
+    rows = [_pair("answer", i) for i in range(10)]
     assert len(pick_pairs(rows, 4)) == 4  # type: ignore[arg-type]
 
 
-def test_only_the_answer_sources_need_the_endpoint_to_write() -> None:
+@pytest.mark.parametrize(
+    ("source", "max_tokens"),
+    [
+        (ContextSource.ENDPOINT_FRAGMENTS, RETRIEVAL_ONLY_TOKENS),
+        (ContextSource.ENDPOINT_ANSWER, None),
+        (ContextSource.ENDPOINT_BOTH, None),
+    ],
+)
+def test_only_the_answer_sources_need_the_endpoint_to_write(
+    monkeypatch: pytest.MonkeyPatch, source: ContextSource, max_tokens: int | None
+) -> None:
     """Chunks do not need the endpoint's prose, and there is no point waiting for it.
 
     The answer mode is set by the owner: on a `both` endpoint a request always
@@ -359,9 +406,8 @@ def test_only_the_answer_sources_need_the_endpoint_to_write() -> None:
     cannot be cancelled, but one token can be asked for — on a local model that
     is the difference between seconds and minutes.
     """
-    assert ContextSource.ENDPOINT_FRAGMENTS not in _NEEDS_ANSWER
-    assert ContextSource.ENDPOINT_ANSWER in _NEEDS_ANSWER
-    assert ContextSource.ENDPOINT_BOTH in _NEEDS_ANSWER
+    _, node, _ = _ask(monkeypatch, ContextMode.MODEL_WITH_CONTEXT, source=source)
+    assert [call.get("max_tokens") for call in node] == [max_tokens]
     assert RETRIEVAL_ONLY_TOKENS >= 1, "the endpoint will not accept a zero"
 
 
@@ -381,7 +427,7 @@ def test_the_audit_shows_when_the_model_was_cut_off() -> None:
         context_source=ContextSource.NONE,
         usage={"finish_reason": "length", "truncated": True, "length_retry": True},
     )
-    record = audit_record(asked, Grade(Verdict.HALLUCINATE, ""), _settings())
+    record = audit_record(asked, Grade(Verdict.HALLUCINATE, ""), Settings())
 
     assert record["call"]["truncated"] is True
     assert record["call"]["length_retry"] is True
@@ -399,13 +445,15 @@ def test_pairs_without_a_generator_still_get_picked() -> None:
     assert len(pick_pairs(rows, 4)) == 4  # type: ignore[arg-type]
 
 
-def test_the_chunk_ceiling_decides_what_the_model_sees() -> None:
+def test_the_chunk_ceiling_decides_what_the_model_sees(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Not a storage limit. The arm C prompt is built from the cut text.
 
-    `check_retrieval` shortens each chunk and `_material_for` assembles the
-    context out of what it returned, so a chunk longer than the ceiling
-    reaches the model truncated while the endpoint in arm B saw it whole.
-    `chars` keeps the length before the cut.
+    `check_retrieval` shortens each chunk and the context is assembled out of
+    what it returned, so a chunk longer than the ceiling reaches the model
+    truncated while the endpoint saw it whole. `chars` keeps the length before
+    the cut.
     """
     long_text = "x" * 5000
     documents = [
@@ -426,16 +474,20 @@ def test_the_chunk_ceiling_decides_what_the_model_sees() -> None:
     assert len(whole["retrieved"][0]["content"]) == 5000
 
     # And the same number reaches the prompt, which is the point of it.
-    _, context = _material_for(
-        pair,  # type: ignore[arg-type]
-        {"documents": documents, "answer": ""},
-        source=ContextSource.ENDPOINT_FRAGMENTS,
-        settings=Settings(fragment_max_chars=500),
+    _, _, model = _ask(
+        monkeypatch,
+        ContextMode.MODEL_WITH_CONTEXT,
+        documents=documents,
+        pair=FakePair(doc_id="d1", file_name="long.md", context=""),
+        fragment_max_chars=500,
     )
-    assert context.count("x") == 500
+    ((_system, user),) = model
+    assert user.count("x") == 500
 
 
-def test_only_context_docs_of_what_was_found_reach_the_prompt() -> None:
+def test_only_context_docs_of_what_was_found_reach_the_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Five chunks found, three mixed in — and the other two are not a miss.
 
     `retrieval_top_k` and `context_docs` are two different numbers: everything
@@ -449,15 +501,15 @@ def test_only_context_docs_of_what_was_found_reach_the_prompt() -> None:
         }
         for number in range(1, 6)
     ]
-    pair = SimpleNamespace(doc_id="d4", file_name="f4.md", context="")
-
-    retrieval, context = _material_for(
-        pair,  # type: ignore[arg-type]
-        {"documents": documents, "answer": ""},
-        source=ContextSource.ENDPOINT_FRAGMENTS,
-        settings=Settings(context_docs=3),
+    asked, _, model = _ask(
+        monkeypatch,
+        ContextMode.MODEL_WITH_CONTEXT,
+        documents=documents,
+        pair=FakePair(doc_id="d4", file_name="f4.md", context=""),
+        context_docs=3,
     )
-    assert len(retrieval["retrieved"]) == 5
-    assert retrieval["retrieval_rank"] == 4
-    assert "fragment number 3" in context
-    assert "fragment number 4" not in context
+    assert len(asked.retrieval["retrieved"]) == 5
+    assert asked.retrieval["retrieval_rank"] == 4
+    ((_system, user),) = model
+    assert "fragment number 3" in user
+    assert "fragment number 4" not in user

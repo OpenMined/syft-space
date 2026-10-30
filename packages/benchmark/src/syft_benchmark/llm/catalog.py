@@ -1,19 +1,8 @@
 """The catalogue of models: one identity per model, whoever serves it.
 
-A model has **one identifier**, the vendor-namespaced slug
-``anthropic/claude-sonnet-5``, and the provider's own name for it is a detail of
-transport. That is what lets an installation move from one provider to another
-without rewriting its settings or losing the comparability of what it measured
-before.
-
-``build`` carries the dated snapshot a provider serves under that name today. It
-is recorded, not part of the identity: treating two builds as one model averages
-incomparable numbers, and splitting them loses a model's history the day its
-vendor refreshes it. The number is reported; the judgement is the reader's.
-
-The catalogue is not a whitelist. A model released this morning is in no
-snapshot, and an identifier nobody recognises passes through marked as unknown —
-refusing it would make the form less capable than a text box.
+A model's identifier is the vendor-namespaced slug (``anthropic/claude-sonnet-5``);
+the name each provider knows it by is an alias. The catalogue is not a
+whitelist: an identifier it does not know passes through, marked as unknown.
 """
 
 from __future__ import annotations
@@ -25,7 +14,7 @@ from importlib import resources
 from typing import Any, Literal
 
 from loguru import logger
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from syft_benchmark.config import Settings
 from syft_benchmark.llm.providers import ProviderKind
@@ -91,15 +80,6 @@ class ModelEntry(BaseModel):
         default="none",
         description="How it searches the web: native, the OpenRouter plugin, or not",
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _derive_web_search(cls, data: Any) -> Any:
-        """Rows stored before the field: plugin for OpenRouter, else none."""
-        if isinstance(data, dict) and data.get("web_search") is None:
-            remote = not data.get("local") and data.get("source") == "openrouter"
-            data = {**data, "web_search": "plugin" if remote else "none"}
-        return data
 
     @property
     def takes_temperature(self) -> bool:
@@ -259,23 +239,18 @@ def entry_matches(
 
 
 def _document_entries(
-    document: dict[str, Any], known: dict[str, ModelEntry] | None = None
+    document: dict[str, Any],
 ) -> tuple[list[ModelEntry], dict[str, str]]:
     """One catalogue document, validated into entries.
 
     A malformed entry is dropped with a line in the log: a catalogue that
-    refuses to load leaves the form with no models at all. An entry stored
-    without ``web_search`` takes the value an earlier document knew.
+    refuses to load leaves the form with no models at all.
     """
     source = str(document.get("source") or "")
     entries: list[ModelEntry] = []
     for raw in document.get("models") or []:
         try:
-            item = {**raw, "source": source}
-            earlier = (known or {}).get(str(raw.get("id") or ""))
-            if item.get("web_search") is None and earlier is not None:
-                item["web_search"] = earlier.web_search
-            entries.append(ModelEntry.model_validate(item))
+            entries.append(ModelEntry.model_validate({**raw, "source": source}))
         except ValueError as error:
             logger.warning(f"catalogue {source}: skipping a model — {error}")
     pins = {str(k): str(v) for k, v in (document.get("pins") or {}).items()}
@@ -293,7 +268,7 @@ def from_documents(documents: list[dict[str, Any]]) -> Catalog:
     fetched: dict[str, str] = {}
 
     for document in documents:
-        entries, document_pins = _document_entries(document, models)
+        entries, document_pins = _document_entries(document)
         for entry in entries:
             models[entry.id] = entry
         pins.update(document_pins)

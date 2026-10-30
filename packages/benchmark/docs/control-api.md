@@ -1,8 +1,8 @@
 # Control from outside
 
-The benchmark can be driven from the console or from the Space's UI through the
-control API. A measurement goes through the same stages as the console cycle
-([README.md](README.md)).
+The benchmark can be driven from the command line or from the Space through
+the control API. A measurement goes through the same stages as the `cycle`
+command ([README.md](README.md#4-the-command-line-cycle)).
 
 The Space's owner decides **what to measure, with what and when**; the
 benchmark decides **how the measurement is built**.
@@ -27,31 +27,20 @@ sequenceDiagram
 
 | Layer | What is in it | Where it is set |
 | --- | --- | --- |
-| **Installation** | defaults under everything: addresses, models, concurrency, thresholds | `installation_settings` row — `PUT /settings`, `syft-benchmark settings` |
-| **Instrument** | arms, blocks, judges, models under test, thresholds | `target.instrument` — the Space sends the same one to every target of a connection |
-| **Probe** | set mode, window, cap, top-up cost limit (`top_up_max_usd`), generators, `top_k`, similarity threshold | `target.probe` — per target |
+| **Installation** | defaults under everything: addresses, models, concurrency, thresholds | `installation_settings` row — `PATCH /settings`, `syft-benchmark settings` |
+| **Instrument** | arms, blocks, judges, models under test, thresholds | `target.instrument` — per target |
+| **Probe** | set mode, window, cap, top-up cost limit (`top_up_max_usd`), generators, `retrieval_top_k`, similarity threshold | `target.probe` — per target |
 
-Applied in order installation → instrument → probe (`compose.py`) on every
-launch; the closer to the node, the more authority. Each layer stores only
-overrides: an unset field means "take it from the layer below", not zero. A
-`RunRequest` may carry `instrument` / `probe` layers on top, for that launch
-only. The card states the instrument each run used.
+Applied in that order on every launch (`compose.py`); each layer stores only
+overrides, and a `RunRequest` may carry `instrument` / `probe` layers for that
+launch only. The full precedence, the environment included, and the
+environment-only fields (`BOOTSTRAP_FIELDS`, which `PATCH /settings` refuses):
+[01-setup.md](01-setup.md#where-a-setting-lives).
 
-**The environment is under the row:** read-only, from the deployment; a value
-in the row outranks it.
-
-**Environment only** (`BOOTSTRAP_FIELDS`; `PUT /settings` refuses them):
-`database_url`, `control_token`, `control_host`, `control_port`,
-`control_origins`, `spaces_file`, `secret_key`, `secret_keys_retired`, and the
-perimeter — `allow_external_models`, `external_hosts`.
-
-**Secrets** (`llm_api_key`, `generator_key`, `judge_key`, `subject_key`,
-`filter_key`, and
-each target's Space token) are sealed with AES-256-GCM in `credentials`, each
-ciphertext bound to its slot name. They are never in the settings document,
-snapshots, `/defaults` or logs, and are never handed out: `GET /credentials`
-lists names and when each was set. With no master key, storing a secret answers
-503.
+**Secrets** are never in the settings document, snapshots, `/defaults` or
+logs, and are never handed out: `GET /credentials` lists names and when each
+was set; with no master key, storing one answers 503. How they are stored:
+[01-setup.md](01-setup.md#where-a-secret-lives).
 
 ## The key and the service
 
@@ -80,14 +69,14 @@ cp .env.example .env                       # at least BENCH_CONTROL_TOKEN
 docker compose --profile service up -d --build
 ```
 
-Without the profile only the database comes up (the console flow). The image
+Without the profile only the database comes up (the command-line flow). The image
 runs `alembic upgrade head` and then `serve`; the container runs with `TZ=UTC`.
 
 The Space runs ChromaDB inside its container on `0.0.0.0:8100`; the benchmark
 joins the rig's network and reads it at `http://<Space container>:8100`. A
 target's `chroma_host` must be the Space's **container name**, not `localhost`.
-`docker exec` into the Space's container is the fallback when the port is not
-reachable; the compose file mounts no docker socket.
+`docker exec` into the Space's container is the fallback when `chroma_port` is
+0 or unreachable; the compose file mounts no docker socket.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
@@ -126,10 +115,10 @@ All routes except `/health` require `BENCH_CONTROL_TOKEN`.
 | `GET /models` | The model catalogue, filtered (`q`, `vendor`, `supports`, `lacks`, `web_search`, `include_retired`, `limit`) |
 | `POST /models/refresh` | Fetch the provider's model list and store it |
 | `GET /defaults` | What an unset field resolves to, per layer |
-| `GET/PUT /settings` | The installation's overrides; `PUT` replaces the whole document |
+| `GET /settings` | The installation's overrides |
+| `PATCH /settings` | Merge some fields into the overrides (JSON Merge Patch): a value sets one, `null` removes it so the default applies, unnamed fields keep theirs. Refuses environment-only fields; answers the whole document |
 | `GET /credentials` | Stored secret names and when they were set |
 | `PUT/DELETE /credentials/{name}` | Store a secret, sealed; remove one |
-| `POST /credentials/rotate` | Re-seal every secret under the active master key |
 | `GET /targets` | All targets, each with its last job |
 | `GET/PUT /targets/{key}` | Read, create or replace whole |
 | `POST /targets/{key}/check` | Are the index, the node and every configured model reachable |
@@ -137,10 +126,8 @@ All routes except `/health` require `BENCH_CONTROL_TOKEN`.
 | `POST /targets/{key}/runs` | Queue a measurement (202) |
 | `POST /targets/{key}/filter` | Queue a filter pass over pending pairs (202) |
 | `POST /targets/{key}/judge` | Queue a judging pass over pending verdicts (202) |
-| `POST /targets/{key}/report` | Build the card of the newest measuring launch — synchronous |
-| `POST /targets/{key}/session` | Mint a console session token — see [The console](#the-console) |
+| `POST /targets/{key}/session` | Mint a session token for the `/console/*` routes — see [The console](#the-console) |
 | `GET /targets/{key}/jobs` | The target's last 20 jobs |
-| `GET /jobs/{id}` | One job: state, progress, card |
 | `POST /jobs/{id}/cancel` | Ask a queued or running job to stop |
 
 Launches on a disabled target answer 409. `PUT /targets/{key}` and
@@ -170,23 +157,11 @@ list from `/models`.
 
 ## The console
 
-`POST /targets/{key}/session` (installation key required) mints a signed token
-scoped to one target, valid for an hour (`control/session.py`; no table). The
-Space's UI mints one per request and proxies through it; the benchmark's own
-frontend (`packages/benchmark/frontend`, served at `/ui` when built) holds it in
-the browser.
-
-```mermaid
-sequenceDiagram
-    participant O as Owner's browser
-    participant Sp as Syft Space
-    participant B as Benchmark
-    O->>Sp: "open the console" for one endpoint
-    Sp->>B: POST /targets/{key}/session (with BENCH_CONTROL_TOKEN)
-    B-->>Sp: a signed, single-target token
-    Sp-->>O: the console's URL, token attached
-    O->>B: GET /ui, then every /console/* call with that token
-```
+The `/console/*` routes serve one target and take a session token, not the
+installation key: `POST /targets/{key}/session` (installation key required)
+mints a signed token scoped to one target, valid for an hour
+(`control/session.py`; no table). The Space mints one per request and proxies
+the `/console/*` calls through it.
 
 `/console/*` returns what the service routes never do: question and answer
 texts, reasoning, block details (`denial`, `repeats` from `Result.extra`).
@@ -194,40 +169,43 @@ texts, reasoning, block details (`denial`, `repeats` from `Result.extra`).
 | Route | What it does |
 | --- | --- |
 | `GET/PUT /console/probe` | This target's probe layer, its fields, the inherited values. The instrument is not editable here |
-| `GET /console/pairs` | This target's pairs, filterable by status, cohort, generator |
+| `GET /console/pairs` | This target's pairs, filterable by status, cohort, generator, job |
 | `PATCH/DELETE /console/pairs/{id}` | Override a pair's status; delete it if no result references it |
-| `GET /console/results` | This target's results, filterable by verdict, pair, launch |
+| `GET /console/results` | This target's results, filterable by verdict, pair (`qa_id`), `model`, job; `prompts` adds the audit trail. With `job`, `counted` marks the row the job's figures count for each answer (`counted.pick`) |
 | `POST/DELETE /console/results/{id}/verdict` | Record a verdict by hand (inserted, not a rewrite); withdraw it |
 | `POST /console/runs` / `filter` / `judge` | The same launches as the service routes |
 | `GET /console/jobs` | This target's job history |
-| `POST /console/report` | Build the card; `job` names the launch, default the newest measuring one |
-
-`POST /console/report` returns the owner's view of the card: it adds
-`score_label` and `trust.doubts` (prose), which the stored card never carries
-(`owner_payload_for` in `report/card.py`). With `record`, the rebuilt card is
-stored on the job.
 
 Run reports, under `/console/report`:
 
 | Route | What it does |
 | --- | --- |
-| `GET /runs` | Active jobs and a page of finished runs |
+| `GET /runs` | Active jobs and a page of finished runs (`from`, `to`, `limit`, `offset`) |
 | `GET /runs/{job}` | One run's report, without per-question rows |
-| `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, cached figures and its records on the questions. Questions stay. 409 while queued or running |
-| `GET /runs/{job}/generated` | The questions the job wrote, and its build per kind (`topped_up`: written by the top-up) |
-| `GET /runs/{job}/filter` | The job's filter decisions |
+| `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, cached figures, writer calls and its records on the questions. Questions stay. 409 while queued or running |
+| `GET /runs/{job}/generated` | The questions the job wrote (`generator`, `status`), and its build per kind (`topped_up`: written by the top-up) |
+| `GET /runs/{job}/writing` | The job's writer calls that dropped drafts or failed, one item per call and kind |
+| `GET /runs/{job}/pairs?ids=` | Questions of the target by id (comma-separated, at most 200), whichever job wrote them |
+| `GET /runs/{job}/pairs/{qa}` | One question of the target with its meta |
+| `GET /runs/{job}/filter` | The job's filter decisions, including on questions earlier jobs wrote (`generator`, `stage`, `outcome`), paged; `limit=0` with a `generator` returns all of that kind; `counts` are of the `generator`, before `stage` and `outcome` |
 | `GET /runs/{job}/questions` | One model's questions in the run, paged |
 | `GET /runs/{job}/questions/{qa}` | One question in full |
 | `GET /runs/{job}/questions/{qa}/fragments` | The passages sent with the arm C answer |
 | `GET /runs/{job}/summary.docx` | The run's summary document: figures only |
-| `GET /runs/{job}/export.xlsx` | Everything in the run, full texts |
+| `GET /runs/{job}/export.xlsx` | Everything in the run, full texts: sheets Run, Generated, Rejected, Kept, Writer calls (the writer-call log: dropped drafts, failed calls), Filter, Answers, Judging, Timing |
+
+The pairs of `/generated`, `/pairs` and `/pairs/{qa}` carry `writer_call` and
+`entity_call` (`RecordedCall`): the call's texts, `user` with the passage in
+place, read from whichever pair of the call stores them, else from the
+writer-call log (`report/pair_calls.py`).
 
 ## The model provider
 
 `/capabilities` describes the provider without the key: address, app name,
 whether a key is set, open external hosts, and per role (generator, subject,
-judge, filter — the web check) its address, whether a key is set and whether
-it has its own provider.
+judge, filter — the web check) its address, whether a key is set, whether
+it has its own provider, and `local`: whether the address stays inside the
+perimeter (`config.host_is_inside`), which the Space shows as "on this machine".
 The key is changed in the benchmark's settings or secrets, never through the
 Space.
 
@@ -239,28 +217,30 @@ job per target: launching while one is queued or running returns that job.
 | State | Meaning |
 | --- | --- |
 | `queued` | Waiting |
-| `running` | In progress; `phase` (`generate`, `filter`, `evaluate`, `judge`, `report`) says where |
+| `running` | In progress; `phase` (`generate`, `filter`, `evaluate`, `judge`) says where |
 | `succeeded` | Finished; a non-empty `error` means partly |
 | `failed` | Did not reach the end |
 | `cancelled` | Stopped; what was measured stays |
 
 `kind` is `pipeline` (`/runs`), `filter` or `judge`. Stopping is a request:
 the run finishes the current question and exits. A job whose priced calls reach
-$100 is stopped the same way (`over_budget: …`).
+`max_job_usd` (instrument layer; default 100, 0 — no cap) is stopped the same
+way and ends `cancelled` with `over_budget: …`.
 
 Every run a job opens carries its id, so a launch's report and audit can be
 read afterwards (`syft-benchmark audit <space> --job <id>`). A launch that
 resumed a finished pass opens no run for it; those verdicts belong to the
-earlier launch. Runs started from the CLI have no job.
+earlier launch. Verdicts added after a launch (a judging pass, judging through
+a chat, an override) are recorded under the launch whose answers they grade.
+Runs started from the CLI have no job.
 
 | Error code | When |
 | --- | --- |
 | `nothing_generated: …` | The set was to be built and every generator call failed |
 | `no_questions` | There was nothing to ask |
 | `nothing_graded: …` | Questions were asked, no verdict came out |
-| `no_card` | Nothing to report |
 | `over_budget: …` | The spending cap stopped the job |
-| `target_gone` | The target no longer exists |
+| `target_gone` | The target was deleted |
 | `service_restarted` | The process restarted mid-job |
 
 ### What a launch does
@@ -272,23 +252,12 @@ earlier launch. Runs started from the CLI have no job.
 | `generate` | Build the set first. `null` — as `generate_in_cycle` says |
 | `filter` | Screen the pending pairs just built. `null` — follow `generate` |
 | `evaluate` | Ask and grade. `null` — yes |
-| `defer_judging` | Collect answers without a judge, leaving verdicts `pending`; no card. Default `false` |
-| `limit` | Items **per generator**, for a trial run; the card flags `few_samples` |
+| `defer_judging` | Collect answers without a judge, leaving verdicts `pending`. Default `false` |
+| `limit` | Items **per generator**, for a trial run |
 | `instrument`, `probe` | Layers for this launch only |
 
-`evaluate: false` only refreshes the set: no questions, no card, `total` stays
+`evaluate: false` only refreshes the set: no questions, `total` stays
 `0`. `defer_judging: true` leaves grading to `POST /targets/{key}/judge`.
-
-### The card
-
-`job.card` holds the card built at the end of a measurement (`phase`
-`report`). The Space reads it through the job routes for its Benchmark results
-tab. `card_outdated` on a run report says the live figures differ from it.
-
-A card is of one launch: the job of the newest run. Filtering and judging open
-no runs, so they improve that launch's card rather than start a new one. When
-the newest run has no job (started from the CLI), the card is the node as of
-now.
 
 ## The target registry
 

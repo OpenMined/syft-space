@@ -1,5 +1,7 @@
+/** The Space's benchmark routes: connections, providers, per-endpoint setup, runs and reports. */
 import { apiClient } from '../client'
 import type {
+  AddressLocality,
   BenchmarkConnection,
   BenchmarkConnectionRequest,
   BenchmarkFilterOutcome,
@@ -9,12 +11,12 @@ import type {
   BenchmarkJob,
   BenchmarkModelCatalog,
   BenchmarkPair,
-  BenchmarkPairPage,
+  BenchmarkRunPair,
+  BenchmarkRunPairs,
   BenchmarkPairStatus,
   BenchmarkQuestionDetail,
   BenchmarkQuestionPage,
   BenchmarkQuestionQuery,
-  BenchmarkReport,
   BenchmarkReportFragment,
   BenchmarkResult,
   BenchmarkResultPage,
@@ -25,6 +27,8 @@ import type {
   BenchmarkTargetRequest,
   BenchmarkVerdict,
   BenchmarkWindow,
+  BenchmarkWritingPage,
+  ProviderKeyState,
   ProviderResponse,
   ProviderUrls,
 } from '../types'
@@ -73,6 +77,12 @@ export const benchmarksApi = {
     await apiClient.delete(`/benchmarks/connections/${id}`)
   },
 
+  /** Whether an address stays on this machine or its Docker network. */
+  locality: async (url: string): Promise<AddressLocality> => {
+    const response = await apiClient.get('/benchmarks/locality', { params: { url } })
+    return response.data
+  },
+
   // --- the model providers ---------------------------------------------------
 
   getProvider: async (connectionId: string): Promise<ProviderResponse> => {
@@ -89,7 +99,7 @@ export const benchmarksApi = {
     connectionId: string,
     name: string,
     value: string,
-  ): Promise<ProviderResponse> => {
+  ): Promise<ProviderKeyState> => {
     const response = await apiClient.put(
       `/benchmarks/connections/${connectionId}/provider/credentials/${name}`,
       { value },
@@ -100,7 +110,7 @@ export const benchmarksApi = {
   deleteProviderCredential: async (
     connectionId: string,
     name: string,
-  ): Promise<ProviderResponse> => {
+  ): Promise<ProviderKeyState> => {
     const response = await apiClient.delete(
       `/benchmarks/connections/${connectionId}/provider/credentials/${name}`,
     )
@@ -156,25 +166,7 @@ export const benchmarksApi = {
     return response.data
   },
 
-  // --- pairs, results, verdicts --------------------------------------------
-
-  listPairs: async (
-    slug: string,
-    filters: {
-      status?: string
-      cohort?: string
-      generator?: string
-      /** One job's questions, rejected ones included. */
-      job?: string
-      limit?: number
-      offset?: number
-    },
-  ): Promise<BenchmarkPairPage> => {
-    const response = await apiClient.get(`/benchmarks/endpoints/${slug}/console/pairs`, {
-      params: filters,
-    })
-    return response.data
-  },
+  // --- questions, answers, verdicts -------------------------------------------
 
   updatePairStatus: async (
     slug: string,
@@ -189,16 +181,14 @@ export const benchmarksApi = {
     return response.data
   },
 
-  deletePair: async (slug: string, pairId: string): Promise<void> => {
-    await apiClient.delete(`/benchmarks/endpoints/${slug}/console/pairs/${pairId}`)
-  },
-
   listResults: async (
     slug: string,
     filters: {
       verdict?: string
       qa_id?: string
-      /** One job's answers. */
+      /** One model's answers. */
+      model?: string
+      /** One job's answers, each marked whether its figures count it (`counted`). */
       job?: string
       limit?: number
       offset?: number
@@ -228,11 +218,6 @@ export const benchmarksApi = {
   /** Remove a manual verdict; the judges' verdict applies again. */
   withdrawVerdict: async (slug: string, resultId: string): Promise<void> => {
     await apiClient.delete(`/benchmarks/endpoints/${slug}/console/results/${resultId}/verdict`)
-  },
-
-  buildReport: async (slug: string): Promise<BenchmarkReport> => {
-    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/console/report`)
-    return response.data
   },
 
   // --- run reports -----------------------------------------------------------
@@ -265,11 +250,40 @@ export const benchmarksApi = {
     return response.data
   },
 
+  /** Questions of the target by id (at most 200), whichever job wrote them. */
+  getRunPairs: async (
+    slug: string,
+    jobId: string,
+    ids: readonly string[],
+  ): Promise<BenchmarkRunPairs> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/pairs`, {
+      params: { ids: ids.join(',') },
+    })
+    return response.data
+  },
+
+  /** One question of a run, with its writing and filter records and the calls behind it. */
+  getRunPair: async (slug: string, jobId: string, qaId: string): Promise<BenchmarkRunPair> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/pairs/${qaId}`)
+    return response.data
+  },
+
+  /** A job's writer calls, with the drafts each dropped. */
+  getRunWriting: async (
+    slug: string,
+    jobId: string,
+    params: { generator?: string; limit?: number; offset?: number } = {},
+  ): Promise<BenchmarkWritingPage> => {
+    const response = await apiClient.get(`${reportPath(slug, jobId)}/writing`, { params })
+    return response.data
+  },
+
   /** A job's filter decisions, newest first. */
   listRunFilter: async (
     slug: string,
     jobId: string,
     params: {
+      generator?: string
       stage?: BenchmarkFilterStage
       outcome?: BenchmarkFilterOutcome
       limit?: number

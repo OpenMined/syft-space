@@ -1,20 +1,9 @@
 """questions remember the launch that built them
 
-A pair has always known which pool it belongs to (``cohort``) and when it was
-written, and that was enough while the only question asked of it was "is it in
-the measurement now". It is not enough for the question the run's own page
-asks: **what did THIS launch generate** — including what it generated and then
-threw away.
-
-``cohort`` cannot answer that. A pool is built afresh only when the dataset
-mode says so; an incremental launch adds to the pool that is already there, so
-two launches a day apart share one cohort and their questions are
-indistinguishable by it.
-
-NULL is not a gap: every pair written before this column existed belongs to no
-launch anyone can name, and a page that scopes to a launch simply has nothing
-to show for it. That is the honest answer, and it is the same one
-``runs.job_id`` gives for a run opened outside the queue.
+``qa_pairs.job_id``: which launch built the pair, including pairs it built and
+then rejected. ``cohort`` cannot say: an incremental launch adds to the pool
+already there. NULL — a pair no launch can be named for, as ``runs.job_id``
+for a run opened outside the queue.
 
 Revision ID: d7b41f2a9c60
 Revises: c8a4f19bde27

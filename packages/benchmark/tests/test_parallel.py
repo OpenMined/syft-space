@@ -18,33 +18,15 @@ from syft_benchmark.llm import Provider
 from syft_benchmark.runs import Pool, Progress, RunCache
 from syft_benchmark.runs.execute import aask_once
 
+from fakes import FakePair
+
 SPACE = SpaceConfig(key="docs", url="http://node.local", endpoint="kb")
-
-
-def _settings(**kwargs: object) -> Settings:
-    return Settings(**kwargs)  # type: ignore[arg-type]
 
 
 def _provider(model: str) -> Provider:
     return Provider(
         role="subject", url="http://localhost:11434", api_key="", model=model
     )
-
-
-class _Pair:
-    """An item in the volume a question needs."""
-
-    def __init__(self, number: int = 1) -> None:
-        self.id = f"pair-{number}"
-        self.question = f"What port does rig {number} use?"
-        self.answer = "5442"
-        self.context = "The port is published as 5442."
-        self.task_type = "open"
-        self.expected_behavior = "answer"
-        self.generator = "cloze"
-        self.meta: dict[str, Any] = {}
-        self.doc_id = "doc-1"
-        self.file_name = "setup.md"
 
 
 def _outcome(answer: str = "Port 5442.") -> dict[str, Any]:
@@ -117,9 +99,9 @@ def test_one_question_costs_the_rag_one_call(monkeypatch: Any) -> None:
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", node)
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
 
-    conf = _settings(context_source=ContextSource.ENDPOINT_FRAGMENTS)
+    conf = Settings(context_source=ContextSource.ENDPOINT_FRAGMENTS)
     cache = RunCache()
-    pair = _Pair()
+    pair = FakePair()
 
     async def ask_all(pool: Pool) -> None:
         await asyncio.gather(
@@ -159,9 +141,9 @@ def test_the_rag_is_asked_once_even_when_everyone_starts_together(
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", node)
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
 
-    conf = _settings(endpoint_concurrency=8)
+    conf = Settings(endpoint_concurrency=8)
     cache = RunCache()
-    pair = _Pair()
+    pair = FakePair()
 
     async def ask_all(pool: Pool) -> None:
         await asyncio.gather(
@@ -200,9 +182,9 @@ def test_closed_book_searches_the_web_and_context_does_not(monkeypatch: Any) -> 
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", node)
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
 
-    conf = _settings()
+    conf = Settings()
     cache = RunCache()
-    pair = _Pair()
+    pair = FakePair()
 
     async def both_arms(pool: Pool) -> None:
         await aask_once(
@@ -245,9 +227,9 @@ def test_prose_is_fetched_when_the_cache_holds_only_retrieval(
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", node)
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
 
-    conf = _settings()
+    conf = Settings()
     cache = RunCache()
-    pair = _Pair()
+    pair = FakePair()
 
     async def fragments_then_prose(pool: Pool) -> None:
         for source in (
@@ -291,7 +273,7 @@ def test_a_broken_node_is_not_remembered(monkeypatch: Any) -> None:
         return _outcome()
 
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", flaky)
-    conf = _settings()
+    conf = Settings()
     cache = RunCache()
 
     async def twice(pool: Pool) -> list[dict[str, Any]]:
@@ -312,7 +294,7 @@ def test_the_cache_can_be_switched_off(monkeypatch: Any) -> None:
     """Measuring the spread of repeated calls itself is a legitimate task."""
     node = _Node()
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", node)
-    conf = _settings()
+    conf = Settings()
     cache = RunCache(enabled=False)
 
     async def twice(pool: Pool) -> None:
@@ -323,6 +305,32 @@ def test_the_cache_can_be_switched_off(monkeypatch: Any) -> None:
 
     _run(twice, conf)
     assert len(node.calls) == 2
+
+
+def test_with_the_cache_off_concurrent_askers_each_make_their_own_call(
+    monkeypatch: Any,
+) -> None:
+    """Askers of one prompt at the same time share nothing when reuse is off:
+    the spread of repeated calls is then what is measured."""
+    model = _Model(delay=0.05)
+    monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
+    conf = Settings(concurrency=8)
+    cache = RunCache(enabled=False)
+    subject = _provider("vendor/model")
+
+    async def together(pool: Pool) -> list[tuple[str, dict[str, Any]]]:
+        return await asyncio.gather(
+            *(
+                cache.answer(subject, "system", "question", pool=pool, settings=conf)
+                for _ in range(4)
+            )
+        )
+
+    answers = _run(together, conf)
+
+    assert len(model.calls) == 4
+    assert cache.savings.model_reused == 0
+    assert not any(usage.get("reused") for _answer, usage in answers)
 
 
 # --- the model answer cache ------------------------------------------------
@@ -336,7 +344,7 @@ def test_the_same_prompt_is_not_asked_twice(monkeypatch: Any) -> None:
     """
     model = _Model()
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
-    conf = _settings()
+    conf = Settings()
     cache = RunCache()
     subject = _provider("vendor/model")
 
@@ -353,7 +361,7 @@ def test_a_different_model_is_a_different_answer(monkeypatch: Any) -> None:
     """The key remembers who was asked: otherwise one model would be measured."""
     model = _Model()
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
-    conf = _settings()
+    conf = Settings()
     cache = RunCache()
 
     async def two_models(pool: Pool) -> None:
@@ -377,9 +385,9 @@ def test_context_makes_the_prompt_another_question(monkeypatch: Any) -> None:
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", node)
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
 
-    conf = _settings()
+    conf = Settings()
     cache = RunCache()
-    pair = _Pair()
+    pair = FakePair()
     subject = _provider("vendor/model")
 
     async def arms_a_and_c(pool: Pool) -> None:
@@ -420,7 +428,7 @@ def test_waiting_is_done_in_parallel(monkeypatch: Any) -> None:
     """
     model = _Model(delay=0.1)
     monkeypatch.setattr("syft_benchmark.runs.parallel.chat", model)
-    conf = _settings(concurrency=8)
+    conf = Settings(concurrency=8)
     cache = RunCache()
 
     async def eight(pool: Pool) -> None:
@@ -463,7 +471,7 @@ def test_the_node_keeps_its_own_narrower_lane(monkeypatch: Any) -> None:
         return _outcome()
 
     monkeypatch.setattr("syft_benchmark.runs.parallel.ask_endpoint", counting)
-    conf = _settings(concurrency=16, endpoint_concurrency=2)
+    conf = Settings(concurrency=16, endpoint_concurrency=2)
     cache = RunCache(enabled=False)
 
     async def many(pool: Pool) -> None:
@@ -567,7 +575,7 @@ class _Stand:
         import syft_benchmark.runs.parallel as parallel
 
         self.node = _Node()
-        self.pairs = [_Pair(i) for i in range(pairs)]
+        self.pairs = [FakePair.numbered(i) for i in range(pairs)]
         self.saved: list[Any] = []
         self.answers: list[tuple[str, str]] = []
         self.judged = 0
@@ -619,7 +627,7 @@ def test_the_rag_is_asked_once_per_question_across_the_whole_run(
     from syft_benchmark.runs import run_pass
 
     stand = _Stand(monkeypatch, pairs=6)
-    conf = _settings(
+    conf = Settings(
         concurrency=8,
         endpoint_concurrency=2,
         context_source=ContextSource.ENDPOINT_FRAGMENTS,
@@ -665,7 +673,7 @@ def test_pressure_starts_from_the_answer_direct_already_got(monkeypatch: Any) ->
     from syft_benchmark.runs import run_pass
 
     stand = _Stand(monkeypatch, pairs=4)
-    conf = _settings(concurrency=4, denial_rounds=1)
+    conf = Settings(concurrency=4, denial_rounds=1)
     cache = RunCache()
     judges = [
         Provider(
@@ -748,7 +756,7 @@ def _one_pass(block: Any, **conf: object) -> None:
     run_pass(
         SPACE,
         ContextMode.CLOSED_BOOK,
-        settings=_settings(concurrency=2, text_metrics=[], **conf),
+        settings=Settings(concurrency=2, text_metrics=[], **conf),
         subject=_provider("vendor/m"),
         block=block,
         judges=judges,
@@ -822,7 +830,7 @@ def test_resume_asks_only_what_is_missing(monkeypatch: Any) -> None:
     reports = run_pass(
         SPACE,
         ContextMode.CLOSED_BOOK,
-        settings=_settings(concurrency=4),
+        settings=Settings(concurrency=4),
         subject=_provider("vendor/m"),
         block=EvalBlock.DIRECT,
         judges=[judge],
@@ -861,7 +869,7 @@ def test_resume_still_asks_a_question_one_judge_of_two_has_not_graded(
     reports = run_pass(
         SPACE,
         ContextMode.CLOSED_BOOK,
-        settings=_settings(concurrency=4),
+        settings=Settings(concurrency=4),
         subject=_provider("vendor/m"),
         block=EvalBlock.DIRECT,
         judges=judges,
@@ -901,7 +909,7 @@ def test_a_finished_pass_is_not_reopened(monkeypatch: Any) -> None:
     reports = run_pass(
         SPACE,
         ContextMode.CLOSED_BOOK,
-        settings=_settings(),
+        settings=Settings(),
         subject=_provider("vendor/m"),
         block=EvalBlock.DIRECT,
         judges=[judge],
@@ -938,7 +946,7 @@ def test_without_the_flag_nothing_is_skipped(monkeypatch: Any) -> None:
     run_pass(
         SPACE,
         ContextMode.CLOSED_BOOK,
-        settings=_settings(),
+        settings=Settings(),
         subject=_provider("vendor/m"),
         block=EvalBlock.DIRECT,
         judges=[
@@ -971,7 +979,7 @@ def test_deferred_judging_records_the_answer_without_a_verdict(
     reports = run_pass(
         SPACE,
         ContextMode.CLOSED_BOOK,
-        settings=_settings(concurrency=4),
+        settings=Settings(concurrency=4),
         subject=_provider("vendor/m"),
         block=EvalBlock.DIRECT,
         judges=[
@@ -1005,7 +1013,7 @@ def test_a_deferred_run_still_settles_what_costs_no_judge(monkeypatch: Any) -> N
     run_pass(
         SPACE,
         ContextMode.CLOSED_BOOK,
-        settings=_settings(concurrency=4),
+        settings=Settings(concurrency=4),
         subject=_provider("vendor/m"),
         block=EvalBlock.DIRECT,
         judges=[
@@ -1046,7 +1054,7 @@ def test_every_subject_model_is_asked_the_same_questions(monkeypatch: Any) -> No
         run_pass(
             SPACE,
             ContextMode.CLOSED_BOOK,
-            settings=_settings(concurrency=4),
+            settings=Settings(concurrency=4),
             subject=_provider(name),
             block=EvalBlock.DIRECT,
             judges=[judge],
@@ -1069,7 +1077,7 @@ def test_the_selection_is_deterministic() -> None:
     """
     from syft_benchmark.runs import pick_pairs
 
-    rows = [_Pair(i) for i in range(20)]
+    rows = [FakePair.numbered(i) for i in range(20)]
     for pair in rows[:10]:
         pair.generator = "mcq"
 

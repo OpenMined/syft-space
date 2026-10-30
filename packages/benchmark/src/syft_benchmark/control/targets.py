@@ -1,25 +1,18 @@
-"""The registry of nodes under test: a table, with a file as its seed.
+"""The registry of nodes under test: a table, seeded from a file.
 
-The order is exactly this. The table has priority, because it is edited from
-the UI and the edits have to be visible in a running process. The file
-``config/spaces.json`` stays and keeps working: an installation configured by
-it comes up and measures, knowing nothing about the UI. A target from the file
-becomes a table row at the very first use; after that the row is what is
-configured, and the file does not override it.
+The table wins: it is edited from the UI. ``config/spaces.json`` seeds a row at
+first use and is never written back to.
 
-There is deliberately no way back: changes from the UI are not written to the
-file. A service that rewrites a human's configuration file sooner or later
-wipes out something it did not understand.
-
-Both ways in come through ``resolve``: the service's job runner and the
-console's commands ask this module for a node, and get the same row with the
-same layers applied.
+The service's job runner and the CLI both get a node through ``resolve``: the
+same row with the same layers applied.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from loguru import logger
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -82,8 +75,7 @@ def view(target: Target, *, has_token: bool = False) -> TargetView:
     """A target for the UI: without the token, but saying that there is one.
 
     Whether there is one is passed in rather than read here: the tokens live in
-    another table now, and a view of twenty targets that went to the database
-    once per target would be twenty queries to answer one boolean each.
+    another table, and a list view would otherwise query once per target.
     """
     return TargetView(
         key=target.key,
@@ -161,6 +153,12 @@ def seed(session: Session, settings: Settings | None = None) -> int:
         spaces = conf.load_spaces()
     except FileNotFoundError:
         return 0
+    except (ValueError, ValidationError) as exc:
+        # A broken seed file (bad encoding, JSON or fields) is logged, not
+        # fatal: the table is the registry, and the service and every CLI
+        # command must come up without the file.
+        logger.warning(f"the seed file {conf.spaces_file} was not read: {exc}")
+        return 0
     known = {key for (key,) in session.execute(select(Target.key))}
     added = 0
     for space in spaces:
@@ -187,11 +185,9 @@ def seed(session: Session, settings: Settings | None = None) -> int:
     return added
 
 
-def all_targets(session: Session, *, enabled_only: bool = False) -> list[Target]:
+def all_targets(session: Session) -> list[Target]:
     """All targets in the order they were created."""
     stmt = select(Target).order_by(Target.created_at, Target.key)
-    if enabled_only:
-        stmt = stmt.where(Target.enabled.is_(True))
     return list(session.scalars(stmt))
 
 

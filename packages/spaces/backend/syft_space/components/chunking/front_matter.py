@@ -7,12 +7,10 @@ travel as ``doc_*`` chunk metadata instead of being embedded as text.
 """
 
 import re
+from collections.abc import Iterator
 from typing import Any
 
-try:
-    import yaml
-except ImportError:  # pragma: no cover - PyYAML ships with uvicorn[standard]
-    yaml = None
+import yaml
 
 # A header must close within these limits; otherwise the leading ``---`` is
 # treated as ordinary content (e.g. a horizontal rule) and nothing is split.
@@ -31,22 +29,22 @@ _LINE_RE = re.compile(r"[^\r\n]*(?:\r\n|\n|\r|$)")
 _FLAT_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]+(.*?))?[ \t]*$")
 _KEY_SANITIZE_RE = re.compile(r"[^a-z0-9_]")
 
-if yaml is not None:
 
-    class _NoTimestampLoader(yaml.SafeLoader):
-        """SafeLoader that keeps dates as the strings written in the file."""
-
-    _NoTimestampLoader.yaml_implicit_resolvers = {
-        first: [
-            (tag, regexp)
-            for tag, regexp in resolvers
-            if tag != "tag:yaml.org,2002:timestamp"
-        ]
-        for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
-    }
+class _NoTimestampLoader(yaml.SafeLoader):
+    """SafeLoader that keeps dates as the strings written in the file."""
 
 
-def _iter_lines(text: str):
+_NoTimestampLoader.yaml_implicit_resolvers = {
+    first: [
+        (tag, regexp)
+        for tag, regexp in resolvers
+        if tag != "tag:yaml.org,2002:timestamp"
+    ]
+    for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def _iter_lines(text: str) -> Iterator[tuple[str, bool, int, int]]:
     """Yield ``(line_without_eol, has_eol, start, end)`` for each line."""
     for match in _LINE_RE.finditer(text):
         raw = match.group(0)
@@ -85,13 +83,12 @@ def _parse_block(block: str) -> dict[str, Any] | None:
     flat = _parse_flat(block)
     if not flat or not KNOWN_KEYS & {key.lower() for key in flat}:
         return None
-    if yaml is not None:
-        try:
-            loaded = yaml.load(block, Loader=_NoTimestampLoader)  # noqa: S506  # nosec B506
-        except yaml.YAMLError:
-            loaded = None
-        if isinstance(loaded, dict) and set(map(str, loaded)) == set(flat):
-            return {str(key): value for key, value in loaded.items()}
+    try:
+        loaded = yaml.load(block, Loader=_NoTimestampLoader)  # noqa: S506  # nosec B506
+    except yaml.YAMLError:
+        loaded = None
+    if isinstance(loaded, dict) and set(map(str, loaded)) == set(flat):
+        return {str(key): value for key, value in loaded.items()}
     return flat
 
 

@@ -1,26 +1,12 @@
-"""The frozen slice: that exact set of questions, not "roughly the same one".
+"""The frozen slice: an exact set of questions, so runs are comparable.
 
-A port of `eval_arena/question_set.py` from LiveTruth. The task is the same, and
-it is not about convenience but about comparability.
+The live set changes (``generate`` adds items, screening rejects pairs), and
+two runs selected on the fly take different sets. A slice pins the ``qa_id``
+list in order together with a **fingerprint** of each question and gold
+answer: an id survives regeneration, its text does not, and a changed item
+becomes a refusal rather than a silent substitution.
 
-Our set is alive: ``generate`` adds items every cycle, screening moves pairs to
-``rejected``, the labelling of the control half gets refined. As long as "which
-questions" is decided by selection on the fly, two runs take different sets — and
-the difference in numbers between them means not what was measured but that the
-set has grown. This is especially visible where the comparison is the whole point
-of the measurement: arms A and C are obliged to go over one set, otherwise "the
-price of context" is computed between different halves.
-
-The slice pins the list of ``qa_id`` in order, together with a **fingerprint** of
-the question and the gold answer. Identifiers alone are not enough: a pair
-survives regeneration, its text does not. The gold answer was refined, the
-question reworded — the identifier is the same, the item is different, and the
-answers collected relate to the previous one. The fingerprint turns that
-substitution from silent into a refusal.
-
-A slice is the WHOLE selection. ``--limit`` does not apply with it: the limit
-would select from what has already been selected and would bring back exactly the
-drift the slice exists to prevent.
+A slice is the WHOLE selection: ``--limit`` does not apply to it.
 """
 
 from __future__ import annotations
@@ -35,9 +21,7 @@ from loguru import logger
 
 from syft_benchmark.db import QaPair
 
-# The format version. A slice outlives a run and survives code edits: if the
-# format ever changes, an old file should say so itself rather than fall apart
-# during parsing.
+# The file format version; a slice from another version is refused on load.
 SLICE_VERSION = 1
 
 
@@ -46,12 +30,7 @@ class SliceMismatch(RuntimeError):
 
 
 def fingerprint(question: str, answer: str) -> str:
-    """A short fingerprint of the question together with the gold answer.
-
-    The gold answer enters the fingerprint on a par with the question: a refined
-    gold answer changes the item no less than a reworded question does — the
-    judge compares the answer against precisely that.
-    """
+    """A short fingerprint of the question together with the gold answer."""
     payload = "\x00".join([question.strip(), answer.strip()])
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 

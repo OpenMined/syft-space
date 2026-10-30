@@ -1,19 +1,8 @@
-"""Model roles: generator, model under test, judge.
+"""Model roles: where each role calls, and with what key and model.
 
-Three roles with separate providers. The separation is substantive, not formal:
-
-  * the **generator** works over documents and therefore should normally stay
-    inside the perimeter;
-  * the **models under test** do not see documents at all — all they get is the
-    question — and they are almost always external models: the point of the
-    measurement is to compare the endpoint with what is available to everyone;
-  * the **judge** must not be from the same provider as the model under test. A
-    model more readily approves an answer in its own style, and a match of
-    providers makes the verdict an interested one.
-
-An empty address for a role means "take the shared one", from ollama_url. That
-way a configuration with a single local model stays one line long, and the roles
-can be pulled apart when that is actually needed.
+A judge must not be from the same company as the model under test
+(``judge_policy``). An empty address or key for a role means the shared one
+(``ollama_url``, ``llm_api_key``).
 """
 
 from __future__ import annotations
@@ -214,6 +203,20 @@ def filter_provider(settings: Settings) -> Provider | None:
         settings.filter_url or settings.subject_url,
         settings.filter_key or settings.subject_key,
         settings.filter_model,
+        settings,
+    )
+
+
+def filter_judge_provider(settings: Settings) -> Provider:
+    """The web check's judge: ``filter_judge_model`` at the judges' address,
+    else the first judge of the panel."""
+    if not settings.filter_judge_model:
+        return judge_provider(settings)
+    return _resolve(
+        "judge",
+        settings.judge_url,
+        settings.judge_key,
+        settings.filter_judge_model,
         settings,
     )
 

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /** One provider role: what it sends and where, its address, and its key (saved on its own). */
 import { computed, ref } from 'vue'
+import Hint from '@/components/benchmark/Hint.vue'
 import InfoTip from '@/components/benchmark/InfoTip.vue'
 import LocalityChip from '@/components/benchmark/LocalityChip.vue'
+import { TONE } from '@/components/benchmark/labels'
 import { localityTip, type KeySource } from '@/components/benchmark/modelAccess'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,32 +20,42 @@ const props = defineProps<{
   placeholder: string
   /** The address the role actually calls. */
   target: string
-  local: boolean
-  keySet: boolean
+  /** Whether `target` stays inside the perimeter, as the benchmark judged it; null when unknown. */
+  local: boolean | null
+  /** Whether a key is stored for the role; null when the benchmark's keys could not be read. */
+  keySet: boolean | null
   keySource: KeySource
   busy: boolean
+  /** Stores a key; resolves true once stored. */
+  saveKey: (value: string) => Promise<boolean>
 }>()
 
 const KEY_LABELS: Record<KeySource, string> = {
   own: 'Key set',
   inherited: 'Inherited key',
   none: 'No key',
+  unknown: 'Key unknown',
+}
+
+const KEY_HINTS: Partial<Record<KeySource, string>> = {
+  inherited: 'Uses the key of the role it follows.',
+  unknown: 'The benchmark did not list its keys.',
 }
 
 const emit = defineEmits<{
   'update:url': [string]
-  saveKey: [string]
   clearKey: []
 }>()
 
 const keyInput = ref('')
 
-const whereTip = computed(() => localityTip(props.target, 'Sent to'))
+const whereTip = computed(() => localityTip(props.target, !!props.local, 'Sent to'))
 
-function saveKey() {
-  if (!keyInput.value) return
-  emit('saveKey', keyInput.value)
-  keyInput.value = ''
+/** The typed key stays in the box until the save succeeds, so a refusal does not lose it. */
+async function submitKey() {
+  const value = keyInput.value
+  if (!value) return
+  if (await props.saveKey(value)) keyInput.value = ''
 }
 </script>
 
@@ -60,18 +72,15 @@ function saveKey() {
         </p>
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
-        <LocalityChip v-if="sends" :local="local" :tip="whereTip" />
-        <span
-          class="text-xs px-2 py-1 rounded-md"
-          :class="
-            keySource === 'own'
-              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-              : 'bg-muted text-muted-foreground'
-          "
-          :title="keySource === 'inherited' ? 'Uses the key of the role it follows.' : undefined"
-        >
-          {{ KEY_LABELS[keySource] }}
-        </span>
+        <LocalityChip v-if="sends && local !== null" :local="local" :tip="whereTip" />
+        <Hint :text="KEY_HINTS[keySource] ?? null">
+          <span
+            class="text-xs px-2 py-1 rounded-md"
+            :class="keySource === 'own' ? TONE.good : TONE.muted"
+          >
+            {{ KEY_LABELS[keySource] }}
+          </span>
+        </Hint>
       </div>
     </div>
 
@@ -101,12 +110,12 @@ function saveKey() {
             variant="outline"
             class="h-8 px-2 text-xs"
             :disabled="props.busy"
-            @click="saveKey"
+            @click="submitKey"
           >
             Save
           </Button>
           <Button
-            v-else-if="keySet"
+            v-else-if="keySet === true"
             size="sm"
             variant="ghost"
             class="h-8 px-2 text-xs text-destructive hover:text-destructive"

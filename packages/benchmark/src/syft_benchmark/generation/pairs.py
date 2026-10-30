@@ -11,6 +11,7 @@ may be deleted; the guard is ``db.pair_guard.delete_pairs``.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -44,8 +45,12 @@ class PairView:
     expected_behavior: str
     document_title: str
     file_name: str
+    # The unit (chunk, or ``doc:<id>``) it was written from.
+    chunk_id: str
     meta: dict[str, Any]
     created_at: datetime
+    # The job whose build wrote it; None for a pair written outside a job.
+    job_id: str | None
     # Whether any Result points at this pair — the one fact that decides
     # whether it can be deleted outright or only retired/rejected.
     has_results: bool
@@ -66,8 +71,10 @@ def _view(row: QaPair, *, has_results: bool) -> PairView:
         expected_behavior=row.expected_behavior,
         document_title=row.document_title,
         file_name=row.file_name,
+        chunk_id=row.chunk_id,
         meta=dict(row.meta or {}),
         created_at=row.created_at,
+        job_id=row.job_id,
         has_results=has_results,
     )
 
@@ -79,6 +86,7 @@ def list_pairs(
     cohort: str | None = None,
     generator: str | None = None,
     job: str | None = None,
+    ids: Collection[str] | None = None,
     limit: int = 50,
     offset: int = 0,
     settings: Settings | None = None,
@@ -91,8 +99,9 @@ def list_pairs(
         cohort: Only this cohort; None — every cohort
         generator: Only this generator's pairs; None — every generator
         job: Only what this launch generated; None — everything the node has.
-            Pairs older than the column, or built outside the queue, belong to
-            no launch and are matched by no value of this
+            A pair with no ``job_id`` belongs to no launch and is matched by
+            no value of this
+        ids: Only these pairs; None — every pair
         limit: Page size, capped at `MAX_PAGE`
         offset: How many to skip, for paging
         settings: The process settings
@@ -113,6 +122,8 @@ def list_pairs(
             base = base.where(QaPair.generator == generator)
         if job:
             base = base.where(QaPair.job_id == job)
+        if ids is not None:
+            base = base.where(QaPair.id.in_(sorted(ids)))
 
         total = session.execute(
             select(func.count()).select_from(base.subquery())

@@ -27,6 +27,8 @@ from syft_space.components.benchmarks.handlers import BenchmarkHandler
 from syft_space.components.benchmarks.routes import build_benchmark_routes
 from syft_space.components.tenants.dependency import get_tenant_dependency
 
+from .conftest import make_settings_repo
+
 TENANT = SimpleNamespace(id=uuid4(), name="default")
 ENDPOINT_ID = uuid4()
 SLUG = "support-kb"
@@ -94,12 +96,10 @@ class _Console:
             },
         )
 
-    async def stream(
-        self, path: str, *, params: dict | None = None
-    ) -> tuple[Reply, AsyncIterator[bytes] | None]:
+    async def stream(self, path: str, *, params: dict | None = None) -> Reply:
         self.calls.append(("GET", path, None, params or {}))
         if "/missing/" in path:
-            return Reply(ok=False, status=404, detail="there is no job missing"), None
+            return Reply(ok=False, status=404, detail="there is no job missing")
 
         async def body() -> AsyncIterator[bytes]:
             for chunk in XLSX_CHUNKS:
@@ -111,7 +111,7 @@ class _Console:
                 'attachment; filename="support-kb-run-2026-09-30-0300.xlsx"'
             ),
         }
-        return Reply(ok=True, status=200, headers=headers), body()
+        return Reply(ok=True, data=body(), status=200, headers=headers)
 
 
 def _endpoint() -> SimpleNamespace:
@@ -144,10 +144,10 @@ def _handler() -> tuple[BenchmarkHandler, _Console]:
         target_repository=targets,
         endpoint_repository=endpoints,
         dataset_repository=AsyncMock(),
-        dataset_registry=SimpleNamespace(),
+        dataset_registry=SimpleNamespace(),  # type: ignore[arg-type]
+        settings_repository=make_settings_repo(),
+        client_factory=lambda url, token: console,  # type: ignore[arg-type,return-value]
     )
-    handler._client = lambda connection: console  # type: ignore[method-assign,assignment]
-    handler._console_client = lambda connection, token: console  # type: ignore[method-assign,assignment]
     return handler, console
 
 
@@ -230,13 +230,17 @@ def test_questions_route_passes_every_query_parameter_through() -> None:
 @pytest.mark.parametrize(
     ("part", "query"),
     [
-        ("filter", {"stage": "web_check", "outcome": "removed", "limit": "10"}),
+        (
+            "filter",
+            {"generator": "qa", "stage": "web_check", "outcome": "removed"},
+        ),
+        ("filter", {"generator": "qa", "limit": "0"}),
         ("generated", {"generator": "mcq", "status": "active", "offset": "5"}),
+        ("writing", {"generator": "qa", "limit": "20", "offset": "40"}),
+        ("pairs", {"ids": "qa-1,qa-2"}),
     ],
 )
-def test_filter_and_generated_pass_the_query_through(
-    part: str, query: dict[str, str]
-) -> None:
+def test_run_lists_pass_the_query_through(part: str, query: dict[str, str]) -> None:
     handler, console = _handler()
     resp = _app(handler).get(
         f"/benchmarks/endpoints/{SLUG}/report/runs/job-mid/{part}", params=query
@@ -246,6 +250,25 @@ def test_filter_and_generated_pass_the_query_through(
     method, path, _, params = console.calls[-1]
     assert (method, path) == ("GET", f"/console/report/runs/job-mid/{part}")
     assert params == query
+
+
+def test_pairs_by_id_need_the_ids() -> None:
+    handler, console = _handler()
+    resp = _app(handler).get(f"/benchmarks/endpoints/{SLUG}/report/runs/job-mid/pairs")
+    assert resp.status_code == 422
+    assert not console.calls
+
+
+def test_one_models_results_are_asked_for_by_name() -> None:
+    handler, console = _handler()
+    query = {"qa_id": "qa-7", "job": "job-mid", "model": "m1", "prompts": "true"}
+    resp = _app(handler).get(
+        f"/benchmarks/endpoints/{SLUG}/console/results", params=query
+    )
+    assert resp.status_code == 200
+    method, path, _, params = console.calls[-1]
+    assert (method, path) == ("GET", "/console/results")
+    assert {k: v for k, v in params.items() if v} == {**query, "prompts": "true"}
 
 
 def test_a_benchmark_refusal_keeps_its_status() -> None:
@@ -273,6 +296,22 @@ def test_question_detail_and_fragments_are_proxied_with_the_model() -> None:
     assert console.calls[-1][1] == (
         "/console/report/runs/job-mid/questions/qa-7/fragments"
     )
+
+
+def test_one_pair_is_proxied_from_its_run() -> None:
+    handler, console = _handler()
+    resp = _app(handler).get(
+        f"/benchmarks/endpoints/{SLUG}/report/runs/job-mid/pairs/qa-7"
+    )
+    assert resp.status_code == 200
+    assert console.calls[-1][:2] == ("GET", "/console/report/runs/job-mid/pairs/qa-7")
+
+
+def test_no_route_builds_an_endpoint_card() -> None:
+    handler, console = _handler()
+    resp = _app(handler).post(f"/benchmarks/endpoints/{SLUG}/console/report")
+    assert resp.status_code in (404, 405)
+    assert not console.calls
 
 
 def test_deleting_a_run_reaches_the_benchmark_and_passes_a_refusal_on() -> None:
@@ -352,16 +391,16 @@ async def test_the_client_streams_a_file_and_reads_a_refusal(
         lambda **kw: real(transport=httpx.MockTransport(answer), **kw),
     )
     client = BenchmarkClient("http://benchmark:8200", "k")
-    reply, body = await client.stream("/console/report/runs/j/export.xlsx")
-    assert reply.ok and body is not None
+    reply = await client.stream("/console/report/runs/j/export.xlsx")
+    assert reply.ok
     assert reply.headers == {
         "content-type": XLSX,
         "content-disposition": 'attachment; filename="a.xlsx"',
     }
-    assert b"".join([chunk async for chunk in body]) == b"".join(XLSX_CHUNKS)
+    assert b"".join([chunk async for chunk in reply.data]) == b"".join(XLSX_CHUNKS)
 
-    reply, body = await client.stream("/console/report/runs/gone/export.xlsx")
-    assert body is None
+    reply = await client.stream("/console/report/runs/gone/export.xlsx")
+    assert reply.data is None
     assert (reply.ok, reply.status, reply.detail) == (
         False,
         404,
@@ -369,16 +408,59 @@ async def test_the_client_streams_a_file_and_reads_a_refusal(
     )
 
 
-# --- the console pairs filter ----------------------------------------------
+class _BrokenBody(httpx.AsyncByteStream):
+    """A body the connection drops while it is read."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        raise httpx.ReadError("connection dropped")
+        yield b""  # pragma: no cover - makes this an async generator
 
 
-def test_pairs_status_filter_is_forwarded_as_status() -> None:
+@pytest.mark.asyncio
+async def test_a_refusal_that_breaks_while_read_is_a_failed_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The streaming client is closed and the failure returned, not raised."""
+    made: list[httpx.AsyncClient] = []
+    real = httpx.AsyncClient
+
+    def open_client(**kw: object) -> httpx.AsyncClient:
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(500, stream=_BrokenBody())
+        )
+        made.append(real(transport=transport, **kw))  # type: ignore[arg-type]
+        return made[-1]
+
+    monkeypatch.setattr(client_module.httpx, "AsyncClient", open_client)
+    reply = await BenchmarkClient("http://benchmark:8200", "k").stream("/x.xlsx")
+    assert (reply.ok, reply.status) == (False, 0)
+    assert "connection dropped" in reply.detail
+    assert made[0].is_closed
+
+
+# --- the console results list ----------------------------------------------
+
+
+def test_results_without_paging_ask_for_the_benchmarks_default_page() -> None:
+    """No ``limit`` or ``offset`` in the request means none sent, not zero."""
     handler, console = _handler()
     resp = _app(handler).get(
-        f"/benchmarks/endpoints/{SLUG}/console/pairs", params={"status": "rejected"}
+        f"/benchmarks/endpoints/{SLUG}/console/results", params={"verdict": "wrong"}
     )
     assert resp.status_code == 200
     _, path, _, params = console.calls[-1]
-    assert path == "/console/pairs"
-    assert params["status"] == "rejected"
-    assert "status_filter" not in params
+    assert path == "/console/results"
+    assert params["verdict"] == "wrong"
+    assert params["limit"] is None
+    assert params["offset"] is None
+
+
+def test_results_paging_passes_through_as_given() -> None:
+    handler, console = _handler()
+    resp = _app(handler).get(
+        f"/benchmarks/endpoints/{SLUG}/console/results",
+        params={"limit": 50, "offset": 100},
+    )
+    assert resp.status_code == 200
+    params = console.calls[-1][3]
+    assert (params["limit"], params["offset"]) == (50, 100)

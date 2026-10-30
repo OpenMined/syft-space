@@ -21,52 +21,22 @@ from syft_benchmark.generation.rotation import (
 )
 from syft_benchmark.sources.chroma import parse_date
 
+from fakes import FakePair, StoreStub
+
 _NOW = datetime(2026, 9, 14, 12, 0, tzinfo=UTC)
 
 
-def _settings(**kwargs: object) -> Settings:
-    return Settings(**kwargs)  # type: ignore[arg-type]
-
-
 def _rolling(**kwargs: object) -> Settings:
-    return _settings(dataset_mode=DatasetMode.ROLLING, **kwargs)
+    return Settings(dataset_mode=DatasetMode.ROLLING, **kwargs)
 
 
-class _Pair:
-    """An item in the volume the set recompute needs."""
-
-    def __init__(
-        self,
-        pair_id: str,
-        doc_id: str,
-        status: str = PairStatus.ACTIVE.value,
-        behavior: str = "answer",
-        generator: str = "cloze",
-        cohort: str = "",
-    ) -> None:
-        self.id = pair_id
-        self.doc_id = doc_id
-        self.status = status
-        self.expected_behavior = behavior
-        self.generator = generator
-        self.cohort = cohort
-
-
-class _Store:
+class _Store(StoreStub):
     """A database in the volume the recompute needs: reading pairs and two updates."""
 
-    def __init__(self, pairs: list[_Pair]) -> None:
+    def __init__(self, pairs: list[FakePair]) -> None:
+        super().__init__()
         self.pairs = pairs
         self.updates: list[tuple[set[str], str]] = []
-
-    def __call__(self, *args: Any, **kwargs: Any) -> _Store:
-        return self
-
-    def __enter__(self) -> _Store:
-        return self
-
-    def __exit__(self, *exc: Any) -> bool:
-        return False
 
     def execute(self, stmt: Any) -> _Store:
         if str(stmt).startswith("UPDATE"):
@@ -87,6 +57,9 @@ class _Store:
     def scalars(self) -> list[Any]:
         return self.pairs
 
+    def scalar_one(self) -> int:
+        return len(self.pairs)
+
     def all(self) -> list[Any]:
         return [(p.status, 1) for p in self.pairs]
 
@@ -94,7 +67,7 @@ class _Store:
         return None
 
 
-def _install(monkeypatch: Any, pairs: list[_Pair]) -> _Store:
+def _install(monkeypatch: Any, pairs: list[FakePair]) -> _Store:
     store = _Store(pairs)
     monkeypatch.setattr(rotation, "session_scope", store)
     # No runs exist in the fake store, so there is no cache to drop.
@@ -120,16 +93,16 @@ def test_the_window_keeps_only_recent_documents() -> None:
         "fresh": _NOW - timedelta(days=2),
         "old": _NOW - timedelta(days=30),
     }
-    kept, undated = fresh_ids(dated, _settings(document_window_days=7), now=_NOW)
+    kept, undated = fresh_ids(dated, Settings(document_window_days=7), now=_NOW)
     assert kept == {"fresh"}
     assert undated == 0
 
 
 def test_no_window_means_the_whole_corpus() -> None:
     dated = {"a": _NOW - timedelta(days=900), "b": None}
-    kept, undated = fresh_ids(dated, _settings(document_window_days=0), now=_NOW)
+    kept, undated = fresh_ids(dated, Settings(document_window_days=0), now=_NOW)
     assert kept == {"a", "b"}
-    assert window_start(_settings(document_window_days=0)) is None
+    assert window_start(Settings(document_window_days=0)) is None
 
 
 def test_an_undated_document_is_kept_and_counted() -> None:
@@ -139,7 +112,7 @@ def test_an_undated_document_is_kept_and_counted() -> None:
     foreign format; so it stays, and the number of such is said out loud.
     """
     dated = {"dated": _NOW, "no_date": None}
-    kept, undated = fresh_ids(dated, _settings(document_window_days=1), now=_NOW)
+    kept, undated = fresh_ids(dated, Settings(document_window_days=1), now=_NOW)
     assert kept == {"dated", "no_date"}
     assert undated == 1
 
@@ -150,7 +123,7 @@ def test_yesterday_is_a_window_of_one_day() -> None:
         "yesterday": _NOW - timedelta(hours=20),
         "week_ago": _NOW - timedelta(days=7),
     }
-    kept, _ = fresh_ids(dated, _settings(document_window_days=1), now=_NOW)
+    kept, _ = fresh_ids(dated, Settings(document_window_days=1), now=_NOW)
     assert kept == {"yesterday"}
 
 
@@ -194,8 +167,10 @@ def test_incremental_never_takes_anything_out(monkeypatch: Any) -> None:
     The call is made anyway, so that the generation report names the size of the set
     in both modes rather than in one.
     """
-    store = _install(monkeypatch, [_Pair("p1", "d1"), _Pair("p2", "d2")])
-    report = rotate("docs", {"d1": _NOW}, settings=_settings(), now=_NOW)
+    store = _install(
+        monkeypatch, [FakePair("p1", doc_id="d1"), FakePair("p2", doc_id="d2")]
+    )
+    report = rotate("docs", {"d1": _NOW}, settings=Settings(), now=_NOW)
 
     assert store.updates == []
     assert report.retired == 0
@@ -204,7 +179,7 @@ def test_incremental_never_takes_anything_out(monkeypatch: Any) -> None:
 def test_a_document_out_of_the_window_leaves_the_dataset(monkeypatch: Any) -> None:
     store = _install(
         monkeypatch,
-        [_Pair("p1", "fresh"), _Pair("p2", "old")],
+        [FakePair("p1", doc_id="fresh"), FakePair("p2", doc_id="old")],
     )
     dated = {"fresh": _NOW, "old": _NOW - timedelta(days=30)}
     report = rotate("docs", dated, settings=_rolling(document_window_days=7), now=_NOW)
@@ -222,7 +197,7 @@ def test_nothing_is_ever_deleted(monkeypatch: Any) -> None:
     An item carries the verdicts of every previous run, and the foreign key is set
     with a cascade: deleting a question means carrying off the measurement history.
     """
-    store = _install(monkeypatch, [_Pair("p1", "old")])
+    store = _install(monkeypatch, [FakePair("p1", doc_id="old")])
     rotate(
         "docs",
         {"old": _NOW - timedelta(days=99)},
@@ -245,7 +220,7 @@ def test_a_document_back_in_the_window_brings_its_pairs_back(
     """
     store = _install(
         monkeypatch,
-        [_Pair("p1", "d1", status=PairStatus.RETIRED.value)],
+        [FakePair("p1", doc_id="d1", status=PairStatus.RETIRED.value)],
     )
     report = rotate(
         "docs", {"d1": _NOW}, settings=_rolling(document_window_days=7), now=_NOW
@@ -259,7 +234,7 @@ def test_a_rejected_pair_never_comes_back(monkeypatch: Any) -> None:
     """Screening is a verdict on the gold answer; the window is beside the point."""
     store = _install(
         monkeypatch,
-        [_Pair("p1", "d1", status=PairStatus.REJECTED.value)],
+        [FakePair("p1", doc_id="d1", status=PairStatus.REJECTED.value)],
     )
     # Screened-out ones do not reach the recompute at all: the query takes only the
     # active and the retired.
@@ -279,10 +254,13 @@ def test_the_cap_keeps_both_halves_of_the_set(monkeypatch: Any) -> None:
     of exactly one, and a round over generators entails a round over halves.
     """
     pairs = [
-        _Pair(f"pa{i}", "d1", behavior="answer", generator="cloze") for i in range(20)
+        FakePair(f"pa{i}", doc_id="d1", expected_behavior="answer", generator="cloze")
+        for i in range(20)
     ]
     pairs += [
-        _Pair(f"pb{i}", "d1", behavior="abstain", generator="unanswerable")
+        FakePair(
+            f"pb{i}", doc_id="d1", expected_behavior="abstain", generator="unanswerable"
+        )
         for i in range(20)
     ]
     store = _install(monkeypatch, pairs)
@@ -304,7 +282,7 @@ def test_the_cap_keeps_both_halves_of_the_set(monkeypatch: Any) -> None:
 def test_the_cap_spreads_across_generators(monkeypatch: Any) -> None:
     """The generators measure different things; the cap must not go to two of them."""
     pairs = [
-        _Pair(f"{gen}{i}", "d1", generator=gen)
+        FakePair(f"{gen}{i}", doc_id="d1", generator=gen)
         for gen in ("cloze", "mcq", "multihop", "tiered")
         for i in range(10)
     ]
@@ -326,9 +304,12 @@ def test_the_cap_spreads_across_generators(monkeypatch: Any) -> None:
 
 def test_a_rolling_cap_takes_the_kinds_in_turn(monkeypatch: Any) -> None:
     """The newest article first within a kind, never one kind over the others."""
-    pairs = [_Pair(f"trick{i}", "d-new", generator="unanswerable") for i in range(6)]
+    pairs = [
+        FakePair(f"trick{i}", doc_id="d-new", generator="unanswerable")
+        for i in range(6)
+    ]
     pairs += [
-        _Pair(f"{gen}{i}", "d-old", generator=gen)
+        FakePair(f"{gen}{i}", doc_id="d-old", generator=gen)
         for gen in ("cloze", "mcq", "multihop")
         for i in range(2)
     ]
@@ -348,7 +329,7 @@ def test_a_rolling_cap_takes_the_kinds_in_turn(monkeypatch: Any) -> None:
 
 
 def test_no_cap_means_everything_in_the_window_stays(monkeypatch: Any) -> None:
-    store = _install(monkeypatch, [_Pair(f"p{i}", "d1") for i in range(50)])
+    store = _install(monkeypatch, [FakePair(f"p{i}", doc_id="d1") for i in range(50)])
     report = rotate(
         "docs", {"d1": _NOW}, settings=_rolling(dataset_max_pairs=0), now=_NOW
     )
@@ -387,8 +368,8 @@ def test_a_previous_cohort_leaves_the_dataset(monkeypatch: Any) -> None:
     store = _install(
         monkeypatch,
         [
-            _Pair("old1", "d1", cohort="20260907-0300"),
-            _Pair("new1", "d1", cohort="20260914-0300"),
+            FakePair("old1", doc_id="d1", cohort="20260907-0300"),
+            FakePair("new1", doc_id="d1", cohort="20260914-0300"),
         ],
     )
     report = rotate(
@@ -411,7 +392,9 @@ def test_the_previous_cohort_is_kept_in_the_database(monkeypatch: Any) -> None:
     Its items carry the verdicts of every run that went over it — the very thing the
     new one will be compared against.
     """
-    store = _install(monkeypatch, [_Pair("old1", "d1", cohort="20260907-0300")])
+    store = _install(
+        monkeypatch, [FakePair("old1", doc_id="d1", cohort="20260907-0300")]
+    )
     rotate("docs", {"d1": _NOW}, cohort="20260914-0300", settings=_rolling(), now=_NOW)
 
     statuses = set(_statuses(store).values())
@@ -499,8 +482,8 @@ def test_a_rebuild_honours_the_period_in_any_mode(monkeypatch: Any) -> None:
     store = _install(
         monkeypatch,
         [
-            _Pair("fresh", "recent", cohort="20260914-0300"),
-            _Pair("stale", "ancient", cohort="20260914-0300"),
+            FakePair("fresh", doc_id="recent", cohort="20260914-0300"),
+            FakePair("stale", doc_id="ancient", cohort="20260914-0300"),
         ],
     )
     dated = {"recent": _NOW, "ancient": _NOW - timedelta(days=90)}
@@ -510,7 +493,7 @@ def test_a_rebuild_honours_the_period_in_any_mode(monkeypatch: Any) -> None:
         dated,
         cohort="20260914-0300",
         rebuilding=True,
-        settings=_settings(document_window_days=7),  # the mode is incremental
+        settings=Settings(document_window_days=7),  # the mode is incremental
         now=_NOW,
     )
 
@@ -528,7 +511,7 @@ def test_an_empty_corpus_never_empties_the_dataset(monkeypatch: Any) -> None:
     take every last item out of the measurement, the next run would measure
     emptiness, and it would look like the ordinary progress of the window.
     """
-    store = _install(monkeypatch, [_Pair(f"p{i}", "d1") for i in range(50)])
+    store = _install(monkeypatch, [FakePair(f"p{i}", doc_id="d1") for i in range(50)])
     report = rotate("docs", {}, settings=_rolling(document_window_days=7), now=_NOW)
 
     assert store.updates == [], "the set was touched on an empty corpus"
@@ -538,7 +521,7 @@ def test_an_empty_corpus_never_empties_the_dataset(monkeypatch: Any) -> None:
 
 def test_a_window_that_matches_nothing_still_retires(monkeypatch: Any) -> None:
     """The documents were read but are all old — the window decided, not a failure."""
-    store = _install(monkeypatch, [_Pair("p1", "ancient")])
+    store = _install(monkeypatch, [FakePair("p1", doc_id="ancient")])
     report = rotate(
         "docs",
         {"ancient": _NOW - timedelta(days=90)},

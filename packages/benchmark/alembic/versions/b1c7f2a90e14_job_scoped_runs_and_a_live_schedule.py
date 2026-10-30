@@ -1,26 +1,14 @@
 """job-scoped runs and a live schedule
 
-Two changes, and they are one change: the service starts measuring by itself,
-and what it measured becomes findable afterwards.
+``runs.job_id`` ties a run to the launch it belongs to, so the report and the
+audit of one measurement can be scoped to it. Nullable: a run started from the
+console belongs to no job. No foreign key, for the reason ``jobs`` has none on
+``targets``: a cascade must not carry off the history of what was measured.
 
-``runs.job_id`` ties a run to the launch it was born of. Until now a job and
-its runs shared a target and a span of time and nothing else, so "the report of
-this measurement" and "the audit of this measurement" could only be
-approximated by timestamps -- which cannot tell a nightly run from one somebody
-started by hand in the same hour. Nullable, because a run started from the
-console belongs to no job and never will: backfilling those would mean
-inventing launches that never happened. No foreign key, for the reason ``jobs``
-has none on ``targets`` -- the history of what was measured must not be carried
-off by a cascade from a row somebody tidied up.
-
-``targets.next_run_at`` is what makes the stored schedule fire. It holds the
-moment rather than recomputing it, so that a 24h schedule fires once in the
-hour it is due in rather than on every tick of that hour, and so that saving a
-schedule for the first time does not answer the owner with hours of paid work.
-
-The comment on ``schedule_at`` changes with it: the hour is UTC now, and says
-so. A container does not know the owner's night, and a service that guessed at
-it from its own clock would shift every schedule the day the host moved.
+``targets.next_run_at`` is the moment the stored schedule fires next, stored so
+that a 24h schedule fires once rather than on every tick of its hour, and a
+newly saved schedule does not fire at once. ``schedule_at`` is documented as
+UTC.
 
 Revision ID: b1c7f2a90e14
 Revises: fbf33c5dff4d

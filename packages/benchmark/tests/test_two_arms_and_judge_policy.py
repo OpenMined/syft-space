@@ -2,37 +2,32 @@
 
 The page offers two arms and two judge policies, and refuses a judge from the
 same company as a tested model. The API refuses it too, so it cannot be
-bypassed; stored rows that still list the retired arm keep opening.
+bypassed.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy import delete
 
 from syft_benchmark.config import (
     ContextMode,
     ContextSource,
     JudgePolicy,
     Settings,
-    get_settings,
 )
-from syft_benchmark.control.app import create_app
 from syft_benchmark.control.formfields import catalogue
 from syft_benchmark.control.schemas import Instrument, RunRequest, TargetSpec
-from syft_benchmark.db.models import Job, Target
-from syft_benchmark.db.session import session_scope
 from syft_benchmark.llm import Provider
 from syft_benchmark.llm.roles import clash_refusal, company_of, judge_clashes
 
-TOKEN = "test-control-token"
-WEB_CHECK_MODEL = "openai/gpt-5.1"
+from support import AUTH
+
 KEY = "pytest-judge-policy"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 # --- the web check model ----------------------------------------------------
@@ -58,33 +53,25 @@ def test_the_web_check_is_off_unless_a_model_is_named() -> None:
 # --- two arms -----------------------------------------------------------------
 
 
-def test_the_retired_arm_is_not_offered_or_defaulted() -> None:
+def test_the_form_offers_both_arms_and_defaults_to_them() -> None:
     arms = next(f for f in catalogue()["instrument"] if f["name"] == "arms")
     assert arms["choices"] == ["closed_book", "model_with_context"]
     assert Settings().arms == [ContextMode.CLOSED_BOOK, ContextMode.MODEL_WITH_CONTEXT]
 
 
-def test_a_stored_row_with_the_retired_arm_still_opens() -> None:
-    layer = Instrument.model_validate({"arms": ["closed_book", "open_book"]})
-    assert layer.arms == [ContextMode.CLOSED_BOOK]
-    request = RunRequest.model_validate({"instrument": {"arms": ["open_book"]}})
-    assert request.instrument is not None and request.instrument.arms == []
-    conf = Settings(arms=[ContextMode.OPEN_BOOK, ContextMode.MODEL_WITH_CONTEXT])
-    assert conf.arms == [ContextMode.MODEL_WITH_CONTEXT]
-
-
-def test_the_retired_arm_is_not_run() -> None:
-    from syft_benchmark.config import SpaceConfig
-    from syft_benchmark.runs import run_pass
-
-    space = SpaceConfig(key="s", url="http://space.invalid", endpoint="ep")
-    with pytest.raises(ValueError, match="no longer measured"):
-        run_pass(space, ContextMode.OPEN_BOOK, settings=Settings())
+def test_an_arm_that_does_not_exist_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        Instrument.model_validate({"arms": ["closed_book", "open_book"]})
+    with pytest.raises(ValidationError):
+        RunRequest.model_validate({"instrument": {"arms": ["open_book"]}})
 
 
 def test_closed_book_asks_with_web_search(monkeypatch: Any) -> None:
     """Both roads of arm A: the direct call and the repeats of monte_carlo."""
     import syft_benchmark.runs.execute as execute
+    import syft_benchmark.runs.parallel as parallel
+    from syft_benchmark.config import SpaceConfig
+    from syft_benchmark.runs import Pool, RunCache
 
     seen: list[dict[str, Any]] = []
 
@@ -93,17 +80,28 @@ def test_closed_book_asks_with_web_search(monkeypatch: Any) -> None:
         return "I don't know", {"finish_reason": "stop"}
 
     monkeypatch.setattr(execute, "chat", chat)
+    monkeypatch.setattr(parallel, "chat", chat)
     subject = Provider(role="subject", url="http://x", api_key="", model="a/b")
     pair: Any = type("Pair", (), {"question": "Which port?", "context": ""})()
+    space = SpaceConfig(key="s", url="http://space.invalid", endpoint="ep")
 
-    execute.ask_once(
-        pair,
-        ContextMode.CLOSED_BOOK,
-        space=None,  # type: ignore[arg-type]
-        settings=Settings(),
-        subject=subject,
-        source=ContextSource.NONE,
-    )
+    async def direct() -> None:
+        pool = Pool(Settings())
+        try:
+            await execute.aask_once(
+                pair,
+                ContextMode.CLOSED_BOOK,
+                space=space,
+                settings=Settings(),
+                subject=subject,
+                source=ContextSource.NONE,
+                pool=pool,
+                cache=RunCache(),
+            )
+        finally:
+            pool.close()
+
+    asyncio.run(direct())
     execute._ask_model("Which port?", 0.9, provider=subject, settings=Settings())
     execute._ask_model_with_context(
         "Which port?", 0.9, provider=subject, settings=Settings(), context="x"
@@ -156,40 +154,6 @@ def test_only_strict_and_warn_are_offered() -> None:
 # --- the API refuses it too -------------------------------------------------
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(Job).where(Job.target == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Any:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Job).where(Job.target == KEY))
-            session.execute(delete(Target).where(Target.key == KEY))
-
-    wipe()
-    yield
-    wipe()
-
-
-@pytest.fixture
-def client() -> Any:
-    conf = get_settings().model_copy(
-        update={"control_token": TOKEN, "filter_model": WEB_CHECK_MODEL}
-    )
-    return TestClient(create_app(conf))
-
-
 def _spec(policy: JudgePolicy, subjects: list[str]) -> dict[str, Any]:
     return TargetSpec(
         key=KEY,
@@ -203,7 +167,7 @@ def _spec(policy: JudgePolicy, subjects: list[str]) -> dict[str, Any]:
     ).model_dump(mode="json")
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_clashing_save_is_refused_under_strict(
     client: TestClient, clean: Any
 ) -> None:
@@ -219,7 +183,7 @@ def test_a_clashing_save_is_refused_under_strict(
     assert client.get(f"/targets/{KEY}", headers=AUTH).status_code == 404
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_clashing_save_is_allowed_under_warn(client: TestClient, clean: Any) -> None:
     reply = client.put(
         f"/targets/{KEY}",
@@ -232,7 +196,7 @@ def test_a_clashing_save_is_allowed_under_warn(client: TestClient, clean: Any) -
     )
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_run_whose_request_brings_a_clash_is_refused_under_strict(
     client: TestClient, clean: Any
 ) -> None:

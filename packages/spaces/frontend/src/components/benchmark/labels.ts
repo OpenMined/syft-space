@@ -1,29 +1,7 @@
-/** Display words for the benchmark's codes: generators, arms, blocks. */
-
-export interface Words {
-  label: string
-}
-
-/** Generator names; an unknown key is shown humanised. */
-export const GENERATORS: Record<string, Words> = {
-  mcq: { label: 'Multiple choice' },
-  qa: { label: 'Open question' },
-  two_truths_one_lie: { label: 'Two truths, one lie' },
-  multihop_synthesis: { label: 'Multi-hop' },
-  tiered_explanation: { label: 'Tiered explanation' },
-  named_entity_masking: { label: 'Named entity' },
-  numeric_masking: { label: 'Number' },
-  temporal_masking: { label: 'Date' },
-  unanswerable_property: { label: 'Unanswerable' },
-  false_premise: { label: 'False premise' },
-}
-
-export function generatorWords(key: string): Words {
-  return GENERATORS[key] ?? { label: humanise(key) }
-}
+/** Display words and tones shared by the benchmark's setup and report. */
 
 /** What picking an option at random scores: one over the options. */
-export const GUESS_RATE: Record<string, number> = {
+const GUESS_RATE: Record<string, number> = {
   mcq: 1 / 4,
   two_truths_one_lie: 1 / 3,
 }
@@ -36,75 +14,17 @@ export function guessText(generator: string): string | null {
   return rate === undefined ? null : `guess ${Math.round(rate * 100)}%`
 }
 
-/** A model name without its vendor prefix: `openai/gpt-4.1` -> `gpt-4.1`. */
-export function shortModel(name: string): string {
-  const cut = name.lastIndexOf('/')
-  return cut === -1 ? name : name.slice(cut + 1)
+/** `1 model`, `3 models`, `1,200 articles`; `many` names an irregular plural. */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n.toLocaleString('en')} ${n === 1 ? one : many}`
 }
 
-/** `some_code` -> `Some code`. */
-export function humanise(name: string): string {
-  const spaced = name.replace(/_/g, ' ')
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
-/** What a pass compares, in words. */
-export const ARMS: Record<string, string> = {
-  closed_book: 'the model on its own',
-  open_book: 'the endpoint answering as itself',
-  model_with_context: 'the model with what the search returned',
-}
-
-export const BLOCKS: Record<string, string> = {
-  direct: 'asked once',
-  denial_loop: 'pushed back on',
-  monte_carlo: 'repeated at several temperatures',
-}
-
-export const ARM_LETTERS: Record<string, string> = {
-  closed_book: 'A',
-  open_book: 'B',
-  model_with_context: 'C',
-}
-
-export function armWords(arm: string): string {
-  const letter = ARM_LETTERS[arm]
-  const what = ARMS[arm] ?? arm
-  return letter ? `Arm ${letter} — ${what}` : what
-}
-
-export function blockWords(block: string): string {
-  return BLOCKS[block] ?? block
-}
-
-/** Arm names for answer tiles. */
-export const ARM_TILES: Record<string, string> = {
-  closed_book: 'Without data',
-  open_book: "The endpoint's own answer",
-  model_with_context: 'With data',
-}
-
-export function armTileWords(arm: string): string {
-  return ARM_TILES[arm] ?? arm
-}
-
-export const BLOCKS_BRIEF: Record<string, string> = {
-  direct: 'asked once',
-  denial_loop: 'pushed back on',
-  monte_carlo: 'repeated',
-}
-
-export function blockBrief(block: string): string {
-  return BLOCKS_BRIEF[block] ?? block
-}
-
-/** Short check codes for narrow column headings. */
-export const BLOCK_CODES: Record<string, string> = {
-  direct: 'D',
-  denial_loop: 'DL',
-  monte_carlo: 'MC',
-}
-
-export function blockCode(block: string): string {
-  return BLOCK_CODES[block] ?? block
-}
+/** Chip and pill colours by meaning. */
+export const TONE = {
+  good: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  info: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
+  caution: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+  failed: 'bg-warning/20 text-foreground',
+  bad: 'bg-destructive/10 text-destructive',
+  muted: 'bg-muted text-muted-foreground',
+} as const

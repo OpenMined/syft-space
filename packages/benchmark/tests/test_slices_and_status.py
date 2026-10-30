@@ -7,7 +7,6 @@ judge answers without an API.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,11 +14,11 @@ import pytest
 
 from syft_benchmark.config import ContextMode, EvalBlock, Verdict
 from syft_benchmark.report import slices as slices_mod
+from syft_benchmark.report.markdown import agreement_lines
 from syft_benchmark.report.slices import (
     AGREEMENT_FLOOR,
     GeneratorSlice,
     JudgePair,
-    agreement_lines,
     average_agreement,
     by_generator,
     corpus_exposure,
@@ -31,6 +30,8 @@ from syft_benchmark.runs.console import (
     parse_verdicts,
 )
 from syft_benchmark.runs.execute import CLOSED_BOOK_SYSTEM
+
+# The notes are the exact wording a reasoning carries; they have no public name.
 from syft_benchmark.runs.judge import (
     _NO_FALSE_CLAIMS_NOTE,
     _NOTHING_FALSE_NOTE,
@@ -44,7 +45,7 @@ from syft_benchmark.runs.status import (
     collect,
 )
 
-_NOW = datetime(2026, 9, 14, 12, 0, tzinfo=UTC)
+from fakes import FakePair, StoreStub
 
 
 class _Row:
@@ -61,34 +62,6 @@ class _Row:
         self.verdict = verdict
         self.answer = answer
         self.extra = extra or {}
-
-
-class _Pair:
-    def __init__(self, qa_id: str, generator: str) -> None:
-        self.id = qa_id
-        self.generator = generator
-
-
-class _Store:
-    """A database in the volume of the two queries the cut makes."""
-
-    def __init__(self, pairs: list[_Pair]) -> None:
-        self.pairs = pairs
-
-    def __call__(self, *args: Any, **kwargs: Any) -> _Store:
-        return self
-
-    def __enter__(self) -> _Store:
-        return self
-
-    def __exit__(self, *exc: Any) -> bool:
-        return False
-
-    def execute(self, stmt: Any) -> _Store:
-        return self
-
-    def all(self) -> list[Any]:
-        return self.pairs
 
 
 # --- the cut by generator --------------------------------------------------
@@ -108,16 +81,16 @@ def test_the_generator_slice_splits_one_share_into_the_real_ones(
         _Row("b1", Verdict.HALLUCINATE.value),
         _Row("b2", Verdict.HALLUCINATE.value),
     ]
-    monkeypatch.setattr(slices_mod, "_latest_results", lambda *a, **k: rows)
+    monkeypatch.setattr(slices_mod, "latest_results", lambda *a, **k: rows)
     monkeypatch.setattr(
         slices_mod,
         "session_scope",
-        _Store(
+        StoreStub(
             [
-                _Pair("a1", "temporal_masking"),
-                _Pair("a2", "temporal_masking"),
-                _Pair("b1", "multihop_synthesis"),
-                _Pair("b2", "multihop_synthesis"),
+                FakePair("a1", generator="temporal_masking"),
+                FakePair("a2", generator="temporal_masking"),
+                FakePair("b1", generator="multihop_synthesis"),
+                FakePair("b2", generator="multihop_synthesis"),
             ]
         ),
     )
@@ -133,12 +106,12 @@ def test_the_generator_slice_splits_one_share_into_the_real_ones(
 
 def test_a_failed_call_never_lands_in_a_generator_share(monkeypatch: Any) -> None:
     """A failed call speaks about the rig, not about the item type."""
-    rows = [_Row("a1"), _Row("a2", answer="ERROR: timeout")]
-    monkeypatch.setattr(slices_mod, "_latest_results", lambda *a, **k: rows)
+    rows = [_Row("a1"), _Row("a2", verdict=Verdict.TECHNICAL.value)]
+    monkeypatch.setattr(slices_mod, "latest_results", lambda *a, **k: rows)
     monkeypatch.setattr(
         slices_mod,
         "session_scope",
-        _Store([_Pair("a1", "mcq"), _Pair("a2", "mcq")]),
+        StoreStub([FakePair("a1", generator="mcq"), FakePair("a2", generator="mcq")]),
     )
 
     entry = by_generator("docs", ContextMode.CLOSED_BOOK)[0]
@@ -164,7 +137,7 @@ def _judged(monkeypatch: Any, verdicts: dict[str, dict[str, str]]) -> None:
     ):
         return [_Row(qa, v) for qa, v in verdicts[judge].items()]
 
-    monkeypatch.setattr(slices_mod, "_latest_results", latest)
+    monkeypatch.setattr(slices_mod, "latest_results", latest)
 
 
 def test_judges_that_never_disagree_score_one(monkeypatch: Any) -> None:
@@ -238,9 +211,7 @@ def test_low_agreement_is_called_out_in_the_report(monkeypatch: Any) -> None:
 
 def _pass(**kwargs: Any) -> PassStatus:
     base: dict[str, Any] = {
-        "space": "docs",
         "context_mode": ContextMode.CLOSED_BOOK,
-        "context_source": "none",
         "block": EvalBlock.DIRECT,
         "model": "vendor/m",
         "judge": "judge/a",
@@ -248,7 +219,6 @@ def _pass(**kwargs: Any) -> PassStatus:
         "graded": 50,
         "failed": 0,
         "pending": 0,
-        "last_at": _NOW,
     }
     base.update(kwargs)
     return PassStatus(**base)
@@ -282,25 +252,9 @@ def test_each_state_gets_its_own_cure() -> None:
 
 
 def test_nothing_collected_is_not_a_crash(monkeypatch: Any) -> None:
-    class _Empty:
-        def __call__(self, *a: Any, **k: Any) -> _Empty:
-            return self
-
-        def __enter__(self) -> _Empty:
-            return self
-
-        def __exit__(self, *exc: Any) -> bool:
-            return False
-
-        def execute(self, stmt: Any) -> _Empty:
-            return self
-
-        def all(self) -> list[Any]:
-            return []
-
     import syft_benchmark.runs.status as status_mod
 
-    monkeypatch.setattr(status_mod, "session_scope", _Empty())
+    monkeypatch.setattr(status_mod, "session_scope", StoreStub())
     state = collect("docs", total=50)
     assert state.passes == []
     assert state.total == 50
@@ -386,6 +340,10 @@ def test_english_verdicts_are_read() -> None:
     assert parsed["def456"][0] is Verdict.ABSTAIN
 
 
+# The headers are private: the public export_questions and export_judging write
+# them to a file only after reading the pairs from the database.
+
+
 def test_the_console_judge_is_asked_what_the_api_judge_is() -> None:
     """The same rules, and the same "false_claims" field to fill in."""
     header = _judging_header(3)
@@ -454,9 +412,9 @@ def test_only_the_direct_block_goes_to_a_console_judge() -> None:
     """
     import inspect
 
-    from syft_benchmark.runs import console
+    from syft_benchmark.runs import judge_stage
 
-    source = inspect.getsource(console._judging_tasks)
+    source = inspect.getsource(judge_stage.pending_tasks)
     assert "Run.block == EvalBlock.DIRECT.value" in source
 
 

@@ -10,20 +10,18 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
-from sqlalchemy import delete
 
-from syft_benchmark.config import JobState, PairStatus, StatusReason, get_settings
-from syft_benchmark.control.app import create_app
-from syft_benchmark.control.schemas import TargetSpec
-from syft_benchmark.db import Job, QaPair, Result, Run, Target, session_scope
+from syft_benchmark.config import JobState, PairStatus, StatusReason
+from syft_benchmark.db import Job, QaPair, Result, Run, session_scope
+from syft_benchmark.db.models import WriterCall
 from syft_benchmark.generation import decisions
 from syft_benchmark.generation.recorded import PASSAGE_MARK
-from syft_benchmark.report import export_xlsx
+from syft_benchmark.report import export_xlsx, job_params, run_questions
 
-TOKEN = "test-export-token"
+from support import console_auth
+
 KEY = "pytest-export-a"
 KEY2 = "pytest-export-b"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 JOB = "xl-job"
 EARLIER = "xl-earlier"
 T0 = datetime(2026, 9, 1, 6, 0, tzinfo=UTC)
@@ -33,49 +31,7 @@ J1, J2 = "judge/primary", "judge/second"
 LONG = "".join(f"{n:08d} " for n in range(8_000))
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Any:
-    def wipe() -> None:
-        with session_scope() as session:
-            for key in (KEY, KEY2):
-                session.execute(delete(Result).where(Result.space == key))
-                session.execute(delete(Run).where(Run.space == key))
-                session.execute(delete(QaPair).where(QaPair.space == key))
-                session.execute(delete(Job).where(Job.target == key))
-                session.execute(delete(Target).where(Target.key == key))
-
-    wipe()
-    yield
-    wipe()
-
-
-@pytest.fixture
-def client() -> TestClient:
-    conf = get_settings().model_copy(update={"control_token": TOKEN})
-    return TestClient(create_app(conf))
-
-
-def _console(client: TestClient, key: str = KEY) -> dict[str, str]:
-    body = TargetSpec(key=key, url="http://space.invalid", endpoint="Support KB")
-    put = client.put(f"/targets/{key}", json=body.model_dump(mode="json"), headers=AUTH)
-    assert put.status_code == 200, put.text
-    minted = client.post(f"/targets/{key}/session", headers=AUTH)
-    assert minted.status_code == 200, minted.text
-    return {"Authorization": f"Bearer {minted.json()['token']}"}
+pytestmark = pytest.mark.needs_db
 
 
 def _pair(qa: str, generator: str, minute: int, **extra: Any) -> QaPair:
@@ -400,7 +356,7 @@ def _download(client: TestClient, auth: dict[str, str], job: str = JOB) -> Any:
 
 
 def test_the_workbook_holds_every_part_in_order(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY, endpoint="Support KB")
     _seed()
     wb = _download(client, auth)
     assert wb.sheetnames == list(export_xlsx.SHEETS)
@@ -518,7 +474,7 @@ def test_the_workbook_holds_every_part_in_order(client: TestClient, clean: Any) 
 
 
 def test_a_build_only_job_and_older_records(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY, endpoint="Support KB")
     _seed(answers=False)
     wb = _download(client, auth)
     assert _sheet(wb, "Answers") == []
@@ -533,16 +489,86 @@ def test_a_build_only_job_and_older_records(client: TestClient, clean: Any) -> N
     ]
 
 
+def _logged(call: str, minute: int, **extra: Any) -> WriterCall:
+    return WriterCall(
+        id=f"log-{call}",
+        job_id=JOB,
+        call=call,
+        model="gen/model",
+        document_title="Article log",
+        file_name="log.md",
+        passage="The logged passage.",
+        system_digest="digest-1",
+        user=f"Passage:\n{PASSAGE_MARK}\nWrite.",
+        reply=extra.pop("reply", "[...]"),
+        created_at=T0 + timedelta(minutes=minute),
+        **extra,
+    )
+
+
+def test_the_writer_call_log_is_exported(client: TestClient, clean: Any) -> None:
+    """Dropped drafts and failed calls, and pair texts kept only in the log."""
+    auth = console_auth(client, KEY, endpoint="Support KB")
+    _seed(answers=False)
+    with session_scope() as session:
+        session.add_all(
+            [
+                _logged(
+                    "call-log",
+                    20,
+                    system="You write questions.",
+                    cost_usd=0.003,
+                    latency_s=2.0,
+                    dropped={
+                        "mcq": [{"question": "Q2?", "answer": "A2", "reason": "dup"}],
+                        "qa": [{"question": "Q1?", "answer": "A1", "reason": "short"}],
+                    },
+                ),
+                _logged(
+                    "call-failed",
+                    21,
+                    reply="",
+                    error="HTTP 500",
+                    dropped={"qa": []},
+                ),
+            ]
+        )
+        session.add(_pair("lg1", "qa", 30, meta={"writer": {"call": "call-log"}}))
+
+    wb = _download(client, auth)
+
+    log = _sheet(wb, "Writer calls")
+    assert [r["Writer call"] for r in log] == ["call-log", "call-failed"]
+    first, failed = log
+    # Kinds in registry order.
+    assert first["Kinds"] == "mcq, qa"
+    assert first["Dropped drafts"] == (
+        "mcq: dup\nQ: Q2?\nA: A2\n\nqa: short\nQ: Q1?\nA: A1"
+    )
+    assert first["Writer prompt (user)"] == "Passage:\nThe logged passage.\nWrite."
+    assert first["Writer call cost (USD)"] == 0.003
+    # The system prompt is stored on the first call of the build only.
+    assert failed["Writer prompt (system)"] == "You write questions."
+    assert failed["Error"] == "HTTP 500"
+    assert failed["Dropped drafts"] is None
+
+    generated = {r["Question id"]: r for r in _sheet(wb, "Generated")}
+    lg1 = generated["lg1"]
+    assert lg1["Writer prompt (system)"] == "You write questions."
+    assert lg1["Writer reply"] == "[...]"
+    assert lg1["Passage"] == "The logged passage."
+
+
 def test_a_foreign_job_is_a_404(client: TestClient, clean: Any) -> None:
-    _console(client)
-    other = _console(client, KEY2)
+    console_auth(client, KEY, endpoint="Support KB")
+    other = console_auth(client, KEY2, endpoint="Support KB")
     _seed()
     got = client.get(f"/console/report/runs/{JOB}/export.xlsx", headers=other)
     assert got.status_code == 404
 
 
 def test_three_thousand_answers_export_quickly(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY, endpoint="Support KB")
     _seed(answers=False)
     runs = [
         Run(
@@ -595,3 +621,165 @@ def test_three_thousand_answers_export_quickly(client: TestClient, clean: Any) -
         name: sum(1 for _ in wb[name].iter_rows()) for name in ("Judging", "Answers")
     }
     assert rows == {"Judging": 3001, "Answers": 1501}
+
+
+def test_counted_follows_the_figures_judge_order(
+    client: TestClient, clean: Any
+) -> None:
+    """Without a panel, judges after the primary rank by first verdict in the
+    measured arms, as the figures count, not by the question order."""
+    auth = console_auth(client, KEY, endpoint="Support KB")
+    _seed(answers=False)
+    j3 = "judge/third"
+    graded = [("closed_book", J1, 1), ("model_with_context", j3, 2)]
+    graded.append(("model_with_context", J2, 3))
+    with session_scope() as session:
+        job = session.get(Job, JOB)
+        assert job is not None
+        job.params = {job_params.PRIMARY_JUDGE: J1}
+        for arm, judge, second in graded:
+            run_id = f"{JOB}-order-{second}"
+            session.add(
+                Run(
+                    id=run_id,
+                    space=KEY,
+                    job_id=JOB,
+                    context_mode=arm,
+                    block="direct",
+                    model=M1,
+                    judge_model=judge,
+                )
+            )
+            session.flush()
+            session.add(
+                Result(
+                    id=f"{run_id}-res",
+                    run_id=run_id,
+                    qa_id="qa1",
+                    space=KEY,
+                    answer="an answer",
+                    verdict="correct",
+                    judge_model=judge,
+                    model=M1,
+                    created_at=T0 + timedelta(hours=1, seconds=second),
+                )
+            )
+
+    judging = _sheet(_download(client, auth), "Judging")
+    counted = [
+        (r["Judge"], r["Counted"])
+        for r in judging
+        if r["Condition"] == "model_with_context"
+    ]
+    assert sorted(counted) == [(J2, "no"), (j3, "yes")]
+
+
+def test_counted_matches_the_figures_across_context_sources(
+    client: TestClient, clean: Any
+) -> None:
+    """One answer stays one answer whichever source fed it: the workbook marks
+    the row the figures and the question list count, and none outside the
+    measured arms."""
+    auth = console_auth(client, KEY, endpoint="Support KB")
+    _seed(answers=False)
+    seeded = [
+        ("model_with_context", "endpoint_fragments", J2, 1),
+        ("model_with_context", "endpoint_answer", J1, 2),
+        ("open_book", "none", J1, 3),
+    ]
+    with session_scope() as session:
+        job = session.get(Job, JOB)
+        assert job is not None
+        job.params = {job_params.PRIMARY_JUDGE: J1}
+        for mode, source, judge, second in seeded:
+            run_id = f"{JOB}-source-{second}"
+            session.add(
+                Run(
+                    id=run_id,
+                    space=KEY,
+                    job_id=JOB,
+                    context_mode=mode,
+                    context_source=source,
+                    block="direct",
+                    model=M1,
+                    judge_model=judge,
+                )
+            )
+            session.flush()
+            session.add(
+                Result(
+                    id=f"{run_id}-res",
+                    run_id=run_id,
+                    qa_id="qa1",
+                    space=KEY,
+                    answer="an answer",
+                    verdict="correct",
+                    judge_model=judge,
+                    model=M1,
+                    created_at=T0 + timedelta(hours=1, seconds=second),
+                )
+            )
+
+    judging = _sheet(_download(client, auth), "Judging")
+    marked = sorted(
+        (r["Condition"], r["Judge"], r["Counted"])
+        for r in judging
+        if r["Question id"] == "qa1"
+    )
+    assert marked == [
+        ("model_with_context", J1, "yes"),
+        ("model_with_context", J2, "no"),
+        ("open_book", J1, "no"),
+    ]
+    with session_scope() as session:
+        job = session.get(Job, JOB)
+        assert job is not None
+        counted = run_questions.counted_ids(session, job, ["qa1"])
+    assert counted == {f"{JOB}-source-2-res"}
+
+
+def test_a_reasked_answer_shows_the_counted_reply(
+    client: TestClient, clean: Any
+) -> None:
+    """After a failed answer is re-asked, the Answers sheet shows the reply the
+    figures count, not the failure."""
+    auth = console_auth(client, KEY, endpoint="Support KB")
+    _seed(answers=False)
+    asked = [("ERROR: timeout", "technical", 1), ("the fresh answer", "correct", 2)]
+    with session_scope() as session:
+        job = session.get(Job, JOB)
+        assert job is not None
+        job.params = {job_params.PRIMARY_JUDGE: J1}
+        for answer, verdict, second in asked:
+            run_id = f"{JOB}-reask-{second}"
+            session.add(
+                Run(
+                    id=run_id,
+                    space=KEY,
+                    job_id=JOB,
+                    context_mode="closed_book",
+                    block="direct",
+                    model=M1,
+                    judge_model=J1,
+                )
+            )
+            session.flush()
+            session.add(
+                Result(
+                    id=f"{run_id}-res",
+                    run_id=run_id,
+                    qa_id="qa1",
+                    space=KEY,
+                    answer=answer,
+                    verdict=verdict,
+                    judge_model=J1,
+                    model=M1,
+                    created_at=T0 + timedelta(hours=1, seconds=second),
+                )
+            )
+
+    wb = _download(client, auth)
+    answers = [r["Answer"] for r in _sheet(wb, "Answers") if r["Question id"] == "qa1"]
+    assert answers == ["the fresh answer"]
+    counted = [r["Counted"] for r in _sheet(wb, "Judging") if r["Question id"] == "qa1"]
+    assert sorted(counted) == ["no", "yes"]

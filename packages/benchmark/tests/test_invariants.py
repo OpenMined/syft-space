@@ -7,32 +7,13 @@ Keeping them in the README is not enough: a README does not fail on commit.
 from __future__ import annotations
 
 import ast
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from syft_benchmark.config import (
-    ContextMode,
-    EvalBlock,
-    ExpectedBehavior,
     ExternalCallBlocked,
     Settings,
-)
-from syft_benchmark.report import Metrics
-from syft_benchmark.report.card import (
-    ANSWERING,
-    CARD_VERSION,
-    Card,
-    DatasetInfo,
-    Instrument,
-    ModelRow,
-    Pressure,
-    SkillRow,
-    Stability,
-    Trust,
-    owner_payload_for,
-    payload_for,
 )
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "syft_benchmark"
@@ -88,7 +69,7 @@ def test_only_sources_reads_the_corpus() -> None:
         SRC / "generation" / "pipeline.py",
         SRC / "generation" / "generators.py",
         # The CLI holds the diagnostic command chunks.
-        SRC / "cli.py",
+        SRC / "cli" / "diagnostics.py",
         # The target check counts chunks but returns none of them —
         # see test_the_target_check_returns_counts_and_nothing_else.
         SRC / "control" / "check.py",
@@ -109,10 +90,10 @@ def test_only_sources_reads_the_corpus() -> None:
 def test_only_the_llm_client_reaches_a_model() -> None:
     """Invariant 2: a model is called through a client that checks the perimeter.
 
-    If an httpx.post to Ollama appears outside llm/ollama.py, the host check
+    If a chat request appears outside llm/client.py, the host check
     becomes optional — and an optional check is not a check.
     """
-    sources = [path for path in SRC.rglob("*.py") if path != SRC / "llm" / "ollama.py"]
+    sources = [path for path in SRC.rglob("*.py") if path != SRC / "llm" / "client.py"]
     offenders = [
         path
         for path in sources
@@ -121,185 +102,6 @@ def test_only_the_llm_client_reaches_a_model() -> None:
     assert not offenders, "a model called directly, past the client: " + ", ".join(
         str(p.relative_to(SRC)) for p in offenders
     )
-
-
-def _leaves(value: object, path: str = "") -> list[tuple[str, object]]:
-    """All the leaves of a nested structure, each with its path."""
-    if isinstance(value, dict):
-        found: list[tuple[str, object]] = []
-        for key, item in value.items():
-            found.extend(_leaves(item, f"{path}.{key}" if path else str(key)))
-        return found
-    if isinstance(value, list):
-        found = []
-        for i, item in enumerate(value):
-            found.extend(_leaves(item, f"{path}[{i}]"))
-        return found
-    return [(path, value)]
-
-
-def _card() -> Card:
-    """A card with everything there can be: no card is ever fuller."""
-    answerable = Metrics(
-        space="docs",
-        context_mode=ContextMode.OPEN_BOOK,
-        block=EvalBlock.DIRECT,
-        model="",
-        endpoint="syft-knowledge-base",
-        graded=40,
-        correct=28,
-        abstain=5,
-        hallucinate=7,
-        failed=1,
-        retrieval_hits=33,
-        retrieval_checked=40,
-        checked_at=datetime(2026, 9, 9, tzinfo=UTC),
-        judge="gemma3-4b-gpu",
-    )
-    control = Metrics(
-        space="docs",
-        context_mode=ContextMode.OPEN_BOOK,
-        block=EvalBlock.DIRECT,
-        model="",
-        endpoint="syft-knowledge-base",
-        graded=10,
-        correct=0,
-        abstain=9,
-        hallucinate=1,
-        failed=0,
-        retrieval_hits=0,
-        retrieval_checked=0,
-        checked_at=datetime(2026, 9, 9, tzinfo=UTC),
-        judge="gemma3-4b-gpu",
-        expected=ExpectedBehavior.ABSTAIN,
-    )
-    return Card(
-        space="docs",
-        endpoint="syft-knowledge-base",
-        kind=ANSWERING,
-        arm=ContextMode.OPEN_BOOK.value,
-        checked_at=datetime(2026, 9, 9, tzinfo=UTC),
-        score=0.7,
-        fabrication=0.1,
-        answerable=answerable,
-        control=control,
-        discrimination=0.775,
-        retrieval=0.825,
-        models=[
-            ModelRow(
-                model="anthropic/claude-sonnet-4",
-                samples=40,
-                accuracy=0.78,
-                fabrication=0.02,
-                lmi=0.2,
-                context_gain=0.05,
-            )
-        ],
-        skills=[SkillRow(generator="mcq", samples=8, accuracy=0.9)],
-        trust=Trust(
-            samples=50,
-            judges=3,
-            agreement=0.86,
-            consistency=0.91,
-            even_coverage=True,
-            failed=1,
-            pending=0,
-        ),
-        dataset=DatasetInfo(
-            mode="rolling", window_days=7, cohort="20260914-0300", questions=50
-        ),
-        instrument=Instrument(
-            version=CARD_VERSION,
-            profile="default",
-            judge="gemma3-4b-gpu",
-            judges=3,
-            subjects=9,
-        ),
-        pressure=Pressure(samples=25, flip_rate=0.2, held=[0.9, 0.8, 0.8]),
-        stability=Stability(
-            samples=30, consistency=0.91, by_temperature={"0.3": 0.9, "0.9": 0.7}
-        ),
-    )
-
-
-def test_the_card_carries_only_aggregates() -> None:
-    """Invariant 3: the card holds shares, counters and names — and nothing else.
-
-    Its composition cannot be widened by accident: the test breaks.
-    """
-    payload = payload_for(_card())
-
-    assert set(payload) == {
-        "version",
-        "kind",
-        "arm",
-        # The launch. An identifier of ours, like the cohort.
-        "job",
-        "checked_at",
-        "score",
-        "fabrication_rate",
-        "reliable",
-        "samples",
-        "answerable",
-        "unanswerable",
-        "discrimination",
-        "retrieval",
-        "models",
-        "skills",
-        "trust",
-        "dataset",
-        "instrument",
-        # Widened deliberately, and only this far: the blocks' own shapes —
-        # the surrender curve and the temperature curve — are shares and
-        # numbers like everything else here, and an endpoint that folds at the
-        # first word of push-back is a different product from one that holds
-        # out to the last round at the same rate. Nothing of what was asked or
-        # answered in those rounds crosses.
-        "stability",
-        # The denial loop's flip rate
-        # is a share like the others, and an endpoint that abandons a right
-        # answer the moment a user pushes back is a different product from one
-        # that does not — at identical accuracy. Nothing of the block itself
-        # crosses: not the pressed question, not the reply that gave in.
-        "pressure",
-    }
-
-
-def test_no_card_string_can_hold_a_sentence() -> None:
-    """Invariant 3, the strong form: there is never any text in the payload.
-
-    Checking for forbidden words is not enough — such a list is never complete.
-    What is checked here is the form: every leaf is a number, a flag
-    or ONE word — the identifier of a model, a generator, a mode, a profile, a
-    cohort. A chunk of the corpus, a question or an answer always has spaces in
-    it, and such a leaf will fail the check whatever it is called.
-    """
-    payload = payload_for(_card())
-
-    for path, value in _leaves(payload):
-        if value is None or isinstance(value, bool | int | float):
-            continue
-        assert isinstance(value, str), f"{path}: unexpected type {type(value)}"
-        assert " " not in value, f"{path}: text ended up in the payload — {value!r}"
-        assert len(value) <= 120, f"{path}: too long for an identifier"
-
-
-def test_the_owner_payload_adds_prose_the_stored_card_never_carries() -> None:
-    """The console route is the one place `Trust.doubts` — full sentences —
-    appears, unlike `payload_for`'s shape, which
-    `test_no_card_string_can_hold_a_sentence` holds to one word per leaf.
-    """
-    owner_payload = owner_payload_for(_card())
-
-    assert owner_payload["score_label"] == "correct"
-    assert owner_payload["trust"]["doubts"] == ["failed calls: 1"]
-    # Everything `payload_for` itself returns is still there, untouched.
-    public_payload = payload_for(_card())
-    for key, value in public_payload.items():
-        if key == "trust":
-            continue
-        assert owner_payload[key] == value
-    assert owner_payload["trust"]["flags"] == public_payload["trust"]["flags"]
 
 
 def test_the_document_report_sees_only_aggregates() -> None:
@@ -326,7 +128,7 @@ def test_the_document_report_sees_only_aggregates() -> None:
 
 
 def test_benchmark_holds_no_hub_credentials() -> None:
-    """Invariant 5: there are no SyftHub credentials here; results stay in the Space."""
+    """Invariant 4: there are no SyftHub credentials here; results stay in the Space."""
     fields = set(Settings.model_fields)
     for forbidden in ("hub_url", "hub_email", "hub_password", "hub_token"):
         assert forbidden not in fields

@@ -15,7 +15,7 @@ from docx import Document
 from docx.shared import Pt
 
 from syft_benchmark.report import charts
-from syft_benchmark.report.document import _heading, _image, _note, _para, _table
+from syft_benchmark.report.docx_blocks import heading, image, note, para, table
 
 GROUP_LABEL = {
     "fixed": "Fixed by your data",
@@ -64,7 +64,7 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
     doc = Document()
     doc.styles["Normal"].font.size = Pt(10)
     doc.add_heading(f"Benchmark results: {title}", level=0)
-    _para(
+    para(
         doc,
         f"Run of {_stamp(run['created_at'])}, finished {_stamp(run['finished_at'])}",
     )
@@ -74,7 +74,7 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
         if run["lift_lo"] is not None
         else ""
     )
-    _para(
+    para(
         doc,
         f"{_count(run['questions'])} questions from {_count(run['articles'])} "
         f"articles, asked to {len(models)} "
@@ -82,8 +82,8 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
         f"passages from your archive.{lifts}",
     )
 
-    _heading(doc, "Accuracy by model")
-    _table(
+    heading(doc, "Accuracy by model")
+    table(
         doc,
         [
             "Model",
@@ -112,7 +112,7 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
         ],
     )
     if models:
-        _image(
+        image(
             doc,
             charts.grouped(
                 [m["model"] for m in models],
@@ -123,22 +123,22 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
                 title="Share of right answers",
             ),
         )
-    _note(
+    note(
         doc,
         "Rates are over graded answers. Answers awaiting a verdict and technical "
         "failures are counted apart and are not in any rate. Trick questions "
         "(no answer exists) are only in the trick check.",
     )
 
-    _heading(doc, "What your data changed")
-    _table(
+    heading(doc, "What your data changed")
+    table(
         doc,
         ["Model", *GROUP_LABEL.values()],
         [[m["model"], *(str(m["groups"][g]) for g in GROUP_LABEL)] for m in models],
     )
 
-    _heading(doc, "By kind of question")
-    _table(
+    heading(doc, "By kind of question")
+    table(
         doc,
         ["Model", "Kind", "Questions", "On its own", "With your data", "Lift"],
         [
@@ -155,8 +155,8 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
         ],
     )
 
-    _heading(doc, "Reliability checks")
-    _table(
+    heading(doc, "Reliability checks")
+    table(
         doc,
         [
             "Model",
@@ -182,9 +182,9 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
         ],
     )
 
-    _heading(doc, "How this was tested")
+    heading(doc, "How this was tested")
     removed = ", ".join(f"{k}: {v}" for k, v in sorted(funnel["removed"].items()))
-    _table(
+    table(
         doc,
         ["", ""],
         [

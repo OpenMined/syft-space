@@ -6,6 +6,7 @@ import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import RunsList from '@/components/benchmark/report/RunsList.vue'
 import { provideRunReport } from '@/components/benchmark/report/context'
 import type { RunReport, RunsFilters } from '@/components/benchmark/report/useRunReport'
+import { hintText } from './hint'
 import { progress, runSummary } from './reportFixtures'
 
 const push = vi.fn()
@@ -39,7 +40,7 @@ function mountList(report: ReturnType<typeof fakeReport>) {
   const Host = defineComponent({
     setup() {
       provideRunReport(report as unknown as RunReport)
-      return () => h(RunsList, { slug: 'ep' })
+      return () => h(RunsList)
     },
   })
   return mount(Host, { global: { stubs: { RouterLink: RouterLinkStub } } })
@@ -154,7 +155,7 @@ describe('RunsList', () => {
       wrapper.get('[data-testid="run-in-progress"]').find('[data-testid="run-delete"]').exists(),
     ).toBe(false)
     const button = wrapper.get('[data-testid="run-row"] [data-testid="run-delete"]')
-    expect(button.attributes('title')).toBe('Delete this run')
+    expect(await hintText(button)).toBe('Delete this run')
 
     const dialog = wrapper.findComponent(DeleteConfirmationDialog)
     expect(dialog.props('open')).toBe(false)

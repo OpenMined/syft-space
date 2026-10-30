@@ -11,11 +11,9 @@ from importlib import import_module
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
-from syft_benchmark.config import Settings, get_settings
-from syft_benchmark.control.app import create_app
+from syft_benchmark.config import Settings
 from syft_benchmark.control.schemas import Probe, TargetSpec
 from syft_benchmark.db.models import Target
 from syft_benchmark.db.session import session_scope
@@ -27,6 +25,8 @@ from syft_benchmark.sources.chroma import (
     load_documents,
     parse_day,
 )
+
+from support import AUTH, control_client
 
 # The module, not the function of the same name the package re-exports.
 control_check = import_module("syft_benchmark.control.check")
@@ -165,22 +165,12 @@ def test_the_count_includes_the_undated() -> None:
 
 # --- the route --------------------------------------------------------------
 
-TOKEN = "test-window-token"
 KEY = "pytest-window-target"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(Target).where(Target.key == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-@pytest.mark.skipif(not _db_ready(), reason="the benchmark database is unavailable")
+@pytest.mark.needs_db
 def test_the_route_counts_by_the_same_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Only the target's own collection exists: a stub of its own.
     class _Chroma:
         def __init__(self, *args: Any) -> None:
             pass
@@ -197,9 +187,7 @@ def test_the_route_counts_by_the_same_rule(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(control_check, "ChromaClient", _Chroma)
     monkeypatch.setattr(control_check, "load_documents", lambda client, cid: docs)
 
-    client = TestClient(
-        create_app(get_settings().model_copy(update={"control_token": TOKEN}))
-    )
+    client = control_client()
     spec = TargetSpec(
         key=KEY,
         url="http://space.invalid",

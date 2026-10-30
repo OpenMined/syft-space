@@ -1,5 +1,5 @@
-"""Round 7: the job's cost by role, its start and finish, and the full texts
-of every model call kept for the export."""
+"""The job's cost by role, its start and finish, and the full texts of every
+model call kept for the export."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import asyncio
 import dataclasses
 import threading
 import uuid
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -16,7 +15,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from syft_benchmark.config import (
     ContextMode,
@@ -26,17 +25,10 @@ from syft_benchmark.config import (
     Settings,
     SpaceConfig,
     Verdict,
-    get_settings,
 )
-from syft_benchmark.control.app import create_app
-from syft_benchmark.control.schemas import TargetSpec
 from syft_benchmark.db import (
     Job,
-    ProcessedUnit,
     QaPair,
-    Result,
-    Run,
-    Target,
     session_scope,
 )
 from syft_benchmark.generation import (
@@ -48,34 +40,29 @@ from syft_benchmark.generation import (
     web_check,
 )
 from syft_benchmark.generation.generators import GENERATORS
-from syft_benchmark.generation.pair import Pair
-from syft_benchmark.llm import chat, cost
-from syft_benchmark.report import run_view
-from syft_benchmark.runs import execute
+from syft_benchmark.generation.pair import Dropped, Pair
+from syft_benchmark.llm import Provider, chat, cost, judge_provider
+from syft_benchmark.report import job_params
+from syft_benchmark.runs import Pool, RunCache, execute, parallel
 from syft_benchmark.runs import judge as run_judge
 from syft_benchmark.runs.judge import Grade
 from syft_benchmark.sources import Chunk, Document
 
-KEY = "pytest-wp3-round7"
-TOKEN = "test-round7-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
-OPENROUTER = "https://openrouter.ai/api/v1"
-JOB = "r7-job"
+from fakes import ChromaStub, openrouter_settings
+from support import add_rows, console_auth
+
+KEY = "pytest-cost-by-role"
+JOB = "cost-by-role-job"
 
 
 def _settings(**kwargs: Any) -> Settings:
     base: dict[str, Any] = {
-        "subject_url": OPENROUTER,
-        "subject_key": "sk-test",
-        "allow_external_models": True,
-        "external_hosts": ["openrouter.ai"],
-        "max_consecutive_failures": 0,
         "concurrency": 1,
         "document_window_days": 0,
         # The entity check is a writer call of its own: test_entity_check.py.
         "entity_check": False,
     }
-    return Settings(**{**base, **kwargs})
+    return openrouter_settings(**{**base, **kwargs})
 
 
 class _Calls:
@@ -180,20 +167,36 @@ def test_answers_are_subjects_and_grades_are_judges(
 ) -> None:
     answering = _Calls("Harbourton", usage={"cost_usd": 0.01, "latency_s": 1.0})
     judging = _Calls('{"correct": true, "reasoning": "same"}')
-    monkeypatch.setattr(execute, "chat", answering)
+    monkeypatch.setattr(parallel, "chat", answering)
     monkeypatch.setattr(run_judge, "chat", judging)
     pair = QaPair(id="x", question="Which lighthouse?", answer="Harbourton")
     conf = _settings()
+    subject = Provider(role="subject", url="http://model", api_key="", model="a/b")
 
-    asked = execute.ask_once(
-        pair,
-        ContextMode.CLOSED_BOOK,
-        space=SpaceConfig(key=KEY, url="http://space", endpoint="ep"),
+    async def ask_direct() -> execute.Asked:
+        pool = Pool(conf)
+        try:
+            return await execute.aask_once(
+                pair,
+                ContextMode.CLOSED_BOOK,
+                space=SpaceConfig(key=KEY, url="http://space", endpoint="ep"),
+                settings=conf,
+                subject=subject,
+                source=ContextSource.NONE,
+                pool=pool,
+                cache=RunCache(),
+            )
+        finally:
+            pool.close()
+
+    asked = asyncio.run(ask_direct())
+    verdict = run_judge.grade(
+        pair.question,
+        pair.answer,
+        asked.answer,
         settings=conf,
-        subject=None,
-        source=ContextSource.NONE,
+        judge=judge_provider(conf),
     )
-    verdict = run_judge.grade(pair.question, pair.answer, asked.answer, settings=conf)
 
     assert answering.roles == [cost.SUBJECTS]
     assert judging.roles == [cost.JUDGES]
@@ -253,6 +256,7 @@ def test_the_control_gate_is_web_check_and_keeps_its_call(
         "What colour is the lighthouse door?",
         lambda _q: ["The lighthouse was restored."],
         settings=_settings(),
+        judge=judge_provider(_settings()),
     )
 
     assert outcome.clear is True
@@ -390,36 +394,6 @@ def test_the_answer_audit_keeps_whole_prompts_and_the_calls() -> None:
 # --- the database ---------------------------------------------------------------
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Iterator[None]:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Result).where(Result.space == KEY))
-            session.execute(delete(Run).where(Run.space == KEY))
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-            session.execute(delete(ProcessedUnit).where(ProcessedUnit.space == KEY))
-            session.execute(delete(Job).where(Job.target == KEY))
-            session.execute(delete(Target).where(Target.key == KEY))
-
-    wipe()
-    yield
-    wipe()
-
-
 def _space() -> SpaceConfig:
     return SpaceConfig(key=KEY, url="http://space:8080", endpoint="ep")
 
@@ -436,7 +410,7 @@ def _rows() -> list[QaPair]:
     return rows
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_generated_pairs_carry_their_writer_call(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -461,20 +435,14 @@ def test_generated_pairs_carry_their_writer_call(
         for d in range(2)
     ]
 
-    class _Chroma:
-        def __init__(self, *_: Any) -> None: ...
-
-        def collection_id(self, _name: str) -> str:
-            return "cid"
-
-    def clean_items(items: Any, n: int, whole: str) -> tuple[list[Pair], list[str]]:
+    def clean_items(items: Any, n: int, whole: str) -> tuple[list[Pair], list[Dropped]]:
         return [
             Pair(question=f"Q{uuid.uuid4().int}?", answer="A", distractors=[], meta={})
             for _ in range(2)
         ], []
 
     writer = _Calls('[{"x": 1}]', usage={"cost_usd": 0.01, "latency_s": 1.0})
-    monkeypatch.setattr(pipeline, "ChromaClient", _Chroma)
+    monkeypatch.setattr(pipeline, "ChromaClient", ChromaStub)
     monkeypatch.setattr(pipeline, "load_documents", lambda *_: documents)
     monkeypatch.setattr(pipeline, "chat", writer)
     monkeypatch.setitem(
@@ -521,13 +489,6 @@ def _pair(pair_id: str, generator: str = "qa", **extra: Any) -> QaPair:
     )
 
 
-def _add(*rows: Any) -> None:
-    with session_scope() as session:
-        for row in rows:
-            session.add(row)
-            session.flush()
-
-
 def _meta(pair_id: str) -> dict[str, Any]:
     with session_scope() as session:
         row = session.get(QaPair, pair_id)
@@ -551,11 +512,11 @@ class _ArchiveFinds:
         return '{"answered": false}', usage
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_filter_decisions_keep_the_full_texts_once(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _add(_pair("p-web"), _pair("p-control", "unanswerable_property"))
+    add_rows(_pair("p-web"), _pair("p-control", "unanswerable_property"))
     long_answer = "x" * 5000
     monkeypatch.setattr(web_check, "chat", _Calls(long_answer))
     monkeypatch.setattr(run_judge, "chat", _Calls('{"correct": false}'))
@@ -599,20 +560,6 @@ def test_filter_decisions_keep_the_full_texts_once(
 # --- job times and the stored cost ---------------------------------------------
 
 
-@pytest.fixture
-def client() -> TestClient:
-    conf = get_settings().model_copy(update={"control_token": TOKEN})
-    return TestClient(create_app(conf))
-
-
-def _console(client: TestClient) -> dict[str, str]:
-    body = TargetSpec(key=KEY, url="http://space.invalid").model_dump(mode="json")
-    assert client.put(f"/targets/{KEY}", json=body, headers=AUTH).status_code == 200
-    minted = client.post(f"/targets/{KEY}/session", headers=AUTH)
-    assert minted.status_code == 200, minted.text
-    return {"Authorization": f"Bearer {minted.json()['token']}"}
-
-
 def test_job_times_use_started_at() -> None:
     created = datetime(2026, 10, 9, 5, 0, tzinfo=UTC)
     job = Job(
@@ -621,20 +568,20 @@ def test_job_times_use_started_at() -> None:
         started_at=created + timedelta(minutes=10),
         finished_at=created + timedelta(minutes=64),
     )
-    times = run_view.job_times(job)
+    times = job_params.job_times(job)
     assert times["duration_s"] == 54 * 60
     assert times["started_at"] == (created + timedelta(minutes=10)).isoformat()
-    queued = run_view.job_times(Job(id="q", created_at=created))
+    queued = job_params.job_times(Job(id="q", created_at=created))
     assert queued == {"started_at": None, "finished_at": None, "duration_s": None}
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_job_keeps_its_cost_by_role_and_its_times(
     client: TestClient, clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from syft_benchmark.control import jobs
 
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     reads = iter([10.0, 10.5])
     monkeypatch.setattr(jobs, "openrouter_spend", lambda conf: next(reads))
 
@@ -645,8 +592,8 @@ def test_a_job_keeps_its_cost_by_role_and_its_times(
         return SimpleNamespace(line=lambda: "", notes=[])
 
     monkeypatch.setattr(jobs, "judge_pending", judging)
-    _add(Job(id=JOB, target=KEY, kind="judge", state="queued", params={}))
-    _add(_pair("p-1", job_id=JOB))
+    add_rows(Job(id=JOB, target=KEY, kind="judge", state="queued", params={}))
+    add_rows(_pair("p-1", job_id=JOB))
 
     jobs.execute(JOB)
 
@@ -655,8 +602,8 @@ def test_a_job_keeps_its_cost_by_role_and_its_times(
         assert row is not None and row.state == JobState.SUCCEEDED.value
         assert row.started_at is not None and row.finished_at is not None
         took = (row.finished_at - row.started_at).total_seconds()
-        stored = row.params[run_view.COST]
-        timing = row.params[run_view.TIMING]
+        stored = row.params[job_params.COST]
+        timing = row.params[job_params.TIMING]
     assert stored["total_usd"] == pytest.approx(0.25)
     assert stored["by_role"] == {
         "writer": 0.0,

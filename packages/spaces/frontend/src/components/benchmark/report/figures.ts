@@ -1,3 +1,4 @@
+/** Number, date and schedule formatting shared by the report pages. */
 import type { BenchmarkTarget } from '@/api/types'
 
 /** What every figure shows when it cannot be computed. */
@@ -29,6 +30,11 @@ export function pointsRange(lo: number | null, hi: number | null): string {
   const a = points(lo)
   const b = points(hi)
   return a === b ? a : `${a} to ${b}`
+}
+
+/** A bar's CSS width for a share, clamped to 0–100%. */
+export function barWidth(share: number | null | undefined): string {
+  return `${Math.min(Math.max(share ?? 0, 0), 1) * 100}%`
 }
 
 export function count(x: number | null | undefined): string {
@@ -69,13 +75,20 @@ export function daySpan(first: string, last: string, thisYear: number): string |
 export function dayTime(iso: string | null | undefined): string {
   const d = parse(iso)
   if (!d) return DASH
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, ${two(d.getHours())}:${two(d.getMinutes())}`
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, ${clock(d)}`
 }
 
 /** A stamp as UTC: the Space stores naive datetimes that are UTC. */
 export function utcStamp(value: string | null | undefined): string | null {
   if (!value) return null
   return /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`
+}
+
+/** Milliseconds since the epoch of a stored UTC stamp; null when missing or unreadable. */
+export function stampMs(value: string | null | undefined): number | null {
+  const iso = utcStamp(value)
+  const ms = iso ? Date.parse(iso) : Number.NaN
+  return Number.isFinite(ms) ? ms : null
 }
 
 /** `06:00`, in the reader's time zone. */
@@ -89,7 +102,8 @@ export function shortStamp(value: string | null | undefined): string | null {
   return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${clock(d)}` : null
 }
 
-function windowWords(days: number): string {
+/** An article window: `24 hours`, `7 days`. */
+export function windowWords(days: number): string {
   return days === 1 ? '24 hours' : `${days} days`
 }
 
@@ -99,7 +113,7 @@ function cadence(target: BenchmarkTarget): string | null {
   const hours = Number(m[1])
   if (hours === 24) {
     const next = parse(target.next_run_at)
-    const at = next ? `${two(next.getHours())}:${two(next.getMinutes())}` : target.schedule_at
+    const at = next ? clock(next) : target.schedule_at
     return at ? `One run a day at ${at}` : 'One run a day'
   }
   return hours === 1 ? 'One run every hour' : `One run every ${hours} hours`

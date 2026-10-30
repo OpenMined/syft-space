@@ -9,17 +9,13 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
 
 from syft_benchmark.config import (
     JobState,
     JudgePolicy,
     PairStatus,
     StatusReason,
-    get_settings,
 )
-from syft_benchmark.control.app import create_app
-from syft_benchmark.control.schemas import TargetSpec
 from syft_benchmark.db import (
     Job,
     QaPair,
@@ -31,58 +27,17 @@ from syft_benchmark.db import (
 )
 from syft_benchmark.report import run_view
 
-TOKEN = "test-run-view-token"
+from support import console_auth
+
 KEY = "pytest-run-view-a"
 KEY2 = "pytest-run-view-b"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 JOB = "rv-job"
 T0 = datetime(2026, 9, 1, 6, 0, tzinfo=UTC)
 M1, M2 = "vendor/model-one", "other/model-two"
 J1, J2 = "judge/primary", "judge/second"
 
 
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Any:
-    def wipe() -> None:
-        with session_scope() as session:
-            for key in (KEY, KEY2):
-                session.execute(delete(Result).where(Result.space == key))
-                session.execute(delete(Run).where(Run.space == key))
-                session.execute(delete(QaPair).where(QaPair.space == key))
-                session.execute(delete(Job).where(Job.target == key))
-                session.execute(delete(Target).where(Target.key == key))
-
-    wipe()
-    yield
-    wipe()
-
-
-@pytest.fixture
-def client() -> TestClient:
-    conf = get_settings().model_copy(update={"control_token": TOKEN})
-    return TestClient(create_app(conf))
-
-
-def _console(client: TestClient, key: str = KEY) -> dict[str, str]:
-    body = TargetSpec(key=key, url="http://space.invalid").model_dump(mode="json")
-    assert client.put(f"/targets/{key}", json=body, headers=AUTH).status_code == 200
-    minted = client.post(f"/targets/{key}/session", headers=AUTH)
-    assert minted.status_code == 200, minted.text
-    return {"Authorization": f"Bearer {minted.json()['token']}"}
+pytestmark = pytest.mark.needs_db
 
 
 class Seed:
@@ -207,7 +162,7 @@ def _model(report: dict[str, Any], model: str) -> dict[str, Any]:
 def test_counted_verdict_prefers_override_then_primary(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1")
     seed.pair("q2")
@@ -253,14 +208,14 @@ def test_counted_verdict_prefers_override_then_primary(
 def test_pending_and_technical_stay_out_of_rates(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     for qa in ("q1", "q2", "q3", "q4"):
         seed.pair(qa)
     seed.answer("q1", M1, "with", "correct")
     seed.answer("q2", M1, "with", "pending", judge="")
     seed.answer("q3", M1, "with", "technical")
-    seed.answer("q4", M1, "with", "hallucinate", answer="ERROR: timed out")
+    seed.answer("q4", M1, "with", "technical", answer="ERROR: timed out")
     seed.save()
 
     m1 = _model(_report(client, auth), M1)
@@ -280,7 +235,7 @@ def test_pending_and_technical_stay_out_of_rates(
 
 
 def test_a_failed_model_carries_the_reason(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     for qa in ("q1", "q2"):
         seed.pair(qa)
@@ -321,7 +276,7 @@ def test_failure_labels(answer: str, label: str) -> None:
 def test_incomplete_is_graded_but_neither_right_nor_made_up(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     for qa in ("q1", "q2"):
         seed.pair(qa, generator="tiered_explanation")
@@ -346,7 +301,7 @@ def test_incomplete_is_graded_but_neither_right_nor_made_up(
 def test_trick_questions_feed_only_the_trick_check(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1")
     seed.pair("t1", generator=run_view.TRICK_GENERATOR)
@@ -375,7 +330,7 @@ def test_trick_questions_feed_only_the_trick_check(
 def test_the_question_set_ignores_the_pairs_status_now(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1", status=PairStatus.RETIRED.value)
     seed.pair("q2", status=PairStatus.REJECTED.value)
@@ -390,7 +345,7 @@ def test_the_question_set_ignores_the_pairs_status_now(
 def test_the_funnel_counts_only_what_never_took_part(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     # Asked, then rotated out: not removed.
     seed.pair(
@@ -435,7 +390,7 @@ def test_the_funnel_counts_only_what_never_took_part(
 
 
 def test_groups_counts_and_paging(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     outcomes = {
         "q1": ("hallucinate", "correct"),  # fixed
@@ -495,7 +450,7 @@ def test_groups_counts_and_paging(client: TestClient, clean: Any) -> None:
 
 
 def test_checks_from_the_extra_blocks(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     for qa in ("q1", "q2"):
         seed.pair(qa)
@@ -567,7 +522,7 @@ def test_checks_from_the_extra_blocks(client: TestClient, clean: Any) -> None:
 
 
 def test_each_judge_carries_its_reasoning(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1")
     seed.answer("q1", M1, "alone", "correct", judge=J1, reasoning="old")
@@ -592,7 +547,7 @@ def test_each_judge_carries_its_reasoning(client: TestClient, clean: Any) -> Non
 def test_method_reports_denial_rounds_and_repeats(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     plain = Seed("rv-plain")
     plain.pair("p1")
     plain.answer("p1", M1, "with", "correct")
@@ -635,7 +590,7 @@ def test_method_reports_denial_rounds_and_repeats(
 def test_method_falls_back_when_one_source_is_missing(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1")
     seed.answer("q1", M1, "with", "correct")
@@ -669,7 +624,7 @@ def test_method_falls_back_when_one_source_is_missing(
 
 
 def test_fragments_mark_the_source(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1", file_name="a.md", title="Article A")
     seed.pair("q2", file_name="b.md", title="Article B")
@@ -708,7 +663,7 @@ def test_fragments_mark_the_source(client: TestClient, clean: Any) -> None:
 def test_runs_list_pages_and_keeps_in_progress_apart(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     for n in range(3):
         seed = Seed(f"rv-list-{n}")
         if n == 0:
@@ -724,7 +679,6 @@ def test_runs_list_pages_and_keeps_in_progress_apart(
     assert [r["job_id"] for r in page["items"]] == ["rv-list-2", "rv-list-1"]
     assert page["total"] == 3
     assert page["items"][0]["models"][0]["rate_with"] == 1.0
-    assert page["items"][0]["card_outdated"] is False
 
     only = client.get(url, params={"job_ids": "rv-list-0"}, headers=auth).json()
     assert [r["job_id"] for r in only["items"]] == ["rv-list-0"]
@@ -741,8 +695,8 @@ def test_runs_list_pages_and_keeps_in_progress_apart(
 
 
 def test_a_foreign_job_is_a_404(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
-    _console(client, KEY2)
+    auth = console_auth(client, KEY)
+    console_auth(client, KEY2)
     seed = Seed("rv-foreign", space=KEY2)
     seed.pair("f1")
     seed.answer("f1", M1, "with", "correct")
@@ -763,7 +717,7 @@ def test_a_foreign_job_is_a_404(client: TestClient, clean: Any) -> None:
 def test_the_cache_follows_invalidation_and_skips_running_jobs(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1")
     seed.answer("q1", M1, "with", "hallucinate")
@@ -783,39 +737,31 @@ def test_the_cache_follows_invalidation_and_skips_running_jobs(
     assert _report(client, auth)["judges"] == [J1]
 
 
-def test_card_outdated_and_rebuilding_the_card(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+def test_the_article_window_is_read_from_the_launch(
+    client: TestClient, clean: Any
+) -> None:
+    auth = console_auth(client, KEY)
     seed = Seed()
-    seed.response_type = "raw"
     seed.pair("q1")
-    seed.pair("q2")
-    first = seed.answer("q1", M1, "with", "hallucinate")
-    seed.answer("q2", M1, "with", "correct")
-    seed.answer("q1", M1, "alone", "correct")
-    seed.save(
-        card={
-            "models": [
-                {"model": M1, "samples": 2, "accuracy": 0.5, "closed_accuracy": 1.0}
-            ]
-        }
-    )
-    assert _report(client, auth)["run"]["card_outdated"] is False
+    seed.answer("q1", M1, "with", "correct")
+    seed.save(params={"window_days": 7})
+    report = _report(client, auth)
+    assert report["run"]["window_days"] == 7
+    assert report["method"]["articles_from"] == (T0 - timedelta(days=7)).isoformat()
+    assert report["method"]["articles_to"] == T0.isoformat()
 
-    client.post(
-        f"/console/results/{first}/verdict",
-        json={"verdict": "correct"},
-        headers=auth,
-    )
-    assert _report(client, auth)["run"]["card_outdated"] is True
 
-    # A build without `record` leaves the stored baseline alone.
-    built = client.post("/console/report", json={"job": JOB}, headers=auth)
-    assert built.status_code == 200, built.text
-    assert _report(client, auth)["run"]["card_outdated"] is True
-
-    built = client.post(f"/console/report?job={JOB}&record=true", headers=auth)
-    assert built.status_code == 200, built.text
-    assert _report(client, auth)["run"]["card_outdated"] is False
+def test_a_launch_without_a_recorded_window_has_none(
+    client: TestClient, clean: Any
+) -> None:
+    auth = console_auth(client, KEY)
+    seed = Seed()
+    seed.pair("q1")
+    seed.answer("q1", M1, "with", "correct")
+    seed.save()
+    report = _report(client, auth)
+    assert report["run"]["window_days"] is None
+    assert report["method"]["articles_from"] is None
 
 
 def _primary_and_rate(
@@ -839,11 +785,11 @@ def _two_judges(seed: Seed) -> None:
 def test_settings_do_not_move_a_past_runs_primary(
     client: TestClient, clean: Any
 ) -> None:
-    _console(client)
+    console_auth(client, KEY)
     seed = Seed()
     _two_judges(seed)
-    seed.save(card={"instrument": {"judge": J2}})
-    assert _primary_and_rate([J1, J2]) == (J2, 0.0)
+    seed.save()
+    assert _primary_and_rate([J2, J1]) == (J2, 0.0)
     with session_scope() as session:
         row = session.get(Job, JOB)
         assert row is not None and row.params["primary_judge"] == J2
@@ -852,43 +798,16 @@ def test_settings_do_not_move_a_past_runs_primary(
 
 
 def test_the_jobs_own_panel_decides_the_primary(client: TestClient, clean: Any) -> None:
-    _console(client)
+    console_auth(client, KEY)
     seed = Seed()
     _two_judges(seed)
     seed.save(
         params={"judge_panel": ["judge/absent", J2, J1]},
-        card={"instrument": {"judge": J1}},
     )
     assert _primary_and_rate([J1, J2]) == (J2, 0.0)
     with session_scope() as session:
         row = session.get(Job, JOB)
         assert row is not None and "primary_judge" not in row.params
-
-
-@pytest.mark.parametrize("record", [False, True])
-def test_rebuilding_a_card_keeps_the_primary(
-    client: TestClient, clean: Any, record: bool
-) -> None:
-    auth = _console(client)
-    seed = Seed()
-    _two_judges(seed)
-    seed.save(card={"instrument": {"judge": J2}})
-    before = _report(client, auth)
-    assert before["judges"] == [J2, J1]
-    for _ in range(2):
-        built = client.post(
-            "/console/report", json={"job": JOB, "record": record}, headers=auth
-        )
-        assert built.status_code == 200, built.text
-        assert built.json()["instrument"]["judge"] == J2
-    with session_scope() as session:
-        row = session.get(Job, JOB)
-        assert row is not None and row.params["primary_judge"] == J2
-        assert row.card is not None and row.card["instrument"]["judge"] == J2
-        session.execute(delete(RunAggregate).where(RunAggregate.job_id == JOB))
-    after = _report(client, auth)
-    assert after["judges"] == [J2, J1]
-    assert after["models"] == before["models"]
 
 
 def test_a_launch_keeps_the_judging_it_ran_with(
@@ -900,11 +819,12 @@ def test_a_launch_keeps_the_judging_it_ran_with(
     from syft_benchmark.control.schemas import Instrument, RunRequest
     from syft_benchmark.scheduler import Measured
 
-    _console(client)
+    console_auth(client, KEY)
     with session_scope() as session:
         target = session.get(Target, KEY)
         assert target is not None
         target.instrument = {"judge_models": [J1, J2]}
+        target.probe = {"document_window_days": 3}
     monkeypatch.setattr(jobs, "measure", lambda *a, **k: Measured())
     monkeypatch.setattr(
         jobs,
@@ -948,11 +868,13 @@ def test_a_launch_keeps_the_judging_it_ran_with(
             }
             if kind == "judge":
                 assert [p["phase"] for p in timing["phases"]] == ["judge"]
+            else:
+                assert row.params.pop("window_days") == 3
             assert row.params == {**params, "judge_panel": panel}
 
 
 def test_the_summary_document(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1", question="SECRET QUESTION TEXT")
     seed.answer("q1", M1, "alone", "hallucinate")
@@ -971,7 +893,7 @@ def test_the_summary_document(client: TestClient, clean: Any) -> None:
 
 
 def test_the_run_carries_its_timing(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     timing = {
         "total_s": 12.5,
         "phases": [{"phase": "evaluate", "s": 12.0}],
@@ -995,8 +917,10 @@ def test_the_run_carries_its_timing(client: TestClient, clean: Any) -> None:
     assert _report(client, auth)["timing"] == timing
 
 
-def test_an_older_run_has_no_timing(client: TestClient, clean: Any) -> None:
-    auth = _console(client)
+def test_a_run_saved_without_timing_reports_none(
+    client: TestClient, clean: Any
+) -> None:
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1")
     seed.answer("q1", M1, "alone", "correct")
@@ -1007,7 +931,7 @@ def test_an_older_run_has_no_timing(client: TestClient, clean: Any) -> None:
 def test_run_articles_are_the_asked_articles_with_their_real_dates(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1", doc_id="a", meta={"article_date": "2026-10-05"})
     seed.pair("q2", doc_id="b", meta={"article_date": "2026-10-09"}, job_id=JOB)
@@ -1025,8 +949,8 @@ def test_run_articles_are_the_asked_articles_with_their_real_dates(
         "articles_dated": 2,
         "articles_new": 2,
     }
-    for source in (report["run"], report["method"]):
-        assert {k: source[k] for k in want} == want
+    assert {k: report["run"][k] for k in want} == want
+    assert not want.keys() & report["method"].keys()
     listed = client.get("/console/report/runs", headers=auth).json()["items"]
     assert {k: listed[0][k] for k in want} == want
 
@@ -1034,7 +958,7 @@ def test_run_articles_are_the_asked_articles_with_their_real_dates(
 def test_a_run_without_article_dates_shows_no_range(
     client: TestClient, clean: Any
 ) -> None:
-    auth = _console(client)
+    auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1")
     seed.answer("q1", M1, "with", "correct")

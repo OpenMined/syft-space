@@ -1,28 +1,11 @@
 """The web check: drop the questions a model answers without the publisher.
 
-A question measures the publisher's archive only if a model cannot answer it
-without that archive. So every grounded pending question is put to the web
-check model (``filter_model``) as a bare question: no passage, no context,
-none of the publisher's data. The model may search the web and use its own
-training. The answer is graded the way the main run grades that kind of
-question (``runs.judge``: option letter, key facts, judge). A question it
-answers correctly is rejected as ``web_answerable``; the rest stay and go on
-to the set cap.
-
-A trick question (``unanswerable_property``) is checked too: the web model
-answers it bare, the behaviour judge (``runs.judge.grade_control``) reads the
-answer, and a specific answer its search supports (``web_sourced``) rejects it
-as ``public_knowledge``. A false premise is not checked: a model doubting it
-says nothing about what the web knows.
-
-Web search follows ``web_search_for(conf, "filter", model)``: always asked
-for, used when the model's provider offers it. Without it the model answers
-from its own training alone, and every pair it checks carries that note in
-``meta.web_check``. Such a check rejects fewer questions, but what it rejects
-is still answerable without the publisher.
-
-A failed answer call or a failed grading never decides a pair: it stays
-pending with a note and is checked again on the next pass.
+Every grounded pending question is put to the web check model
+(``filter_model``) bare, with web search where its provider offers it, and
+graded as the main run grades that kind of question. A correct answer rejects
+it as ``web_answerable``; a trick question its search answers, as
+``public_knowledge``. A failed call never decides a pair: it stays pending
+with a note. The rules: docs/02-generation.md.
 """
 
 from __future__ import annotations
@@ -34,10 +17,15 @@ from typing import Any
 
 from loguru import logger
 
-from syft_benchmark.config import ControlOutcome, Settings, Verdict
+from syft_benchmark.config import (
+    ControlOutcome,
+    ManualStatusPriority,
+    Settings,
+    Verdict,
+)
 from syft_benchmark.db import QaPair
 from syft_benchmark.llm import LLMError, LLMFatalError, Provider, chat, cost, roles
-from syft_benchmark.llm.ollama import search_unused, supports_web_search
+from syft_benchmark.llm.web_search import search_unused, supports_web_search
 from syft_benchmark.runs.judge import (
     Grade,
     control_case,
@@ -138,41 +126,12 @@ class WebCheckSummary:
         return line
 
 
-def filter_model(conf: Settings) -> str:
-    """The web check model; empty — the check is off."""
-    return str(getattr(conf, "filter_model", None) or "")
-
-
-def filter_provider(conf: Settings) -> Provider | None:
-    """Where the web check model is called: its own provider, else the subjects'."""
-    return roles.filter_provider(conf)
-
-
-def filter_judge(conf: Settings) -> Provider | None:
-    """The web check judge: ``filter_judge_model``, else Judge 1."""
-    model = conf.filter_judge_model or ""
-    if model:
-        return Provider(
-            role="judge",
-            url=conf.judge_url or conf.ollama_url,
-            api_key=conf.judge_key or conf.llm_api_key,
-            model=model,
-        )
-    judges = roles.judge_providers(conf)
-    return judges[0] if judges else None
-
-
 def search_for(conf: Settings, provider: Provider) -> tuple[bool, str]:
     """Whether the web check model searches, and with which engine.
 
     The role is always on; the model's provider decides whether it can.
     """
-    resolve = getattr(roles, "web_search_for", None)
-    enabled, engine = (
-        resolve(conf, "filter", provider.model)
-        if resolve
-        else (True, conf.web_search_engine.value)
-    )
+    enabled, engine = roles.web_search_for(conf, "filter", provider.model)
     if not enabled or not supports_web_search(provider.url):
         return False, ""
     return True, str(engine or "")
@@ -213,8 +172,7 @@ def web_checked(row: QaPair, model: str) -> bool:
 
 def manual_wins(conf: Settings) -> bool:
     """Whether a status the owner set by hand outranks the web check."""
-    priority = getattr(conf, "manual_status_priority", "filter") or "filter"
-    return str(priority) == "manual"
+    return conf.manual_status_priority == ManualStatusPriority.MANUAL
 
 
 def manual_override(row: QaPair) -> bool:
@@ -235,7 +193,7 @@ def passed_filter(row: QaPair, conf: Settings) -> bool:
         return True
     if manual_wins(conf) and manual_override(row):
         return True
-    model = filter_model(conf)
+    model = conf.filter_model or ""
     if not web_checked(row, model):
         return False
     verdict = ((row.meta or {}).get("web_check") or {}).get("verdict")
@@ -246,7 +204,7 @@ def _graded(
     row: QaPair,
     answer: str,
     conf: Settings,
-    judge: Provider | None,
+    judge: Provider,
     citations: list[dict[str, str]] | None = None,
 ) -> Grade:
     """The main run's grading for this pair's kind (runs.judge.grade_item).
@@ -294,7 +252,7 @@ def _attempts(row: QaPair) -> int:
 def check_pair(
     row: QaPair,
     provider: Provider,
-    judge: Provider | None,
+    judge: Provider,
     conf: Settings,
     *,
     searching: bool = True,
@@ -303,7 +261,7 @@ def check_pair(
     """Ask the web check model one bare question and grade its answer."""
     record: dict[str, Any] = {
         "model": provider.model,
-        "judge": judge.model if judge is not None else conf.judge_model,
+        "judge": judge.model,
         "judge_temperature": conf.judge_temperature,
         "judge_reasoning_effort": conf.judge_reasoning_effort.value,
         "search": (engine or "auto") if searching else "none",
@@ -393,11 +351,11 @@ class WebChecker:
     ``summary``.
     """
 
-    def __init__(self, conf: Settings, judge: Provider | None = None) -> None:
+    def __init__(self, conf: Settings) -> None:
         self.conf = conf
         self.summary = WebCheckSummary()
-        self.provider = filter_provider(conf)
-        self.judge = judge or filter_judge(conf)
+        self.provider = roles.filter_provider(conf)
+        self.judge = roles.filter_judge_provider(conf)
         self.searching, self.engine = (
             search_for(conf, self.provider) if self.provider else (False, "")
         )
@@ -405,10 +363,6 @@ class WebChecker:
         self._streak = 0
         self._warned = False
         self._lock = threading.Lock()
-
-    @property
-    def ready(self) -> bool:
-        return self.provider is not None
 
     def _warn_once(self) -> None:
         if self.searching or self._warned or self.provider is None:
@@ -421,12 +375,6 @@ class WebChecker:
         )
         logger.warning(note)
         self.summary.notes.append(note)
-
-    def stop(self, note: str) -> None:
-        with self._lock:
-            if not self.stopped:
-                self.stopped = note
-                self.summary.notes.append(note)
 
     def check(self, row: QaPair) -> WebVerdict | None:
         """Check one pair; None — not checked, the check has stopped."""

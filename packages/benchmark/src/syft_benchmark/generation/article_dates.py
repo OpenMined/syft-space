@@ -13,6 +13,7 @@ from typing import Any, Protocol
 
 from sqlalchemy import delete, select
 
+from syft_benchmark.config import Settings
 from syft_benchmark.db import Job, QaPair, RunAggregate, session_scope
 
 DATE_KEY = "article_date"
@@ -44,7 +45,7 @@ def article_stamp(doc: Dated) -> dict[str, str]:
     return {}
 
 
-def backfill(space: str, documents: Iterable[Dated]) -> int:
+def backfill(space: str, documents: Iterable[Dated], conf: Settings) -> int:
     """Stamp the space's questions that have no article date yet.
 
     Clears the space's cached run figures when any question changed, so older
@@ -55,7 +56,7 @@ def backfill(space: str, documents: Iterable[Dated]) -> int:
     if not stamps:
         return 0
     stamped = 0
-    with session_scope() as session:
+    with session_scope(conf) as session:
         rows = session.execute(
             select(QaPair).where(
                 QaPair.space == space,

@@ -7,45 +7,46 @@
           class="flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border bg-transparent px-3 py-1.5 text-sm shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
           :class="warn ? 'border-amber-500' : 'border-input'"
         >
-          <!-- Chips for multiple models; remove buttons sit outside the trigger. -->
+          <!-- One focus stop per chip: its remove button, whose tooltip names the model id. -->
           <template v-if="multiple">
-            <Badge
-              v-for="id in selected"
-              :key="id"
-              variant="secondary"
-              class="gap-1 font-normal"
-              :title="id"
-            >
-              {{ label(id) }}
-              <button
-                type="button"
-                :aria-label="`Remove ${label(id)}`"
-                class="cursor-pointer rounded-xs opacity-60 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-1"
-                @click="toggle(id)"
-              >
-                <X class="size-3" />
-              </button>
+            <Badge v-for="id in selected" :key="id" variant="secondary" class="gap-1 font-normal">
+              <Hint :text="id" :focusable="false">
+                <span>{{ label(id) }}</span>
+              </Hint>
+              <Hint :text="`Remove ${id}`" :focusable="false">
+                <button
+                  type="button"
+                  :aria-label="`Remove ${label(id)}`"
+                  class="cursor-pointer rounded-xs opacity-60 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-1"
+                  @click="toggle(id)"
+                >
+                  <X class="size-3" />
+                </button>
+              </Hint>
             </Badge>
           </template>
 
-          <PopoverTrigger as-child>
-            <button
-              :id="triggerId || undefined"
-              type="button"
-              :aria-describedby="describedBy || undefined"
-              class="flex min-w-20 flex-1 cursor-pointer items-center justify-between gap-2 text-left outline-hidden disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span v-if="!selected.length" class="text-muted-foreground">
-                {{ placeholder || 'Choose a model' }}
-              </span>
-              <span v-else-if="!multiple" class="truncate text-foreground" :title="selected[0]">
-                {{ label(selected[0]!) }}
-              </span>
-              <span v-else class="text-muted-foreground">{{ addLabel }}</span>
+          <!-- On the trigger so keyboard focus shows the chosen model's id. -->
+          <Hint :text="multiple ? null : selected[0]">
+            <PopoverTrigger as-child>
+              <button
+                :id="triggerId || undefined"
+                type="button"
+                :aria-describedby="describedBy || undefined"
+                class="flex min-w-20 flex-1 cursor-pointer items-center justify-between gap-2 text-left outline-hidden disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span v-if="!selected.length" class="text-muted-foreground">
+                  {{ placeholder || 'Choose a model' }}
+                </span>
+                <span v-else-if="!multiple" class="truncate text-foreground">
+                  {{ label(selected[0]!) }}
+                </span>
+                <span v-else class="text-muted-foreground">{{ addLabel }}</span>
 
-              <ChevronsUpDown class="size-4 shrink-0 opacity-50" />
-            </button>
-          </PopoverTrigger>
+                <ChevronsUpDown class="size-4 shrink-0 opacity-50" />
+              </button>
+            </PopoverTrigger>
+          </Hint>
         </div>
       </PopoverAnchor>
 
@@ -68,11 +69,7 @@
           <button
             type="button"
             class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors"
-            :class="
-              vendor === ''
-                ? 'bg-secondary text-secondary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            "
+            :class="pillClass(vendor === '')"
             @click="vendor = ''"
           >
             All
@@ -82,11 +79,7 @@
             :key="name"
             type="button"
             class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors"
-            :class="
-              vendor === name
-                ? 'bg-secondary text-secondary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            "
+            :class="pillClass(vendor === name)"
             @click="vendor = vendor === name ? '' : name"
           >
             {{ name }}
@@ -97,22 +90,17 @@
           class="flex flex-wrap gap-1 border-b border-border/50 px-2 py-2"
           data-testid="model-filters"
         >
-          <button
-            v-for="chip in MODEL_FILTERS"
-            :key="chip.value"
-            type="button"
-            class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors"
-            :class="
-              filters.includes(chip.value)
-                ? 'bg-secondary text-secondary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            "
-            :title="chip.help"
-            :aria-pressed="filters.includes(chip.value)"
-            @click="filters = toggleFilter(filters, chip.value)"
-          >
-            {{ chip.label }}
-          </button>
+          <Hint v-for="chip in MODEL_FILTERS" :key="chip.value" :text="chip.help">
+            <button
+              type="button"
+              class="rounded-md px-1.5 py-0.5 text-[11px] transition-colors"
+              :class="pillClass(filters.includes(chip.value))"
+              :aria-pressed="filters.includes(chip.value)"
+              @click="filters = toggleFilter(filters, chip.value)"
+            >
+              {{ chip.label }}
+            </button>
+          </Hint>
         </div>
 
         <div class="max-h-72 overflow-y-auto py-1">
@@ -151,34 +139,27 @@
                     class="size-3.5 shrink-0"
                     :class="selected.includes(entry.id) ? 'opacity-100' : 'opacity-0'"
                   />
-                  <span class="truncate text-sm text-foreground">{{ modelName(entry.id, entry) }}</span>
+                  <span class="truncate text-sm text-foreground">{{
+                    modelName(entry.id, entry)
+                  }}</span>
                 </span>
                 <span class="block truncate pl-5 text-[11px] text-muted-foreground">
                   {{ entry.id }}{{ describe(entry) }}
                 </span>
               </span>
               <span class="flex shrink-0 items-center gap-1">
-                <Badge
-                  v-if="webSearchOf(entry) === 'native'"
-                  variant="outline"
-                  class="font-normal"
-                  title="Has built-in web search."
-                  >Web</Badge
-                >
-                <Badge
+                <Hint v-if="webSearchOf(entry) === 'native'" text="Has built-in web search.">
+                  <Badge variant="outline" class="font-normal">Web</Badge>
+                </Hint>
+                <Hint
                   v-else-if="webSearchOf(entry) === 'plugin'"
-                  variant="outline"
-                  class="font-normal"
-                  title="Searches through the OpenRouter web plugin."
-                  >Web plugin</Badge
+                  text="Searches through the OpenRouter web plugin."
                 >
-                <Badge
-                  v-if="!takesTemperature(entry)"
-                  variant="outline"
-                  class="font-normal"
-                  title="Takes no temperature setting."
-                  >No temperature</Badge
-                >
+                  <Badge variant="outline" class="font-normal">Web plugin</Badge>
+                </Hint>
+                <Hint v-if="!takesTemperature(entry)" text="Takes no temperature setting.">
+                  <Badge variant="outline" class="font-normal">No temperature</Badge>
+                </Hint>
                 <Badge v-if="entry.local" variant="outline" class="font-normal">local</Badge>
                 <Badge v-if="entry.retires_on" variant="outline" class="font-normal">
                   retires {{ entry.retires_on }}
@@ -195,7 +176,7 @@
               v-if="custom"
               type="button"
               class="flex w-full items-start justify-between gap-3 border-t border-border/50 px-3 py-1.5 text-left hover:bg-accent/50"
-              @click="choose(custom!)"
+              @click="choose(custom)"
             >
               <span class="min-w-0">
                 <span class="block truncate text-sm text-foreground">Use “{{ custom }}”</span>
@@ -247,17 +228,19 @@
 import { computed, ref, watch } from 'vue'
 import { Check, ChevronsUpDown, Search, X } from 'lucide-vue-next'
 
+import Hint from '@/components/benchmark/Hint.vue'
+import { day, utcStamp } from '@/components/benchmark/report/figures'
+import { modelName } from '@/components/benchmark/report/labels'
 import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   MODEL_FILTERS,
   matchesFilters,
-  modelName,
   takesTemperature,
   toggleFilter,
   webSearchOf,
-} from '@/components/benchmark/setup/setupForm'
-import type { ModelFilter } from '@/components/benchmark/setup/setupForm'
+} from '@/components/benchmark/setup/models'
+import type { ModelFilter } from '@/components/benchmark/setup/models'
 import { useModelCatalog } from '@/composables/useModelCatalog'
 import type { BenchmarkModel } from '@/api/types'
 
@@ -348,23 +331,14 @@ const hidden = computed(() => matches.value.length - shown.value.length)
 
 const movingMatches = computed(() => {
   if (vendor.value) return []
-  // Filters apply to the model a moving name points to.
-  if (filters.value.length) {
-    return Object.entries(catalog.value.pins).filter(([name, target]) => {
-      const entry = byId.value.get(target)
-      return (
-        !!entry &&
-        !props.exclude.includes(target) &&
-        matchesFilters(entry, filters.value) &&
-        (!needle.value || name.toLowerCase().includes(needle.value))
-      )
-    })
-  }
-  return Object.entries(catalog.value.pins).filter(
-    ([name, target]) =>
-      !props.exclude.includes(target) &&
-      (!needle.value || name.toLowerCase().includes(needle.value)),
-  )
+  return Object.entries(catalog.value.pins).filter(([name, target]) => {
+    if (props.exclude.includes(target)) return false
+    if (needle.value && !name.toLowerCase().includes(needle.value)) return false
+    if (!filters.value.length) return true
+    // Filters apply to the model a moving name points to.
+    const entry = byId.value.get(target)
+    return !!entry && matchesFilters(entry, filters.value)
+  })
 })
 
 /** The typed text, when it is not a catalogue entry. */
@@ -380,8 +354,14 @@ const age = computed(() => {
   const first = Object.entries(catalog.value.fetched)[0]
   if (!first) return count
   const [source, when] = first
-  return `${count} · ${source}, ${when ? when.slice(0, 10) : 'unknown'}`
+  return `${count} · ${source}, ${day(utcStamp(when)) ?? 'unknown'}`
 })
+
+function pillClass(on: boolean): string {
+  return on
+    ? 'bg-secondary text-secondary-foreground'
+    : 'text-muted-foreground hover:text-foreground'
+}
 
 function describe(entry: BenchmarkModel): string {
   const parts: string[] = []

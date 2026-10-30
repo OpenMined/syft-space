@@ -1,11 +1,9 @@
-"""The whole daily cycle.
+"""Measuring a node, and the scheduled cycle over every node.
 
-The order of the steps is not arbitrary. Generation goes first because the runs
-have to go over a fresh dataset. Run A goes before B: it is cheaper (one model
-call against a request to the endpoint with retrieval), and if the model is
-unreachable that comes to light before the long part.
-
-One Space failing does not stop the rest: the node may simply have been rebooting.
+``measure`` is the one execution path for a node — build the dataset, screen
+it, then run every pass — shared by the console cycle and jobs launched from
+the UI. ``run_cycle``/``run_forever`` walk the registry on a schedule. One
+Space failing does not stop the rest: the node may simply have been rebooting.
 """
 
 from __future__ import annotations
@@ -41,9 +39,8 @@ from syft_benchmark.llm import (
     subject_providers,
 )
 from syft_benchmark.report import Metrics, build_docx, render_markdown, summarize
-from syft_benchmark.report.run_view import record_generation
+from syft_benchmark.report.job_params import record_generation
 from syft_benchmark.runs import (
-    MODEL_ARMS,
     Progress,
     RunCache,
     arun_pass,
@@ -57,9 +54,6 @@ from syft_benchmark.runs.timing import CallClock, PassTime
 
 REPORTS_DIR = Path("reports")
 
-# Blocks not run, whatever the settings say.
-PAUSED_BLOCKS: frozenset[EvalBlock] = frozenset()
-
 
 @dataclass(slots=True)
 class CycleReport:
@@ -71,6 +65,11 @@ class CycleReport:
     generated: int = 0
     report_path: Path | None = None
     document_path: Path | None = None
+
+    @property
+    def written(self) -> list[Path]:
+        """The report files this cycle wrote."""
+        return [p for p in (self.report_path, self.document_path) if p is not None]
 
 
 @dataclass(slots=True)
@@ -105,9 +104,8 @@ class Measured:
     generated_nothing: bool = False
     generation_failure_sample: str = ""
 
-    # The names the provider refused outright. On the rig one misspelt model
-    # name went through every pass of every arm and came back eighteen minutes
-    # later with nothing to show.
+    # The names the provider refused outright; their remaining passes are
+    # skipped.
     refused: set[str] = field(default_factory=set)
     # Where the evaluation's time went: per pass, and per model call.
     pass_times: list[PassTime] = field(default_factory=list)
@@ -131,13 +129,10 @@ class Measured:
 
 
 class Observer(Protocol):
-    """Who to report the progress of the measurement to.
+    """Who to report the progress of the measurement to, and who may stop it.
 
-    Created for the sake of launching from the UI: the daily cycle makes do with a
-    log, while an owner who pressed a button needs to see what the measurement is
-    on right now and to be able to stop it. Both requirements are satisfied by one
-    and the same object, because it is one question — "what is happening and shall
-    we carry on".
+    The daily cycle passes none and logs; a job launched from the UI passes
+    its reporter.
     """
 
     def planned(self, passes: int) -> None:
@@ -149,7 +144,7 @@ class Observer(Protocol):
     def plan(self, plan: dict[str, Any]) -> None:
         """The whole evaluation, pass by pass (report API, "Progress plan").
 
-        Known before the first question; optional, looked up with getattr.
+        Known before the first question.
         """
 
     def pass_started(self, index: int, arm: str, block: str, model: str) -> None:
@@ -177,26 +172,6 @@ class Observer(Protocol):
         return False
 
 
-def _plan(conf: Settings, subjects: list[Provider]) -> int:
-    """How many runs this configuration will give on one node.
-
-    Computed before the work starts and by exactly the same enumeration as the
-    measurement itself: a share of work done computed by a different rule will
-    sooner or later diverge from the work and show "7 of 6". A skipped
-    monte_carlo block is not a run.
-    """
-    total = 0
-    for block in conf.blocks:
-        for mode in conf.arms:
-            if mode not in MODEL_ARMS:
-                total += 1
-                continue
-            total += sum(
-                1 for subject in subjects if not skips_monte_carlo(block, subject, conf)
-            )
-    return total
-
-
 def measure(
     space: SpaceConfig,
     conf: Settings,
@@ -213,10 +188,8 @@ def measure(
 ) -> Measured:
     """Measure one node in full: the dataset, then all the runs.
 
-    Taken out of the cycle so that there stays one path of execution. The daily
-    cycle and the "launch" button differ in who called and who is reported to, not
-    in what happens to the node; two implementations of one measurement would
-    diverge within a month, and diverge silently.
+    The one path of execution: the daily cycle and a launched job differ in who
+    called and who is reported to, not in what happens to the node.
 
     Args:
         space: The node under test
@@ -238,8 +211,7 @@ def measure(
             exactly that reason
         defer_judging: Collect the answers without calling a judge, leaving
             every ``Result`` with ``verdict = pending`` for ``judge_stage`` to
-            grade afterwards. False everywhere judging still happens inline,
-            as it always has
+            grade afterwards
         limit: A trial run's size: how many questions to build from each
             generator and then ask of each. None — build as the settings say
             and ask every active question
@@ -303,10 +275,9 @@ def measure(
                 screen=filter_effective,
                 retrieve=retrieve,
             )
-            streamed = getattr(made, "screened", None)
-            kind_rows = getattr(made, "kind_rows", None)
-            if job_id and kind_rows is not None:
-                record_generation(job_id, kind_rows(), conf)
+            streamed = made.screened
+            if job_id:
+                record_generation(job_id, made.kind_rows(), conf)
             # Nothing built AND something refused: nothing built on its own
             # means no new chunks since the last pass.
             out.generated_nothing = bool(made.failures) and made.pairs_made == 0
@@ -357,26 +328,19 @@ def measure(
     if not evaluate:
         return out
 
-    paused = [block for block in conf.blocks if block in PAUSED_BLOCKS]
-    if paused:
-        conf = conf.model_copy(
-            update={"blocks": [b for b in conf.blocks if b not in PAUSED_BLOCKS]}
-        )
-        out.notes.append(f"paused: {', '.join(b.value for b in paused)}")
-
     held = evaluation_gate(space.key, conf)
     if held:
         # Active questions exist and none passed the web check: nothing to ask.
         out.failures.append(f"{space.key}: {held}")
         return out
 
-    specs: list[tuple[ContextMode, EvalBlock, Provider | None]] = []
+    # A skipped monte_carlo block is not a pass.
+    specs: list[tuple[ContextMode, EvalBlock, Provider]] = []
     skipped_mc: list[str] = []
     for block in conf.blocks:
         for mode in conf.arms:
-            for subject in subjects if mode in MODEL_ARMS else [None]:
+            for subject in subjects:
                 if skips_monte_carlo(block, subject, conf):
-                    assert subject is not None
                     note = monte_carlo_skip_note(subject.model)
                     if note not in out.notes:
                         out.notes.append(note)
@@ -388,30 +352,28 @@ def measure(
     if observer is not None:
         # Planned only now: a launch that stops here (evaluate=False) never
         # asks a question, and a pass count announced for it would draw a bar
-        # that no further write ever moves.
-        passes = _plan(conf, subjects)
+        # that no further write ever moves. The count is the passes about to
+        # run, so the share of work done cannot drift from the work.
+        passes = len(specs)
         observer.planned(passes)
-        notify = getattr(observer, "plan", None)
-        if notify is not None:
-            # Every pass asks the same set, so the whole extent is known now.
-            questions = len(_active_pairs(space.key, limit, conf))
-            notify(
-                {
-                    "questions": questions,
-                    "models": [subject.model for subject in subjects],
-                    "conditions": [mode.value for mode in conf.arms],
-                    "checks": [block.value for block in conf.blocks],
-                    "skipped_monte_carlo": skipped_mc,
-                    "passes": passes,
-                    "steps": passes * questions,
-                    "started_at": datetime.now(UTC).isoformat(),
-                }
-            )
+        # Every pass asks the same set, so the whole extent is known now.
+        questions = len(_active_pairs(space.key, limit, conf))
+        observer.plan(
+            {
+                "questions": questions,
+                "models": [subject.model for subject in subjects],
+                "conditions": [mode.value for mode in conf.arms],
+                "checks": [block.value for block in conf.blocks],
+                "skipped_monte_carlo": skipped_mc,
+                "steps": passes * questions,
+                "started_at": datetime.now(UTC).isoformat(),
+            }
+        )
         observer.phase(JobPhase.EVALUATE)
 
     # Every pass runs at once, under the one model lane and the one endpoint
-    # lane: one pass at a time left the lanes idle through each pass's slow
-    # tail. The cache makes the passes of one question share their calls.
+    # lane, so no lane idles through a pass's slow tail. The cache makes the
+    # passes of one question share their calls.
     async def evaluate_all() -> None:
         pool = Pool(conf, clock=out.clock)
         launch = Launch(
@@ -454,7 +416,7 @@ async def _one_pass(
     conf: Settings,
     mode: ContextMode,
     block: EvalBlock,
-    subject: Provider | None,
+    subject: Provider,
     *,
     judges: list[Provider],
     out: Measured,
@@ -472,7 +434,7 @@ async def _one_pass(
     # come. A refusal is about the name, the key or the money, and no later
     # pass changes any of those — but each pass asked in that name costs a
     # whole set of questions and the time to ask them.
-    if subject is not None and subject.model in launch.refused:
+    if subject.model in launch.refused:
         return None
     # A judge the provider refused is stood down the same way. The panel is
     # shared by every pass, so one refused judge must not end the measurement
@@ -492,18 +454,12 @@ async def _one_pass(
     if observer is not None and observer.stop_requested():
         return None
 
-    label = f"{space.key}/{mode.value}/{block.value}"
-    if subject is not None:
-        label += f" [{subject.model}]"
+    label = f"{space.key}/{mode.value}/{block.value} [{subject.model}]"
     out.passes += 1
     index = out.passes
     if observer is not None:
-        observer.pass_started(
-            index, mode.value, block.value, subject.model if subject else ""
-        )
-    timed = PassTime(
-        arm=mode.value, block=block.value, model=subject.model if subject else ""
-    )
+        observer.pass_started(index, mode.value, block.value, subject.model)
+    timed = PassTime(arm=mode.value, block=block.value, model=subject.model)
     started = time.monotonic()
     try:
         # The panel is handled inside the run: the answerer is asked once and
@@ -567,13 +523,7 @@ async def _one_pass(
                 else ""
             )
         )
-        metrics = summarize(
-            space.key,
-            mode,
-            block,
-            subject.model if subject else None,
-            outcome.judge,
-        )
+        metrics = summarize(space.key, mode, block, subject.model, outcome.judge)
         if metrics is not None:
             out.metrics.append(metrics)
     if observer is not None:
@@ -713,6 +663,8 @@ def run_forever(
             f"cycle finished: nodes {len(report.spaces)}, "
             f"failures {len(report.failures)}"
         )
+        for path in report.written:
+            logger.info(f"report written: {path}")
         moment = next_fire(interval, at)
         logger.info(f"next cycle: {moment:%Y-%m-%d %H:%M}")
         time.sleep(max(0.0, (moment - datetime.now()).total_seconds()))

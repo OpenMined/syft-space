@@ -56,9 +56,6 @@ describe('results routing', () => {
     })
     // A model screen without a model falls back to the run summary.
     expect(readResultsView({ job: 'j1', screen: 'questions' })).toMatchObject({ screen: 'run' })
-    expect(readResultsView({ view: 'technical', job: 'j1', model: 'm1' })).toEqual({
-      kind: 'technical',
-    })
   })
 
   it('drops every results key', () => {
@@ -68,8 +65,6 @@ describe('results routing', () => {
         job: 'j',
         model: 'm',
         screen: 's',
-        view: 'v',
-        run: 'r',
         keep: '1',
       }),
     ).toEqual({ tab: 'x', keep: '1' })

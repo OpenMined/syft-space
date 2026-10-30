@@ -14,68 +14,14 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
-from syft_benchmark.config import PairStatus, Verdict, get_settings
-from syft_benchmark.control.app import create_app
-from syft_benchmark.control.schemas import TargetSpec
+from syft_benchmark.config import PairStatus, Verdict
 from syft_benchmark.db.models import Job, QaPair, Result, Run, Target
 from syft_benchmark.db.session import session_scope
 
-TOKEN = "test-console-token"
-WEB_CHECK_MODEL = "openai/gpt-5.1"
+from support import mint_session, register_target
+
 KEY = "pytest-console-a"
 KEY2 = "pytest-console-b"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
-
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(Job).where(Job.target == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Any:
-    def wipe() -> None:
-        with session_scope() as session:
-            for key in (KEY, KEY2):
-                session.execute(delete(Result).where(Result.space == key))
-                session.execute(delete(Run).where(Run.space == key))
-                session.execute(delete(QaPair).where(QaPair.space == key))
-                session.execute(delete(Job).where(Job.target == key))
-                session.execute(delete(Target).where(Target.key == key))
-
-    wipe()
-    yield
-    wipe()
-
-
-@pytest.fixture
-def client() -> Any:
-    """Same reasoning as `test_control.py`'s: no worker thread in tests."""
-    conf = get_settings().model_copy(
-        update={"control_token": TOKEN, "filter_model": WEB_CHECK_MODEL}
-    )
-    return TestClient(create_app(conf))
-
-
-def _register(client: TestClient, key: str) -> None:
-    body = TargetSpec(key=key, url="http://space.invalid").model_dump(mode="json")
-    made = client.put(f"/targets/{key}", json=body, headers=AUTH)
-    assert made.status_code == 200, made.text
-
-
-def _session_for(client: TestClient, key: str) -> dict[str, str]:
-    minted = client.post(f"/targets/{key}/session", headers=AUTH)
-    assert minted.status_code == 200, minted.text
-    return {"Authorization": f"Bearer {minted.json()['token']}"}
 
 
 def _pair(
@@ -94,11 +40,11 @@ def _pair(
     )
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_session_reaches_only_its_own_target(client: TestClient, clean: Any) -> None:
-    _register(client, KEY)
-    _register(client, KEY2)
-    session_a = _session_for(client, KEY)
+    register_target(client, KEY)
+    register_target(client, KEY2)
+    session_a = mint_session(client, KEY)
 
     with session_scope() as db:
         db.add(_pair("pair-a", KEY))
@@ -125,20 +71,20 @@ def test_a_session_reaches_only_its_own_target(client: TestClient, clean: Any) -
         ), "a foreign session must not have changed it"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_wrong_or_garbage_session_token_is_refused(
     client: TestClient, clean: Any
 ) -> None:
-    _register(client, KEY)
+    register_target(client, KEY)
     bad = {"Authorization": "Bearer not-a-real-session"}
     assert client.get("/console/pairs", headers=bad).status_code == 401
     assert client.get("/console/pairs").status_code == 401
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_patch_and_delete_round_trip(client: TestClient, clean: Any) -> None:
-    _register(client, KEY)
-    session_a = _session_for(client, KEY)
+    register_target(client, KEY)
+    session_a = mint_session(client, KEY)
 
     with session_scope() as db:
         db.add(_pair("pair-lonely", KEY))
@@ -175,12 +121,12 @@ def test_patch_and_delete_round_trip(client: TestClient, clean: Any) -> None:
     ]
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_overriding_a_verdict_inserts_and_is_visible_as_latest(
     client: TestClient, clean: Any
 ) -> None:
-    _register(client, KEY)
-    session_a = _session_for(client, KEY)
+    register_target(client, KEY)
+    session_a = mint_session(client, KEY)
 
     with session_scope() as db:
         db.add(_pair("pair-verdict", KEY, status=PairStatus.ACTIVE.value))
@@ -216,7 +162,7 @@ def test_overriding_a_verdict_inserts_and_is_visible_as_latest(
     assert rows[new_id]["generator"] == "cloze"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_audit_trail_is_only_sent_when_it_is_asked_for(
     client: TestClient, clean: Any
 ) -> None:
@@ -228,8 +174,8 @@ def test_the_audit_trail_is_only_sent_when_it_is_asked_for(
     The retrieval scalars are the exception and are always there — an
     abstention cannot be read without them.
     """
-    _register(client, KEY)
-    session_a = _session_for(client, KEY)
+    register_target(client, KEY)
+    session_a = mint_session(client, KEY)
 
     with session_scope() as db:
         db.add(_pair("pair-audit", KEY, status=PairStatus.ACTIVE.value))
@@ -287,7 +233,7 @@ def test_the_audit_trail_is_only_sent_when_it_is_asked_for(
     ]
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_row_with_no_audit_kept_says_so_rather_than_inventing_one(
     client: TestClient, clean: Any
 ) -> None:
@@ -297,8 +243,8 @@ def test_a_row_with_no_audit_kept_says_so_rather_than_inventing_one(
     as "the model was sent nothing". `fragments` is null for the same reason
     where no search was made at all.
     """
-    _register(client, KEY)
-    session_a = _session_for(client, KEY)
+    register_target(client, KEY)
+    session_a = mint_session(client, KEY)
 
     with session_scope() as db:
         db.add(_pair("pair-bare", KEY, status=PairStatus.ACTIVE.value))
@@ -325,12 +271,12 @@ def test_a_row_with_no_audit_kept_says_so_rather_than_inventing_one(
     assert row["retrieval_hit"] is None
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_console_runs_filter_and_judge_queue_the_right_kind(
     client: TestClient, clean: Any
 ) -> None:
-    _register(client, KEY)
-    session_a = _session_for(client, KEY)
+    register_target(client, KEY)
+    session_a = mint_session(client, KEY)
 
     run = client.post("/console/runs", json={}, headers=session_a)
     assert run.status_code == 202, run.text
@@ -351,21 +297,19 @@ def test_console_runs_filter_and_judge_queue_the_right_kind(
     assert judged.json()["kind"] == "judge"
 
 
-@needs_db
-def test_console_report_with_nothing_graded_is_a_conflict(
-    client: TestClient, clean: Any
-) -> None:
-    _register(client, KEY)
-    session_a = _session_for(client, KEY)
-    assert client.post("/console/report", headers=session_a).status_code == 409
+@pytest.mark.needs_db
+def test_the_console_builds_no_card(client: TestClient, clean: Any) -> None:
+    register_target(client, KEY)
+    session_a = mint_session(client, KEY)
+    assert client.post("/console/report", headers=session_a).status_code in (404, 405)
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_probe_layer_round_trips_and_reports_what_it_inherits(
     client: TestClient, clean: Any
 ) -> None:
-    _register(client, KEY)
-    session_a = _session_for(client, KEY)
+    register_target(client, KEY)
+    session_a = mint_session(client, KEY)
 
     fresh = client.get("/console/probe", headers=session_a)
     assert fresh.status_code == 200, fresh.text
@@ -381,13 +325,13 @@ def test_the_probe_layer_round_trips_and_reports_what_it_inherits(
     assert reread.json()["probe"] == {"retrieval_top_k": 3}
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_probe_layer_is_scoped_to_its_own_target(
     client: TestClient, clean: Any
 ) -> None:
-    _register(client, KEY)
-    _register(client, KEY2)
-    session_a = _session_for(client, KEY)
+    register_target(client, KEY)
+    register_target(client, KEY2)
+    session_a = mint_session(client, KEY)
 
     client.put("/console/probe", json={"retrieval_top_k": 9}, headers=session_a)
 

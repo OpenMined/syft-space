@@ -6,70 +6,23 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 
-from syft_benchmark.config import JobState, PairStatus, get_settings
-from syft_benchmark.control.app import create_app
-from syft_benchmark.control.schemas import TargetSpec
+from syft_benchmark.config import JobState, PairStatus
 from syft_benchmark.db import (
     Job,
     QaPair,
     Result,
     Run,
     RunAggregate,
-    Target,
     session_scope,
 )
 from syft_benchmark.generation import decisions
 
-TOKEN = "test-delete-run-token"
+from support import console_auth
+
 KEY = "pytest-delete-a"
 KEY2 = "pytest-delete-b"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
-
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == KEY))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Any:
-    def wipe() -> None:
-        with session_scope() as session:
-            for key in (KEY, KEY2):
-                session.execute(delete(Result).where(Result.space == key))
-                session.execute(delete(Run).where(Run.space == key))
-                session.execute(delete(QaPair).where(QaPair.space == key))
-                session.execute(delete(Job).where(Job.target == key))
-                session.execute(delete(Target).where(Target.key == key))
-
-    wipe()
-    yield
-    wipe()
-
-
-@pytest.fixture
-def client() -> Any:
-    conf = get_settings().model_copy(update={"control_token": TOKEN})
-    return TestClient(create_app(conf))
-
-
-def _console(client: TestClient, key: str) -> dict[str, str]:
-    body = TargetSpec(key=key, url="http://space.invalid").model_dump(mode="json")
-    assert client.put(f"/targets/{key}", json=body, headers=AUTH).status_code == 200
-    minted = client.post(f"/targets/{key}/session", headers=AUTH)
-    assert minted.status_code == 200, minted.text
-    return {"Authorization": f"Bearer {minted.json()['token']}"}
 
 
 def _seed(job_id: str, pair_id: str, *, target: str = KEY, state: str = "") -> None:
@@ -148,11 +101,11 @@ GONE = {"jobs": 0, "runs": 0, "results": 0, "aggregates": 0}
 KEPT = {"jobs": 1, "runs": 2, "results": 2, "aggregates": 1}
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_deleting_a_run_takes_only_its_data_and_keeps_the_questions(
     client: TestClient, clean: Any
 ) -> None:
-    session_a = _console(client, KEY)
+    session_a = console_auth(client, KEY)
     _seed("job-del", "p-del")
     _seed("job-keep", "p-keep")
 
@@ -175,12 +128,12 @@ def test_deleting_a_run_takes_only_its_data_and_keeps_the_questions(
     assert again.status_code == 404
 
 
-@needs_db
+@pytest.mark.needs_db
 @pytest.mark.parametrize("state", [JobState.QUEUED.value, JobState.RUNNING.value])
 def test_a_queued_or_running_run_is_refused(
     client: TestClient, clean: Any, state: str
 ) -> None:
-    session_a = _console(client, KEY)
+    session_a = console_auth(client, KEY)
     _seed("job-live", "p-live", state=state)
 
     refused = client.delete("/console/report/runs/job-live", headers=session_a)
@@ -188,10 +141,10 @@ def test_a_queued_or_running_run_is_refused(
     assert _left("job-live") == KEPT
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_another_targets_run_cannot_be_deleted(client: TestClient, clean: Any) -> None:
-    session_a = _console(client, KEY)
-    _console(client, KEY2)
+    session_a = console_auth(client, KEY)
+    console_auth(client, KEY2)
     _seed("job-b", "p-b", target=KEY2)
 
     refused = client.delete("/console/report/runs/job-b", headers=session_a)

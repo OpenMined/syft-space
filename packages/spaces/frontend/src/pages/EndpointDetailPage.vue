@@ -1070,17 +1070,19 @@ const endpoint = ref<EndpointResponse | null>(null)
 // From the route, so the benchmark tabs need not wait for the endpoint to load.
 const routeSlug = computed(() => route.params.slug as string)
 // The active tab is kept in the URL so reloads and shared links keep it.
-const KNOWN_TABS = new Set(['overview', 'access', 'transactions', 'benchmark', 'results'])
-const requestedTab = route.query.tab
-const activeTab = ref(
-  typeof requestedTab === 'string' && KNOWN_TABS.has(requestedTab) ? requestedTab : 'overview',
-)
+const KNOWN_TABS = new Set(['overview', 'access', 'transactions', 'benchmark', RESULTS_TAB])
+
+function tabFromQuery(tab: unknown): string {
+  return typeof tab === 'string' && KNOWN_TABS.has(tab) ? tab : 'overview'
+}
+
+const activeTab = ref(tabFromQuery(route.query.tab))
 
 // Follow tab changes made through the URL (links inside a tab).
 watch(
   () => route.query.tab,
   (tab) => {
-    const next = typeof tab === 'string' && KNOWN_TABS.has(tab) ? tab : 'overview'
+    const next = tabFromQuery(tab)
     if (next !== activeTab.value) activeTab.value = next
   },
 )

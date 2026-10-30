@@ -6,11 +6,8 @@ are indistinguishable, and the whole construction rests on comparing them; and
 
 Time is ``timestamptz``, structures are ``jsonb``.
 
-An important point about sensitivity: ``qa_pairs.answer`` not infrequently quotes
-the source verbatim, ``results.retrieved`` stores the chunks that were found, and
-``results.audit`` whole prompts, including the context mixed in in arm C. This
-database is a third copy of the corpus after the Space files and ChromaDB, and it
-has to be protected the same way.
+The database holds corpus text and is protected like the corpus: see
+docs/privacy.md, section 3.
 """
 
 from __future__ import annotations
@@ -54,26 +51,21 @@ class QaPair(Base):
     space: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     collection: Mapped[str] = mapped_column(String(200), nullable=False, default="")
 
-    # A cohort is one pool of questions built in a single pass. It is needed so that
-    # a set can be built afresh over ONE AND THE SAME material — with a different
-    # model, a different prompt — and compared. If the material is the same and the
-    # metrics diverged, it is not about the model under test but about the quality of
-    # the questions and the gold answers: without a cohort that question cannot even
-    # be asked.
-    #
-    # An empty string — a set built before cohorts existed.
+    # One pool of questions built in a single pass, so a set can be rebuilt over
+    # the same material and compared (``DatasetMode.REBUILD``). Empty — the
+    # default pool.
     cohort: Mapped[str] = mapped_column(
         String(32), nullable=False, default="", index=True
     )
 
-    # Which launch built this pair — what makes "what did this run generate"
-    # answerable at all. `cohort` cannot: an incremental launch adds to the pool
-    # that is already there, so two launches a day apart share one.
-    #
-    # NULL is not a gap: a pair written by the CLI, or before the column
-    # existed, belongs to no launch anyone can name.
+    # Which launch built this pair. `cohort` cannot say: an incremental launch
+    # adds to the pool that is already there. NULL — written by the CLI, or by
+    # no launch anyone can name.
     job_id: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, default=None, index=True
+        String(64),
+        nullable=True,
+        default=None,
+        comment="The launch that generated this pair; NULL — none it can name",
     )
 
     generator: Mapped[str] = mapped_column(
@@ -94,10 +86,7 @@ class QaPair(Base):
     context: Mapped[str] = mapped_column(Text, nullable=False, default="")
     meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
-    # What counts as the correct behaviour on this question: to answer, to abstain
-    # (there is no answer in the corpus) or to refute a false premise. The field sits
-    # on the pair, not on the run: there is one set and three arms, and the correct
-    # behaviour is determined by the question, not by who answers it.
+    # What counts as the correct behaviour on this question (``ExpectedBehavior``).
     expected_behavior: Mapped[str] = mapped_column(
         String(20), nullable=False, default="answer", index=True
     )
@@ -134,16 +123,16 @@ class QaPair(Base):
         ),
         Index("qa_pairs_chunk", "space", "chunk_id"),
         Index("qa_pairs_cohort", "space", "cohort", "status"),
+        # Every read of a launch's questions carries the status band too.
+        Index("qa_pairs_job", "space", "job_id", "status"),
     )
 
 
 class ProcessedUnit(Base):
     """What has already been processed — so the daily cycle does not start from zero.
 
-    The key includes the generator, and that is mandatory: there are eight
-    generators, they see one and the same text differently, and a chunk processed by
-    masking is obliged to reach MCQ as well. Without the generator in the key the
-    second generator would silently skip everything the first got through.
+    The key includes the generator: generators read the same text differently,
+    and a chunk one has processed must still reach the others.
 
     The unit of processing depends on the generator scope: for most it is a chunk,
     for multihop and tiered the whole document, because you cannot connect two facts
@@ -181,22 +170,15 @@ class Run(Base):
     space: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     endpoint: Mapped[str] = mapped_column(String(120), nullable=False, default="")
 
-    # Which launch this run was born of — what makes the report and the audit of
-    # ONE measurement possible; without it a job and its runs share only a target
-    # and a span of time.
-    #
-    # NULL is not a gap: a run started from the console belongs to no job and
-    # never will. No foreign key, for the reason ``jobs`` has none on ``targets``
-    # — a cascade must not carry off the history of what was measured.
+    # Which launch this run belongs to; NULL — started from the console. No
+    # foreign key, for the reason ``jobs`` has none on ``targets``: a cascade
+    # must not carry off the history of what was measured.
     job_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, default=None, index=True
     )
 
-    # The main field of the table — the measurement arm. closed_book (A) — the
-    # question went to the model without a single corpus chunk; open_book (B) — the
-    # whole endpoint answered; model_with_context (C) — the same model as in A
-    # answered, but with the endpoint retrieval in the prompt. Only identical arms
-    # can be compared with one another.
+    # The measurement arm (``ContextMode``). Only identical arms can be compared
+    # with one another.
     context_mode: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
 
     # What exactly was mixed in with the question: the chunks, the endpoint finished
@@ -286,7 +268,7 @@ class Result(Base):
     endpoint: Mapped[str] = mapped_column(String(120), nullable=False, default="")
 
     # The endpoint mode at run time: raw / summary / both. Written beside the answer
-    # rather than taken from the card when reading, because the mode can be switched
+    # rather than read from the endpoint later, because the mode can be switched
     # and an old verdict relates to the previous one.
     endpoint_response_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default=""
@@ -310,9 +292,8 @@ class Result(Base):
         String(20), nullable=False, default="answer", index=True
     )
 
-    # Grounding — only for open_book: does the answer follow from what was found, or
-    # did the model add something of its own. For closed_book it is meaningless and
-    # stays NULL.
+    # Whether the answer follows from the retrieval it was given; NULL in the
+    # arms that are given none.
     grounded: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
     grounded_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
@@ -389,14 +370,13 @@ class Target(Base):
     to re-read it in a running process, no history, and two simultaneous saves
     wipe each other out.
 
-    ``config/spaces.json`` remains a seed: a target that is not in the table is
+    ``config/spaces.json`` is a seed: a target that is not in the table is
     taken from it, so an installation configured by the file works knowing
     nothing about any UI.
 
     ``instrument`` and ``probe`` are **overrides**, not a full set of settings: only
     what the owner actually set. The defaults stay with the installation, and an
-    updated default reaches every target by itself. Keeping a full snapshot here
-    would mean freezing it forever on the day the target was created.
+    updated default reaches every target by itself.
     """
 
     __tablename__ = "targets"
@@ -444,13 +424,9 @@ class Target(Base):
     # measurement rather than creating it again a week later.
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    # A schedule of the form 24h/90m, and for a daily one the hour of the night it
-    # should land on. Read by the ticker inside the service: setting it here is
-    # what makes a measurement happen without anybody pressing anything.
-    #
-    # The hour is UTC, and that is deliberate rather than a leftover. A container
-    # has no idea what the owner's night is, and a service that guessed at it from
-    # its own clock would shift every schedule the day the host was moved.
+    # A schedule of the form 24h/90m, and for a daily one the hour it lands on,
+    # read by the ticker inside the service. The hour is UTC: a container does
+    # not know the owner's time zone.
     schedule: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     schedule_at: Mapped[str] = mapped_column(
         String(5),
@@ -460,10 +436,8 @@ class Target(Base):
     )
 
     # When the ticker will next look at this target. Stored rather than recomputed
-    # each tick, for two reasons that both showed up on the rig: a computed moment
-    # has no memory of having fired, so a 24h schedule would start a measurement
-    # on every tick of the hour it was due in; and a schedule saved for the first
-    # time would fire at once, though "every 24h at 03:00" means tonight.
+    # each tick: a computed moment has no memory of having fired, and a schedule
+    # saved for the first time would fire at once.
     #
     # NULL — the moment is not worked out yet, and the ticker plans without
     # measuring. A moment in the past — the service was down over the window.
@@ -485,7 +459,7 @@ class Job(Base):
     The ``runs`` table is not fit for this and must not be: its row is "arm x block x
     model", there are dozens of them per measurement, and not one of them answers the
     owner question "is my launch still going?". A job stands a layer above and lives
-    from the press of a button to its card.
+    from the press of a button to its last verdict.
 
     There is deliberately no reference to ``targets``: a target gets deleted, the
     history of measurements does not. A cascade would carry off the answer to "what
@@ -502,14 +476,14 @@ class Job(Base):
     )
     phase: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
 
-    # What operation this job is: ``pipeline`` (any ``measure()`` call — a
-    # full run, a lone generate, a lone evaluate, or a console-facing group
-    # built from the same flags), ``filter`` or ``judge`` — the two phases
-    # that work over already-stored input rather than a fresh ``measure()``
-    # call. Old rows and anything launched through the unattended nightly
-    # cycle default to ``pipeline``. See ``JobKind``.
+    # What operation this job is (``JobKind``).
     kind: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="pipeline", index=True
+        String(20),
+        nullable=False,
+        default="pipeline",
+        index=True,
+        comment="What operation this job is: pipeline (measure(), any "
+        "combination of generate/filter/evaluate), filter, or judge",
     )
 
     # The progress of the measurement. The full volume is not known at once — it comes
@@ -520,11 +494,9 @@ class Job(Base):
     total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     message: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
-    # What is going on right now, as fields rather than as a string. A string of the
-    # form "space/closed_book/direct [model] — 43/120" is read only by someone who
-    # knows how it is built, and in another language it is not displayed at all;
-    # besides, "43 of 120" is questions within a run, while done/total is runs, and
-    # two different counts merged into one phrase get confused with each other.
+    # The pass running now, as fields so the UI can render them in its own
+    # language. step_done/step_total count questions within the pass;
+    # done/total count passes.
     arm: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     block: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(120), nullable=False, default="")
@@ -533,18 +505,12 @@ class Job(Base):
 
     # The snapshot of the settings the job was launched with. The configuration gets
     # changed between launches, and without a snapshot there is nothing to explain
-    # yesterday figures with. Besides the request it holds the judging the job ran
-    # with (``judge_panel``, ``judge_policy``) and, once fixed, ``primary_judge``
-    # — see ``run_view.primary_judge``.
+    # yesterday figures with. Besides the request it holds what ``job_params``
+    # records: the judging the job ran with (``judge_panel``, ``judge_policy``),
+    # the article window and, once fixed, ``primary_judge`` — see
+    # ``counted.primary_judge``.
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     trigger: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
-
-    # The card assembled right after measuring (``report.card.payload_for``):
-    # "how did this run go" is answered from here. Replaced by a card rebuilt
-    # with ``record``: the baseline of ``card_outdated``.
-    card: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True, default=None
-    )
 
     # Stopping is a request, not a kill: the run finishes writing the current question
     # and exits by itself, leaving the database intact.
@@ -579,21 +545,60 @@ class RunAggregate(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
 
 
-class InstallationSettings(Base):
-    """The installation's own settings — the layer under the instrument.
+class WriterCall(Base):
+    """A writer call of a job that threw drafts away or failed: one row per call.
 
-    The bottom of the three settings layers. The other two are rows here
-    already; this one sat in the environment, which meant a settings file of
-    three hundred lines on the host and no way to change a default without
-    going to that host.
+    Pairs keep the calls that wrote them (``meta.writer``); what a call wrote
+    and the build dropped has no pair to sit on. No foreign key, as for
+    ``qa_pairs.job_id``; ``discard_run`` deletes the rows with their job.
+
+    ``system`` is stored on the first row of a build with that prompt and is
+    empty on the rest; ``system_digest`` finds it.
+    """
+
+    __tablename__ = "writer_calls"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    call: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    document_title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    file_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    passage: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    system: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    system_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The passage replaced by ``recorded.PASSAGE_MARK``.
+    user: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    reply: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latency_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # {kind: [{question, answer, reason}]}, the reason as in the kind's
+    # ``dropped``: every kind the call dropped from, or was asked for when it
+    # failed (with no drafts).
+    dropped: Mapped[dict[str, list[dict[str, Any]]]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("writer_calls_job", "job_id", "created_at"),
+        Index("writer_calls_system", "job_id", "system_digest"),
+        Index("writer_calls_call", "job_id", "call", unique=True),
+    )
+
+
+class InstallationSettings(Base):
+    """The installation's own settings — the bottom of the three layers.
 
     **A sparse set of overrides, exactly like ``instrument`` and ``probe``**,
     rather than a column per field. An unset field means "take the built-in
     default", and for several fields the empty value is itself a decision —
     ``disabled_generators: []`` means "disable none", which nullable columns
-    cannot tell from never having been touched. And ``/schema`` exists so that
-    a new field costs no migration in the Space; one that cost a migration here
-    would give half of that back.
+    cannot tell from never having been touched. A new setting costs no
+    migration.
 
     What is NOT here is in ``BOOTSTRAP_FIELDS``: what the process must read
     before it can read this row, and the perimeter.
@@ -659,13 +664,33 @@ class ModelCatalog(Base):
     __tablename__ = "model_catalog"
 
     # The source, not a surrogate id: one current catalogue per provider.
-    source: Mapped[str] = mapped_column(String(40), primary_key=True)
+    source: Mapped[str] = mapped_column(
+        String(40),
+        primary_key=True,
+        comment="The provider this catalogue came from. There is exactly one "
+        "current catalogue per provider, and a refresh replaces it",
+    )
 
-    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        comment="The catalogue itself: the entries and the pins that resolve "
+        "moving names such as a vendor's -latest",
+    )
 
     # Out of the document, so its age and size are answerable without loading
     # two hundred kilobytes of JSON.
     fetched_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        comment="When it was last fetched. Shown beside the picker: a "
+        "catalogue whose age is invisible is one nobody thinks to refresh",
     )
-    model_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    model_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Denormalised out of the document so that how old this is and "
+        "how much is in it can be answered without loading all of it",
+    )

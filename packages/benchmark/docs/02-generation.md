@@ -33,12 +33,12 @@ question, and the typical failure is an invention assembled from real quotes.
 | `tiered_explanation` | abstractive | document | by key facts | answer |
 | `qa` | abstractive | chunk | judge | answer |
 | `unanswerable_property` | negative | chunk | by behaviour | abstain |
-| `false_premise` | negative | chunk | judge | correct the premise |
+| `false_premise` | negative | chunk | by behaviour | correct the premise |
 
 - **Scope** is what the model is fed: one chunk (first 6000 chars) or the
   whole document (first 12000 chars).
-- **Judging** — see [05-judging.md](05-judging.md). By the letter, a span
-  match and by behaviour need no judge model.
+- **Judging** — see [05-judging.md](05-judging.md). A matched letter or span
+  needs no judge model; behaviour is read by a judge.
 - All ten are on by default; turn generators off with `disabled_generators`.
 
 Every prompt is in English and asks for output in the fragment's language.
@@ -51,8 +51,8 @@ built on facts **only this story reports** (its own figures, sources, quotes,
 inside details — not general background); invent nothing.
 
 Every prompt, control ones included, also says: turn a relative time into an
-absolute one from the publish date ("in July 2026", not "last month" or "end
-of July"); name a reviewer or first-person writer as "<Outlet>'s <Author>"
+absolute one from the publish date ("in July 2026", not "last month" or a
+month without its year); name a reviewer or first-person writer as "<Outlet>'s <Author>"
 ("WIRED's Nena Farrell"), never "the reviewer"; never refer to the story by its
 title. Fill-ins copy sentences verbatim, so they skip a sentence placed only by
 a relative time or naming only "the reviewer".
@@ -167,12 +167,15 @@ flowchart TB
 - Duplicates within a cohort are rejected by a unique index on the question
   hash.
 - A stopped build leaves the set as it was; stored items stay in the cohort.
-- From the console and the scheduled cycle each question is screened as soon
-  as it is written; from the CLI, run `filter` afterwards.
+- In a measurement (a launched job, the schedule, `cycle`) each question is
+  screened as soon as it is written; after `generate`, run `filter`.
+- For a job, writer calls that dropped drafts or failed are kept in
+  `writer_calls`, with each dropped draft and its reason
+  ([data-model.md](data-model.md)).
 - **Top-up** (screened builds only): a kind the checks left below its target
   gets more written and screened, up to 2 rounds. Target: the kind's budget,
-  at most `ceil(dataset_max_pairs / enabled kinds)` with a cap set (control
-  kinds count). Survivors: this build's questions still `active` or
+  at most `ceil(dataset_max_pairs / kinds in the build)` with a cap set
+  (control kinds count). Survivors: this build's questions still `active` or
   `pending`. A round writes `min(budget, ceil(shortfall / survival rate))` for
   each short kind with unread material. Survival rate: from the kind's newest
   200 decided pairs on the target (owner rejections left out),
@@ -268,8 +271,9 @@ flowchart TB
 ```
 
 `syft-benchmark filter` (`-g`, `--cohort`, `--limit`), `POST
-/targets/{key}/filter` and the console's Filtering block run this pass over
-stored `pending` pairs, `concurrency` at a time, then recompute the set (see
+/targets/{key}/filter` and `POST /console/filter` run this pass over stored
+`pending` pairs, `concurrency` at a time, then recompute the set when a pair
+turned active or the web check re-checked the set (see
 [03-dataset.md](03-dataset.md)). Only `pending` pairs are touched; an `active`
 or `rejected` verdict changes only by hand (`PATCH /console/pairs/{id}`). In
 `rebuild` mode, pending pairs of older cohorts are skipped.
@@ -289,9 +293,9 @@ count; digits do ("8%" is checked as "8", "$1.5 trillion" as "1", "5",
 "trillion").
 
 Where the gold answer must differ from the text, the listed claims in
-`meta.claims` are checked instead: the two true statements of
-`two_truths_one_lie`, the hop facts of `multihop_synthesis`, the key facts of
-`tiered_explanation`.
+`meta.claims` are checked instead, each by the same rule, and more than half
+must pass: the two true statements of `two_truths_one_lie`, the hop facts of
+`multihop_synthesis`, the key facts of `tiered_explanation`.
 
 ### The archive check
 
@@ -346,6 +350,8 @@ judge prompt ([05-judging.md](05-judging.md)).
 - Answered correctly → rejected as `web_answerable`.
 - Not answered → active.
 - Call or grading failed → stays `pending` with a note, retried next pass.
+  A provider refusal, or `max_consecutive_failures` failed checks in a row,
+  stops the web check for the pass; the pairs not reached stay `pending`.
 - `unanswerable_property` (trick questions) that passed the retrieval gate are
   checked too. The behaviour judge ([05-judging.md](05-judging.md)) reads the
   answer with its citations: specifics its search supports (`web_sourced`) →
@@ -395,13 +401,7 @@ before filtering.
 
 ## Before the first run
 
-- **Start with `--limit 2`**: about forty items at generation and twenty
-  questions at run time.
-- **Extractive generators are the cheapest**: one call per chunk for three
-  categories.
-- **Document-level generators are heavy for a small model**: a 4B model
-  tends to invent over a whole document. Use a larger `generator_model`, or
-  disable `multihop_synthesis` and `tiered_explanation` if time matters more
-  than completeness.
+Start with `--limit 2`: about forty items at generation and twenty questions
+at run time.
 
 Next — [stage 3: which set goes into the measurement](03-dataset.md).

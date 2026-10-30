@@ -11,54 +11,26 @@ import dataclasses
 import threading
 import time
 import uuid
-from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from syft_benchmark.config import PairStatus, Settings, SpaceConfig
-from syft_benchmark.db import ProcessedUnit, QaPair, Result, Run, session_scope
+from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.generation import filter_stage, pipeline, web_check
 from syft_benchmark.generation.generators import GENERATORS
-from syft_benchmark.generation.pair import Pair
+from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.slots import ModelSlots
-from syft_benchmark.llm import LLMError, LLMFatalError, ollama
+from syft_benchmark.llm import LLMError, LLMFatalError, client, errors
 from syft_benchmark.runs import judge as run_judge
 from syft_benchmark.sources import Chunk, Document
 
-SPACE = "pytest-wp3-speed"
-OPENROUTER = "https://openrouter.ai/api/v1"
+from fakes import ChromaStub, openrouter_settings
+
+SPACE = "pytest-generation-speed"
 ANSWER = "Harbourton lighthouse"
-
-
-def _db_ready() -> bool:
-    try:
-        with session_scope() as session:
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-        return True
-    except Exception:  # noqa: BLE001 - the database may simply not be at hand
-        return False
-
-
-needs_db = pytest.mark.skipif(
-    not _db_ready(), reason="the benchmark database is unavailable"
-)
-
-
-@pytest.fixture
-def clean() -> Iterator[None]:
-    def wipe() -> None:
-        with session_scope() as session:
-            session.execute(delete(Result).where(Result.space == SPACE))
-            session.execute(delete(Run).where(Run.space == SPACE))
-            session.execute(delete(QaPair).where(QaPair.space == SPACE))
-            session.execute(delete(ProcessedUnit).where(ProcessedUnit.space == SPACE))
-
-    wipe()
-    yield
-    wipe()
 
 
 def _space() -> SpaceConfig:
@@ -67,17 +39,13 @@ def _space() -> SpaceConfig:
 
 def _settings(**kwargs: Any) -> Settings:
     base: dict[str, Any] = {
-        "subject_url": OPENROUTER,
-        "subject_key": "sk-test",
-        "allow_external_models": True,
-        "external_hosts": ["openrouter.ai"],
         "document_window_days": 0,
         "pairs_per_chunk": 2,
         "max_consecutive_failures": 5,
         # The entity check is a writer call of its own: test_entity_check.py.
         "entity_check": False,
     }
-    return Settings(**{**base, **kwargs})
+    return openrouter_settings(**{**base, **kwargs})
 
 
 def _documents(count: int, chunks: int) -> list[Document]:
@@ -124,13 +92,7 @@ class _Generation:
         self._lock = threading.Lock()
         self.per_unit = per_unit
 
-        class _Chroma:
-            def __init__(self, *_: Any) -> None: ...
-
-            def collection_id(self, _name: str) -> str:
-                return "cid"
-
-        monkeypatch.setattr(pipeline, "ChromaClient", _Chroma)
+        monkeypatch.setattr(pipeline, "ChromaClient", ChromaStub)
         monkeypatch.setattr(pipeline, "load_documents", lambda *_: documents)
         monkeypatch.setattr(pipeline, "chat", self.chat)
         for key in kinds:
@@ -150,7 +112,7 @@ class _Generation:
         item = f'{{"unit": "{uuid.uuid4().int}"}}'
         return (item if "Generate 1." in user else f"[{item}]"), {}
 
-    def clean(self, items: Any, n: int, whole: str) -> tuple[list[Pair], list[str]]:
+    def clean(self, items: Any, n: int, whole: str) -> tuple[list[Pair], list[Dropped]]:
         unit = items[0]["unit"]
         count = self.per_unit() if callable(self.per_unit) else self.per_unit
         return [
@@ -238,7 +200,7 @@ def test_the_limit_holds_and_urgent_waiters_go_first() -> None:
 # --- parallel generation -----------------------------------------------------
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_budget_is_exact_and_nothing_is_written_twice_in_parallel(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -273,7 +235,7 @@ def test_the_budget_is_exact_and_nothing_is_written_twice_in_parallel(
     assert 1 < gen.peak <= 6
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_build_with_checks_keeps_the_model_limit(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -302,7 +264,7 @@ def test_a_build_with_checks_keeps_the_model_limit(
 # --- streaming ---------------------------------------------------------------
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_question_is_checked_before_generation_ends(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -329,7 +291,7 @@ def test_a_question_is_checked_before_generation_ends(
     assert said[-1] == "written 20 · checked 20 · removed 0"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_streamed_checks_are_stamped_with_the_job(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -353,7 +315,7 @@ def test_streamed_checks_are_stamped_with_the_job(
         assert row.meta["web_check"]["job_id"] == "gen-job"
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_stop_mid_stream_leaves_the_unchecked_pending(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -407,7 +369,7 @@ def _insert(*pairs: QaPair) -> None:
             session.add(pair)
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_filter_pass_screens_in_parallel(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -431,7 +393,7 @@ def test_the_filter_pass_screens_in_parallel(
     assert 1 < in_flight["peak"] <= 4
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_the_gate_keeps_to_the_endpoint_limit(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -460,7 +422,7 @@ def test_the_gate_keeps_to_the_endpoint_limit(
 # --- the owner's word --------------------------------------------------------
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_override_status_stamps_the_owner(clean: None) -> None:
     _insert(_pair("o1", note="kept"))
     assert filter_stage.override_status("o1", PairStatus.ACTIVE)
@@ -470,7 +432,7 @@ def test_override_status_stamps_the_owner(clean: None) -> None:
     assert row.meta["manual_override"]["at"]
 
 
-@needs_db
+@pytest.mark.needs_db
 @pytest.mark.parametrize("priority", ["manual", "filter"])
 def test_a_hand_set_pair_and_the_web_check(
     clean: None, monkeypatch: pytest.MonkeyPatch, priority: str
@@ -553,9 +515,9 @@ def test_a_rate_limit_is_waited_out_with_backoff(
     replies = _Replies(_LIMITED, (503, {"error": "busy"}, {}), _OK)
     waits: list[float] = []
     monkeypatch.setattr(httpx, "post", replies)
-    monkeypatch.setattr(ollama.time, "sleep", waits.append)
+    monkeypatch.setattr(client.time, "sleep", waits.append)
 
-    answer, usage = ollama.chat("s", "u", retries=0, settings=_local())
+    answer, usage = client.chat("s", "u", retries=0, settings=_local())
 
     assert answer == "hi"
     assert replies.calls == 3
@@ -568,30 +530,30 @@ def test_a_rate_limit_is_waited_out_with_backoff(
 def test_rate_limit_retries_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     replies = _Replies(_LIMITED)
     monkeypatch.setattr(httpx, "post", replies)
-    monkeypatch.setattr(ollama.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(client.time, "sleep", lambda _s: None)
 
     with pytest.raises(LLMError, match="rate limited"):
-        ollama.chat("s", "u", settings=_local())
-    assert replies.calls == ollama.BUSY_RETRIES + 1
+        client.chat("s", "u", settings=_local())
+    assert replies.calls == errors.BUSY_RETRIES + 1
 
 
 def test_a_refusal_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     replies = _Replies((402, {"error": {"message": "insufficient credits"}}, {}))
     monkeypatch.setattr(httpx, "post", replies)
-    monkeypatch.setattr(ollama.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(client.time, "sleep", lambda _s: None)
 
     with pytest.raises(LLMFatalError):
-        ollama.chat("s", "u", settings=_local())
+        client.chat("s", "u", settings=_local())
     assert replies.calls == 1
 
 
 def test_the_backoff_grows_and_stops_at_its_cap() -> None:
-    assert 1 <= ollama.backoff_delay(1) <= 2
-    assert 8 <= ollama.backoff_delay(4) <= 16
-    assert ollama.backoff_delay(20) <= 60
-    assert ollama.backoff_delay(1, retry_after=500) == 120
-    assert ollama.retry_after_of({"retry-after": "12"}) == 12
-    assert ollama.retry_after_of({}) is None
+    assert 1 <= errors.backoff_delay(1) <= 2
+    assert 8 <= errors.backoff_delay(4) <= 16
+    assert errors.backoff_delay(20) <= 60
+    assert errors.backoff_delay(1, retry_after=500) == 120
+    assert errors.retry_after_of({"retry-after": "12"}) == 12
+    assert errors.retry_after_of({}) is None
 
 
 # --- per-kind build stats ------------------------------------------------------
@@ -601,7 +563,7 @@ def _kind(report: Any, key: str = "qa") -> dict[str, Any]:
     return report.kinds[key].as_dict()
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_kind_that_spends_its_budget_says_so(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -624,7 +586,7 @@ def test_a_kind_that_spends_its_budget_says_so(
     }
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_kind_that_runs_out_of_material_says_so(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -642,16 +604,18 @@ def test_a_kind_that_runs_out_of_material_says_so(
     assert stats["stopped"] == pipeline.OUT_OF_MATERIAL
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_failure_streak_and_duplicates_are_counted(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class _Same(_Generation):
-        def clean(self, items: Any, n: int, whole: str) -> tuple[list[Pair], list[str]]:
+        def clean(
+            self, items: Any, n: int, whole: str
+        ) -> tuple[list[Pair], list[Dropped]]:
             same = Pair(
                 question="The same question?", answer=ANSWER, distractors=[], meta={}
             )
-            return [same], ["empty question or answer"]
+            return [same], [Dropped("empty question or answer")]
 
     _Same(monkeypatch, _documents(1, 3))
     conf = _settings(chunks_per_run=10, concurrency=1)
@@ -678,7 +642,7 @@ def test_a_failure_streak_and_duplicates_are_counted(
     assert stats["stopped"] == pipeline.FAILURE_STREAK
 
 
-@needs_db
+@pytest.mark.needs_db
 def test_a_cancelled_kind_says_so(clean: None, monkeypatch: pytest.MonkeyPatch) -> None:
     _Generation(monkeypatch, _documents(2, 2))
     conf = _settings(chunks_per_run=10, concurrency=1)

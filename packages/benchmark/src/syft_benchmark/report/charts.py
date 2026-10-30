@@ -1,17 +1,9 @@
-"""The charts of the report: the numbers made visible.
+"""The charts of the docx report, as PNG bytes.
 
-They are drawn with the very thing they are computed with — the metrics from
-``metrics.py``. There is not a single computation of its own here, and that is
-deliberate: a chart that computes a share itself will one day diverge from the
-table beneath it, and there will be no way left to tell which of the two figures
-is right.
-
-A picture is handed over as PNG bytes rather than a file on disk: its only
-consumer is the docx builder, and nobody needs temporary files beside the report.
-
-The Agg backend is chosen explicitly, without ``pyplot``: the report is assembled
-in a background cycle, where there is neither a screen nor a GUI main thread,
-while ``pyplot`` drags along global figure state that only leaks in such a build.
+Every value drawn comes from ``Metrics``: a chart computes nothing of its own,
+so a picture cannot diverge from the table beneath it. Figures are built
+without ``pyplot``, which keeps global state the background build must not
+share.
 """
 
 from __future__ import annotations
@@ -21,13 +13,15 @@ from collections.abc import Sequence
 
 from matplotlib.figure import Figure
 
-# The outcome colours are the same across the whole report. Green is correct,
-# yellow is abstain, red is hallucinate; on the control half there is no
-# "correct" at all, and green is absent there not by oversight.
+# The outcome colours are the same across the whole report, one per graded
+# verdict, in the order the composition bar stacks them. On the control half
+# there is no "correct" at all, and green is absent there not by oversight.
 VERDICT_COLOUR: dict[str, str] = {
     "correct": "#2f9e44",
     "abstain": "#f08c00",
     "hallucinate": "#e03131",
+    "web_sourced": "#1098ad",
+    "incomplete": "#9c36b5",
 }
 
 # The sign colours for diverging charts. The sign here is the content: for the
@@ -65,11 +59,9 @@ def _png(fig: Figure) -> bytes:
     return buffer.getvalue()
 
 
-def _style(fig: Figure, title: str, xlabel: str = "") -> None:
+def _style(fig: Figure, title: str) -> None:
     axes = fig.gca()
     axes.set_title(title, fontsize=9, loc="left", pad=8)
-    if xlabel:
-        axes.set_xlabel(xlabel, fontsize=7)
     axes.tick_params(labelsize=7)
     axes.spines["top"].set_visible(False)
     axes.spines["right"].set_visible(False)
@@ -94,10 +86,12 @@ def composition(
     axes = fig.gca()
     positions = range(len(labels))
     left = [0.0] * len(labels)
+    drawn = 0
     for name, colour in VERDICT_COLOUR.items():
         values = [part.get(name, 0.0) for part in parts]
         if not any(values):
             continue
+        drawn += 1
         axes.barh(positions, values, left=left, color=colour, label=name, height=0.62)
         for index, (value, start) in enumerate(zip(values, left, strict=True)):
             # A label inside the bar only where it fits: on a share of three
@@ -118,7 +112,7 @@ def composition(
     axes.invert_yaxis()
     axes.set_xlim(0, 1)
     axes.xaxis.set_major_formatter(lambda x, _: f"{x:.0%}")
-    _legend(fig, 3)
+    _legend(fig, max(1, min(3, drawn)))
     _style(fig, title)
     return _png(fig)
 
@@ -128,9 +122,7 @@ def bars(
     values: Sequence[float],
     *,
     title: str,
-    xlabel: str = "",
     colour: str = NEUTRAL,
-    share: bool = True,
     floor: float | None = None,
     floor_label: str = "",
 ) -> bytes:
@@ -158,16 +150,15 @@ def bars(
         axes.text(
             value,
             index,
-            f" {value:.0%}" if share else f" {value:.2f}",
+            f" {value:.0%}",
             va="center",
             fontsize=6.5,
             color="#343a40",
         )
     axes.set_yticks(list(positions), labels)
     axes.invert_yaxis()
-    if share:
-        axes.set_xlim(0, 1.12)
-        axes.xaxis.set_major_formatter(lambda x, _: f"{x:.0%}")
+    axes.set_xlim(0, 1.12)
+    axes.xaxis.set_major_formatter(lambda x, _: f"{x:.0%}")
     if floor is not None:
         axes.axvline(floor, color="#868e96", linestyle="--", linewidth=0.9)
         if floor_label:
@@ -183,7 +174,7 @@ def bars(
                 color="#868e96",
                 va="bottom",
             )
-    _style(fig, title, xlabel)
+    _style(fig, title)
     return _png(fig)
 
 
@@ -192,7 +183,6 @@ def diverging(
     values: Sequence[float],
     *,
     title: str,
-    xlabel: str = "",
     plus_is_bad: bool = True,
 ) -> bytes:
     """A signed quantity, laid off from zero in both directions.
@@ -227,7 +217,7 @@ def diverging(
     axes.axvline(0, color="#343a40", linewidth=0.8)
     axes.set_xlim(-span * 1.45, span * 1.45)
     axes.xaxis.set_major_formatter(lambda x, _: f"{x:+.0%}")
-    _style(fig, title, xlabel)
+    _style(fig, title)
     return _png(fig)
 
 
@@ -236,7 +226,6 @@ def grouped(
     series: Sequence[tuple[str, Sequence[float | None], str]],
     *,
     title: str,
-    xlabel: str = "",
 ) -> bytes:
     """Several quantities on one row, side by side.
 
@@ -282,5 +271,5 @@ def grouped(
     axes.set_xlim(0, 1.12)
     axes.xaxis.set_major_formatter(lambda x, _: f"{x:.0%}")
     _legend(fig, min(3, count))
-    _style(fig, title, xlabel)
+    _style(fig, title)
     return _png(fig)

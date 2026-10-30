@@ -472,6 +472,8 @@ ingestion_job_repository = IngestionJobRepository(database)
 dataset_selection_repository = DatasetSelectionRepository(database)
 marketplace_repository = MarketplaceRepository(database)
 wallet_repository = WalletRepository(database)
+benchmark_connection_repository = BenchmarkConnectionRepository(database)
+benchmark_target_repository = BenchmarkTargetRepository(database)
 
 # Explicit type registration - no import side effects
 logger.info("Registering sources ...")
@@ -690,8 +692,8 @@ feedback_handler = FeedbackHandler(marketplace_repository)
 
 # With no benchmark connection, these routes report that nothing is connected.
 benchmark_handler = BenchmarkHandler(
-    connection_repository=BenchmarkConnectionRepository(database),
-    target_repository=BenchmarkTargetRepository(database),
+    connection_repository=benchmark_connection_repository,
+    target_repository=benchmark_target_repository,
     endpoint_repository=endpoint_repository,
     dataset_repository=dataset_repository,
     dataset_registry=DATASET_TYPE_REGISTRY,

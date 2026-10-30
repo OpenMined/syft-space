@@ -231,7 +231,7 @@ def test_a_transient_refusal_is_retried(monkeypatch: pytest.MonkeyPatch) -> None
         (200, _reply("an answer")),
     )
     monkeypatch.setattr(httpx, "post", provider)
-    monkeypatch.setattr("syft_benchmark.llm.ollama.time.sleep", lambda _s: None)
+    monkeypatch.setattr("syft_benchmark.llm.client.time.sleep", lambda _s: None)
 
     answer, _usage = chat("s", "u", retries=2, settings=_local())
 

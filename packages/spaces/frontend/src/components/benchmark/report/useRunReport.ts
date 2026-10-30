@@ -10,6 +10,7 @@ import {
   type MaybeRefOrGetter,
 } from 'vue'
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
+import { ACTIVE_POLL_MS } from '@/composables/useBenchmarkJobs'
 import { apiErrorDetail } from '@/lib/errors'
 import type {
   BenchmarkQuestionDetail,
@@ -23,8 +24,6 @@ import type {
   BenchmarkTarget,
 } from '@/api/types'
 
-/** Same cadence as useBenchmarkJobs. */
-export const POLL_MS = 5000
 /** Finished runs per page of the runs list. */
 export const RUNS_PAGE = 25
 
@@ -35,7 +34,7 @@ export interface RunsFilters {
 }
 
 /** Hand a blob to the browser as a download. */
-export function saveBlob(blob: Blob, fileName: string): void {
+function saveBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -80,7 +79,9 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
   function invalidate(jobId?: string): void {
     if (jobId) {
       reportCache.delete(jobId)
-      for (const key of detailCache.keys()) if (key.startsWith(`${jobId}|`)) detailCache.delete(key)
+      for (const cache of [detailCache, fragmentCache]) {
+        for (const key of cache.keys()) if (key.startsWith(`${jobId}|`)) cache.delete(key)
+      }
     } else {
       reportCache.clear()
       detailCache.clear()
@@ -147,7 +148,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
   watch(
     () => inProgress.value.length > 0,
     (on) => {
-      if (on && !timer) timer = setInterval(poll, POLL_MS)
+      if (on && !timer) timer = setInterval(poll, ACTIVE_POLL_MS)
       else if (!on) stopPolling()
     },
     { immediate: true },
@@ -241,6 +242,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     loaded,
     error,
     revision,
+    invalidate,
     target,
     inProgress,
     runs,

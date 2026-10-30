@@ -1,33 +1,18 @@
-"""A description of the settings fields — so anyone can draw the form.
+"""The shape of the settings fields, served by ``/schema`` so the Space can
+draw the form without keeping its own list of them.
 
-The UI lives in the Space, while the settings belong to the benchmark. The
-Space could have repeated their list on its own side, and at first that would
-have been simpler; but then every new field here would mean a migration there,
-and a forgotten migration would mean a form that silently cannot configure
-something that already works.
-
-So what goes out is not a form but the **shape** of the fields: name, type,
-bounds, allowed values, group. It is drawn by whoever has to display it.
-
-There are deliberately no labels here. This is the same rule under which the
-card hands over ``trust.flags`` as codes: the wording belongs to whoever is
-displaying it, and in their reader's language. A field description in one
-language arriving in a UI in another is not a translation, it is a breakage.
-
-The group is the only concession to display, and it is a code too. Without it
-forty fields would lie in one column in declaration order, and "similarity
-threshold" would end up between "the panel of judges" and "the freshness
-window".
+Name, type, bounds, allowed values and a group code per field — no labels: the
+wording belongs to whoever displays it, in their reader's language.
 """
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
 
 from syft_benchmark.config import (
-    MEASURED_ARMS,
     JudgePolicy,
     Settings,
     stored_fields,
@@ -35,113 +20,118 @@ from syft_benchmark.config import (
 from syft_benchmark.control.schemas import Instrument, Probe
 from syft_benchmark.llm.catalog import MODEL_FIELDS
 
-# Field groups. Codes, not headings: the heading is written by the displayer.
-ARMS = "arms"
-MODELS = "models"
-JUDGING = "judging"
-DATASET = "dataset"
-FILTER = "filter"
-ENDPOINT = "endpoint"
-RUN = "run"
-PROVIDERS = "providers"
-INDEX = "index"
 
-GROUPS: dict[str, str] = {
+class FieldGroup(StrEnum):
+    """A field's group: a code, the heading is written by the displayer.
+
+    Declared in the order the form shows the groups.
+    """
+
+    ARMS = "arms"
+    MODELS = "models"
+    FILTER = "filter"
+    JUDGING = "judging"
+    DATASET = "dataset"
+    ENDPOINT = "endpoint"
+    RUN = "run"
+    PROVIDERS = "providers"
+    INDEX = "index"
+
+
+GROUPS: dict[str, FieldGroup] = {
     # --- the instrument
-    "arms": ARMS,
-    "blocks": ARMS,
-    "denial_rounds": ARMS,
-    "monte_carlo_temperatures": ARMS,
-    "monte_carlo_trials": ARMS,
-    "context_source": ARMS,
-    "context_docs": ARMS,
-    "fragment_max_chars": ARMS,
+    "arms": FieldGroup.ARMS,
+    "blocks": FieldGroup.ARMS,
+    "denial_rounds": FieldGroup.ARMS,
+    "monte_carlo_temperatures": FieldGroup.ARMS,
+    "monte_carlo_trials": FieldGroup.ARMS,
+    "context_source": FieldGroup.ARMS,
+    "context_docs": FieldGroup.ARMS,
+    "fragment_max_chars": FieldGroup.ARMS,
     # A parameter of the measurement: it decides whether a long answer is
     # graded whole or graded cut off.
-    "answer_max_tokens": ARMS,
-    "generator_model": MODELS,
-    "subject_models": MODELS,
-    "judge_model": MODELS,
-    "judge_models": MODELS,
-    "filter_model": FILTER,
-    "filter_judge_model": FILTER,
-    "manual_status_priority": FILTER,
+    "answer_max_tokens": FieldGroup.ARMS,
+    "generator_model": FieldGroup.MODELS,
+    "subject_models": FieldGroup.MODELS,
+    "judge_model": FieldGroup.MODELS,
+    "judge_models": FieldGroup.MODELS,
+    "filter_model": FieldGroup.FILTER,
+    "filter_judge_model": FieldGroup.FILTER,
+    "manual_status_priority": FieldGroup.FILTER,
     # Web search sits where its role is set: the tested model with the arms,
     # the question writer with the dataset, the judges with judging.
-    "web_search_engine": ARMS,
-    "web_search_closed_book": ARMS,
-    "web_search_with_context": ARMS,
-    "web_search_max_results": ARMS,
-    "web_search_max_calls": ARMS,
-    "web_search_generator": DATASET,
-    "entity_check": DATASET,
-    "web_search_judge": JUDGING,
-    "judge_temperature": JUDGING,
-    "judge_reasoning_effort": JUDGING,
-    "judge_policy": JUDGING,
-    "key_facts_threshold": JUDGING,
-    "answer_coverage_threshold": JUDGING,
-    "consistency_floor": JUDGING,
-    "text_metrics": JUDGING,
-    "methodology_profile": RUN,
-    "max_consecutive_failures": RUN,
-    "max_job_usd": RUN,
-    "reuse_answers": RUN,
-    "audit_log": RUN,
+    "web_search_engine": FieldGroup.ARMS,
+    "web_search_closed_book": FieldGroup.ARMS,
+    "web_search_with_context": FieldGroup.ARMS,
+    "web_search_max_results": FieldGroup.ARMS,
+    "web_search_max_calls": FieldGroup.ARMS,
+    "web_search_generator": FieldGroup.DATASET,
+    "entity_check": FieldGroup.DATASET,
+    "web_search_judge": FieldGroup.JUDGING,
+    "judge_temperature": FieldGroup.JUDGING,
+    "judge_reasoning_effort": FieldGroup.JUDGING,
+    "judge_policy": FieldGroup.JUDGING,
+    "key_facts_threshold": FieldGroup.JUDGING,
+    "answer_coverage_threshold": FieldGroup.JUDGING,
+    "consistency_floor": FieldGroup.JUDGING,
+    "text_metrics": FieldGroup.JUDGING,
+    "methodology_profile": FieldGroup.RUN,
+    "max_consecutive_failures": FieldGroup.RUN,
+    "max_job_usd": FieldGroup.RUN,
+    "reuse_answers": FieldGroup.RUN,
+    "audit_log": FieldGroup.RUN,
     # --- the node probe
-    "dataset_mode": DATASET,
-    "document_window_days": DATASET,
-    "dataset_max_pairs": DATASET,
-    "top_up_max_usd": DATASET,
-    "disabled_generators": DATASET,
-    "chunks_per_run": DATASET,
-    "pairs_per_chunk": DATASET,
-    "min_chunk_chars": DATASET,
-    "generate_in_cycle": DATASET,
-    "retrieval_top_k": ENDPOINT,
-    "similarity_threshold": ENDPOINT,
-    "endpoint_max_tokens": ENDPOINT,
-    "endpoint_temperature": ENDPOINT,
-    "endpoint_concurrency": ENDPOINT,
+    "dataset_mode": FieldGroup.DATASET,
+    "document_window_days": FieldGroup.DATASET,
+    "dataset_max_pairs": FieldGroup.DATASET,
+    "top_up_max_usd": FieldGroup.DATASET,
+    "disabled_generators": FieldGroup.DATASET,
+    "chunks_per_run": FieldGroup.DATASET,
+    "pairs_per_chunk": FieldGroup.DATASET,
+    "min_chunk_chars": FieldGroup.DATASET,
+    "generate_in_cycle": FieldGroup.DATASET,
+    "retrieval_top_k": FieldGroup.ENDPOINT,
+    "similarity_threshold": FieldGroup.ENDPOINT,
+    "endpoint_max_tokens": FieldGroup.ENDPOINT,
+    "endpoint_temperature": FieldGroup.ENDPOINT,
+    "endpoint_concurrency": FieldGroup.ENDPOINT,
     # --- the installation's own layer, under both
     #
     # Where a model is reached and with what patience. The keys are not here
     # and cannot be: they are secrets, they are sealed, and `stored_fields`
     # leaves them out of this catalogue by construction.
-    "ollama_url": PROVIDERS,
-    "generator_url": PROVIDERS,
-    "subject_url": PROVIDERS,
-    "judge_url": PROVIDERS,
-    "filter_url": PROVIDERS,
-    "llm_app_name": PROVIDERS,
-    "llm_timeout": PROVIDERS,
-    "llm_temperature": PROVIDERS,
-    "bertscore_model": PROVIDERS,
+    "ollama_url": FieldGroup.PROVIDERS,
+    "generator_url": FieldGroup.PROVIDERS,
+    "subject_url": FieldGroup.PROVIDERS,
+    "judge_url": FieldGroup.PROVIDERS,
+    "filter_url": FieldGroup.PROVIDERS,
+    "llm_app_name": FieldGroup.PROVIDERS,
+    "llm_timeout": FieldGroup.PROVIDERS,
+    "llm_temperature": FieldGroup.PROVIDERS,
+    "bertscore_model": FieldGroup.PROVIDERS,
     # The Space's index, as this installation reaches it.
-    "chroma_tenant": INDEX,
-    "chroma_database": INDEX,
-    "chroma_internal_port": INDEX,
+    "chroma_tenant": FieldGroup.INDEX,
+    "chroma_database": FieldGroup.INDEX,
+    "chroma_internal_port": FieldGroup.INDEX,
     # How a run behaves, as against what it measures.
-    "concurrency": RUN,
-    "resume": RUN,
-    "resume_window_hours": RUN,
-    "question_set": RUN,
-    "strict_question_set": RUN,
-    "audit_max_chars": RUN,
+    "concurrency": FieldGroup.RUN,
+    "resume": FieldGroup.RUN,
+    "resume_window_hours": FieldGroup.RUN,
+    "question_set": FieldGroup.RUN,
+    "strict_question_set": FieldGroup.RUN,
+    "audit_max_chars": FieldGroup.RUN,
 }
 
 
 # A field whose values come from a list too long to inline. ``choices`` carries
-# its own — three arms, four blocks; three hundred models cannot travel that
+# its own — two arms, four blocks; three hundred models cannot travel that
 # way and change on a refresh rather than on a release, so the field names the
 # catalogue and the form fetches it from ``/models``. Naming these fields on the
 # other side instead is the coupling ``/schema`` exists to prevent.
 CATALOGUES: dict[str, str] = dict.fromkeys(MODEL_FIELDS, "models")
 
-# Values a field still accepts but the form does not offer: a stored row may
-# carry them, a new choice may not.
+# Values a field accepts but the form does not offer: they are set by hand.
 OFFERED: dict[str, list[str]] = {
-    "arms": [arm.value for arm in MEASURED_ARMS],
     "judge_policy": [JudgePolicy.STRICT.value, JudgePolicy.WARN.value],
 }
 
@@ -183,7 +173,7 @@ def describe(model: type[BaseModel]) -> list[dict[str, Any]]:
         field: dict[str, Any] = {
             "name": name,
             "type": body.get("type", "string"),
-            "group": GROUPS.get(name, RUN),
+            "group": GROUPS.get(name, FieldGroup.RUN),
         }
         # A word a number field also takes, such as "default" for the model's own.
         special = [s["const"] for s in raw.get("anyOf", []) if "const" in s]
@@ -226,17 +216,7 @@ def installation_fields() -> list[dict[str, Any]]:
 def catalogue() -> dict[str, Any]:
     """All three layers at once — one request for the whole settings form."""
     return {
-        "groups": [
-            ARMS,
-            MODELS,
-            FILTER,
-            JUDGING,
-            DATASET,
-            ENDPOINT,
-            RUN,
-            PROVIDERS,
-            INDEX,
-        ],
+        "groups": list(FieldGroup),
         "installation": installation_fields(),
         "instrument": describe(Instrument),
         "probe": describe(Probe),

@@ -16,22 +16,15 @@ const answer = (count: number): BenchmarkModelCatalog => ({
     id: `vendor/model-${index}`,
     name: `Model ${index}`,
     vendor: 'vendor',
-    build: `vendor/model-${index}-20260101`,
     context_length: 128000,
-    max_output_tokens: 8192,
-    input_modalities: ['text'],
     supports: ['temperature'],
     pricing: { prompt: '0.000001', completion: '0.000002' },
     retires_on: null,
-    routes: {},
-    aliases: {},
-    source: 'openrouter',
     local: false,
   })),
   vendors: ['vendor'],
   pins: { '~vendor/model-latest': 'vendor/model-0' },
   fetched: { openrouter: '2026-09-20T11:02:57+00:00' },
-  total: count,
 })
 
 // A fresh connection id per test: the cache is module-level.

@@ -1,33 +1,16 @@
-"""The control API's contract: what may be configured and launched from outside.
+"""The control API's contract: request and response models, and the two
+settings layers a caller may set.
 
-The benchmark has some fifty settings, and dumping them outwards as one flat
-pile is not on — not because of the size, but because they belong to different
-owners and are overridden at different depths. Here they are split into three
-layers, and the split is a meaningful one:
+* **Instrument** — what is measured with: arms, blocks, judges, models under
+  test, thresholds. One per target: two targets are comparable exactly when
+  their instruments match.
+* **Probe** — what a node is asked and how: the set's mode, the freshness
+  window, generators, retrieval and answer parameters. It differs per node.
 
-* **Instrument** — what we measure with: the arms, the blocks, the judge and
-  the panel, the models under test, the judging thresholds. It is the same for
-  every node of one installation, and that is the whole point: the card
-  declares it in the ``instrument`` block, and the endpoints that can be
-  compared with one another are exactly those whose instrument matched.
-  Allowing it to be changed on a single node means quietly making two nodes
-  incomparable while leaving the promise of the opposite in their cards.
+Addresses, keys and the database never travel through this API.
 
-* **Probe** — what we ask a particular node and how: the set's mode, the
-  freshness window, the cap on items, the generators, the retrieval and answer
-  parameters. Here a difference between nodes is legitimate and expected — the
-  corpora differ — and the card reports it honestly in the ``dataset`` block.
-
-* **Process** — addresses, keys, the database, concurrency. It does not go
-  outwards at all. A model provider's key that has travelled into another
-  service's database for the sake of a form in a UI is a leak paid for with
-  convenience.
-
-Every field is optional, and ``None`` means "take it from the layer above", not
-zero. There are three layers: the endpoint's value → the space's value → the
-installation's default. Without that distinction "0 documents in the window"
-and "the window was never configured" would merge into one value, and a default
-setting would silently change the measurement.
+Every layer field is optional, and ``None`` means "take it from the layer
+above" (probe → instrument → installation default), never zero.
 """
 
 from __future__ import annotations
@@ -50,9 +33,13 @@ from syft_benchmark.config import (
     TextMetric,
     Verdict,
     WebSearchEngine,
-    measured_arms,
 )
 from syft_benchmark.llm.catalog import ModelEntry
+
+
+def csv_param(value: str | None) -> tuple[str, ...]:
+    """A comma-separated query parameter, as a tuple of its non-empty parts."""
+    return tuple(part.strip() for part in (value or "").split(",") if part.strip())
 
 
 class Layer(BaseModel):
@@ -72,10 +59,9 @@ class Layer(BaseModel):
 
 
 # The wrappers a copied list leaves behind: the quotes of a JSON string, the
-# brackets of an array. They are trimmed off the ends rather than refused, and
-# a stored row is the reason. A target saved before this check existed is read
-# back through this same model, and refusing it there would leave its owner
-# unable to open the very form that fixes it.
+# brackets of an array. They are trimmed off the ends rather than refused: a
+# stored target is read back through this same model, and refusing it there
+# would leave its owner unable to open the very form that fixes it.
 _WRAPPERS = "\"'`[]{}" + string.whitespace
 
 # What no repair can turn into a name, because it is not a leftover: a space or
@@ -242,7 +228,7 @@ class Instrument(Layer):
     methodology_profile: str | None = Field(
         default=None,
         description=(
-            "The profile's name. It is written into every run and into the card: "
+            "The profile's name. It is written into every run: "
             "change the thresholds but not the name and the report will silently "
             "mix incomparable runs"
         ),
@@ -271,13 +257,6 @@ class Instrument(Layer):
     @classmethod
     def _one_model_name(cls, value: str | None) -> str | None:
         return None if value is None else _model_name(value)
-
-    @field_validator("arms")
-    @classmethod
-    def _measured_arms(
-        cls, value: list[ContextMode] | None
-    ) -> list[ContextMode] | None:
-        return None if value is None else measured_arms(value)
 
     @field_validator("subject_models", "judge_models")
     @classmethod
@@ -366,8 +345,8 @@ class TargetSpec(BaseModel):
     token: str | None = Field(
         default=None,
         description=(
-            "An access token for the Space's API. It is needed to hand the card "
-            "back; it does not affect reading the corpus — that goes past the Space"
+            "An access token for the Space's API, sent when asking the endpoint; "
+            "reading the corpus goes past the Space"
         ),
     )
     container: str = ""
@@ -418,12 +397,11 @@ class TargetView(TargetSpec):
     next_run_at: datetime | None = None
 
 
-class SettingsDocument(BaseModel):
-    """The installation's own settings — the layer under the instrument.
+class SettingsChanges(BaseModel):
+    """A partial update of the installation's overrides (JSON Merge Patch).
 
-    A whole document rather than a patch, for the same reason a target is: the
-    owner sees the form all at once, and "absent means unchanged" would leave
-    no way to unset a field ever again.
+    The layer under the instrument. A form that owns only some fields names
+    those; what it does not name is left as it is.
 
     What may not be in it: a provider key, which is a secret and is stored
     sealed, and anything the process reads before it can read this row — the
@@ -435,7 +413,8 @@ class SettingsDocument(BaseModel):
 
     values: dict[str, Any] = Field(
         default_factory=dict,
-        description="Only what is being overridden; the rest keeps its default",
+        description="Fields to override; null removes a field's override so its "
+        "default applies; fields not named are unchanged",
     )
 
 
@@ -496,9 +475,7 @@ class RunRequest(BaseModel):
         default=False,
         description=(
             "Collect the answers without calling a judge, leaving every "
-            "verdict `pending` for the judge phase to grade afterwards. When "
-            "true, no card is built at the end of this launch either — "
-            "there is nothing gradable to build one from yet"
+            "verdict `pending` for the judge phase to grade afterwards"
         ),
     )
     limit: int | None = Field(
@@ -509,7 +486,7 @@ class RunRequest(BaseModel):
             "a configuration has to be checkable without paying for hours. It is "
             "not an overall cap — a generator is a separate skill, and at a small "
             "value an overall cap would simply throw some skills out of the "
-            "measurement. The thin sample shows up in the card as `few_samples`"
+            "measurement"
         ),
     )
 
@@ -588,6 +565,39 @@ class PairResponse(BaseModel):
     )
 
 
+class RecordedCall(BaseModel):
+    """A model call behind a generated pair, as it was made."""
+
+    call: str
+    model: str = ""
+    system: str = ""
+    user: str = Field(default="", description="The prompt as sent, passage in place")
+    reply: str = ""
+    passage: str = Field(
+        default="",
+        description="The passage a writer prompt was built from; empty on a check call",
+    )
+    cost_usd: float | None = None
+    latency_s: float | None = None
+
+
+class RunPairResponse(PairResponse):
+    """A pair read from a run's report, with the calls that wrote and checked it.
+
+    A call's texts sit on one of the pairs it wrote; here every pair of the
+    call carries them.
+    """
+
+    writer_call: RecordedCall | None = Field(
+        default=None,
+        description="The writer call; empty texts when none are kept, null "
+        "when the pair records no call",
+    )
+    entity_call: RecordedCall | None = Field(
+        default=None, description="The entity check call; null when none is kept"
+    )
+
+
 class PairPage(BaseModel):
     """A page of pairs, and how many the filters match in total."""
 
@@ -635,7 +645,7 @@ class ResultDenial(BaseModel):
     )
     log: list[DenialRound] = Field(
         default_factory=list,
-        description="Round by round; empty on rows measured before these " "were kept",
+        description="Round by round; empty when the run kept no log",
     )
 
 
@@ -654,7 +664,7 @@ class ResultRepeats(BaseModel):
     note: str = ""
     log: list[RepeatTrial] = Field(
         default_factory=list,
-        description="Every repeat; empty on rows measured before these " "were kept",
+        description="Every repeat; empty when the run kept no log",
     )
 
 
@@ -736,6 +746,12 @@ class ResultResponse(BaseModel):
         description="Whether this is the row every other reader treats as "
         "the current verdict for its question"
     )
+    counted: bool | None = Field(
+        default=None,
+        description="Whether every figure of the job counts this row for its "
+        "answer (the owner's override, else the first judge in panel order); "
+        "null without the `job` filter",
+    )
     # An abstention cannot be read without them: on a miss it is correct
     # behaviour, on a hit it is blindness.
     retrieval_hit: bool | None = Field(
@@ -767,7 +783,8 @@ class ResultResponse(BaseModel):
     behavior: str | None = Field(
         default=None,
         description="A control question's outcome: declined, corrected, "
-        "web_sourced or made_up; null elsewhere and on rows graded before it",
+        "web_sourced or made_up; null on an answerable question and on a row "
+        "the judge did not grade",
     )
     text_metrics: dict[str, float] | None = Field(
         default=None,
@@ -816,19 +833,6 @@ class VerdictOverride(BaseModel):
         return value
 
 
-class CardRequest(BaseModel):
-    """Which launch to build the card of; none — the newest.
-
-    ``record``: store the rebuilt card on the job, the baseline of
-    ``card_outdated``.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    job: str | None = None
-    record: bool = False
-
-
 class JobView(BaseModel):
     """The state of a launch — what the owner watches while a measurement runs."""
 
@@ -838,9 +842,8 @@ class JobView(BaseModel):
     target: str
     state: str
     phase: str
-    # What operation this job is, as opposed to `phase` (where it is now). See
-    # `JobKind` — `pipeline` for the original uninterrupted run, one of the
-    # five phases on its own, or one of the two console-facing groups.
+    # What operation this job is, as opposed to `phase` (where it is): one of
+    # `JobKind` — `pipeline` (a whole launch), `filter` or `judge` on its own.
     kind: str = "pipeline"
     # Runs: how many are finished out of how many. The full extent is not known
     # at once, and a zero in total means "still counting", not "nothing to do".
@@ -857,9 +860,6 @@ class JobView(BaseModel):
     message: str
     trigger: str
     error: str
-    # The card assembled after measuring (``report.card.payload_for``). None
-    # until the job has measured something to build one from.
-    card: dict[str, Any] | None = None
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
@@ -877,11 +877,6 @@ class JobView(BaseModel):
             return value.get("progress_plan")
         return value
 
-    @property
-    def share(self) -> float | None:
-        """The share of what is done. None while the extent of the work is unknown."""
-        return self.done / self.total if self.total else None
-
 
 class RoleProvider(BaseModel):
     """Where one role goes. There is no key here and there cannot be — only a flag.
@@ -898,6 +893,9 @@ class RoleProvider(BaseModel):
     own: bool = Field(
         description="The role is pointed at its own provider rather than the shared one"
     )
+    local: bool = Field(
+        description="Calls to ``url`` stay inside the perimeter (``host_is_inside``)"
+    )
 
 
 class ProviderInfo(BaseModel):
@@ -911,6 +909,9 @@ class ProviderInfo(BaseModel):
     """
 
     url: str
+    local: bool = Field(
+        description="Calls to ``url`` stay inside the perimeter (``host_is_inside``)"
+    )
     app_name: str = Field(
         description="How the service introduces itself to the provider"
     )
@@ -920,14 +921,6 @@ class ProviderInfo(BaseModel):
         description="Hosts allowed to answer when the way out is open",
     )
     roles: list[RoleProvider] = Field(default_factory=list)
-    editable: bool = Field(
-        default=False,
-        description=(
-            "Whether it is editable from here. Not for now: the provider is set "
-            "by the service's environment, and the form shows that rather than "
-            "editing it"
-        ),
-    )
 
 
 class Capabilities(BaseModel):
