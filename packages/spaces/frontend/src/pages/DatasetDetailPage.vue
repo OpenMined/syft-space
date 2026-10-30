@@ -760,10 +760,13 @@ const loadIngestionData = async (datasetId: string) => {
   }
 }
 
-const handleDatasetUpdated = () => {
-  console.log('Dataset updated successfully')
+const handleDatasetUpdated = async (updated: DatasetResponse) => {
   showEditDialog.value = false
-  // In a real app, you might want to refresh the dataset data here
+  // The route carries the name, so a rename moves the page with it.
+  if (updated.name !== route.params.slug) {
+    await router.replace({ name: 'dataset-detail', params: { slug: updated.name } })
+  }
+  await loadDataset(updated.name)
 }
 
 const handleDialogClose = () => {
