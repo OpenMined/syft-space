@@ -211,6 +211,10 @@
                   <Send class="h-4 w-4 mr-2" />
                   Publish
                 </DropdownMenuItem>
+                <DropdownMenuItem v-else :disabled="isRepublishing" @select="republishEndpoint">
+                  <RefreshCw class="h-4 w-4 mr-2" />
+                  Republish
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   class="text-destructive focus:text-destructive focus:bg-destructive/10"
                   @select="openDeleteDialog"
@@ -955,6 +959,7 @@ import {
   Zap,
   CreditCard,
   Loader2,
+  RefreshCw,
   MoreVertical,
   Copy,
   Check,
@@ -1003,6 +1008,7 @@ import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 
 import type { PaymentPolicyType, PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
+import { useRepublish } from '@/composables/useRepublish'
 import { useEndpointsStore } from '@/stores/endpoints'
 import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
@@ -1619,6 +1625,20 @@ const publishEndpoint = async () => {
     console.error('Failed to publish endpoint:', err)
     toast.error('Failed to publish. Please try again.')
   }
+}
+
+const { isRepublishing, republish } = useRepublish()
+
+/** Send the endpoint back to the marketplaces it is already on. */
+const republishEndpoint = async () => {
+  if (!endpoint.value?.published) return
+  await republish([
+    {
+      slug: endpoint.value.slug,
+      name: endpoint.value.name,
+      published_to: endpoint.value.published_to,
+    },
+  ])
 }
 
 const handleAddPolicy = async (payload: {

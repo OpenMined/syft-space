@@ -186,29 +186,13 @@
       </div>
 
       <!-- Tabs Navigation -->
-      <!-- A changed configuration is not re-sent to the Hub on its own; the
-           owner republishes when ready. -->
-      <Alert v-if="republishDue && publishedEndpoints.length > 0">
-        <RefreshCw class="h-4 w-4" />
-        <AlertTitle>Configuration changed</AlertTitle>
-        <AlertDescription class="flex flex-wrap items-center justify-between gap-3">
-          <span>
-            {{
-              publishedEndpoints.length === 1
-                ? 'One published API uses'
-                : `${publishedEndpoints.length} published APIs use`
-            }}
-            this data source. Republish so SyftHub shows the new details.
-          </span>
-          <div class="flex items-center gap-2">
-            <Button variant="ghost" size="sm" @click="republishDue = false">Later</Button>
-            <Button size="sm" :disabled="isRepublishing" @click="republishEndpoints">
-              <Loader2 v-if="isRepublishing" class="h-3.5 w-3.5 mr-2 animate-spin" />
-              Republish
-            </Button>
-          </div>
-        </AlertDescription>
-      </Alert>
+      <RepublishBanner
+        v-if="dataset"
+        :endpoints="republishPending"
+        :dataset-names="[dataset.name]"
+        @update:endpoints="republishPending = $event"
+        @dismiss="republishPending = []"
+      />
 
       <Tabs default-value="overview" class="space-y-6">
         <TabsList
@@ -606,7 +590,6 @@ import {
   ChevronRight as ChevronRightIcon,
   MoreVertical,
   Settings,
-  Loader2,
 } from 'lucide-vue-next'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import {
@@ -621,12 +604,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
 import EditDatasetDialog, { type EditableDataset } from '@/components/EditDatasetDialog.vue'
+import RepublishBanner from '@/components/RepublishBanner.vue'
+import type { RepublishTarget } from '@/composables/useRepublish'
 import AddSourceDialog from '@/components/AddSourceDialog.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
-import { endpointsApi } from '@/api/endpoints/endpoints'
 import { isPublicProperty } from '@/lib/datasetConfig'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import type {
   DatasetResponse,
@@ -653,8 +635,7 @@ const healthStatus = ref<{ status: string; message: string } | null>(null)
 const datasetTypeInfo = ref<DatasetTypeInfoResponse | null>(null)
 const showEditDialog = ref(false)
 const editingDataset = ref<EditableDataset | null>(null)
-const republishDue = ref(false)
-const isRepublishing = ref(false)
+const republishPending = ref<RepublishTarget[]>([])
 const showDeleteDialog = ref(false)
 const showAddSourceDialog = ref(false)
 const addSourceDataset = ref<{
@@ -791,33 +772,7 @@ const handleDatasetUpdated = async (updated: DatasetResponse, configurationChang
     await router.replace({ name: 'dataset-detail', params: { slug: updated.name } })
   }
   await loadDataset(updated.name)
-  if (configurationChanged) republishDue.value = true
-}
-
-/** Republish every published API to the marketplaces it is already on. */
-const republishEndpoints = async () => {
-  isRepublishing.value = true
-  const failed: string[] = []
-  for (const endpoint of publishedEndpoints.value) {
-    try {
-      await endpointsApi.publish(
-        endpoint.slug,
-        endpoint.published_to?.length
-          ? { marketplace_ids: endpoint.published_to }
-          : { publish_to_all_marketplaces: true },
-      )
-    } catch (err) {
-      console.error('Failed to republish endpoint:', err)
-      failed.push(endpoint.name)
-    }
-  }
-  isRepublishing.value = false
-  if (failed.length === 0) {
-    republishDue.value = false
-    toast.success(publishedEndpoints.value.length === 1 ? 'API republished' : 'APIs republished')
-  } else {
-    toast.error(`Failed to republish: ${failed.join(', ')}`)
-  }
+  if (configurationChanged) republishPending.value = publishedEndpoints.value
 }
 
 const handleDialogClose = () => {

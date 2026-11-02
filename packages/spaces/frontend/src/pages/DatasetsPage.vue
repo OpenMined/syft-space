@@ -66,6 +66,12 @@
 
     <!-- Data Sources List -->
     <div v-else class="space-y-3">
+      <RepublishBanner
+        :endpoints="republishPending"
+        :dataset-names="changedDatasetNames"
+        @update:endpoints="republishPending = $event"
+        @dismiss="clearRepublish"
+      />
       <div
         v-for="dataSource in filteredDataSources"
         :key="dataSource.id"
@@ -253,6 +259,9 @@ import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
 import EditDatasetDialog, { type EditableDataset } from '@/components/EditDatasetDialog.vue'
+import RepublishBanner from '@/components/RepublishBanner.vue'
+import type { RepublishTarget } from '@/composables/useRepublish'
+import type { DatasetResponse } from '@/api/types'
 import PickSourceDialog from '@/components/PickSourceDialog.vue'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { useDatasets } from '@/composables/useDatasets'
@@ -379,10 +388,26 @@ const handleEditDataset = async (dataset: DataSource) => {
   }
 }
 
-const handleDatasetUpdated = () => {
-  // Refresh the dataset list after update
-  refreshDatasets()
+const republishPending = ref<RepublishTarget[]>([])
+const changedDatasetNames = ref<string[]>([])
+
+const clearRepublish = () => {
+  republishPending.value = []
+  changedDatasetNames.value = []
+}
+
+const handleDatasetUpdated = async (updated: DatasetResponse, configurationChanged: boolean) => {
   editingDataset.value = null
+  await refreshDatasets()
+  if (!configurationChanged) return
+  // One banner for every edit this session: endpoints belong to one
+  // dataset each, so the pending set has no overlap.
+  const published = updated.connected_endpoints.filter((e) => e.published)
+  const pending = republishPending.value.filter((p) => !published.some((e) => e.slug === p.slug))
+  republishPending.value = [...pending, ...published]
+  if (!changedDatasetNames.value.includes(updated.name)) {
+    changedDatasetNames.value = [...changedDatasetNames.value, updated.name]
+  }
 }
 
 const handleDialogClose = () => {
