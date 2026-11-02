@@ -192,19 +192,28 @@ class BaseDatasetType:
         return redacted
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
         """Validate by splitting and delegating to each collaborator.
 
-        Bindings override when they need cross-axis or pre-split logic
-        (e.g. defaulting a generated identifier before validation).
+        ``previous`` is the configuration being replaced, if this is an
+        edit; the source uses it to probe only what changed. Bindings
+        override when they need cross-axis or pre-split logic (e.g.
+        defaulting a generated identifier before validation).
 
         Raises:
             ValueError: If configuration is invalid.
         """
         source_cfg, vector_store_cfg = cls.split_config(configuration)
+        previous_source = (
+            cls.split_config(previous)[0] if previous is not None else None
+        )
         # Store first: its check is shape-only, a source's may reach the network.
         await cls.VECTOR_STORE_CLS.validate_configuration(vector_store_cfg)
-        await cls.SOURCE_PROVIDER_CLS.validate_configuration(source_cfg)
+        await cls.SOURCE_PROVIDER_CLS.validate_configuration(
+            source_cfg, previous=previous_source
+        )
 
     # ── Default lifecycle (overridable) ──────────────────────────────
 

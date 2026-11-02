@@ -61,7 +61,20 @@ describes the source and builds the other two.
 1. Create `sources/my_source/…` implementing the three classes. The
    provider's `CONFIG_MODEL` names its dataset configuration model (see
    [Configuration fields](#configuration-fields) below).
-2. Register the provider in `sources/registry.py` →
+2. Make `validate_configuration(configuration, *, previous=None)` cheap on
+   edits. Check the shape every time; reach the network only for the
+   connection fields that changed against `previous` (the stored row).
+   `previous=None` is a new dataset: probe everything. The dry-run health
+   route uses `validate_browse_config` instead, so keep that the full check. The
+   helpers in `sources/validation.py` carry the pattern — `parse_config`
+   (shape, `ValueError` on refusal), `previous_config(model, previous)` to
+   read the stored row as your browse model, `changed_fields(model, new,
+   old)` for which connection fields differ (every field when there is no
+   previous, so one code path serves both), `gather_bounded(items, fn)` to
+   probe a list concurrently with a bound. RSS probes only the feeds the
+   stored row lacked, Blogspot only the new blogs (every blog on a new
+   key), WordPress the site only when a connection field changed.
+3. Register the provider in `sources/registry.py` →
    `register_builtin_sources()`:
 
    ```python

@@ -372,7 +372,9 @@ class LocalFileProvider:
             raise ValueError(f"Invalid browse configuration: {e}") from e
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
         """Validate a full dataset configuration payload.
 
         The paths to ingest are not part of the configuration (they live in

@@ -15,6 +15,8 @@ there is nothing separate to ask for.
 | `collectionName` | auto | generated | no | ChromaDB collection to write into |
 | `httpPort` | no | auto | no | Port of the local ChromaDB server |
 
+The setup check reads only the start of each feed, enough to see that the
+URL answers and the document is RSS or Atom; it does not download the feed.
 Both the setup check and every fetch reject anything but `https`, on the
 original URL *and* on each redirect hop. With certificate verification, that
 also keeps the server from being pointed at your internal network.

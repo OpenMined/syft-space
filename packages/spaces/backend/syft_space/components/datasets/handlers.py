@@ -646,9 +646,10 @@ class DatasetHandler:
 
         new_configuration: dict[str, Any] | None = None
         if request.configuration is not None:
-            new_configuration = await self._merged_configuration(
+            new_configuration = await self._merge_configuration(
                 dataset, request.configuration
             )
+            await self._validate_configuration(dataset, new_configuration)
 
         try:
             updated_dataset = await self.repository.update_by_name(
@@ -685,24 +686,37 @@ class DatasetHandler:
     ) -> ConnectionHealth:
         """Dry run: does the stored configuration, with these edits, connect?
 
-        Same merge and per-axis validation as ``update_dataset``, then the
-        vector store's own healthcheck. Nothing is written.
+        Same merge as ``update_dataset``; the shape must parse (422), then
+        the source's connection and the vector store are each tried and
+        reported as health, never as a refusal. Nothing is written.
         """
         dataset = await self.repository.get_by_name(name, tenant.id)
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
-        configuration = await self._merged_configuration(dataset, request.configuration)
-        dataset_type = self.registry.get_dataset_type(dataset.dtype)(configuration)
+        configuration = await self._merge_configuration(dataset, request.configuration)
+        dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
         try:
+            dataset_type = dataset_type_cls(configuration)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=422, detail=f"Invalid configuration: {e}"
+            ) from e
+
+        source_cfg, _ = dataset_type_cls.split_config(configuration)
+        try:
+            await dataset_type_cls.SOURCE_PROVIDER_CLS.validate_browse_config(
+                source_cfg
+            )
             return await dataset_type.healthcheck()
         except Exception as e:
             return ConnectionHealth(status=HealthcheckStatus.UNHEALTHY, message=str(e))
 
-    async def _merged_configuration(
+    async def _merge_configuration(
         self, dataset: Dataset, edits: dict[str, Any]
     ) -> dict[str, Any]:
-        """The stored configuration with ``edits`` applied and validated.
+        """The stored configuration with ``edits`` applied; nothing is checked
+        beyond editability and nothing is written.
 
         Rules, per key of ``edits``: the key must be editable (400 names the
         first that is not); ``null`` removes it; a dict value on a secret
@@ -710,8 +724,7 @@ class DatasetHandler:
         removes); any other value replaces. Keys of the stored row are
         canonicalised to the schema's spelling, so an edit never leaves two
         spellings of one key behind. Connection fields a provisioner owns
-        are re-applied from its state. The result is validated per axis
-        (422 on refusal) and returned; nothing is written here.
+        are re-applied from its state.
         """
         dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
         editable = set(dataset_type_cls.editable_fields())
@@ -750,14 +763,25 @@ class DatasetHandler:
             for field in dataset_type_cls.connection_fields():
                 if field in provisioner_state.state:
                     merged[field] = provisioner_state.state[field]
+        return merged
 
+    async def _validate_configuration(
+        self, dataset: Dataset, configuration: dict[str, Any]
+    ) -> None:
+        """Validate per axis against the stored row, 422 on refusal.
+
+        The source is handed the stored configuration as ``previous`` so it
+        probes only the connection fields that changed.
+        """
+        dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
         try:
-            await dataset_type_cls.validate_configuration(merged)
+            await dataset_type_cls.validate_configuration(
+                configuration, previous=dataset.configuration
+            )
         except Exception as e:
             raise HTTPException(
                 status_code=422, detail=f"Invalid configuration: {e}"
             ) from e
-        return merged
 
     async def _announce_configuration_change(
         self, dataset: Dataset, old: dict[str, Any], new: dict[str, Any]

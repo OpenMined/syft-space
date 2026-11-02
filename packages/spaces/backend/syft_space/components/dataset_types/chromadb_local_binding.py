@@ -24,13 +24,15 @@ class ChromaDBLocalBinding(IngestableDatasetType):
     )
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
         """Generate a ``collectionName`` if missing, then validate per axis."""
         if not configuration.get("collectionName") and not configuration.get(
             "collection_name"
         ):
             configuration["collectionName"] = uuid.uuid4().hex
-        await super().validate_configuration(configuration)
+        await super().validate_configuration(configuration, previous=previous)
 
     @property
     def collection_name(self) -> str:
