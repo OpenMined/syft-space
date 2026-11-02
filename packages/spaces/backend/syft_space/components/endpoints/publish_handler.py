@@ -36,8 +36,6 @@ from syft_space.components.wallets.interfaces import WalletProvider
 from syft_space.components.wallets.repository import WalletRepository
 from syft_space.config import app_settings
 
-PUBLISH_TIMEOUT_SECONDS = 60.0
-
 
 class PublishEndpointHandler:
     """Handler for endpoint marketplace publishing, sync, and health checks."""
@@ -367,9 +365,7 @@ class PublishEndpointHandler:
             )
 
         try:
-            async with SyftHubClient(
-                base_url=marketplace.url, timeout=PUBLISH_TIMEOUT_SECONDS
-            ) as client:
+            async with SyftHubClient(base_url=marketplace.url) as client:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )

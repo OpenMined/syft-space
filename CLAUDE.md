@@ -71,13 +71,9 @@ uv run uvicorn syft_space.main:app --reload --host 0.0.0.0 --port 8080
 # Code quality (from packages/spaces/backend/ directory)
 ruff check .               # Lint
 ruff format .              # Format code
-mypy .                     # Type checking — NOT clean; see the note below
+mypy .                     # Type checking
 pytest --no-cov            # Run tests
 ```
-
-`mypy` is not clean on this backend; read it for the file you touched. On
-Windows `test_analytics_handler.py` fails: `handlers.py` formats dates with
-`%-d`, which the Windows C library lacks.
 
 ### Frontend Development
 

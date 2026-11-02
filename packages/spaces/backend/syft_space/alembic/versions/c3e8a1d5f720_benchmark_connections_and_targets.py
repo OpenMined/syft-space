@@ -1,7 +1,10 @@
 """benchmark connections and targets
 
-Revision ID: f612f5b93dbc
-Revises: a3f7c15e9b42
+The benchmark tables as first deployed. The revision id is kept, so a database
+already stamped with it upgrades from here.
+
+Revision ID: c3e8a1d5f720
+Revises: a1b2c3d4e5f7
 Create Date: 2026-09-14 18:47:18.599204
 
 """
@@ -13,8 +16,8 @@ import sqlmodel
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "f612f5b93dbc"
-down_revision: str | None = "a3f7c15e9b42"
+revision: str = "c3e8a1d5f720"
+down_revision: str | None = "a1b2c3d4e5f7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -68,6 +71,7 @@ def upgrade() -> None:
         sa.Column("synced_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("instrument", sa.JSON(none_as_null=True), nullable=True),
         # Deleting a connection keeps the endpoint's target and its settings.
         sa.ForeignKeyConstraint(["endpoint_id"], ["endpoints.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(

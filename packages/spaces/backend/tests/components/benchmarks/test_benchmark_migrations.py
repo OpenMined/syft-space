@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, event, text
 ALEMBIC_INI = Path(__file__).resolve().parents[3] / "syft_space" / "alembic.ini"
 
 # The last revision before the first rebuild of benchmark_connections.
-BEFORE_REBUILDS = "b7d2e4f19a60"
+BEFORE_REBUILDS = "c3e8a1d5f720"
 
 
 def _placeholder(declared_type: str) -> object:
