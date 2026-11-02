@@ -81,7 +81,8 @@ def _inline_enum(prop: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
     target = defs.get(ref.removeprefix("#/$defs/")) if ref else None
     if target and "enum" in target:
         inlined = {k: v for k, v in prop.items() if k != "$ref"}
-        inlined.setdefault("type", target.get("type"))
+        if "type" in target:  # absent when the members mix value types
+            inlined.setdefault("type", target["type"])
         inlined["enum"] = target["enum"]
         return inlined
     if isinstance(prop.get("anyOf"), list):

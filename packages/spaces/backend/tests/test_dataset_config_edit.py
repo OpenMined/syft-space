@@ -121,6 +121,33 @@ class TestCfgFlags:
         assert {"type": "string", "enum": ["a", "b"]} in branches
         assert {"type": "null"} in branches
 
+    def test_any_enum_class_prints_its_values(self):
+        """Plain ``Enum``, ``str`` mixin and ``IntEnum`` all inline; members
+        of mixed types carry no ``type`` rather than a null one."""
+        from enum import Enum, IntEnum
+
+        class Plain(Enum):
+            A = "a"
+
+        class Ints(IntEnum):
+            ONE = 1
+
+        class Mixed(Enum):
+            A = "a"
+            ONE = 1
+
+        class Cfg(BaseModel):
+            plain: Plain = Plain.A
+            ints: Ints = Ints.ONE
+            mixed: Mixed = Mixed.A
+
+        props = Cfg.model_json_schema(schema_generator=ConfigSchemaGenerator)[
+            "properties"
+        ]
+        assert props["plain"]["enum"] == ["a"] and props["plain"]["type"] == "string"
+        assert props["ints"]["enum"] == [1] and props["ints"]["type"] == "integer"
+        assert props["mixed"]["enum"] == ["a", 1] and "type" not in props["mixed"]
+
 
 class TestComposeSchema:
     def test_tags_each_property_with_its_axis(self):
