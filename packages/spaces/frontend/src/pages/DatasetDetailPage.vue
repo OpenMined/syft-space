@@ -186,6 +186,30 @@
       </div>
 
       <!-- Tabs Navigation -->
+      <!-- A changed configuration is not re-sent to the Hub on its own; the
+           owner republishes when ready. -->
+      <Alert v-if="republishDue && publishedEndpoints.length > 0">
+        <RefreshCw class="h-4 w-4" />
+        <AlertTitle>Configuration changed</AlertTitle>
+        <AlertDescription class="flex flex-wrap items-center justify-between gap-3">
+          <span>
+            {{
+              publishedEndpoints.length === 1
+                ? 'One published API uses'
+                : `${publishedEndpoints.length} published APIs use`
+            }}
+            this data source. Republish so SyftHub shows the new details.
+          </span>
+          <div class="flex items-center gap-2">
+            <Button variant="ghost" size="sm" @click="republishDue = false">Later</Button>
+            <Button size="sm" :disabled="isRepublishing" @click="republishEndpoints">
+              <Loader2 v-if="isRepublishing" class="h-3.5 w-3.5 mr-2 animate-spin" />
+              Republish
+            </Button>
+          </div>
+        </AlertDescription>
+      </Alert>
+
       <Tabs default-value="overview" class="space-y-6">
         <TabsList
           class="h-auto items-end justify-start gap-6 rounded-none bg-transparent p-0 border-b border-border w-full"
@@ -537,8 +561,7 @@
     </div>
   </div>
 
-  <!-- Create Dataset Dialog -->
-  <CreateDatasetDialogSimple
+  <EditDatasetDialog
     v-model:open="showEditDialog"
     :dataset="editingDataset"
     @dataset-updated="handleDatasetUpdated"
@@ -583,6 +606,7 @@ import {
   ChevronRight as ChevronRightIcon,
   MoreVertical,
   Settings,
+  Loader2,
 } from 'lucide-vue-next'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import {
@@ -596,9 +620,13 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
-import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import EditDatasetDialog, { type EditableDataset } from '@/components/EditDatasetDialog.vue'
 import AddSourceDialog from '@/components/AddSourceDialog.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
+import { endpointsApi } from '@/api/endpoints/endpoints'
+import { isPublicProperty } from '@/lib/datasetConfig'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { toast } from 'vue-sonner'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import type {
   DatasetResponse,
@@ -624,12 +652,9 @@ const dataset = ref<ParsedDataset | null>(null)
 const healthStatus = ref<{ status: string; message: string } | null>(null)
 const datasetTypeInfo = ref<DatasetTypeInfoResponse | null>(null)
 const showEditDialog = ref(false)
-const editingDataset = ref<{
-  id: string
-  name: string
-  summary: string
-  tags: string[]
-} | null>(null)
+const editingDataset = ref<EditableDataset | null>(null)
+const republishDue = ref(false)
+const isRepublishing = ref(false)
 const showDeleteDialog = ref(false)
 const showAddSourceDialog = ref(false)
 const addSourceDataset = ref<{
@@ -658,6 +683,8 @@ const connectedEndpoints = computed(() => {
   return dataset.value.connected_endpoints
 })
 
+const publishedEndpoints = computed(() => connectedEndpoints.value.filter((e) => e.published))
+
 const getIngestedFiles = () => {
   if (getDatasetManagement() === 'Self-managed') {
     return ingestionStatus.value?.completed?.toLocaleString() || '0'
@@ -674,17 +701,14 @@ const getEndpointNamesForDataset = (): string[] => {
 const editDataset = async () => {
   if (!dataset.value) return
 
-  try {
-    editingDataset.value = {
-      id: dataset.value.id,
-      name: dataset.value.name,
-      summary: dataset.value.summary,
-      tags: dataset.value.tags || [],
-    }
-    showEditDialog.value = true
-  } catch (err) {
-    console.error('Failed to prepare dataset for editing:', err)
+  editingDataset.value = {
+    name: dataset.value.name,
+    dtype: dataset.value.dtype,
+    summary: dataset.value.summary,
+    tags: dataset.value.tags || [],
+    configuration: dataset.value.configuration,
   }
+  showEditDialog.value = true
 }
 
 const deleteDataset = () => {
@@ -760,13 +784,40 @@ const loadIngestionData = async (datasetId: string) => {
   }
 }
 
-const handleDatasetUpdated = async (updated: DatasetResponse) => {
+const handleDatasetUpdated = async (updated: DatasetResponse, configurationChanged: boolean) => {
   showEditDialog.value = false
   // The route carries the name, so a rename moves the page with it.
   if (updated.name !== route.params.slug) {
     await router.replace({ name: 'dataset-detail', params: { slug: updated.name } })
   }
   await loadDataset(updated.name)
+  if (configurationChanged) republishDue.value = true
+}
+
+/** Republish every published API to the marketplaces it is already on. */
+const republishEndpoints = async () => {
+  isRepublishing.value = true
+  const failed: string[] = []
+  for (const endpoint of publishedEndpoints.value) {
+    try {
+      await endpointsApi.publish(
+        endpoint.slug,
+        endpoint.published_to?.length
+          ? { marketplace_ids: endpoint.published_to }
+          : { publish_to_all_marketplaces: true },
+      )
+    } catch (err) {
+      console.error('Failed to republish endpoint:', err)
+      failed.push(endpoint.name)
+    }
+  }
+  isRepublishing.value = false
+  if (failed.length === 0) {
+    republishDue.value = false
+    toast.success(publishedEndpoints.value.length === 1 ? 'API republished' : 'APIs republished')
+  } else {
+    toast.error(`Failed to republish: ${failed.join(', ')}`)
+  }
 }
 
 const handleDialogClose = () => {
@@ -1031,9 +1082,12 @@ const getDisplayableConfig = () => {
   // Filter out complex nested objects and arrays for display
   const displayable: Record<string, unknown> = {}
 
+  const schema = datasetTypeInfo.value?.config_schema ?? null
   Object.entries(config).forEach(([key, value]) => {
     // Skip file paths as they're shown in the watched paths section
     if (key === 'filePaths' || key === 'ingestionPath') return
+    // Secret and internal values are not for display, even redacted.
+    if (!isPublicProperty(schema, key)) return
 
     // Include primitives and simple arrays
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {

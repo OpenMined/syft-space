@@ -49,58 +49,14 @@
               </span>
             </Label>
 
-            <!-- List field: a fixed-height editable list with a +/- toolbar.
-                 Bounded height is what keeps a long list from growing the
-                 dialog; rows stay editable so a typo in a long URL can be
-                 fixed in place. -->
-            <template v-if="field.isList">
-              <div class="border-input rounded-md border">
-                <div class="max-h-[158px] min-h-[112px] overflow-y-auto">
-                  <input
-                    v-for="(row, index) in listRows[field.name] ?? []"
-                    :key="index"
-                    :ref="(el) => setRowRef(field.name, index, el)"
-                    :value="row"
-                    :placeholder="field.placeholder"
-                    class="w-full bg-transparent px-3 py-1.5 text-sm outline-none focus:bg-accent"
-                    :class="{ 'bg-accent/50': listSelected[field.name] === index }"
-                    @input="onRowInput(field.name, index, $event)"
-                    @focus="listSelected[field.name] = index"
-                    @blur="onRowBlur(field.name, index)"
-                    @paste="onRowPaste(field.name, index, $event)"
-                  />
-                  <p
-                    v-if="(listRows[field.name]?.length ?? 0) === 0"
-                    class="text-muted-foreground px-3 py-1.5 text-sm"
-                  >
-                    {{ field.placeholder }}
-                  </p>
-                </div>
-                <div class="border-input flex items-center gap-1 border-t px-1 py-0.5">
-                  <button
-                    type="button"
-                    class="text-muted-foreground hover:text-foreground hover:bg-accent rounded px-2 py-0.5 text-base leading-none"
-                    :aria-label="`Add ${field.label}`"
-                    @click="addRow(field.name)"
-                  >
-                    +
-                  </button>
-                  <span class="bg-border h-4 w-px" />
-                  <button
-                    type="button"
-                    class="text-muted-foreground hover:text-foreground hover:bg-accent rounded px-2 py-0.5 text-base leading-none disabled:opacity-40 disabled:hover:bg-transparent"
-                    :disabled="(listRows[field.name]?.length ?? 0) === 0"
-                    :aria-label="`Remove ${field.label}`"
-                    @click="removeRow(field.name)"
-                  >
-                    −
-                  </button>
-                </div>
-              </div>
-              <p v-if="listHint[field.name]" class="text-muted-foreground text-xs">
-                {{ listHint[field.name] }}
-              </p>
-            </template>
+            <ListRowsEditor
+              v-if="field.isList"
+              :model-value="listRows[field.name] ?? []"
+              :label="field.label"
+              :placeholder="field.placeholder"
+              :separator="field.separator"
+              @update:model-value="onRowsChange(field.name, $event)"
+            />
 
             <Input
               v-else
@@ -123,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   Dialog,
   DialogContent,
@@ -143,6 +99,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { sourcePresentation } from '@/config/sources'
+import ListRowsEditor from '@/components/ListRowsEditor.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import type { DatasetTypeInfoResponse } from '@/api/types'
 
@@ -211,123 +168,28 @@ const requiredFields = computed(() => {
 // The backend takes one separated string per field, so the rows live here
 // and are joined into `credentials` on every edit. Everything downstream —
 // validation, canContinue, the emitted payload — still sees a plain string.
-//
-// Rows are kept exactly as typed and only normalized on blur: rewriting the
-// text mid-keystroke (stripping the trailing slash the user is still typing)
-// fights the person at the keyboard.
 
 const listRows = ref<Record<string, string[]>>({})
-const listSelected = ref<Record<string, number>>({})
-const listHint = ref<Record<string, string>>({})
-const rowRefs = new Map<string, HTMLInputElement>()
 
-const setRowRef = (name: string, index: number, el: unknown) => {
-  const key = `${name}:${index}`
-  if (el instanceof HTMLInputElement) rowRefs.set(key, el)
-  else rowRefs.delete(key)
-}
-
-/** Trailing slashes are insignificant to Blogger, so `foo.com/` == `foo.com`. */
-const normalizeListValue = (value: string) => value.trim().replace(/\/+$/, '')
-
-/** How many rows will actually be stored — blanks and duplicates excluded. */
-const listCount = (name: string) => {
-  const seen = new Set<string>()
-  for (const row of listRows.value[name] ?? []) {
-    const normalized = normalizeListValue(row)
-    if (normalized) seen.add(normalized)
-  }
-  return seen.size
-}
-
-/** Join the rows into the single separated string the config field stores. */
-const syncRows = (name: string) => {
+const onRowsChange = (name: string, rows: string[]) => {
+  listRows.value[name] = rows
   const field = requiredFields.value.find((f) => f.name === name)
   const seen = new Set<string>()
   const kept: string[] = []
-  for (const row of listRows.value[name] ?? []) {
-    const normalized = normalizeListValue(row)
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    kept.push(normalized)
+  for (const row of rows) {
+    const trimmed = row.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    kept.push(trimmed)
   }
   credentials.value[name] = kept.join(field?.separator ?? ',')
 }
 
-const onRowInput = (name: string, index: number, event: Event) => {
-  const rows = [...(listRows.value[name] ?? [])]
-  rows[index] = (event.target as HTMLInputElement).value
-  listRows.value[name] = rows
-  syncRows(name)
-}
-
-const onRowBlur = (name: string, index: number) => {
-  const rows = [...(listRows.value[name] ?? [])]
-  const normalized = normalizeListValue(rows[index] ?? '')
-  const isDuplicate =
-    normalized !== '' && rows.some((r, i) => i !== index && normalizeListValue(r) === normalized)
-
-  if (isDuplicate) {
-    rows.splice(index, 1)
-    listHint.value[name] = 'Already added — that duplicate was removed.'
-  } else {
-    rows[index] = normalized
-    listHint.value[name] = ''
-  }
-  listRows.value[name] = rows
-  syncRows(name)
-}
-
-/** Pasting a separated list fills one row per value instead of one long row. */
-const onRowPaste = (name: string, index: number, event: ClipboardEvent) => {
+/** How many rows will actually be stored — blanks and duplicates excluded. */
+const listCount = (name: string) => {
   const field = requiredFields.value.find((f) => f.name === name)
-  const separator = field?.separator ?? ','
-  const text = event.clipboardData?.getData('text') ?? ''
-  if (!text.includes(separator) && !text.includes('\n')) return
-
-  event.preventDefault()
-  const pasted = text
-    .split(new RegExp(`[${separator}\n]`))
-    .map(normalizeListValue)
-    .filter(Boolean)
-  const rows = [...(listRows.value[name] ?? [])]
-  rows.splice(index, 1, ...pasted)
-  listRows.value[name] = rows
-  listSelected.value[name] = Math.min(index + pasted.length - 1, rows.length - 1)
-  syncRows(name)
-}
-
-const addRow = async (name: string) => {
-  const rows = [...(listRows.value[name] ?? []), '']
-  listRows.value[name] = rows
-  listSelected.value[name] = rows.length - 1
-  await nextTick()
-  rowRefs.get(`${name}:${rows.length - 1}`)?.focus()
-}
-
-/** Remove the selected row, falling back to the last one. */
-const removeRow = async (name: string) => {
-  const rows = [...(listRows.value[name] ?? [])]
-  if (rows.length === 0) return
-  const index = Math.min(listSelected.value[name] ?? rows.length - 1, rows.length - 1)
-  rows.splice(index, 1)
-  listRows.value[name] = rows
-  listSelected.value[name] = Math.min(index, rows.length - 1)
-  listHint.value[name] = ''
-  syncRows(name)
-  await nextTick()
-  const next = listSelected.value[name]
-  if (next >= 0) rowRefs.get(`${name}:${next}`)?.focus()
-}
-
-/** Start list fields with one empty row so the field is usable immediately. */
-const seedListRows = () => {
-  for (const field of requiredFields.value) {
-    if (field.isList && !listRows.value[field.name]) {
-      listRows.value[field.name] = ['']
-      listSelected.value[field.name] = 0
-    }
-  }
+  const value = credentials.value[name] ?? ''
+  return value === '' ? 0 : value.split(field?.separator ?? ',').length
 }
 
 const canContinue = computed(() => {
@@ -339,9 +201,6 @@ const reset = () => {
   selectedSourceId.value = ''
   credentials.value = {}
   listRows.value = {}
-  listSelected.value = {}
-  listHint.value = {}
-  rowRefs.clear()
 }
 
 const handleCancel = () => {
@@ -364,11 +223,6 @@ const handleContinue = () => {
 watch(selectedSourceId, () => {
   credentials.value = {}
   listRows.value = {}
-  listSelected.value = {}
-  listHint.value = {}
-  rowRefs.clear()
-  // Seed after clearing, so the new source's list fields start with one row.
-  seedListRows()
 })
 
 watch(

@@ -217,12 +217,17 @@
   <!-- Create Dataset Dialog -->
   <CreateDatasetDialogSimple
     v-model:open="showCreateDataSourceDialog"
-    :dataset="editingDataset"
     :source-type="pickedSourceType"
     :credentials="pickedCredentials"
     @dataset-created="handleDatasetCreated"
-    @dataset-updated="handleDatasetUpdated"
     @update:open="!$event && handleDialogClose()"
+  />
+
+  <EditDatasetDialog
+    v-model:open="showEditDialog"
+    :dataset="editingDataset"
+    @dataset-updated="handleDatasetUpdated"
+    @update:open="!$event && (editingDataset = null)"
   />
 
   <!-- Delete Confirmation Dialog -->
@@ -247,6 +252,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import EditDatasetDialog, { type EditableDataset } from '@/components/EditDatasetDialog.vue'
 import PickSourceDialog from '@/components/PickSourceDialog.vue'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { useDatasets } from '@/composables/useDatasets'
@@ -291,12 +297,8 @@ const showPickSourceDialog = ref(false)
 const pickedSourceType = ref<string>('local_file')
 const pickedCredentials = ref<Record<string, string>>({})
 const searchQuery = ref('')
-const editingDataset = ref<{
-  id: string
-  name: string
-  summary: string
-  tags: string[]
-} | null>(null)
+const showEditDialog = ref(false)
+const editingDataset = ref<EditableDataset | null>(null)
 const showDeleteDialog = ref(false)
 const datasetToDelete = ref<DataSource | null>(null)
 const isDeleting = ref(false)
@@ -333,7 +335,6 @@ const filteredDataSources = computed(() => {
 })
 
 const openSourcePicker = () => {
-  editingDataset.value = null
   pickedSourceType.value = 'local_file'
   pickedCredentials.value = {}
   showPickSourceDialog.value = true
@@ -358,8 +359,8 @@ const handleEditDataset = async (dataset: DataSource) => {
     const fullDataset = await getDataset(dataset.name)
     if (fullDataset) {
       editingDataset.value = {
-        id: fullDataset.id,
         name: fullDataset.name,
+        dtype: fullDataset.dtype,
         summary: fullDataset.summary,
         tags: fullDataset.tags
           ? fullDataset.tags
@@ -367,8 +368,9 @@ const handleEditDataset = async (dataset: DataSource) => {
               .map((tag) => tag.trim())
               .filter(Boolean)
           : [],
+        configuration: fullDataset.configuration,
       }
-      showCreateDataSourceDialog.value = true
+      showEditDialog.value = true
     } else {
       toast.error('Failed to load dataset details for editing')
     }
@@ -383,9 +385,7 @@ const handleDatasetUpdated = () => {
   editingDataset.value = null
 }
 
-// Reset editing state when dialog closes
 const handleDialogClose = () => {
-  editingDataset.value = null
   pickedCredentials.value = {}
 }
 

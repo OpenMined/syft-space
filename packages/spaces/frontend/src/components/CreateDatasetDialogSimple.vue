@@ -2,9 +2,7 @@
   <Dialog v-model:open="isOpen">
     <DialogContent class="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle class="heading-3">{{
-          props.dataset ? 'Edit Data Source' : 'Add Data Source'
-        }}</DialogTitle>
+        <DialogTitle class="heading-3">Add Data Source</DialogTitle>
       </DialogHeader>
 
       <div class="space-y-6 mt-6">
@@ -22,7 +20,7 @@
         </div>
 
         <!-- Source-specific browser -->
-        <div v-if="!props.dataset" class="space-y-4">
+        <div class="space-y-4">
           <SourceBrowser
             :key="sourceType"
             ref="sourceBrowserRef"
@@ -44,7 +42,6 @@
                 </Badge>
               </div>
               <Button
-                v-if="!props.dataset"
                 @click="clearAllFiles"
                 variant="ghost"
                 size="sm"
@@ -82,7 +79,6 @@
                         </p>
                       </div>
                       <Button
-                        v-if="!props.dataset"
                         @click="removeFile(index)"
                         variant="ghost"
                         size="sm"
@@ -103,8 +99,8 @@
           </div>
         </div>
 
-        <!-- Schema-driven options (create only) -->
-        <div v-for="field in props.dataset ? [] : optionFields" :key="field.name" class="space-y-2">
+        <!-- Schema-driven options -->
+        <div v-for="field in optionFields" :key="field.name" class="space-y-2">
           <Label :for="`option-${field.name}`" class="text-sm font-medium">
             {{ field.label }}
           </Label>
@@ -137,69 +133,14 @@
         <!-- Tags -->
         <div class="space-y-2">
           <Label for="topics" class="text-sm font-medium"> Tags </Label>
-          <div class="space-y-2">
-            <div class="flex gap-2">
-              <Input
-                id="topics"
-                v-model="tagInput"
-                @keydown.enter.prevent="addTag"
-                placeholder="e.g., legal, medical, research"
-                class="flex-1"
-              />
-              <Button @click="addTag" variant="outline" :disabled="!tagInput.trim()">
-                <Plus class="h-4 w-4" />
-              </Button>
-            </div>
-
-            <!-- Popular Tags Suggestions -->
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-xs text-muted-foreground">Popular:</span>
-              <Button
-                v-for="suggestion in popularTags"
-                :key="suggestion"
-                @click="addSuggestedTag(suggestion)"
-                variant="ghost"
-                size="sm"
-                class="h-6 px-2 text-xs"
-                :disabled="formData.tags.includes(suggestion)"
-              >
-                {{ suggestion }}
-              </Button>
-            </div>
-
-            <!-- Selected Tags -->
-            <div v-if="formData.tags.length > 0" class="flex flex-wrap gap-2 mt-3">
-              <Badge
-                v-for="(tag, index) in formData.tags"
-                :key="index"
-                variant="secondary"
-                class="px-3 py-1"
-              >
-                {{ tag }}
-                <button
-                  @click="removeTag(index)"
-                  class="ml-2 hover:text-destructive transition-colors"
-                >
-                  <X class="h-3 w-3" />
-                </button>
-              </Badge>
-            </div>
-          </div>
+          <TagsInput id="topics" v-model="formData.tags" />
         </div>
       </div>
 
       <DialogFooter class="mt-8">
         <Button variant="outline" @click="handleCancel"> Cancel </Button>
         <Button @click="handleCreate" :disabled="!isFormValid">
-          {{
-            isCreating
-              ? props.dataset
-                ? 'Saving...'
-                : 'Adding...'
-              : props.dataset
-                ? 'Save Changes'
-                : 'Add Data Source'
-          }}
+          {{ isCreating ? 'Adding...' : 'Add Data Source' }}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -207,7 +148,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   Dialog,
   DialogContent,
@@ -226,35 +167,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, X } from 'lucide-vue-next'
+import { X } from 'lucide-vue-next'
 import SourceBrowser from '@/components/SourceBrowser.vue'
+import TagsInput from '@/components/TagsInput.vue'
 import { useFileIcon } from '@/composables/useFileIcon'
 import { toast } from 'vue-sonner'
+import { apiErrorMessage } from '@/lib/apiError'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { sourcePresentation } from '@/config/sources'
-import type {
-  CreateDatasetRequest,
-  DatasetResponse,
-  SelectionItemRequest,
-  UpdateDatasetRequest,
-} from '@/api/types'
-
-interface EditDataset {
-  id: string
-  name: string
-  summary: string
-  tags: string[]
-}
+import type { CreateDatasetRequest, SelectionItemRequest } from '@/api/types'
 
 const props = withDefaults(
   defineProps<{
     open: boolean
-    dataset?: EditDataset | null
     sourceType?: string
     credentials?: Record<string, string>
   }>(),
   {
-    dataset: null,
     sourceType: 'local_file',
     credentials: () => ({}),
   },
@@ -311,7 +240,7 @@ const loadConfigSchema = async () => {
   optionValues.value = {}
   try {
     const type = await datasetsApi.getType(sourceType.value)
-    const properties = (type.config_schema?.properties ?? {}) as Record<string, SchemaProperty>
+    const properties = type.config_schema?.properties ?? {}
     configSchema.value = properties
     const defaults: Record<string, string> = {}
     for (const [name, prop] of Object.entries(properties)) {
@@ -340,10 +269,7 @@ const datasetConfiguration = computed<Record<string, unknown>>(() => {
 const emit = defineEmits<{
   'update:open': [value: boolean]
   'dataset-created': []
-  'dataset-updated': [dataset: DatasetResponse]
 }>()
-
-const popularTags = ['legal', 'medical', 'research', 'finance', 'education', 'news', 'technical']
 
 const formData = ref({
   name: '',
@@ -352,12 +278,10 @@ const formData = ref({
   tags: [] as string[],
 })
 
-const tagInput = ref('')
 const fileDescriptions = ref<Record<string, string>>({})
 const { getFileIcon, getFileIconColor } = useFileIcon()
 const sourceBrowserRef = ref<InstanceType<typeof SourceBrowser> | null>(null)
 const isCreating = ref(false)
-const isInitialized = ref(false)
 
 const isOpen = computed({
   get: () => props.open,
@@ -366,9 +290,6 @@ const isOpen = computed({
 
 const isFormValid = computed(() => {
   if (isCreating.value) return false
-  if (props.dataset) {
-    return formData.value.name.trim() !== ''
-  }
   return formData.value.name.trim() !== '' && formData.value.selectedFiles.length > 0
 })
 
@@ -397,24 +318,6 @@ const clearAllFiles = () => {
   fileDescriptions.value = {}
 }
 
-const addTag = () => {
-  const tag = tagInput.value.trim().toLowerCase()
-  if (tag && !formData.value.tags.includes(tag)) {
-    formData.value.tags.push(tag)
-    tagInput.value = ''
-  }
-}
-
-const addSuggestedTag = (tag: string) => {
-  if (!formData.value.tags.includes(tag)) {
-    formData.value.tags.push(tag)
-  }
-}
-
-const removeTag = (index: number) => {
-  formData.value.tags.splice(index, 1)
-}
-
 const handleCancel = () => {
   resetForm()
   isOpen.value = false
@@ -426,37 +329,23 @@ const handleCreate = async () => {
   isCreating.value = true
 
   try {
-    if (props.dataset) {
-      const updateRequest: UpdateDatasetRequest = {
-        name: formData.value.name.trim(),
-        summary: formData.value.summary.trim() || '',
-        tags: formData.value.tags.join(','),
-      }
-
-      const updated = await datasetsApi.update(props.dataset.name, updateRequest)
-      emit('dataset-updated', updated)
-      toast.success(`"${updated.name}" updated`)
-    } else {
-      const createRequest: CreateDatasetRequest = {
-        dtype: sourceType.value,
-        name: formData.value.name.trim(),
-        summary: formData.value.summary.trim() || '',
-        tags: formData.value.tags.join(','),
-        configuration: datasetConfiguration.value,
-        selected_items: buildSelectedItems(),
-      }
-
-      await datasetsApi.create(createRequest)
-      emit('dataset-created')
-      toast.success(`"${createRequest.name}" added`)
+    const createRequest: CreateDatasetRequest = {
+      dtype: sourceType.value,
+      name: formData.value.name.trim(),
+      summary: formData.value.summary.trim() || '',
+      tags: formData.value.tags.join(','),
+      configuration: datasetConfiguration.value,
+      selected_items: buildSelectedItems(),
     }
+
+    await datasetsApi.create(createRequest)
+    emit('dataset-created')
+    toast.success(`"${createRequest.name}" added`)
 
     resetForm()
     isOpen.value = false
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-    const action = props.dataset ? 'save' : 'add'
-    toast.error(`Failed to ${action} data source: ${errorMessage}`)
+    toast.error(`Failed to add data source: ${apiErrorMessage(error)}`)
   } finally {
     isCreating.value = false
   }
@@ -469,32 +358,15 @@ const resetForm = () => {
     selectedFiles: [],
     tags: [],
   }
-  tagInput.value = ''
   fileDescriptions.value = {}
-  isInitialized.value = false
 }
 
 watch(
-  () => [props.open, props.dataset] as const,
-  async ([open, dataset]) => {
-    if (open && dataset && !isInitialized.value) {
-      await nextTick()
-
-      formData.value = {
-        name: dataset.name,
-        summary: dataset.summary || '',
-        selectedFiles: [], // Not used in edit mode
-        tags: [...dataset.tags],
-      }
-      fileDescriptions.value = {} // Not used in edit mode
-      isInitialized.value = true
-    } else if (open && !dataset) {
-      isInitialized.value = false
-      resetForm()
-      await loadConfigSchema()
-    } else if (!open) {
-      isInitialized.value = false
-    }
+  () => props.open,
+  async (open) => {
+    if (!open) return
+    resetForm()
+    await loadConfigSchema()
   },
   { immediate: true },
 )
