@@ -38,8 +38,9 @@ class ConfigSchemaGenerator(GenerateJsonSchema):
     """Generates configuration schemas for frontend dynamic form rendering.
 
     Produces a simplified schema with 'properties', 'required', and '$defs'.
-    The $defs section is preserved so $ref pointers remain valid — the frontend
-    resolver handles $ref lookup at render time.
+    A property typed as an Enum is printed inline (``type`` + ``enum`` on the
+    property itself) rather than as a ``$ref``: the frontend reads a field's
+    choices straight off the property. Other ``$defs`` are kept as they are.
 
     Usage:
         from syft_space.components.shared.utils import ConfigSchemaGenerator
@@ -58,11 +59,31 @@ class ConfigSchemaGenerator(GenerateJsonSchema):
             Schema with 'properties', 'required', and '$defs' (if present)
         """
         json_schema = super().generate(schema, mode)
+        defs = json_schema.get("$defs", {})
 
         result: dict[str, Any] = {
-            "properties": json_schema.get("properties", {}),
+            "properties": {
+                name: _inline_enum(prop, defs)
+                for name, prop in json_schema.get("properties", {}).items()
+            },
             "required": json_schema.get("required", []),
         }
-        if "$defs" in json_schema:
-            result["$defs"] = json_schema["$defs"]
+        if defs:
+            result["$defs"] = defs
         return result
+
+
+def _inline_enum(prop: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
+    """``prop`` with a ``$ref`` to an enum definition replaced by that
+    definition's ``type`` and ``enum``, at the top level or inside an
+    ``anyOf`` branch (an optional enum); any other property unchanged."""
+    ref = prop.get("$ref", "")
+    target = defs.get(ref.removeprefix("#/$defs/")) if ref else None
+    if target and "enum" in target:
+        inlined = {k: v for k, v in prop.items() if k != "$ref"}
+        inlined.setdefault("type", target.get("type"))
+        inlined["enum"] = target["enum"]
+        return inlined
+    if isinstance(prop.get("anyOf"), list):
+        return {**prop, "anyOf": [_inline_enum(b, defs) for b in prop["anyOf"]]}
+    return prop

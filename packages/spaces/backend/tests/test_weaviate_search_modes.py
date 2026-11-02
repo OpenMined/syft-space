@@ -11,6 +11,7 @@ import pytest
 from weaviate.classes.query import HybridFusion
 
 from syft_space.components.shared.search_types import SearchContext, SearchParameters
+from syft_space.components.vector_stores.weaviate_remote.schemas import SearchMode
 from syft_space.components.vector_stores.weaviate_remote.weaviate_vector_store import (
     WeaviateVectorStore,
 )
@@ -72,7 +73,7 @@ async def _search(config: dict[str, Any], hits, **params):
 
 class TestVectorMode:
     async def test_is_the_default(self):
-        assert WeaviateVectorStore(CONF).config.search_mode == "vector"
+        assert WeaviateVectorStore(CONF).config.search_mode is SearchMode.VECTOR
 
     async def test_calls_near_text_with_the_threshold_as_certainty(self):
         calls, _ = await _search(CONF, [_hit(certainty=0.8)], similarity_threshold=0.6)

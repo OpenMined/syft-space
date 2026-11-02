@@ -1,11 +1,18 @@
 """Configuration schema for the remote Weaviate vector store."""
 
-from typing import Literal
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, HttpUrl
 
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.vector_stores.weaviate_remote.filters import WeaviateFilter
+
+
+class SearchMode(StrEnum):
+    """How a query is matched against the collection."""
+
+    VECTOR = "vector"
+    HYBRID = "hybrid"
 
 
 class RemoteWeaviateVectorStoreConfiguration(BaseModel):
@@ -58,8 +65,8 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
         ),
         json_schema_extra=cfg_flags(editable=True),
     )
-    search_mode: Literal["vector", "hybrid"] = Field(
-        default="vector",
+    search_mode: SearchMode = Field(
+        default=SearchMode.VECTOR,
         description=(
             "How a query is matched: 'vector' is nearest-neighbour only; "
             "'hybrid' fuses it with a keyword (BM25) search over every "

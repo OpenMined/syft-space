@@ -77,8 +77,49 @@ class TestCfgFlags:
         assert fields_with_visibility(schema, Visibility.INTERNAL) == []
         assert editable_fields(schema) == []
 
+    # ── compose_schema ───────────────────────────────────────────────────────
 
-# ── compose_schema ───────────────────────────────────────────────────────
+    def test_an_enum_field_prints_its_choices_on_the_property(self):
+        """The dialog reads ``enum`` off the property; a ``$ref`` would render
+        as a text box."""
+        from enum import StrEnum
+
+        class Mode(StrEnum):
+            A = "a"
+            B = "b"
+
+        class Cfg(BaseModel):
+            mode: Mode = Field(
+                default=Mode.A, json_schema_extra=cfg_flags(editable=True)
+            )
+
+        prop = Cfg.model_json_schema(schema_generator=ConfigSchemaGenerator)[
+            "properties"
+        ]["mode"]
+        assert "$ref" not in prop
+        assert prop["enum"] == ["a", "b"]
+        assert prop["type"] == "string"
+        assert prop["editable"] is True and prop["default"] == "a"
+
+    def test_an_optional_enum_prints_its_choices_in_the_any_of_branch(self):
+        from enum import StrEnum
+
+        class Mode(StrEnum):
+            A = "a"
+            B = "b"
+
+        class Cfg(BaseModel):
+            mode: Mode | None = Field(
+                default=None, json_schema_extra=cfg_flags(editable=True)
+            )
+
+        prop = Cfg.model_json_schema(schema_generator=ConfigSchemaGenerator)[
+            "properties"
+        ]["mode"]
+        branches = prop["anyOf"]
+        assert not any("$ref" in b for b in branches)
+        assert {"type": "string", "enum": ["a", "b"]} in branches
+        assert {"type": "null"} in branches
 
 
 class TestComposeSchema:

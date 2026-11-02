@@ -31,6 +31,7 @@ from syft_space.components.vector_stores.weaviate_remote.filters import (
 )
 from syft_space.components.vector_stores.weaviate_remote.schemas import (
     RemoteWeaviateVectorStoreConfiguration,
+    SearchMode,
 )
 
 try:
@@ -230,7 +231,7 @@ class WeaviateVectorStore:
         leg only (``max_vector_distance``); fused scores are relative to
         the result set, so there is no cutoff on them.
         """
-        if self.config.search_mode == "hybrid":
+        if self.config.search_mode is SearchMode.HYBRID:
             return await collection.query.hybrid(
                 query=query,
                 alpha=self.config.alpha,
@@ -255,7 +256,7 @@ class WeaviateVectorStore:
     def _score(self, result: Any) -> float:
         """Hybrid: Weaviate's fused ``score``, relative to the result set.
         Vector: ``certainty``, Weaviate's own ``1 - distance/2``."""
-        if self.config.search_mode == "hybrid":
+        if self.config.search_mode is SearchMode.HYBRID:
             return result.metadata.score or 0.0
         return result.metadata.certainty or 0.0
 
