@@ -174,6 +174,8 @@ export interface ConfigSchemaProperty {
   format?: string
   default?: unknown
   enum?: (string | number)[]
+  minimum?: number
+  maximum?: number
   anyOf?: Array<Record<string, unknown>>
   axis?: 'source' | 'vector_store'
   editable?: boolean

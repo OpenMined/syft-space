@@ -260,3 +260,44 @@ describe('configurationPatch', () => {
     )
   })
 })
+
+describe('bounded numbers', () => {
+  // Mirrors the remote Weaviate schema's hybrid fields.
+  const weaviateSearch: ConfigSchema = {
+    properties: {
+      search_mode: {
+        type: 'string',
+        enum: ['vector', 'hybrid'],
+        default: 'vector',
+        axis: 'vector_store',
+        editable: true,
+      },
+      alpha: {
+        type: 'number',
+        minimum: 0,
+        maximum: 1,
+        default: 0.7,
+        axis: 'vector_store',
+        editable: true,
+      },
+    },
+  }
+  const fields = editableFields(weaviateSearch, copy('remote_weaviate'))
+
+  it('renders a string enum as a select and a bounded number as a number field', () => {
+    const mode = fields.find((f) => f.name === 'search_mode')
+    const alpha = fields.find((f) => f.name === 'alpha')
+    expect(mode?.kind).toBe('select')
+    expect(mode?.numeric).toBe(false)
+    expect(mode?.options.map((o) => o.value)).toEqual(['vector', 'hybrid'])
+    expect(alpha?.kind).toBe('number')
+    expect([alpha?.min, alpha?.max]).toEqual([0, 1])
+  })
+
+  it('refuses a number outside the schema bounds', () => {
+    const errorsFor = (value: string) => draftErrors(fields, { alpha: { kind: 'value', value } })
+    expect(errorsFor('0.4')).toEqual({})
+    expect(errorsFor('1.5').alpha).toBe('Vector weight (alpha) must be at most 1')
+    expect(errorsFor('-0.1').alpha).toBe('Vector weight (alpha) must be at least 0')
+  })
+})

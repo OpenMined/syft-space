@@ -100,6 +100,8 @@ export const SOURCE_PRESENTATION: Record<string, SourceCopy> = {
       headers: { label: 'Extra headers', entry: 'header' },
       content_property: { label: 'Content property', placeholder: 'text' },
       metadata_properties: { label: 'Metadata properties', placeholder: 'title' },
+      search_mode: { label: 'Search mode' },
+      alpha: { label: 'Vector weight (alpha)', placeholder: '0.7' },
     },
   },
 }

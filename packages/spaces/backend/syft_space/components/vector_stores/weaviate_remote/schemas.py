@@ -1,5 +1,7 @@
 """Configuration schema for the remote Weaviate vector store."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, HttpUrl
 
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
@@ -39,11 +41,6 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
         ),
         json_schema_extra=cfg_flags(editable=True, visibility=Visibility.SECRET),
     )
-    default_similarity_threshold: float = Field(
-        default=0.5,
-        description="The default similarity threshold for the Weaviate collection",
-        json_schema_extra=cfg_flags(editable=True),
-    )
     content_property: str | None = Field(
         default=None,
         description=(
@@ -58,6 +55,25 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
             "Properties returned as document metadata and declared on the "
             "endpoint (e.g., ['title', 'author']). If not specified, no "
             "property is returned; only creation_time is."
+        ),
+        json_schema_extra=cfg_flags(editable=True),
+    )
+    search_mode: Literal["vector", "hybrid"] = Field(
+        default="vector",
+        description=(
+            "How a query is matched: 'vector' is nearest-neighbour only; "
+            "'hybrid' fuses it with a keyword (BM25) search over every "
+            "searchable text property."
+        ),
+        json_schema_extra=cfg_flags(editable=True),
+    )
+    alpha: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Hybrid mode only: weight of the vector leg. 1.0 is vector only, "
+            "0.0 is keywords only."
         ),
         json_schema_extra=cfg_flags(editable=True),
     )

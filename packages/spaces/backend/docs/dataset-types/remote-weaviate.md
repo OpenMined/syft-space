@@ -22,7 +22,8 @@ pipeline is a system of its own that you would rather not move.
 | `headers` | no | yes, values never read back | Extra headers, e.g. a vectoriser module's own API key |
 | `content_property` | no | yes | Which property holds the text to return as the hit |
 | `metadata_properties` | no | yes | Which other properties to return alongside |
-| `default_similarity_threshold` | no | yes | Minimum score for a hit to count |
+| `search_mode` | no | yes | `vector` (default) or `hybrid`, see below |
+| `alpha` | no | yes | Hybrid only: weight of the vector leg, `1.0` vector only, `0.0` keywords only (default `0.7`) |
 | `filters` | no | no | A filter always applied to every query |
 
 A changed connection takes effect on the next query. Reading the dataset
@@ -38,6 +39,29 @@ PATCH /api/v1/datasets/product-docs
 A header left out of the object is removed; `"X-Other": null` keeps it as is.
 Changing `metadata_properties` changes what attached endpoints advertise, so
 republish them afterwards.
+
+## Hybrid search
+
+`vector` matches by embedding alone, which misses exact names and phrases.
+`hybrid` runs a keyword (BM25) search over every searchable text property in
+the collection alongside it and fuses the two rankings; `alpha` sets the
+vector leg's weight. Switch an existing dataset with one edit:
+
+```http
+PATCH /api/v1/datasets/product-docs
+{"configuration": {"search_mode": "hybrid", "alpha": 0.6}}
+```
+
+Two things change with the mode:
+
+- **Scores are relative in hybrid mode.** Each hit's `similarity_score` is
+  Weaviate's fused score, normalised within that result set, so the top hit is
+  close to `1.0` even for a poor query. In `vector` mode it is Weaviate's
+  `certainty`, an absolute `1 - distance/2`. Do not compare raw scores across
+  modes or across datasets.
+- **The request's `similarity_threshold` bounds the vector leg only.** In
+  hybrid mode it becomes a maximum vector distance; a keyword-only hit whose
+  vector is far away still passes. This needs a recent Weaviate server.
 
 ## How it works
 

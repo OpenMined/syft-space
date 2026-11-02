@@ -31,6 +31,9 @@ export interface ConfigField {
   kind: ConfigFieldKind
   // The schema's value type is numeric, whatever control edits it.
   numeric: boolean
+  // number: the schema's bounds, when it states them.
+  min?: number
+  max?: number
   // select: the schema's enum, labelled by config/sources.ts when it knows them.
   options: Array<{ value: string; label: string }>
   // list: rows join into one string with `separator`, or stay an array.
@@ -90,6 +93,8 @@ export const editableFields = (
         required: required.has(name),
         kind,
         numeric: type === 'integer' || type === 'number',
+        min: prop.minimum,
+        max: prop.maximum,
         options: (prop.enum ?? []).map((value) => ({
           value: String(value),
           label: fieldCopy?.choices?.[String(value)] ?? String(value),
@@ -173,7 +178,12 @@ export const draftErrors = (
     if (draft.kind === 'value' && field.required && draft.value.trim() === '') {
       errors[field.name] = `${field.label} is required`
     } else if (draft.kind === 'value' && field.kind === 'number' && draft.value.trim() !== '') {
-      if (Number.isNaN(Number(draft.value))) errors[field.name] = `${field.label} must be a number`
+      const n = Number(draft.value)
+      if (Number.isNaN(n)) errors[field.name] = `${field.label} must be a number`
+      else if (field.min !== undefined && n < field.min)
+        errors[field.name] = `${field.label} must be at least ${field.min}`
+      else if (field.max !== undefined && n > field.max)
+        errors[field.name] = `${field.label} must be at most ${field.max}`
     } else if (draft.kind === 'rows' && field.required && cleanRows(draft.rows).length === 0) {
       errors[field.name] = `${field.label} needs at least one entry`
     } else if (draft.kind === 'secretMap') {
