@@ -132,7 +132,9 @@ class NoOpProvider:
         return None
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
         """No-op — any configuration is accepted (and ignored)."""
         return None
 

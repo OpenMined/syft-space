@@ -101,8 +101,11 @@ PATCH /api/v1/datasets/newsroom
 
 What happens next, so you know what to expect:
 
-1. The change is checked the same way as at creation (a feed is fetched, a
-   site is logged into). If it fails, nothing is saved and you get a `422`.
+1. The change is checked before anything is saved. Shape is always checked;
+   the live check (fetching a feed, logging into a site) runs only for what
+   you changed — a new feed URL is fetched, a new poll interval is not. If it
+   fails you get a `422` and nothing is written. `POST /datasets/{name}/health`
+   tries every connection on request and reports health, not a refusal.
 2. A changed **source** setting restarts that dataset's watch with the new
    values. A changed **connection** reconnects on the next query.
 3. A secret you did not send stays as it was. Secrets are never returned by
