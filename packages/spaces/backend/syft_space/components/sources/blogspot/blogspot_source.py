@@ -158,7 +158,7 @@ class BlogspotDatasetConfig(BlogspotBrowseConfig):
         alias="pollIntervalSeconds",
         description="Seconds between change-stream polls",
         gt=0,
-        json_schema_extra=cfg_flags(editable=True),
+        json_schema_extra=cfg_flags(visibility=Visibility.INTERNAL),
     )
 
 

@@ -22,7 +22,7 @@ pipeline is a system of its own that you would rather not move.
 | `headers` | no | yes, values never read back | Extra headers, e.g. a vectoriser module's own API key |
 | `content_property` | no | yes | Which property holds the text to return as the hit |
 | `metadata_properties` | no | yes | Which other properties to return alongside |
-| `default_similarity_threshold` | no | no | Minimum score for a hit to count |
+| `default_similarity_threshold` | no | yes | Minimum score for a hit to count |
 | `filters` | no | no | A filter always applied to every query |
 
 A changed connection takes effect on the next query. Reading the dataset

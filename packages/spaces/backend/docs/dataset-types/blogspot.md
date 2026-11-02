@@ -12,7 +12,7 @@ post it publishes afterwards is indexed too.
 | --- | --- | --- | --- | --- |
 | `blogUrls` | **yes** | — | yes | One or more blog URLs, comma-separated, each with its scheme |
 | `apiKey` | **yes** | — | yes, never read back | A Google API key with the Blogger API enabled |
-| `pollIntervalSeconds` | no | `300` | yes | How often to re-check |
+| `pollIntervalSeconds` | no | `300` | no | How often to re-check |
 | `collectionName` | auto | generated | no | ChromaDB collection to write into |
 | `httpPort` | no | auto | no | Port of the local ChromaDB server |
 
