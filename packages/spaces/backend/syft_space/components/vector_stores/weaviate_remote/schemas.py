@@ -42,6 +42,7 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
     default_similarity_threshold: float = Field(
         default=0.5,
         description="The default similarity threshold for the Weaviate collection",
+        json_schema_extra=cfg_flags(editable=True),
     )
     content_property: str | None = Field(
         default=None,

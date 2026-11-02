@@ -186,6 +186,14 @@
       </div>
 
       <!-- Tabs Navigation -->
+      <RepublishBanner
+        v-if="dataset"
+        :endpoints="republishPending"
+        :dataset-names="[dataset.name]"
+        @update:endpoints="republishPending = $event"
+        @dismiss="republishPending = []"
+      />
+
       <Tabs default-value="overview" class="space-y-6">
         <TabsList
           class="h-auto items-end justify-start gap-6 rounded-none bg-transparent p-0 border-b border-border w-full"
@@ -537,8 +545,7 @@
     </div>
   </div>
 
-  <!-- Create Dataset Dialog -->
-  <CreateDatasetDialogSimple
+  <EditDatasetDialog
     v-model:open="showEditDialog"
     :dataset="editingDataset"
     @dataset-updated="handleDatasetUpdated"
@@ -596,9 +603,12 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import IntegrationIcon from '@/components/IntegrationIcons.vue'
-import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import EditDatasetDialog, { type EditableDataset } from '@/components/EditDatasetDialog.vue'
+import RepublishBanner from '@/components/RepublishBanner.vue'
+import type { RepublishTarget } from '@/composables/useRepublish'
 import AddSourceDialog from '@/components/AddSourceDialog.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
+import { isPublicProperty } from '@/lib/datasetConfig'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import type {
   DatasetResponse,
@@ -624,12 +634,8 @@ const dataset = ref<ParsedDataset | null>(null)
 const healthStatus = ref<{ status: string; message: string } | null>(null)
 const datasetTypeInfo = ref<DatasetTypeInfoResponse | null>(null)
 const showEditDialog = ref(false)
-const editingDataset = ref<{
-  id: string
-  name: string
-  summary: string
-  tags: string[]
-} | null>(null)
+const editingDataset = ref<EditableDataset | null>(null)
+const republishPending = ref<RepublishTarget[]>([])
 const showDeleteDialog = ref(false)
 const showAddSourceDialog = ref(false)
 const addSourceDataset = ref<{
@@ -658,6 +664,8 @@ const connectedEndpoints = computed(() => {
   return dataset.value.connected_endpoints
 })
 
+const publishedEndpoints = computed(() => connectedEndpoints.value.filter((e) => e.published))
+
 const getIngestedFiles = () => {
   if (getDatasetManagement() === 'Self-managed') {
     return ingestionStatus.value?.completed?.toLocaleString() || '0'
@@ -674,17 +682,14 @@ const getEndpointNamesForDataset = (): string[] => {
 const editDataset = async () => {
   if (!dataset.value) return
 
-  try {
-    editingDataset.value = {
-      id: dataset.value.id,
-      name: dataset.value.name,
-      summary: dataset.value.summary,
-      tags: dataset.value.tags || [],
-    }
-    showEditDialog.value = true
-  } catch (err) {
-    console.error('Failed to prepare dataset for editing:', err)
+  editingDataset.value = {
+    name: dataset.value.name,
+    dtype: dataset.value.dtype,
+    summary: dataset.value.summary,
+    tags: dataset.value.tags || [],
+    configuration: dataset.value.configuration,
   }
+  showEditDialog.value = true
 }
 
 const deleteDataset = () => {
@@ -760,13 +765,14 @@ const loadIngestionData = async (datasetId: string) => {
   }
 }
 
-const handleDatasetUpdated = async (updated: DatasetResponse) => {
+const handleDatasetUpdated = async (updated: DatasetResponse, configurationChanged: boolean) => {
   showEditDialog.value = false
   // The route carries the name, so a rename moves the page with it.
   if (updated.name !== route.params.slug) {
     await router.replace({ name: 'dataset-detail', params: { slug: updated.name } })
   }
   await loadDataset(updated.name)
+  if (configurationChanged) republishPending.value = publishedEndpoints.value
 }
 
 const handleDialogClose = () => {
@@ -1031,9 +1037,12 @@ const getDisplayableConfig = () => {
   // Filter out complex nested objects and arrays for display
   const displayable: Record<string, unknown> = {}
 
+  const schema = datasetTypeInfo.value?.config_schema ?? null
   Object.entries(config).forEach(([key, value]) => {
     // Skip file paths as they're shown in the watched paths section
     if (key === 'filePaths' || key === 'ingestionPath') return
+    // Secret and internal values are not for display, even redacted.
+    if (!isPublicProperty(schema, key)) return
 
     // Include primitives and simple arrays
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {

@@ -11,6 +11,7 @@ import type {
   SourceBrowseResponse,
   UpdateDatasetRequest,
   HealthcheckResponse,
+  ConnectionHealth,
   DatasetTypeInfoResponse,
 } from '../types'
 
@@ -95,6 +96,18 @@ export const datasetsApi = {
 
   healthcheck: async (name: string): Promise<HealthcheckResponse> => {
     const response = await apiClient.get<HealthcheckResponse>(`/datasets/${name}/health`)
+    return response.data
+  },
+
+  // Dry-run health check: validates `configuration` merged over the stored
+  // one and connects with it, without saving anything.
+  healthcheckWith: async (
+    name: string,
+    configuration: Record<string, unknown>,
+  ): Promise<ConnectionHealth> => {
+    const response = await apiClient.post<ConnectionHealth>(`/datasets/${name}/health`, {
+      configuration,
+    })
     return response.data
   },
 

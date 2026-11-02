@@ -122,9 +122,9 @@ EXPECTED = {
         ["userAgent", "collectionName"],
     ),
     "blogspot": (
-        ["blogUrls", "apiKey", "pollIntervalSeconds"],
+        ["blogUrls", "apiKey"],
         ["apiKey"],
-        ["httpPort"],
+        ["pollIntervalSeconds", "httpPort"],
         ["collectionName"],
     ),
     "local_file": (
@@ -139,12 +139,13 @@ EXPECTED = {
             "grpc_url",
             "api_key",
             "headers",
+            "default_similarity_threshold",
             "content_property",
             "metadata_properties",
         ],
         ["api_key", "headers"],
         [],
-        ["collection_name", "default_similarity_threshold", "filters"],
+        ["collection_name", "filters"],
     ),
 }
 
