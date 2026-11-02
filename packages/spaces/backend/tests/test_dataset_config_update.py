@@ -41,6 +41,9 @@ from syft_space.components.shared.domain_types import (
     HealthcheckStatus,
 )
 from syft_space.components.sources.rss.rss_source import RssProvider
+from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store import (
+    ChromaDBLocalVectorStore,
+)
 from syft_space.components.vector_stores.config_change import ClientCacheEvictor
 from syft_space.components.vector_stores.weaviate_remote.weaviate_vector_store import (
     WeaviateVectorStore,
@@ -199,7 +202,7 @@ class TestMergeRules:
     ):
         """One edit leaves one spelling per key, never both."""
 
-        async def accept(cls, configuration):
+        async def accept(cls, configuration, *, previous=None):
             return None
 
         monkeypatch.setattr(RssProvider, "validate_configuration", classmethod(accept))
@@ -374,3 +377,95 @@ class TestDryRunHealthcheck:
                 "docs", HealthcheckRequest(configuration={"filters": None}), tenant
             )
         assert exc.value.status_code == 400
+
+
+# ── What the source is told it may trust ─────────────────────────────────
+
+
+RSS_CONF = {"feedUrls": "https://a.example/feed", "collectionName": "feeds"}
+
+
+class TestProbeScope:
+    @pytest.fixture
+    def validations(self, monkeypatch) -> list[dict[str, Any] | None]:
+        """The ``previous`` each source validation received."""
+        seen: list[dict[str, Any] | None] = []
+
+        async def record(cls, configuration, *, previous=None):
+            seen.append(previous)
+
+        monkeypatch.setattr(RssProvider, "validate_configuration", classmethod(record))
+        return seen
+
+    @pytest_asyncio.fixture
+    async def rss_dataset(self, dataset_repository, tenant) -> Dataset:
+        return await dataset_repository.create(
+            Dataset(
+                tenant_id=tenant.id,
+                name="feeds",
+                dtype="rss",
+                configuration=dict(RSS_CONF),
+            )
+        )
+
+    async def test_an_edit_hands_the_source_the_stored_row(
+        self, handler, tenant, rss_dataset, validations
+    ):
+        await _update(handler, tenant, {"pollIntervalSeconds": 900}, name="feeds")
+        assert validations == [{"feedUrls": "https://a.example/feed"}]
+
+    async def test_a_dry_run_checks_the_connection_not_the_configuration(
+        self, handler, tenant, rss_dataset, validations, monkeypatch
+    ):
+        browsed: list[dict[str, Any]] = []
+
+        async def browse_check(cls, configuration):
+            browsed.append(configuration)
+
+        async def healthcheck(self):
+            return HealthcheckResponse(status=HealthcheckStatus.HEALTHY)
+
+        monkeypatch.setattr(
+            RssProvider, "validate_browse_config", classmethod(browse_check)
+        )
+        monkeypatch.setattr(ChromaDBLocalVectorStore, "healthcheck", healthcheck)
+        result = await handler.healthcheck_with(
+            "feeds",
+            HealthcheckRequest(configuration={"pollIntervalSeconds": 900}),
+            tenant,
+        )
+        assert result.status == HealthcheckStatus.HEALTHY
+        assert validations == []
+        assert browsed == [
+            {"feedUrls": "https://a.example/feed", "pollIntervalSeconds": 900}
+        ]
+
+    async def test_a_dry_run_reports_a_bad_feed_as_unhealthy(
+        self, handler, tenant, rss_dataset, monkeypatch
+    ):
+        """A connection failure is a health result, not a 422."""
+
+        async def browse_check(cls, configuration):
+            raise ValueError("Feed https://b.example/feed returned HTTP 404")
+
+        monkeypatch.setattr(
+            RssProvider, "validate_browse_config", classmethod(browse_check)
+        )
+        result = await handler.healthcheck_with(
+            "feeds",
+            HealthcheckRequest(configuration={"feedUrls": "https://b.example/feed"}),
+            tenant,
+        )
+        assert result.status == HealthcheckStatus.UNHEALTHY
+        assert "404" in result.message
+
+    async def test_a_dry_run_refuses_a_malformed_shape(
+        self, handler, tenant, rss_dataset
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await handler.healthcheck_with(
+                "feeds",
+                HealthcheckRequest(configuration={"pollIntervalSeconds": "soon"}),
+                tenant,
+            )
+        assert exc.value.status_code == 422

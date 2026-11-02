@@ -66,8 +66,10 @@ from source to store at ingest time.*
    its `axis`, and `split_config()` routes each stored key back to the axis
    that declared it. `validate_configuration()` hands each half to that
    axis's own validator, store first (shape only) then source (which may reach
-   the network). Redaction and the set of editable keys are read from the same
-   flags, so a binding declares nothing about them itself.
+   the network). On an edit the source also receives the configuration being
+   replaced (`previous=`) and probes only what changed. Redaction and the set
+   of editable keys are read from the same flags, so a binding declares
+   nothing about them itself.
 3. **Instantiation.** `BaseDatasetType.__init__` builds `self.source` (via the
    provider's `for_ingest` factory) and `self.vector_store` from those configs.
 4. **Delegation.** The base class implements the dataset-type surface by
@@ -83,7 +85,8 @@ from source to store at ingest time.*
    | change-watching (paths, extensions) | the **source** |
 
 5. **Editing after creation.** `PATCH /datasets/{name}` merges the editable
-   keys into the stored configuration, validates per axis and writes once.
+   keys into the stored configuration, validates per axis (the source probes
+   only the delta against the stored row) and writes the result.
    After the commit the datasets component publishes
    `DatasetConfigurationChanged` (`datasets/events.py`). Ingestion restarts
    the source's stream when the source half changed; the vector-store layer

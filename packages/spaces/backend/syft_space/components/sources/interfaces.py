@@ -253,14 +253,22 @@ class BaseSourceProvider(Protocol):
         ...
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
         """Validate the full dataset configuration for the source.
+
+        Shape is always checked. Live probes (reaching the site, fetching a
+        feed) run for whatever ``previous`` does not already cover: ``None``
+        means a new configuration and everything is probed; a stored
+        configuration means an edit, and the source probes only what changed.
 
         Args:
             configuration: Dataset-shaped payload (browse fields + ingestion fields).
+            previous: The configuration this one replaces, if any.
 
         Raises:
-            ValueError: If the payload doesn't match ``configuration_schema``.
+            ValueError: If the configuration is invalid.
         """
         ...
 

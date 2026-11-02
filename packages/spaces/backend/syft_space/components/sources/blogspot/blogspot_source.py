@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
@@ -67,6 +67,12 @@ from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,
     SourcePage,
+)
+from syft_space.components.sources.validation import (
+    changed_fields,
+    gather_bounded,
+    parse_config,
+    previous_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -354,9 +360,8 @@ async def _fetch_blogs(
             problem affecting every URL.
         ValueError: One or more URLs are not readable public blogs.
     """
-    results = await asyncio.gather(
-        *(_fetch_blog(client, api_key, url) for url in blog_urls),
-        return_exceptions=True,
+    results = await gather_bounded(
+        blog_urls, lambda url: _fetch_blog(client, api_key, url)
     )
 
     blogs: list[dict[str, Any]] = []
@@ -409,16 +414,31 @@ async def _list_posts_page(
     return payload.get("items") or [], payload.get("nextPageToken")
 
 
-async def _validate_connection(cfg: BlogspotBrowseConfig) -> None:
+async def _validate_connection(
+    cfg: BlogspotBrowseConfig, previous: BlogspotBrowseConfig | None = None
+) -> None:
     """Verify the key works and every configured blog resolves.
+
+    Only blogs ``previous`` did not list are resolved; a changed key resolves
+    every blog again, since the key is what resolves them. No previous
+    means every blog.
 
     Raises:
         SourceAuthError: The API key was rejected.
         SourceForbiddenError: Blogger API not enabled, or a blog is private.
         ValueError: A configured URL is not a public Blogger blog.
     """
+    changed = changed_fields(BlogspotBrowseConfig, cfg, previous)
+    if not changed:
+        return
+    known = (
+        set(previous.blog_url_list) if previous and changed == {"blog_urls"} else set()
+    )
+    urls = [url for url in cfg.blog_url_list if url not in known]
+    if not urls:
+        return
     async with _make_client() as client:
-        await _fetch_blogs(client, cfg.api_key, cfg.blog_url_list)
+        await _fetch_blogs(client, cfg.api_key, urls)
 
 
 def _to_blog_item(blog: dict[str, Any]) -> SourceItem:
@@ -844,19 +864,15 @@ class BlogspotProvider:
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
-        try:
-            cfg = BlogspotBrowseConfig.model_validate(configuration)
-        except ValidationError as e:
-            raise ValueError(f"Invalid browse configuration: {e}") from e
+        cfg = parse_config(BlogspotBrowseConfig, configuration, "browse configuration")
         await _validate_connection(cfg)
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        try:
-            cfg = BlogspotDatasetConfig.model_validate(configuration)
-        except ValidationError as e:
-            raise ValueError(f"Invalid configuration: {e}") from e
-        await _validate_connection(cfg)
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
+        cfg = parse_config(BlogspotDatasetConfig, configuration, "configuration")
+        await _validate_connection(cfg, previous_config(BlogspotBrowseConfig, previous))
 
     @classmethod
     def for_browse(cls, configuration: dict[str, Any]) -> BlogspotBrowser:

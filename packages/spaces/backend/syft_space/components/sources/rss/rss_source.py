@@ -48,7 +48,7 @@ from typing import Any, NamedTuple
 
 import feedparser
 import httpx
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from syft_space.components.shared.config_flags import cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
@@ -61,6 +61,12 @@ from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,
     SourcePage,
+)
+from syft_space.components.sources.validation import (
+    changed_fields,
+    gather_bounded,
+    parse_config,
+    previous_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,6 +93,13 @@ MAX_SLUG_LENGTH = 60
 _HASH_LENGTH = 16
 
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
+# The setup probe reads this much of a feed: enough for the root element.
+PROBE_BYTES = 64 * 1024
+# Prolog, optional comments and doctype, then a feed's root element.
+_FEED_ROOT_RE = re.compile(
+    rb"\s*(<\?xml[^>]*\?>\s*)?(<!--.*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?<(rss|feed|rdf:RDF)\b",
+    re.DOTALL,
+)
 _TAG_RE = re.compile(r"<[^>]+>")
 _ANCHOR_RE = re.compile(r"<a\b[^>]*>.*?</a>", re.IGNORECASE | re.DOTALL)
 
@@ -96,17 +109,23 @@ def _user_agent() -> str:
     return "SyftSpace-RSS/1.0 (+https://github.com/OpenMined/syft-space)"
 
 
-@asynccontextmanager
-async def _make_client() -> AsyncIterator[httpx.AsyncClient]:
-    """Client with redirects OFF — each hop is scheme-checked by hand.
+async def _https_only(request: httpx.Request) -> None:
+    """Request hook: runs before every request, redirect hops included."""
+    _require_https(str(request.url))
 
-    Reading ``response.history`` after the fact is too late: the request to
-    the redirected-to host has already been made.
-    """
+
+@asynccontextmanager
+async def _make_client(
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> AsyncIterator[httpx.AsyncClient]:
+    """Client that follows redirects, each hop scheme-checked before it is sent."""
     async with httpx.AsyncClient(
         timeout=FETCH_TIMEOUT_SECONDS,
-        follow_redirects=False,
+        follow_redirects=True,
+        max_redirects=MAX_REDIRECTS,
         headers={"User-Agent": _user_agent()},
+        event_hooks={"request": [_https_only]},
+        transport=transport,
     ) as client:
         yield client
 
@@ -204,7 +223,7 @@ def _split_feed_urls(raw: str) -> list[str]:
 
 
 def _require_https(url: str) -> None:
-    """Reject anything but https. Called once per redirect hop.
+    """Reject anything but https. Runs on the configured URL and every hop.
 
     This doubles as the SSRF guard, and certificate verification is what
     makes it one: internal services speak plain http or hold no
@@ -284,8 +303,7 @@ async def _fetch_feed(
 ) -> _Feed:
     """Fetch and parse one feed, honouring conditional GET.
 
-    A 304 returns ``unchanged`` and no body. Redirects are followed by hand
-    so every hop is scheme-checked before it is requested.
+    A 304 returns ``unchanged`` and no body.
     """
     headers: dict[str, str] = {}
     if etag:
@@ -293,31 +311,58 @@ async def _fetch_feed(
     if modified:
         headers["If-Modified-Since"] = modified
 
-    current = url
-    for _ in range(MAX_REDIRECTS + 1):
-        _require_https(current)
-        try:
-            response = await client.get(current, headers=headers)
-        except httpx.HTTPError as e:
-            raise SourceError(f"Could not fetch {current}: {e}") from e
+    response = await _get(client, url, headers=headers)
+    if response.status_code == 304:
+        return _Feed(url=url, etag=etag, modified=modified, unchanged=True)
+    # Parsing a multi-megabyte feed is CPU work; keep it off the loop.
+    return await asyncio.to_thread(_parse_feed, url, response)
 
-        if response.status_code in _REDIRECT_CODES:
-            location = response.headers.get("location")
-            if not location:
-                raise SourceError(f"Redirect without a location from {current}")
-            current = str(httpx.URL(current).join(location))
-            continue
 
-        if response.status_code == 304:
-            return _Feed(url=url, etag=etag, modified=modified, unchanged=True)
-        if response.status_code >= 400:
-            raise SourceError(
-                f"Feed {current} returned HTTP {response.status_code}",
-                status_code=response.status_code if response.status_code < 500 else 502,
-            )
-        return _parse_feed(url, response)
+async def _get(
+    client: httpx.AsyncClient, url: str, *, headers: dict[str, str] | None = None
+) -> httpx.Response:
+    """GET with transport and HTTP failures raised as ``SourceError``."""
+    try:
+        response = await client.get(url, headers=headers)
+    except httpx.TooManyRedirects as e:
+        raise SourceError(f"Too many redirects fetching {url}") from e
+    except httpx.HTTPError as e:
+        raise SourceError(f"Could not fetch {url}: {e}") from e
+    _check_status(url, response)
+    return response
 
-    raise SourceError(f"Too many redirects fetching {url}")
+
+def _check_status(url: str, response: httpx.Response) -> None:
+    # The client follows redirects, so one it handed back lacked a location.
+    if response.status_code in _REDIRECT_CODES:
+        raise SourceError(f"Redirect without a location from {url}")
+    if response.status_code >= 400:
+        raise SourceError(
+            f"Feed {response.url} returned HTTP {response.status_code}",
+            status_code=response.status_code if response.status_code < 500 else 502,
+        )
+
+
+async def _probe_feed(client: httpx.AsyncClient, url: str) -> None:
+    """The URL answers and its root element is a feed's.
+
+    Reads at most ``PROBE_BYTES``, so a large feed costs one round trip.
+    Content-Type is not consulted: feeds are served under many labels.
+    """
+    head = b""
+    try:
+        async with client.stream("GET", url) as response:
+            _check_status(url, response)
+            async for chunk in response.aiter_bytes():
+                head += chunk
+                if len(head) >= PROBE_BYTES:
+                    break
+    except httpx.TooManyRedirects as e:
+        raise SourceError(f"Too many redirects fetching {url}") from e
+    except httpx.HTTPError as e:
+        raise SourceError(f"Could not fetch {url}: {e}") from e
+    if not _FEED_ROOT_RE.match(head):
+        raise SourceError(f"{url} is not an RSS or Atom feed")
 
 
 def _parse_feed(url: str, response: httpx.Response) -> _Feed:
@@ -751,13 +796,21 @@ class RssSource:
 # ── provider ────────────────────────────────────────────────────────────
 
 
-async def _validate_connection(config: RssBrowseConfig) -> None:
-    """Fetch every configured feed so a bad URL fails at setup, not ingest."""
+async def _validate_connection(
+    config: RssBrowseConfig, previous: RssBrowseConfig | None = None
+) -> None:
+    """Probe each feed ``previous`` did not already have, so a bad URL fails
+    at setup, not ingest. No previous means every feed."""
+    if "feed_urls" not in changed_fields(RssBrowseConfig, config, previous):
+        return
+    known = set(previous.feed_url_list) if previous else set()
+    urls = [url for url in config.feed_url_list if url not in known]
+
     async with _make_client() as client:
-        for url in config.feed_url_list:
-            feed = await _fetch_feed(client, url)
-            if not feed.entries:
-                logger.info("Feed %s currently has no items", url)
+        results = await gather_bounded(urls, lambda url: _probe_feed(client, url))
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
 
 
 class RssMetadataFields(MetadataFields):
@@ -848,19 +901,15 @@ class RssProvider:
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
-        try:
-            cfg = RssBrowseConfig.model_validate(configuration)
-        except ValidationError as e:
-            raise ValueError(f"Invalid browse configuration: {e}") from e
+        cfg = parse_config(RssBrowseConfig, configuration, "browse configuration")
         await _validate_connection(cfg)
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        try:
-            cfg = RssDatasetConfig.model_validate(configuration)
-        except ValidationError as e:
-            raise ValueError(f"Invalid configuration: {e}") from e
-        await _validate_connection(cfg)
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
+        cfg = parse_config(RssDatasetConfig, configuration, "configuration")
+        await _validate_connection(cfg, previous_config(RssBrowseConfig, previous))
 
     @classmethod
     def for_browse(cls, configuration: dict[str, Any]) -> RssBrowser:
