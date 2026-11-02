@@ -88,7 +88,8 @@
       <DialogFooter class="mt-6 flex-shrink-0">
         <Button variant="outline" @click="handleCancel">Cancel</Button>
         <Button :disabled="!canSave" @click="handleSave">
-          {{ isSaving ? 'Saving...' : 'Save Changes' }}
+          <Loader2 v-if="isSaving" class="h-3.5 w-3.5 mr-1.5 animate-spin" />
+          {{ saveLabel }}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -159,6 +160,13 @@ const canSave = computed(
   () =>
     !isSaving.value && !editor.loading.value && name.value.trim() !== '' && editor.isValid.value,
 )
+
+// A configuration edit is validated server-side before it is written;
+// a metadata-only edit is just written.
+const saveLabel = computed(() => {
+  if (!isSaving.value) return 'Save Changes'
+  return editor.hasChanges.value ? 'Validating & saving...' : 'Saving...'
+})
 
 const handleCancel = () => {
   isOpen.value = false
