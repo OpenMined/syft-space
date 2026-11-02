@@ -192,6 +192,16 @@ describe('configurationPatch', () => {
     expect(draftErrors(wvFields, d)).toEqual({ http_url: 'HTTP URL is required' })
   })
 
+  it('sends a numeric enum choice as a number', () => {
+    const rssFields = editableFields(rss, copy('rss'))
+    const d: Record<string, FieldDraft> = {
+      pollIntervalSeconds: { kind: 'value', value: '900' },
+    }
+    expect(configurationPatch(rssFields, { pollIntervalSeconds: 3600 }, d)).toEqual({
+      pollIntervalSeconds: 900,
+    })
+  })
+
   it('joins list rows with the copy separator and dedupes blanks', () => {
     const rssFields = editableFields(rss, copy('rss'))
     const d: Record<string, FieldDraft> = {

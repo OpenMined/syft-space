@@ -29,6 +29,8 @@ export interface ConfigField {
   placeholder: string
   required: boolean
   kind: ConfigFieldKind
+  // The schema's value type is numeric, whatever control edits it.
+  numeric: boolean
   // select: the schema's enum, labelled by config/sources.ts when it knows them.
   options: Array<{ value: string; label: string }>
   // list: rows join into one string with `separator`, or stay an array.
@@ -78,6 +80,7 @@ export const editableFields = (
     .map(([name, prop]) => {
       const fieldCopy = copy[name]
       const kind = fieldKind(prop, Boolean(fieldCopy?.list))
+      const type = schemaType(prop)
       return {
         name,
         axis: prop.axis ?? 'source',
@@ -86,6 +89,7 @@ export const editableFields = (
         placeholder: fieldCopy?.placeholder ?? '',
         required: required.has(name),
         kind,
+        numeric: type === 'integer' || type === 'number',
         options: (prop.enum ?? []).map((value) => ({
           value: String(value),
           label: fieldCopy?.choices?.[String(value)] ?? String(value),
@@ -232,7 +236,7 @@ export const configurationPatch = (
             patch[field.name] = null
           break
         }
-        const next: unknown = field.kind === 'number' ? Number(text) : text
+        const next: unknown = field.numeric ? Number(text) : text
         if (!sameValue(next, storedValue)) patch[field.name] = next
         break
       }
