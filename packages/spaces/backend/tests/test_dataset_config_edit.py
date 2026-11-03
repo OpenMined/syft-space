@@ -85,8 +85,76 @@ class TestCfgFlags:
         assert fields_with_visibility(schema, Visibility.INTERNAL) == []
         assert editable_fields(schema) == []
 
+    # ── compose_schema ───────────────────────────────────────────────────────
 
-# ── compose_schema ───────────────────────────────────────────────────────
+    def test_an_enum_field_prints_its_choices_on_the_property(self):
+        """The dialog reads ``enum`` off the property; a ``$ref`` would render
+        as a text box."""
+        from enum import StrEnum
+
+        class Mode(StrEnum):
+            A = "a"
+            B = "b"
+
+        class Cfg(BaseModel):
+            mode: Mode = Field(
+                default=Mode.A, json_schema_extra=cfg_flags(editable=True)
+            )
+
+        prop = Cfg.model_json_schema(schema_generator=ConfigSchemaGenerator)[
+            "properties"
+        ]["mode"]
+        assert "$ref" not in prop
+        assert prop["enum"] == ["a", "b"]
+        assert prop["type"] == "string"
+        assert prop["editable"] is True and prop["default"] == "a"
+
+    def test_an_optional_enum_prints_its_choices_in_the_any_of_branch(self):
+        from enum import StrEnum
+
+        class Mode(StrEnum):
+            A = "a"
+            B = "b"
+
+        class Cfg(BaseModel):
+            mode: Mode | None = Field(
+                default=None, json_schema_extra=cfg_flags(editable=True)
+            )
+
+        prop = Cfg.model_json_schema(schema_generator=ConfigSchemaGenerator)[
+            "properties"
+        ]["mode"]
+        branches = prop["anyOf"]
+        assert not any("$ref" in b for b in branches)
+        assert {"type": "string", "enum": ["a", "b"]} in branches
+        assert {"type": "null"} in branches
+
+    def test_any_enum_class_prints_its_values(self):
+        """Plain ``Enum``, ``str`` mixin and ``IntEnum`` all inline; members
+        of mixed types carry no ``type`` rather than a null one."""
+        from enum import Enum, IntEnum
+
+        class Plain(Enum):
+            A = "a"
+
+        class Ints(IntEnum):
+            ONE = 1
+
+        class Mixed(Enum):
+            A = "a"
+            ONE = 1
+
+        class Cfg(BaseModel):
+            plain: Plain = Plain.A
+            ints: Ints = Ints.ONE
+            mixed: Mixed = Mixed.A
+
+        props = Cfg.model_json_schema(schema_generator=ConfigSchemaGenerator)[
+            "properties"
+        ]
+        assert props["plain"]["enum"] == ["a"] and props["plain"]["type"] == "string"
+        assert props["ints"]["enum"] == [1] and props["ints"]["type"] == "integer"
+        assert props["mixed"]["enum"] == ["a", 1] and "type" not in props["mixed"]
 
 
 class TestComposeSchema:
@@ -146,14 +214,16 @@ EXPECTED = {
             "http_url",
             "grpc_url",
             "api_key",
+            "collection_name",
             "headers",
-            "default_similarity_threshold",
             "content_property",
             "metadata_properties",
+            "search_mode",
+            "alpha",
         ],
         ["api_key", "headers"],
         [],
-        ["collection_name", "filters"],
+        ["filters"],
     ),
 }
 
@@ -303,9 +373,9 @@ class TestApplyEdits:
     }
 
     def test_a_locked_key_is_refused_by_name(self, registry):
-        with pytest.raises(ValueError, match="'collection_name' is not editable"):
+        with pytest.raises(ValueError, match="'filters' is not editable"):
             registry.get_dataset_type("remote_weaviate").apply_edits(
-                self.STORED, {"collection_name": "D"}
+                self.STORED, {"filters": None}
             )
 
     def test_a_scalar_replaces_null_removes_and_absent_keys_keep(self, registry):

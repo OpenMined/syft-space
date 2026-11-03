@@ -31,12 +31,13 @@ from syft_space.components.vector_stores.weaviate_remote.filters import (
 )
 from syft_space.components.vector_stores.weaviate_remote.schemas import (
     RemoteWeaviateVectorStoreConfiguration,
+    SearchMode,
 )
 
 try:
     import weaviate
     from weaviate.classes.init import AdditionalConfig, Auth, Timeout
-    from weaviate.classes.query import Filter, MetadataQuery
+    from weaviate.classes.query import Filter, HybridFusion, MetadataQuery
     from weaviate.exceptions import WeaviateBaseError, WeaviateInvalidInputError
     from weaviate.outputs.query import Object, WeaviateProperties
 
@@ -189,15 +190,7 @@ class WeaviateVectorStore:
         weaviate_filters = self._build_weaviate_filters()
 
         try:
-            results = await collection.query.near_text(
-                query=query,
-                limit=params.limit,
-                certainty=params.similarity_threshold,
-                filters=weaviate_filters,
-                return_metadata=MetadataQuery(
-                    distance=True, certainty=True, creation_time=True
-                ),
-            )
+            results = await self._query(collection, query, params, weaviate_filters)
         except WeaviateInvalidInputError:
             raise  # bad query, the client is fine
         except WeaviateBaseError:
@@ -221,13 +214,50 @@ class WeaviateVectorStore:
                     document_id=str(result.uuid),
                     content=content,
                     metadata=metadata,
-                    # ``certainty`` is Weaviate's own 1 - distance/2 similarity;
-                    # ``score`` is only set for BM25/hybrid, so it was always 0.0.
-                    similarity_score=result.metadata.certainty or 0.0,
+                    similarity_score=self._score(result),
                 )
             )
 
         return SearchResult(documents=documents, metadata={"count": len(documents)})
+
+    async def _query(
+        self, collection: Any, query: str, params: SearchParameters, filters: Any
+    ) -> Any:
+        """Run the configured search mode.
+
+        Hybrid fuses nearest-neighbour with BM25 over every searchable text
+        property; ``RELATIVE_SCORE`` fusion is pinned because ranked fusion
+        yields scores near 0.02. The request's threshold is not applied:
+        Weaviate's ``max_vector_distance`` drops keyword-only hits, and
+        fused scores are relative to the result set.
+        """
+        if self.config.search_mode is SearchMode.HYBRID:
+            return await collection.query.hybrid(
+                query=query,
+                alpha=self.config.alpha,
+                fusion_type=HybridFusion.RELATIVE_SCORE,
+                limit=params.limit,
+                filters=filters,
+                return_metadata=MetadataQuery(
+                    score=True, distance=True, creation_time=True
+                ),
+            )
+        return await collection.query.near_text(
+            query=query,
+            limit=params.limit,
+            certainty=params.similarity_threshold,
+            filters=filters,
+            return_metadata=MetadataQuery(
+                distance=True, certainty=True, creation_time=True
+            ),
+        )
+
+    def _score(self, result: Any) -> float:
+        """Hybrid: Weaviate's fused ``score``, relative to the result set.
+        Vector: ``certainty``, Weaviate's own ``1 - distance/2``."""
+        if self.config.search_mode is SearchMode.HYBRID:
+            return result.metadata.score or 0.0
+        return result.metadata.certainty or 0.0
 
     CONNECT_TIMEOUT = 10.0
     HEALTHCHECK_TIMEOUT = 5.0

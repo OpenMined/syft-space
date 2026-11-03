@@ -1,18 +1,27 @@
 """Configuration schema for the remote Weaviate vector store."""
 
+from enum import StrEnum
+
 from pydantic import BaseModel, Field, HttpUrl
 
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.vector_stores.weaviate_remote.filters import WeaviateFilter
 
 
+class SearchMode(StrEnum):
+    """How a query is matched against the collection."""
+
+    VECTOR = "vector"
+    HYBRID = "hybrid"
+
+
 class RemoteWeaviateVectorStoreConfiguration(BaseModel):
     """Configuration for the remote Weaviate vector store.
 
     Weaviate is read-only from this process — config covers connection
-    + content/metadata mapping + optional query-time filters. Connection
-    and mapping fields are editable after creation; the collection and
-    the filters are fixed.
+    + content/metadata mapping + optional query-time filters. Connection,
+    collection and mapping fields are editable after creation; the
+    filters are fixed.
     """
 
     http_url: HttpUrl = Field(
@@ -30,7 +39,11 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
         description="The API key for the Weaviate server",
         json_schema_extra=cfg_flags(editable=True, visibility=Visibility.SECRET),
     )
-    collection_name: str = Field(..., description="The name of the Weaviate collection")
+    collection_name: str = Field(
+        ...,
+        description="The name of the Weaviate collection",
+        json_schema_extra=cfg_flags(editable=True),
+    )
     headers: dict[str, str] | None = Field(
         default=None,
         description=(
@@ -38,11 +51,6 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
             "(e.g., {'X-Cohere-Api-Key': 'key', 'X-OpenAI-Api-Key': 'key'})"
         ),
         json_schema_extra=cfg_flags(editable=True, visibility=Visibility.SECRET),
-    )
-    default_similarity_threshold: float = Field(
-        default=0.5,
-        description="The default similarity threshold for the Weaviate collection",
-        json_schema_extra=cfg_flags(editable=True),
     )
     content_property: str | None = Field(
         default=None,
@@ -58,6 +66,25 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
             "Properties returned as document metadata and declared on the "
             "endpoint (e.g., ['title', 'author']). If not specified, no "
             "property is returned; only creation_time is."
+        ),
+        json_schema_extra=cfg_flags(editable=True),
+    )
+    search_mode: SearchMode = Field(
+        default=SearchMode.VECTOR,
+        description=(
+            "How a query is matched: 'vector' is nearest-neighbour only; "
+            "'hybrid' fuses it with a keyword (BM25) search over every "
+            "searchable text property."
+        ),
+        json_schema_extra=cfg_flags(editable=True),
+    )
+    alpha: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Hybrid mode only: weight of the vector leg. 1.0 is vector only, "
+            "0.0 is keywords only."
         ),
         json_schema_extra=cfg_flags(editable=True),
     )
