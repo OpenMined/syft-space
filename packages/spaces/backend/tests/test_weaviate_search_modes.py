@@ -102,9 +102,12 @@ class TestHybridMode:
         assert kwargs["fusion_type"] is HybridFusion.RELATIVE_SCORE
         assert kwargs["limit"] == 5
 
-    async def test_threshold_bounds_the_vector_leg_as_a_distance(self):
+    async def test_threshold_is_not_sent(self):
+        # Weaviate's max_vector_distance drops keyword-only hits, so a
+        # threshold would turn hybrid into vector-gated search.
         calls, _ = await _search(self.HYBRID, [], similarity_threshold=0.6)
-        assert calls[0][1]["max_vector_distance"] == pytest.approx(0.8)
+        assert "max_vector_distance" not in calls[0][1]
+        assert "certainty" not in calls[0][1]
 
     async def test_keyword_leg_is_not_restricted_to_the_content_property(self):
         calls, _ = await _search(self.HYBRID, [])

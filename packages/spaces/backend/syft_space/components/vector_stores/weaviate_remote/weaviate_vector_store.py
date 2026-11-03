@@ -227,16 +227,15 @@ class WeaviateVectorStore:
 
         Hybrid fuses nearest-neighbour with BM25 over every searchable text
         property; ``RELATIVE_SCORE`` fusion is pinned because ranked fusion
-        yields scores near 0.02. The request's threshold bounds the vector
-        leg only (``max_vector_distance``); fused scores are relative to
-        the result set, so there is no cutoff on them.
+        yields scores near 0.02. The request's threshold is not applied:
+        Weaviate's ``max_vector_distance`` drops keyword-only hits, and
+        fused scores are relative to the result set.
         """
         if self.config.search_mode is SearchMode.HYBRID:
             return await collection.query.hybrid(
                 query=query,
                 alpha=self.config.alpha,
                 fusion_type=HybridFusion.RELATIVE_SCORE,
-                max_vector_distance=2 * (1 - params.similarity_threshold),
                 limit=params.limit,
                 filters=filters,
                 return_metadata=MetadataQuery(

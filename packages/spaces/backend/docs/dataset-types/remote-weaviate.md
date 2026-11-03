@@ -59,9 +59,11 @@ Two things change with the mode:
   close to `1.0` even for a poor query. In `vector` mode it is Weaviate's
   `certainty`, an absolute `1 - distance/2`. Do not compare raw scores across
   modes or across datasets.
-- **The request's `similarity_threshold` bounds the vector leg only.** In
-  hybrid mode it becomes a maximum vector distance; a keyword-only hit whose
-  vector is far away still passes. This needs a recent Weaviate server.
+- **The request's `similarity_threshold` is ignored in hybrid mode.** Weaviate's
+  only cutoff for hybrid queries, `max_vector_distance`, also drops hits that
+  matched by keyword alone, which defeats the mode. Fused scores are relative,
+  so there is nothing meaningful to threshold them against either. Use `limit`
+  to bound a hybrid result set.
 
 ## How it works
 
