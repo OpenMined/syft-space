@@ -295,6 +295,12 @@ class TestClientCacheEvictor:
             (WeaviateVectorStore.NAME, WeaviateVectorStore(old).client_key())
         ]
 
+    def test_the_key_needs_no_store_instance(self):
+        assert (
+            WeaviateVectorStore.client_key_for(WEAVIATE_CONF)
+            == WeaviateVectorStore(WEAVIATE_CONF).client_key()
+        )
+
     async def test_a_non_connection_edit_keeps_the_client(self, monkeypatch):
         async def evict(namespace, key):
             raise AssertionError("should not evict")

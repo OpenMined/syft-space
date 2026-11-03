@@ -317,6 +317,11 @@ class TestProbeFeed:
         async with _serve(_always(body)) as client:
             await rss._probe_feed(client, FEED_URL)
 
+    async def test_a_utf8_bom_before_the_prolog_is_fine(self):
+        body = b'\xef\xbb\xbf<?xml version="1.0"?>\n<rss version="2.0"><channel></channel></rss>'
+        async with _serve(_always(body)) as client:
+            await rss._probe_feed(client, FEED_URL)
+
     async def test_a_web_page_is_not_a_feed(self):
         body = b"<!DOCTYPE html><html><head><title>Blog</title></head></html>"
         async with _serve(_always(body, **{"content-type": "text/html"})) as client:

@@ -262,8 +262,14 @@ class WeaviateVectorStore:
     CONNECT_TIMEOUT = 10.0
     HEALTHCHECK_TIMEOUT = 5.0
 
-    def client_key(self) -> tuple:
+    @classmethod
+    def client_key_for(cls, config: dict[str, Any]) -> tuple:
         """Keyed by ``connection_fields``: a changed URL, key or header is a miss."""
+        return client_cache.key_from(
+            cls.CONFIG_MODEL.model_validate(config), cls.connection_fields()
+        )
+
+    def client_key(self) -> tuple:
         return client_cache.key_from(self.config, self.connection_fields())
 
     async def get_client(self) -> Any:

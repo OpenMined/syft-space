@@ -36,6 +36,7 @@ as the Blogspot and WordPress sources.
 from __future__ import annotations
 
 import asyncio
+import codecs
 import hashlib
 import logging
 import os
@@ -361,7 +362,8 @@ async def _probe_feed(client: httpx.AsyncClient, url: str) -> None:
         raise SourceError(f"Too many redirects fetching {url}") from e
     except httpx.HTTPError as e:
         raise SourceError(f"Could not fetch {url}: {e}") from e
-    if not _FEED_ROOT_RE.match(head):
+    # A UTF-8 BOM is an encoding artefact, not part of the document.
+    if not _FEED_ROOT_RE.match(head.removeprefix(codecs.BOM_UTF8)):
         raise SourceError(f"{url} is not an RSS or Atom feed")
 
 

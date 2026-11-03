@@ -697,60 +697,26 @@ class DatasetHandler:
         configuration = await self._merge_configuration(dataset, request.configuration)
         dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
         try:
-            dataset_type = dataset_type_cls(configuration)
+            return await dataset_type_cls.check_connection(configuration)
         except ValueError as e:
             raise HTTPException(
                 status_code=422, detail=f"Invalid configuration: {e}"
             ) from e
 
-        source_cfg, _ = dataset_type_cls.split_config(configuration)
-        try:
-            await dataset_type_cls.SOURCE_PROVIDER_CLS.validate_browse_config(
-                source_cfg
-            )
-            return await dataset_type.healthcheck()
-        except Exception as e:
-            return ConnectionHealth(status=HealthcheckStatus.UNHEALTHY, message=str(e))
-
     async def _merge_configuration(
         self, dataset: Dataset, edits: dict[str, Any]
     ) -> dict[str, Any]:
-        """The stored configuration with ``edits`` applied; nothing is checked
-        beyond editability and nothing is written.
+        """The stored configuration with ``edits`` applied; nothing is written.
 
-        Rules, per key of ``edits``: the key must be editable (400 names the
-        first that is not); ``null`` removes it; a dict value on a secret
-        dict is merged per entry (``null`` keeps, string replaces, absent
-        removes); any other value replaces. Keys of the stored row are
-        canonicalised to the schema's spelling, so an edit never leaves two
-        spellings of one key behind. Connection fields a provisioner owns
-        are re-applied from its state.
+        The merge rules are the binding's (``apply_edits``); a key that is
+        not editable is a 400 naming it. Connection fields a provisioner
+        owns are re-applied from its state afterwards.
         """
         dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
-        editable = set(dataset_type_cls.editable_fields())
-        secret = set(dataset_type_cls.secret_fields())
-        for key in edits:
-            if key not in editable:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Configuration key '{key}' is not editable",
-                )
-
-        merged = dataset_type_cls.canonical_configuration(dataset.configuration)
-        for key, value in edits.items():
-            current = merged.get(key)
-            if value is None:
-                merged.pop(key, None)
-            elif (
-                key in secret and isinstance(value, dict) and isinstance(current, dict)
-            ):
-                merged[key] = {
-                    entry: current[entry] if new is None else new
-                    for entry, new in value.items()
-                    if new is not None or entry in current
-                }
-            else:
-                merged[key] = value
+        try:
+            merged = dataset_type_cls.apply_edits(dataset.configuration, edits)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
         provisioner_state = (
             await self.provisioner_state_repository.get_by_id(
