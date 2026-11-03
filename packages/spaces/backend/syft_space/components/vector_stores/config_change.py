@@ -29,11 +29,10 @@ class ClientCacheEvictor:
             return
         store_cls = event.vector_store_cls
         try:
-            old = store_cls(event.vector_store.old)
-            new = store_cls(event.vector_store.new)
-            if old.client_key() == new.client_key():
+            old_key = store_cls.client_key_for(event.vector_store.old)
+            if old_key == store_cls.client_key_for(event.vector_store.new):
                 return
-            await client_cache.evict(store_cls.NAME, old.client_key())
+            await client_cache.evict(store_cls.NAME, old_key)
         except Exception as e:
             logger.warning(
                 f"Could not evict the old client of dataset '{event.dataset.name}': {e}"

@@ -169,12 +169,19 @@ class BaseVectorStore(Protocol):
         """
         ...
 
-    def client_key(self) -> tuple:
-        """The ``shared.client_cache`` key of this store's connection.
+    @classmethod
+    def client_key_for(cls, config: dict[str, Any]) -> tuple:
+        """The ``shared.client_cache`` key a store built from ``config`` would use.
 
         Derived from ``connection_fields``: two stores with the same
         connection share one client, and a changed connection is a miss.
+        No store is built, so a listener can key a configuration it will
+        never connect with.
         """
+        ...
+
+    def client_key(self) -> tuple:
+        """``client_key_for`` of this store's own configuration."""
         ...
 
     async def search(
