@@ -14,6 +14,7 @@ from anyio import Path as AsyncPath
 from pydantic import BaseModel, Field, ValidationError
 
 from syft_space.components.ingestion.utils import rglob_visible
+from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.utils import ConfigSchemaGenerator
@@ -50,6 +51,7 @@ class LocalFileBrowseConfig(BaseModel):
         default=False,
         alias="showHidden",
         description="Whether the picker includes dotfiles. Ingestion ignores hidden paths regardless.",
+        json_schema_extra=cfg_flags(visibility=Visibility.INTERNAL),
     )
 
     model_config = {"populate_by_name": True}
@@ -65,7 +67,7 @@ class LocalFileDatasetConfig(LocalFileBrowseConfig):
 
     allowed_extensions: list[str] = Field(
         default_factory=lambda: list(DEFAULT_ALLOWED_EXTENSIONS),
-        alias="allowedExtensions",
+        alias="ingestFileTypeOptions",
         description="File extensions to ingest, including the leading dot",
     )
 
@@ -303,6 +305,7 @@ class LocalFileProvider:
 
     NAME = "local_file"
     METADATA_FIELDS = LocalFileMetadataFields
+    CONFIG_MODEL = LocalFileDatasetConfig
 
     @classmethod
     def name(cls) -> str:
@@ -369,7 +372,9 @@ class LocalFileProvider:
             raise ValueError(f"Invalid browse configuration: {e}") from e
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
         """Validate a full dataset configuration payload.
 
         The paths to ingest are not part of the configuration (they live in

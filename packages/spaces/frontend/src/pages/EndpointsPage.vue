@@ -104,8 +104,10 @@
         v-for="endpoint in filteredEndpoints"
         :key="endpoint.id"
         :endpoint="endpoint"
+        :busy="republishingSlug === endpoint.slug"
         @delete="handleDeleteEndpoint"
         @edit="handleEditEndpoint"
+        @republish="handleRepublishEndpoint"
       />
     </div>
 
@@ -221,6 +223,7 @@ import EditEndpointDialog from '@/components/EditEndpointDialog.vue'
 import { useEndpointsStore } from '@/stores/endpoints'
 import type { EndpointItem } from '@/stores/endpoints'
 import { endpointsApi } from '@/api/endpoints/endpoints'
+import { useRepublish } from '@/composables/useRepublish'
 import { toast } from 'vue-sonner'
 import { useRouter } from 'vue-router'
 
@@ -310,6 +313,20 @@ const handleDeleteEndpoint = (endpoint: EndpointItem) => {
   endpointToDelete.value = endpoint
   deleteNameConfirm.value = ''
   showDeleteDialog.value = true
+}
+
+const { republish } = useRepublish()
+const republishingSlug = ref<string | null>(null)
+
+const handleRepublishEndpoint = async (endpoint: EndpointItem) => {
+  republishingSlug.value = endpoint.slug
+  try {
+    await republish([
+      { slug: endpoint.slug, name: endpoint.name, published_to: endpoint.publishedTo },
+    ])
+  } finally {
+    republishingSlug.value = null
+  }
 }
 
 const handleEditEndpoint = (endpoint: EndpointItem) => {

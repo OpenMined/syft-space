@@ -21,6 +21,9 @@ re-indexing within moments.
 
 Admitted by default: `.pdf` `.txt` `.html` `.xlsx` `.docx` `.md` `.csv` `.json`
 
+None of these can be changed once the dataset exists; what you *watch* can,
+through the selection (see below).
+
 There are no credentials — the server reads the files as whatever user it runs
 as, which is also the boundary on what it can reach.
 

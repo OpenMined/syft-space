@@ -83,7 +83,8 @@
               size="icon"
               class="h-8 w-8 text-muted-foreground hover:text-foreground"
             >
-              <MoreHorizontal class="h-4 w-4" />
+              <Loader2 v-if="busy" class="h-4 w-4 animate-spin" />
+              <MoreHorizontal v-else class="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" class="w-40">
@@ -98,6 +99,14 @@
             <DropdownMenuItem @select="handleEditEndpoint">
               <Pencil class="h-4 w-4 mr-2" />
               Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              v-if="endpoint.published"
+              :disabled="busy"
+              @select="emit('republish', endpoint)"
+            >
+              <RefreshCw class="h-4 w-4 mr-2" />
+              Republish
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -122,8 +131,10 @@ import {
   Database,
   Eye,
   Layers,
+  Loader2,
   MoreHorizontal,
   Pencil,
+  RefreshCw,
   Sparkles,
   Trash2,
 } from 'lucide-vue-next'
@@ -145,11 +156,14 @@ const userStore = useUserStore()
 
 const props = defineProps<{
   endpoint: EndpointItem
+  /** A request for this endpoint is in flight; the menu waits. */
+  busy?: boolean
 }>()
 
 const emit = defineEmits<{
   delete: [endpoint: EndpointItem]
   edit: [endpoint: EndpointItem]
+  republish: [endpoint: EndpointItem]
 }>()
 
 const endpointKind = computed<'data' | 'model' | 'hybrid' | 'unknown'>(() => {

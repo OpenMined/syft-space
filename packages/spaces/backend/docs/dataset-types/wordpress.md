@@ -9,15 +9,15 @@ only read publicly, use [RSS](./rss.md).
 
 ## Settings
 
-| Field | Required | Default | What it does |
-| --- | --- | --- | --- |
-| `siteUrl` | **yes** | — | The site's base URL, e.g. `https://example.com` |
-| `username` | **yes** | — | Your WordPress login name |
-| `applicationPassword` | **yes** | — | An Application Password — *not* your login password |
-| `pollIntervalSeconds` | no | `300` | How often to re-check your picks |
-| `userAgent` | no | Syft Space's | Override when a site firewall expects a specific value |
-| `collectionName` | auto | generated | ChromaDB collection to write into |
-| `httpPort` | no | auto | Port of the local ChromaDB server |
+| Field | Required | Default | Change later | What it does |
+| --- | --- | --- | --- | --- |
+| `siteUrl` | **yes** | — | yes | The site's base URL, e.g. `https://example.com` |
+| `username` | **yes** | — | yes | Your WordPress login name |
+| `applicationPassword` | **yes** | — | yes, never read back | An Application Password — *not* your login password |
+| `pollIntervalSeconds` | no | `300` | yes | How often to re-check your picks |
+| `userAgent` | no | Syft Space's | no | Override when a site firewall expects a specific value |
+| `collectionName` | auto | generated | no | ChromaDB collection to write into |
+| `httpPort` | no | auto | no | Port of the local ChromaDB server |
 
 A trailing `/wp-json` on the site URL is trimmed for you.
 

@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import type { SourceItem } from '@/api/types'
+import { apiErrorDetail } from '@/lib/apiError'
 
 export interface FileNode {
   name: string
@@ -120,9 +121,7 @@ export function useSourceBrowser(
       const status = axios.isAxiosError(err) ? err.response?.status : undefined
       // The backend sends a user-facing reason in `detail` (e.g. "Authentication
       // failed (401)…"); prefer it so the picker says why, not just "failed".
-      const detail = axios.isAxiosError(err)
-        ? (err.response?.data?.detail as string | undefined)
-        : undefined
+      const detail = apiErrorDetail(err)
       const is403 = status === 403
       if (isInitial) {
         error.value =

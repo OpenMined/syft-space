@@ -48,7 +48,7 @@ class TestSelectionCovers:
 
 
 def _local_source(exts=(".txt",)):
-    return LocalFileProvider.for_ingest({"allowedExtensions": list(exts)})
+    return LocalFileProvider.for_ingest({"ingestFileTypeOptions": list(exts)})
 
 
 class TestEnumeratePaths:

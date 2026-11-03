@@ -19,6 +19,7 @@ export interface EndpointItem {
   systemPrompt?: string | null
   tags: string[]
   published: boolean
+  publishedTo?: string[]
   watchedPathsCount?: number
   createdAt: string
 }
@@ -47,6 +48,7 @@ export const useEndpointsStore = defineStore('endpoints', () => {
       systemPrompt: item.system_prompt ?? null,
       tags: parseTags(item.tags),
       published: item.published,
+      publishedTo: item.published_to,
       watchedPathsCount: item.dataset?.selected_items_count,
       createdAt: item.created_at,
     }
