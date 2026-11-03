@@ -18,7 +18,7 @@ pipeline is a system of its own that you would rather not move.
 | `http_url` | **yes** | yes | The cluster's HTTP endpoint |
 | `grpc_url` | **yes** | yes | The cluster's gRPC endpoint — Weaviate needs both |
 | `api_key` | **yes** | yes, never read back | API key for the cluster |
-| `collection_name` | **yes** | no | The collection to search |
+| `collection_name` | **yes** | yes | The collection to search |
 | `headers` | no | yes, values never read back | Extra headers, e.g. a vectoriser module's own API key |
 | `content_property` | no | yes | Which property holds the text to return as the hit |
 | `metadata_properties` | no | yes | Which other properties to return alongside |

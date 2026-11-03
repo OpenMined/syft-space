@@ -137,9 +137,9 @@ class TestMergeRules:
         self, handler, tenant, weaviate_dataset, dataset_repository
     ):
         with pytest.raises(HTTPException) as exc:
-            await _update(handler, tenant, {"collection_name": "Other"})
+            await _update(handler, tenant, {"filters": None})
         assert exc.value.status_code == 400
-        assert "collection_name" in exc.value.detail
+        assert "filters" in exc.value.detail
         assert (await _stored(dataset_repository, tenant)) == WEAVIATE_CONF
 
     async def test_a_scalar_replaces_and_absent_keys_keep(

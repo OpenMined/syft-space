@@ -214,6 +214,7 @@ EXPECTED = {
             "http_url",
             "grpc_url",
             "api_key",
+            "collection_name",
             "headers",
             "content_property",
             "metadata_properties",
@@ -222,7 +223,7 @@ EXPECTED = {
         ],
         ["api_key", "headers"],
         [],
-        ["collection_name", "filters"],
+        ["filters"],
     ),
 }
 
@@ -372,9 +373,9 @@ class TestApplyEdits:
     }
 
     def test_a_locked_key_is_refused_by_name(self, registry):
-        with pytest.raises(ValueError, match="'collection_name' is not editable"):
+        with pytest.raises(ValueError, match="'filters' is not editable"):
             registry.get_dataset_type("remote_weaviate").apply_edits(
-                self.STORED, {"collection_name": "D"}
+                self.STORED, {"filters": None}
             )
 
     def test_a_scalar_replaces_null_removes_and_absent_keys_keep(self, registry):

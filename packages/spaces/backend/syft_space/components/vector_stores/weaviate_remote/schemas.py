@@ -19,9 +19,9 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
     """Configuration for the remote Weaviate vector store.
 
     Weaviate is read-only from this process — config covers connection
-    + content/metadata mapping + optional query-time filters. Connection
-    and mapping fields are editable after creation; the collection and
-    the filters are fixed.
+    + content/metadata mapping + optional query-time filters. Connection,
+    collection and mapping fields are editable after creation; the
+    filters are fixed.
     """
 
     http_url: HttpUrl = Field(
