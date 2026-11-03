@@ -149,6 +149,11 @@ describe('draftFromStored', () => {
       kind: 'rows',
       rows: ['https://a/feed', 'https://b/feed'],
     })
+    // Spacing around the separator in a stored string is not content.
+    expect(draftFromStored(feeds, 'https://a/feed, https://b/feed ,')).toEqual({
+      kind: 'rows',
+      rows: ['https://a/feed', 'https://b/feed'],
+    })
     expect(draftFromStored(byName.metadata_properties!, ['title', 'url'])).toEqual({
       kind: 'rows',
       rows: ['title', 'url'],
@@ -199,6 +204,22 @@ describe('configurationPatch', () => {
     }
     expect(configurationPatch(rssFields, { pollIntervalSeconds: 3600 }, d)).toEqual({
       pollIntervalSeconds: 900,
+    })
+  })
+
+  it('does not treat an untouched list as changed because of spacing in the stored string', () => {
+    const rssFields = editableFields(rss, copy('rss'))
+    const stored = { feedUrls: 'https://a/feed, https://b/feed' }
+    const untouched: Record<string, FieldDraft> = {
+      feedUrls: draftFromStored(rssFields[0]!, stored.feedUrls),
+    }
+    expect(configurationPatch(rssFields, stored, untouched)).toEqual({})
+
+    const reordered: Record<string, FieldDraft> = {
+      feedUrls: { kind: 'rows', rows: ['https://b/feed', 'https://a/feed'] },
+    }
+    expect(configurationPatch(rssFields, stored, reordered)).toEqual({
+      feedUrls: 'https://b/feed,https://a/feed',
     })
   })
 

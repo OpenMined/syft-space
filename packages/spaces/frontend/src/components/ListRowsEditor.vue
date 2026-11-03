@@ -102,7 +102,8 @@ const onPaste = (index: number, event: ClipboardEvent) => {
   if (!text.includes(props.separator) && !text.includes('\n')) return
   event.preventDefault()
   const pasted = text
-    .split(new RegExp(`[${props.separator}\n]`))
+    .split('\n')
+    .flatMap((line) => line.split(props.separator))
     .map(normalize)
     .filter(Boolean)
   const next = [...rows.value]

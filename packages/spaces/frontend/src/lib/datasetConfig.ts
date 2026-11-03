@@ -123,10 +123,14 @@ export const isPublicProperty = (schema: ConfigSchema | null, name: string): boo
   return prop === undefined || prop.visibility === undefined || prop.visibility === 'public'
 }
 
+/** The stored value as rows, trimmed: a space after the separator is not content. */
 const listRows = (field: ConfigField, value: unknown): string[] => {
-  if (Array.isArray(value)) return value.map(String)
-  if (typeof value === 'string' && value !== '') return value.split(field.separator ?? ',')
-  return []
+  const raw = Array.isArray(value)
+    ? value.map(String)
+    : typeof value === 'string' && value !== ''
+      ? value.split(field.separator ?? ',')
+      : []
+  return raw.map((row) => row.trim()).filter(Boolean)
 }
 
 /** The form's starting state for a field, from the stored (redacted) configuration. */
@@ -233,10 +237,16 @@ export const configurationPatch = (
       }
       case 'rows': {
         const rows = cleanRows(draft.rows)
-        const next: unknown = field.separator !== undefined ? rows.join(field.separator) : rows
         const empty = rows.length === 0
         if (empty && (storedValue === undefined || storedValue === null)) break
-        if (!sameValue(next, storedValue)) patch[field.name] = empty ? null : next
+        // Compared as rows, not as the joined string: how the stored value
+        // was spaced or ordered around the separator is not a change.
+        if (sameValue(rows, cleanRows(listRows(field, storedValue)))) break
+        patch[field.name] = empty
+          ? null
+          : field.separator !== undefined
+            ? rows.join(field.separator)
+            : rows
         break
       }
       case 'value': {
