@@ -1,6 +1,7 @@
 import { ref, watch, type Ref } from 'vue'
 import { modelsApi } from '@/api/endpoints/models'
 import type { ProviderModelItem } from '@/api/types'
+import { apiErrorMessage } from '@/lib/apiError'
 
 export function useProviderModels(baseUrl: Ref<string>, apiKey: Ref<string>) {
   const models = ref<ProviderModelItem[]>([])
@@ -50,14 +51,7 @@ export function useProviderModels(baseUrl: Ref<string>, apiKey: Ref<string>) {
 
       models.value = []
       hasFetched.value = false
-      if (err && typeof err === 'object' && 'response' in err) {
-        const axiosError = err as { response?: { data?: { detail?: string } } }
-        error.value = axiosError.response?.data?.detail ?? 'Failed to fetch models'
-      } else if (err instanceof Error) {
-        error.value = err.message
-      } else {
-        error.value = 'Failed to fetch models'
-      }
+      error.value = apiErrorMessage(err, 'Failed to fetch models')
     } finally {
       if (currentRequestVersion === requestVersion) {
         isLoading.value = false
