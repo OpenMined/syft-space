@@ -125,6 +125,18 @@ class UpdateDatasetRequest(BaseModel):
             )
         return self
 
+    class Config:
+        """Pydantic config."""
+
+        json_schema_extra = {
+            "example": {
+                "name": "legal-docs-updated",
+                "summary": "Updated legal documents for RAG analysis",
+                "tags": "legal,documents,analysis,updated",
+                "configuration": {"pollIntervalSeconds": 900},
+            }
+        }
+
 
 class HealthcheckRequest(BaseModel):
     """Dry-run healthcheck: the stored configuration with these edits applied.
@@ -141,11 +153,7 @@ class HealthcheckRequest(BaseModel):
         """Pydantic config."""
 
         json_schema_extra = {
-            "example": {
-                "name": "legal-docs-updated",
-                "summary": "Updated legal documents for RAG analysis",
-                "tags": "legal,documents,analysis,updated",
-            }
+            "example": {"configuration": {"feedUrls": "https://a.example/feed"}}
         }
 
 

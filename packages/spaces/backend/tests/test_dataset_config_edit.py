@@ -324,6 +324,13 @@ class TestApplyEdits:
         )
         assert merged["headers"] == {"X-A": "a", "X-C": "c"}
 
+    def test_an_edit_may_use_the_python_spelling(self, registry):
+        merged = registry.get_dataset_type("rss").apply_edits(
+            {"feedUrls": "https://a.example/feed", "collectionName": "c"},
+            {"feed_urls": "https://b.example/feed"},
+        )
+        assert merged == {"feedUrls": "https://b.example/feed", "collectionName": "c"}
+
     def test_stored_keys_are_canonicalised(self, registry):
         merged = registry.get_dataset_type("rss").apply_edits(
             {"feed_urls": "https://a.example/feed", "collectionName": "c"},

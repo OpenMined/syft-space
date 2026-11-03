@@ -12,29 +12,33 @@ export interface RepublishTarget {
 /**
  * Republish endpoints to the marketplaces they are already on.
  *
- * One request per endpoint, one toast for the batch. `republish` returns
- * the targets that failed so a caller can keep them pending for a retry.
+ * One request per endpoint, sent together, one toast for the batch.
+ * `republish` returns the targets that failed so a caller can keep them
+ * pending for a retry.
  */
 export function useRepublish() {
   const isRepublishing = ref(false)
 
   const republish = async (targets: RepublishTarget[]): Promise<RepublishTarget[]> => {
     isRepublishing.value = true
-    const failed: RepublishTarget[] = []
+    let failed: RepublishTarget[] = []
     try {
-      for (const target of targets) {
-        try {
-          await endpointsApi.publish(
+      const outcomes = await Promise.allSettled(
+        targets.map((target) =>
+          endpointsApi.publish(
             target.slug,
             target.published_to?.length
               ? { marketplace_ids: target.published_to }
               : { publish_to_all_marketplaces: true },
-          )
-        } catch (err) {
-          console.error('Failed to republish endpoint:', err)
-          failed.push(target)
-        }
-      }
+          ),
+        ),
+      )
+      failed = targets.filter((_, i) => {
+        const outcome = outcomes[i]
+        if (outcome?.status === 'rejected')
+          console.error('Failed to republish endpoint:', outcome.reason)
+        return outcome?.status === 'rejected'
+      })
     } finally {
       isRepublishing.value = false
     }

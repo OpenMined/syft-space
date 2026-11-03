@@ -204,11 +204,13 @@ class BaseDatasetType:
         the first that is not); ``None`` removes it; a dict on a secret dict
         is merged per entry (``None`` keeps the stored value, a string
         replaces it, an absent entry removes it); anything else replaces.
-        Stored keys are canonicalised first, so an edit never leaves two
-        spellings of one key behind. Nothing is validated beyond editability.
+        Both sides are canonicalised to the schema's spelling first, so an
+        edit may name a key either way and never leaves two spellings of
+        one key behind. Nothing is validated beyond editability.
         """
         editable = set(cls.editable_fields())
         secret = set(cls.secret_fields())
+        edits = cls.canonical_configuration(edits)
         for key in edits:
             if key not in editable:
                 raise ValueError(f"Configuration key '{key}' is not editable")
