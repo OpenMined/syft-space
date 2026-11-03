@@ -26,7 +26,10 @@ from syft_space.components.shared.config_flags import (
     editable_fields,
     fields_with_visibility,
 )
-from syft_space.components.shared.domain_types import HealthcheckResponse
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse,
+    HealthcheckStatus,
+)
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
 from syft_space.components.shared.metadata_types import DatasetMetadata
 from syft_space.components.shared.search_types import (
@@ -192,6 +195,42 @@ class BaseDatasetType:
         return redacted
 
     @classmethod
+    def apply_edits(
+        cls, stored: dict[str, Any], edits: dict[str, Any]
+    ) -> dict[str, Any]:
+        """``stored`` with ``edits`` applied, the inverse of ``redact_configuration``.
+
+        Per key of ``edits``: the key must be editable (``ValueError`` names
+        the first that is not); ``None`` removes it; a dict on a secret dict
+        is merged per entry (``None`` keeps the stored value, a string
+        replaces it, an absent entry removes it); anything else replaces.
+        Stored keys are canonicalised first, so an edit never leaves two
+        spellings of one key behind. Nothing is validated beyond editability.
+        """
+        editable = set(cls.editable_fields())
+        secret = set(cls.secret_fields())
+        for key in edits:
+            if key not in editable:
+                raise ValueError(f"Configuration key '{key}' is not editable")
+
+        merged = cls.canonical_configuration(stored)
+        for key, value in edits.items():
+            current = merged.get(key)
+            if value is None:
+                merged.pop(key, None)
+            elif (
+                key in secret and isinstance(value, dict) and isinstance(current, dict)
+            ):
+                merged[key] = {
+                    entry: current[entry] if new is None else new
+                    for entry, new in value.items()
+                    if new is not None or entry in current
+                }
+            else:
+                merged[key] = value
+        return merged
+
+    @classmethod
     async def validate_configuration(
         cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
     ) -> None:
@@ -214,6 +253,27 @@ class BaseDatasetType:
         await cls.SOURCE_PROVIDER_CLS.validate_configuration(
             source_cfg, previous=previous_source
         )
+
+    @classmethod
+    async def check_connection(
+        cls, configuration: dict[str, Any]
+    ) -> HealthcheckResponse:
+        """Does ``configuration`` connect? A dry run; nothing is written.
+
+        The shape must parse (``ValueError``). Then the source's connection
+        and the vector store are each tried and reported as health, never
+        raised. ``validate_configuration`` is the full check for a write;
+        this is what the dry-run health route runs.
+        """
+        dataset_type = cls(configuration)
+        source_cfg, _ = cls.split_config(configuration)
+        try:
+            await cls.SOURCE_PROVIDER_CLS.validate_browse_config(source_cfg)
+            return await dataset_type.healthcheck()
+        except Exception as e:
+            return HealthcheckResponse(
+                status=HealthcheckStatus.UNHEALTHY, message=str(e)
+            )
 
     # ── Default lifecycle (overridable) ──────────────────────────────
 

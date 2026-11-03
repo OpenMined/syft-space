@@ -22,7 +22,15 @@ from syft_space.components.shared.config_flags import (
     editable_fields,
     fields_with_visibility,
 )
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse,
+    HealthcheckStatus,
+)
 from syft_space.components.shared.utils import ConfigSchemaGenerator
+from syft_space.components.sources.rss.rss_source import RssProvider
+from syft_space.components.vector_stores.chromadb_local.chromadb_vector_store import (
+    ChromaDBLocalVectorStore,
+)
 
 
 @pytest.fixture(scope="module")
@@ -282,6 +290,100 @@ class TestRedaction:
         cfg = {"feedUrls": "https://a.example/feed", "collectionName": "c"}
         assert registry.get_dataset_type("rss").redact_configuration(cfg) == cfg
         assert registry.get_dataset_type("rss").redact_configuration(cfg) is not cfg
+
+
+class TestApplyEdits:
+    """The merge rules live on the binding, next to the redaction they undo."""
+
+    STORED = {
+        "http_url": "http://w",
+        "api_key": "old",
+        "collection_name": "C",
+        "headers": {"X-A": "a", "X-B": "b"},
+    }
+
+    def test_a_locked_key_is_refused_by_name(self, registry):
+        with pytest.raises(ValueError, match="'collection_name' is not editable"):
+            registry.get_dataset_type("remote_weaviate").apply_edits(
+                self.STORED, {"collection_name": "D"}
+            )
+
+    def test_a_scalar_replaces_null_removes_and_absent_keys_keep(self, registry):
+        merged = registry.get_dataset_type("remote_weaviate").apply_edits(
+            self.STORED, {"api_key": "new", "headers": None}
+        )
+        assert merged == {
+            "http_url": "http://w",
+            "api_key": "new",
+            "collection_name": "C",
+        }
+
+    def test_a_secret_dict_is_merged_per_entry(self, registry):
+        merged = registry.get_dataset_type("remote_weaviate").apply_edits(
+            self.STORED, {"headers": {"X-A": None, "X-C": "c"}}
+        )
+        assert merged["headers"] == {"X-A": "a", "X-C": "c"}
+
+    def test_stored_keys_are_canonicalised(self, registry):
+        merged = registry.get_dataset_type("rss").apply_edits(
+            {"feed_urls": "https://a.example/feed", "collectionName": "c"},
+            {"feedUrls": "https://b.example/feed"},
+        )
+        assert merged == {"feedUrls": "https://b.example/feed", "collectionName": "c"}
+
+    def test_the_stored_row_is_not_touched(self, registry):
+        stored = dict(self.STORED)
+        registry.get_dataset_type("remote_weaviate").apply_edits(
+            stored, {"api_key": "new"}
+        )
+        assert stored == self.STORED
+
+
+class TestCheckConnection:
+    """The dry run is the binding's: shape raises, probes report as health."""
+
+    RSS = {"feedUrls": "https://a.example/feed", "collectionName": "c"}
+
+    @pytest.fixture
+    def quiet_store(self, monkeypatch):
+        async def healthcheck(self):
+            return HealthcheckResponse(status=HealthcheckStatus.HEALTHY)
+
+        monkeypatch.setattr(ChromaDBLocalVectorStore, "healthcheck", healthcheck)
+
+    async def test_runs_the_source_connection_check_then_store_health(
+        self, registry, quiet_store, monkeypatch
+    ):
+        browsed: list[dict] = []
+
+        async def browse_check(cls, configuration):
+            browsed.append(configuration)
+
+        monkeypatch.setattr(
+            RssProvider, "validate_browse_config", classmethod(browse_check)
+        )
+        result = await registry.get_dataset_type("rss").check_connection(self.RSS)
+        assert result.status == HealthcheckStatus.HEALTHY
+        assert browsed == [{"feedUrls": "https://a.example/feed"}]
+
+    async def test_a_failing_probe_is_health_not_an_error(
+        self, registry, quiet_store, monkeypatch
+    ):
+        async def browse_check(cls, configuration):
+            raise ValueError("HTTP 404")
+
+        monkeypatch.setattr(
+            RssProvider, "validate_browse_config", classmethod(browse_check)
+        )
+        result = await registry.get_dataset_type("rss").check_connection(self.RSS)
+        assert result.status == HealthcheckStatus.UNHEALTHY
+        assert "404" in result.message
+
+    async def test_a_malformed_shape_raises(self, registry):
+        with pytest.raises(ValueError):
+            await registry.get_dataset_type("rss").check_connection(
+                {**self.RSS, "pollIntervalSeconds": "soon"}
+            )
 
 
 # ── Custom binding sees the defaults ─────────────────────────────────────

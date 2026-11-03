@@ -65,7 +65,8 @@ describes the source and builds the other two.
    edits. Check the shape every time; reach the network only for the
    connection fields that changed against `previous` (the stored row).
    `previous=None` is a new dataset: probe everything. The dry-run health
-   route uses `validate_browse_config` instead, so keep that the full check. The
+   route (`BaseDatasetType.check_connection`) uses `validate_browse_config`
+   instead, so keep that the full check. The
    helpers in `sources/validation.py` carry the pattern — `parse_config`
    (shape, `ValueError` on refusal), `previous_config(model, previous)` to
    read the stored row as your browse model, `changed_fields(model, new,
@@ -120,8 +121,9 @@ more to write on your side:
 | Derived | Where |
 | --- | --- |
 | The schema the frontend renders, each property tagged `axis`, `editable`, `visibility` | `GET /datasets/types/{name}/schema` |
-| Which keys `PATCH /datasets/{name}` accepts, and the 400 for the rest | `DatasetHandler` |
 | Redaction of every read: secret scalars dropped, a secret dict's values nulled | `BaseDatasetType.redact_configuration` |
+| Which keys `PATCH /datasets/{name}` accepts and how an edit merges into the stored row (the handler turns a refusal into the 400) | `BaseDatasetType.apply_edits` |
+| The dry run behind `POST /datasets/{name}/health`: shape, source connection, store health | `BaseDatasetType.check_connection` |
 | Restarting ingestion when a source field changed; reconnecting when a connection field changed | the `DatasetConfigurationChanged` listeners |
 
 One rule, enforced the first time a binding is used: the two axes must not

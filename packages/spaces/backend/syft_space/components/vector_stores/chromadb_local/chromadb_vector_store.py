@@ -249,9 +249,15 @@ class ChromaDBLocalVectorStore:
         """Get the (prefixed) name of the ChromaDB collection."""
         return f"Collection_{self.config.collection_name}"
 
-    def client_key(self) -> tuple:
+    @classmethod
+    def client_key_for(cls, config: dict[str, Any]) -> tuple:
         """Keyed by ``connection_fields`` (the port); host, ssl and database
         come from settings and are fixed for the process."""
+        return client_cache.key_from(
+            cls.CONFIG_MODEL.model_validate(config), cls.connection_fields()
+        )
+
+    def client_key(self) -> tuple:
         return client_cache.key_from(self.config, self.connection_fields())
 
     async def get_client(self) -> chromadb.AsyncClientAPI:  # noqa: F821
