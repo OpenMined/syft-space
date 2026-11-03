@@ -39,7 +39,11 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
         description="The API key for the Weaviate server",
         json_schema_extra=cfg_flags(editable=True, visibility=Visibility.SECRET),
     )
-    collection_name: str = Field(..., description="The name of the Weaviate collection")
+    collection_name: str = Field(
+        ...,
+        description="The name of the Weaviate collection",
+        json_schema_extra=cfg_flags(editable=True),
+    )
     headers: dict[str, str] | None = Field(
         default=None,
         description=(
