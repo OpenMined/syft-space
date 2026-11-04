@@ -37,6 +37,14 @@ class ManagedResponse(BaseModel):
     )
 
 
+class FeaturesResponse(BaseModel):
+    """Response model for the feature flags the frontend follows."""
+
+    benchmark: bool = Field(
+        ..., description="Whether the benchmark is enabled (SYFT_BENCHMARK_ENABLED)"
+    )
+
+
 class DiagnosticsResponse(BaseModel):
     """Response model for diagnostics preference."""
 

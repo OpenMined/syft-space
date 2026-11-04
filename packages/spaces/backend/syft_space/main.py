@@ -753,7 +753,8 @@ router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_settings_routes(settings_handler))
-router.include_router(build_benchmark_routes(benchmark_handler))
+if app_settings.benchmark_enabled:
+    router.include_router(build_benchmark_routes(benchmark_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 router.include_router(build_wallet_routes(wallet_handler))
 router.include_router(

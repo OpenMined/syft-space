@@ -3,6 +3,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 // Pages are lazy-loaded to keep the entry chunk small.
 import { marketplacesApi } from '../api/endpoints/marketplaces'
 import { settingsApi } from '../api/endpoints/settings'
+import { features, loadFeatures } from '../config/features'
 import { useServerAvailabilityStore } from '../stores/serverAvailability'
 
 let onboardingStatusCache: boolean | null = null
@@ -93,6 +94,7 @@ const router = createRouter({
       path: '/settings/model-access',
       name: 'model-access',
       component: () => import('../pages/ModelAccessPage.vue'),
+      meta: { feature: 'benchmark' },
     },
     {
       path: '/go-live',
@@ -160,6 +162,14 @@ router.beforeEach(async (to, _from, next) => {
   const serverStore = useServerAvailabilityStore()
   serverStore.startPolling()
   await serverStore.waitUntilReady()
+
+  // Pages read the feature flags synchronously, so load them before any renders.
+  await loadFeatures()
+  const feature = to.meta.feature as keyof typeof features | undefined
+  if (feature && !features[feature]) {
+    next({ name: 'home', replace: true })
+    return
+  }
 
   // Skip onboarding check for the onboarding page itself
   if (to.name === 'onboarding') {

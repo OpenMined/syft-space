@@ -694,6 +694,7 @@
 
       <!-- Model Access Section -->
       <RouterLink
+        v-if="features.benchmark"
         :to="{ name: 'model-access' }"
         class="group flex items-center gap-3 bg-card border border-border rounded-xl p-6 hover:border-primary/40"
         data-testid="model-access-link"
@@ -761,6 +762,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
 import { walletsApi } from '@/api/endpoints/wallets'
+import { features } from '@/config/features'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
 import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 import {

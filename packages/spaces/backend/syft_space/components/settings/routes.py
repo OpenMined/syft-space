@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.schemas import (
     DiagnosticsResponse,
+    FeaturesResponse,
     ManagedResponse,
     ProxyStatusResponse,
     PublicUrlResponse,
@@ -58,6 +59,13 @@ def build_settings_routes(handler: SettingsHandler) -> APIRouter:
     ) -> ManagedResponse:
         """Whether a station manages this space, plus its public URL."""
         return await handler.get_managed()
+
+    @router.get("/features", response_model=FeaturesResponse)
+    async def get_features(
+        handler: SettingsHandler = Depends(get_handler),
+    ) -> FeaturesResponse:
+        """Feature flags, so the frontend shows only enabled features."""
+        return handler.get_features()
 
     @router.get("/diagnostics", response_model=DiagnosticsResponse)
     async def get_diagnostics(
