@@ -16,7 +16,7 @@ Syft Space Server is a full-stack application with a FastAPI backend and Vue 3 f
 - **Main Components**:
   - `accounting/` - Financial tracking and billing
   - `analytics/` - Query events and usage statistics
-  - `benchmarks/` - Benchmark connections and targets; proxies the benchmark's control API
+  - `benchmarks/` - Benchmark connections and targets; proxies the benchmark's control API. Off unless `SYFT_BENCHMARK_ENABLED=true` (`app_settings.benchmark_enabled`); the frontend follows it through `src/config/features.ts`
   - `integrations/` - External service integrations (Weaviate, vLLM models)
   - `policies/` - Rate limiting and accounting guards
   - `profile/` - User profile management

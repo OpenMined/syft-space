@@ -5,6 +5,11 @@ The Space measures nothing. A **benchmark** — a separate service
 them and grades the answers. The Space configures it, starts runs and shows
 the results. Results stay inside the Space.
 
+The benchmark is off by default. `SYFT_BENCHMARK_ENABLED=true` turns it on:
+the `/api/v1/benchmarks/*` routes are served and the frontend shows its pages
+(`GET /api/v1/settings/features`). Off, neither exists; the benchmark tables
+are still created, so turning it on needs no migration.
+
 ```mermaid
 sequenceDiagram
     participant U as Owner (browser)
@@ -19,7 +24,7 @@ sequenceDiagram
 
 ## Connecting a benchmark
 
-A Space ships with no benchmark. **Settings → Model access**
+A Space ships with no benchmark connected. **Settings → Model access**
 (`/settings/model-access`) holds the connection — name, benchmark URL, control
 key; this Space's address, index host/port and container name as the
 benchmark sees them — and the model providers: an address and a key for the shared default and for each role

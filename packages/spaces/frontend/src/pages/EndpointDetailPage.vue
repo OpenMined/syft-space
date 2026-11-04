@@ -265,6 +265,7 @@
             </Badge>
           </TabsTrigger>
           <TabsTrigger
+            v-if="features.benchmark"
             value="benchmark"
             class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
           >
@@ -272,6 +273,7 @@
             Benchmark setup
           </TabsTrigger>
           <TabsTrigger
+            v-if="features.benchmark"
             value="results"
             class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
           >
@@ -860,15 +862,17 @@
           </Card>
         </TabsContent>
 
-        <!-- Benchmark setup tab -->
-        <TabsContent value="benchmark" class="space-y-4 pt-6 mt-0">
-          <RunControl :slug="routeSlug" :dataset="endpoint?.dataset ?? null" />
-        </TabsContent>
+        <template v-if="features.benchmark">
+          <!-- Benchmark setup tab -->
+          <TabsContent value="benchmark" class="space-y-4 pt-6 mt-0">
+            <RunControl :slug="routeSlug" :dataset="endpoint?.dataset ?? null" />
+          </TabsContent>
 
-        <!-- Benchmark results tab -->
-        <TabsContent value="results" class="space-y-4 pt-6 mt-0">
-          <ResultsHome :slug="routeSlug" />
-        </TabsContent>
+          <!-- Benchmark results tab -->
+          <TabsContent value="results" class="space-y-4 pt-6 mt-0">
+            <ResultsHome :slug="routeSlug" />
+          </TabsContent>
+        </template>
       </Tabs>
     </div>
   </div>
@@ -1030,6 +1034,7 @@ import {
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 
+import { features } from '@/config/features'
 import type { PaymentPolicyType, PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useEndpointsStore } from '@/stores/endpoints'
@@ -1070,7 +1075,12 @@ const endpoint = ref<EndpointResponse | null>(null)
 // From the route, so the benchmark tabs need not wait for the endpoint to load.
 const routeSlug = computed(() => route.params.slug as string)
 // The active tab is kept in the URL so reloads and shared links keep it.
-const KNOWN_TABS = new Set(['overview', 'access', 'transactions', 'benchmark', RESULTS_TAB])
+const KNOWN_TABS = new Set([
+  'overview',
+  'access',
+  'transactions',
+  ...(features.benchmark ? ['benchmark', RESULTS_TAB] : []),
+])
 
 function tabFromQuery(tab: unknown): string {
   return typeof tab === 'string' && KNOWN_TABS.has(tab) ? tab : 'overview'

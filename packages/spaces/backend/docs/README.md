@@ -23,7 +23,6 @@ marketplace where others can query them — without ever handing over your raw d
 | Call the HTTP API | [API Overview](./api-overview.md) |
 | Trace exactly what happens during a query | [Query Flow](./query-flow.md) |
 | Charge for queries (wallets, invoices, crypto) | [Payments & Wallets](./payments.md) |
-| Benchmark an endpoint | [Benchmarks](./benchmarks.md) |
 | Add a new source, vector store, model, or policy | [Extending the Platform](./extending.md) |
 | Configure env vars, auth, multi-tenancy, Docker | [Configuration](./configuration.md) |
 | Work with the database schema | [Database Migrations](./migrations.md) |

@@ -511,6 +511,11 @@ export interface ManagedResponse {
   public_url: string | null
 }
 
+export interface FeaturesResponse {
+  /** Whether the benchmark is enabled (SYFT_BENCHMARK_ENABLED on the backend). */
+  benchmark: boolean
+}
+
 export interface ProxyStatusResponse {
   connected: boolean
   public_url: string | null

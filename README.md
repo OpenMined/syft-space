@@ -201,7 +201,6 @@ A Space connects to **[SyftHub](https://syfthub.openmined.org)** — a decentral
 - 🔍 **Querying**: Users can search and query across multiple Spaces
 - 📝 **Attribution**: Every contribution is tracked and credited automatically
 - 🏗️ **Open Architecture**: Built on open protocols — no single point of control
-- 📊 **Benchmarks**: Measure your endpoint with a benchmark you run yourself; results stay in your Space
 
 The network grows stronger as more Spaces join, but each Space maintains full autonomy over its data and policies.
 
