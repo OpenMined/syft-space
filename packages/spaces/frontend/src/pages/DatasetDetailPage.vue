@@ -608,7 +608,7 @@ import RepublishBanner from '@/components/RepublishBanner.vue'
 import type { RepublishTarget } from '@/composables/useRepublish'
 import AddSourceDialog from '@/components/AddSourceDialog.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
-import { isPublicProperty } from '@/lib/datasetConfig'
+import { displayedConfiguration } from '@/lib/datasetConfig'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import type {
   DatasetResponse,
@@ -1033,31 +1033,11 @@ const getConfigValue = (key: string): unknown => {
 const getDisplayableConfig = () => {
   if (!dataset.value?.configuration) return {}
   const config = dataset.value.configuration as Record<string, unknown>
-
-  // Filter out complex nested objects and arrays for display
-  const displayable: Record<string, unknown> = {}
-
   const schema = datasetTypeInfo.value?.config_schema ?? null
-  Object.entries(config).forEach(([key, value]) => {
-    // Skip file paths as they're shown in the watched paths section
-    if (key === 'filePaths' || key === 'ingestionPath') return
-    // Secret and internal values are not for display, even redacted.
-    if (!isPublicProperty(schema, key)) return
-
-    // Include primitives and simple arrays
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      displayable[key] = value
-    } else if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') {
-      displayable[key] = value
-    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-      // For simple objects, try to display as JSON
-      const objKeys = Object.keys(value)
-      if (objKeys.length <= 3) {
-        displayable[key] = value
-      }
-    }
-  })
-
+  const displayable = displayedConfiguration(schema, config)
+  // File paths are shown in the watched paths section.
+  delete displayable.filePaths
+  delete displayable.ingestionPath
   return displayable
 }
 
@@ -1091,13 +1071,14 @@ const formatConfigValue = (key: string, value: unknown): string => {
     return value ? 'Enabled' : 'Disabled'
   }
 
-  if (Array.isArray(value)) {
+  if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
     return value.join(', ')
   }
 
+  // Objects and mixed arrays print as one-line JSON; the cell is a single line.
   if (typeof value === 'object') {
     try {
-      return JSON.stringify(value, null, 2)
+      return JSON.stringify(value)
     } catch {
       return '[Object]'
     }
