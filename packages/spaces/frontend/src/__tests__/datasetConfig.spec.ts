@@ -3,6 +3,7 @@ import type { ConfigSchema } from '@/api/types'
 import { SOURCE_PRESENTATION } from '@/config/sources'
 import {
   configurationPatch,
+  displayedConfiguration,
   draftErrors,
   draftFromStored,
   editableFields,
@@ -128,6 +129,35 @@ describe('isPublicProperty', () => {
     expect(isPublicProperty(wordpress, 'httpPort')).toBe(false)
     expect(isPublicProperty(wordpress, 'unknownKey')).toBe(true)
     expect(isPublicProperty(null, 'anything')).toBe(true)
+  })
+})
+
+describe('displayedConfiguration', () => {
+  it('keeps every public value that is set, whatever its shape', () => {
+    const filters = {
+      operator: 'and',
+      conditions: [
+        { property: 'status', operator: 'equal', value: 'published' },
+        { property: 'year', operator: 'greater_than', value: 2020 },
+      ],
+    }
+    const shown = displayedConfiguration(weaviate, {
+      http_url: 'http://w:8080',
+      api_key: 'secret',
+      headers: { 'X-OpenAI-Api-Key': null },
+      metadata_properties: ['title', 'author'],
+      filters,
+      content_property: null,
+    })
+    expect(Object.keys(shown)).toEqual(['http_url', 'metadata_properties', 'filters'])
+    expect(shown.filters).toBe(filters)
+  })
+
+  it('shows every set value when the schema is unknown', () => {
+    expect(displayedConfiguration(null, { a: 1, b: undefined, c: { d: [1, 2] } })).toEqual({
+      a: 1,
+      c: { d: [1, 2] },
+    })
   })
 })
 

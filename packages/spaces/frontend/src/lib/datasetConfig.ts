@@ -123,6 +123,21 @@ export const isPublicProperty = (schema: ConfigSchema | null, name: string): boo
   return prop === undefined || prop.visibility === undefined || prop.visibility === 'public'
 }
 
+/**
+ * The stored values the detail page shows: every public key that holds a
+ * value, in stored order. The schema decides what is shown, not the value's
+ * shape; a nested object such as a Weaviate filter is a value like any other.
+ */
+export const displayedConfiguration = (
+  schema: ConfigSchema | null,
+  configuration: Record<string, unknown>,
+): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(configuration).filter(
+      ([key, value]) => value !== null && value !== undefined && isPublicProperty(schema, key),
+    ),
+  )
+
 /** The stored value as rows, trimmed: a space after the separator is not content. */
 const listRows = (field: ConfigField, value: unknown): string[] => {
   const raw = Array.isArray(value)
