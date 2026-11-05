@@ -400,6 +400,19 @@ class PublishEndpointHandler:
                 success=False,
                 error=e.message,
             )
+        except Exception as e:
+            # Timeouts, dropped connections and unreadable replies are reported
+            # as a failed publication rather than a 500.
+            logger.exception(
+                f"Failed to publish endpoint {endpoint.slug} "
+                f"to {marketplace.name}: {str(e)}"
+            )
+            return PublishResult(
+                marketplace_id=marketplace.id,
+                marketplace_name=marketplace.name,
+                success=False,
+                error=f"{type(e).__name__}: {e}",
+            )
 
         try:
             await self.endpoint_repository.add_publication(

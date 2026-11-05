@@ -1,0 +1,134 @@
+/** Number, date and schedule formatting shared by the report pages. */
+import type { BenchmarkTarget } from '@/api/types'
+
+/** What every figure shows when it cannot be computed. */
+export const DASH = '—'
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** A share as a whole percent: 0.8 → `80%`. */
+export function pct(x: number | null | undefined): string {
+  return typeof x === 'number' ? `${Math.round(x * 100)}%` : DASH
+}
+
+/** part / whole; null when there is nothing to divide by. */
+export function rate(part: number, whole: number): number | null {
+  return whole > 0 ? part / whole : null
+}
+
+/** Points, signed and rounded: 50 → `+50`. */
+export function points(x: number | null | undefined): string {
+  if (typeof x !== 'number') return DASH
+  const n = Math.round(x)
+  if (n > 0) return `+${n}`
+  return n < 0 ? `−${-n}` : '0'
+}
+
+/** A lift range in points: `+47 to +70`, or one figure when both ends agree. */
+export function pointsRange(lo: number | null, hi: number | null): string {
+  if (lo === null || hi === null) return DASH
+  const a = points(lo)
+  const b = points(hi)
+  return a === b ? a : `${a} to ${b}`
+}
+
+/** A bar's CSS width for a share, clamped to 0–100%. */
+export function barWidth(share: number | null | undefined): string {
+  return `${Math.min(Math.max(share ?? 0, 0), 1) * 100}%`
+}
+
+export function count(x: number | null | undefined): string {
+  return typeof x === 'number' ? x.toLocaleString('en') : DASH
+}
+
+function parse(iso: string | null | undefined): Date | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.valueOf()) ? null : d
+}
+
+const two = (n: number) => String(n).padStart(2, '0')
+
+/** `30 Sep 2026`, in the reader's time zone. */
+export function day(iso: string | null | undefined): string | null {
+  const d = parse(iso)
+  return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : null
+}
+
+/** Calendar days `YYYY-MM-DD` as `5–9 Oct`, `28 Sep–3 Oct`, `9 Oct`; the year when not `thisYear`. */
+export function daySpan(first: string, last: string, thisYear: number): string | null {
+  const parts = (value: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+    const month = m ? MONTHS[Number(m[2]) - 1] : undefined
+    return m && month ? { y: Number(m[1]), m: month, d: Number(m[3]) } : null
+  }
+  const a = parts(first)
+  const b = parts(last)
+  if (!a || !b) return null
+  const year = a.y !== b.y || b.y !== thisYear
+  const end = `${b.d} ${b.m}${year ? ` ${b.y}` : ''}`
+  if (a.y === b.y && a.m === b.m) return a.d === b.d ? end : `${a.d}–${end}`
+  return `${a.d} ${a.m}${a.y !== b.y ? ` ${a.y}` : ''}–${end}`
+}
+
+/** `30 Sep 2026, 06:00`, in the reader's time zone. */
+export function dayTime(iso: string | null | undefined): string {
+  const d = parse(iso)
+  if (!d) return DASH
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, ${clock(d)}`
+}
+
+/** A stamp as UTC: the Space stores naive datetimes that are UTC. */
+export function utcStamp(value: string | null | undefined): string | null {
+  if (!value) return null
+  return /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`
+}
+
+/** Milliseconds since the epoch of a stored UTC stamp; null when missing or unreadable. */
+export function stampMs(value: string | null | undefined): number | null {
+  const iso = utcStamp(value)
+  const ms = iso ? Date.parse(iso) : Number.NaN
+  return Number.isFinite(ms) ? ms : null
+}
+
+/** `06:00`, in the reader's time zone. */
+export function clock(d: Date): string {
+  return `${two(d.getHours())}:${two(d.getMinutes())}`
+}
+
+/** `30 Sep 06:00`, local time; null for a missing or unreadable stamp. */
+export function shortStamp(value: string | null | undefined): string | null {
+  const d = parse(utcStamp(value))
+  return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${clock(d)}` : null
+}
+
+/** An article window: `24 hours`, `7 days`. */
+export function windowWords(days: number): string {
+  return days === 1 ? '24 hours' : `${days} days`
+}
+
+function cadence(target: BenchmarkTarget): string | null {
+  const m = /^(\d+)h$/.exec(target.schedule)
+  if (!m) return null
+  const hours = Number(m[1])
+  if (hours === 24) {
+    const next = parse(target.next_run_at)
+    const at = next ? clock(next) : target.schedule_at
+    return at ? `One run a day at ${at}` : 'One run a day'
+  }
+  return hours === 1 ? 'One run every hour' : `One run every ${hours} hours`
+}
+
+/** The schedule in one line, or null when nothing runs on a schedule. */
+export function scheduleText(target: BenchmarkTarget | null | undefined): string | null {
+  if (!target) return null
+  const head = cadence(target)
+  if (!head) return null
+  const days = target.probe?.document_window_days
+  const scope =
+    typeof days === 'number' && days > 0
+      ? `, on the articles you published in the previous ${windowWords(days)}`
+      : ''
+  const next = target.next_run_at ? ` Next run: ${dayTime(target.next_run_at)}.` : ''
+  return `${head}${scope}.${next}`
+}

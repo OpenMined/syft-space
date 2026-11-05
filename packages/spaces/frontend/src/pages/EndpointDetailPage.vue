@@ -268,6 +268,22 @@
               {{ totalTransactionsForBadge }}
             </Badge>
           </TabsTrigger>
+          <TabsTrigger
+            v-if="features.benchmark"
+            value="benchmark"
+            class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
+          >
+            <FlaskConical class="h-4 w-4" />
+            Benchmark setup
+          </TabsTrigger>
+          <TabsTrigger
+            v-if="features.benchmark"
+            value="results"
+            class="flex-none inline-flex items-center gap-2 h-10 px-3 rounded-none border-0 border-b-2 border-b-transparent bg-transparent shadow-none text-muted-foreground hover:text-foreground data-[state=active]:bg-transparent dark:data-[state=active]:bg-transparent data-[state=active]:text-primary dark:data-[state=active]:text-primary data-[state=active]:border-b-primary data-[state=active]:shadow-none -mb-px"
+          >
+            <BarChart3 class="h-4 w-4" />
+            Benchmark results
+          </TabsTrigger>
         </TabsList>
 
         <!-- Overview Tab -->
@@ -849,6 +865,18 @@
             </CardContent>
           </Card>
         </TabsContent>
+
+        <template v-if="features.benchmark">
+          <!-- Benchmark setup tab -->
+          <TabsContent value="benchmark" class="space-y-4 pt-6 mt-0">
+            <RunControl :slug="routeSlug" :dataset="endpoint?.dataset ?? null" />
+          </TabsContent>
+
+          <!-- Benchmark results tab -->
+          <TabsContent value="results" class="space-y-4 pt-6 mt-0">
+            <ResultsHome :slug="routeSlug" />
+          </TabsContent>
+        </template>
       </Tabs>
     </div>
   </div>
@@ -951,10 +979,12 @@ import {
   Layout,
   Shield,
   FileText,
+  BarChart3,
   Database,
   Plus,
   ExternalLink,
   Pencil,
+  FlaskConical,
   Receipt,
   Zap,
   CreditCard,
@@ -977,6 +1007,9 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import ResultsHome from '@/components/benchmark/report/ResultsHome.vue'
+import { RESULTS_TAB, withoutResultsQuery } from '@/components/benchmark/report/routing'
+import RunControl from '@/components/benchmark/RunControl.vue'
 import { Separator } from '@/components/ui/separator'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -1006,6 +1039,7 @@ import {
 import PolicyFormDialog from '@/components/PolicyFormDialog.vue'
 import AddPricingRuleDialog from '@/components/AddPricingRuleDialog.vue'
 
+import { features } from '@/config/features'
 import type { PaymentPolicyType, PolicyTypeId } from '@/config/policyTypes'
 import { endpointsApi } from '@/api/endpoints/endpoints'
 import { useRepublish } from '@/composables/useRepublish'
@@ -1044,12 +1078,38 @@ const { isDark } = useTheme()
 const error = ref(false)
 const loading = ref(true)
 const endpoint = ref<EndpointResponse | null>(null)
-const activeTab = ref('overview')
+// From the route, so the benchmark tabs need not wait for the endpoint to load.
+const routeSlug = computed(() => route.params.slug as string)
+// The active tab is kept in the URL so reloads and shared links keep it.
+const KNOWN_TABS = new Set([
+  'overview',
+  'access',
+  'transactions',
+  ...(features.benchmark ? ['benchmark', RESULTS_TAB] : []),
+])
+
+function tabFromQuery(tab: unknown): string {
+  return typeof tab === 'string' && KNOWN_TABS.has(tab) ? tab : 'overview'
+}
+
+const activeTab = ref(tabFromQuery(route.query.tab))
+
+// Follow tab changes made through the URL (links inside a tab).
+watch(
+  () => route.query.tab,
+  (tab) => {
+    const next = tabFromQuery(tab)
+    if (next !== activeTab.value) activeTab.value = next
+  },
+)
 
 watch(activeTab, (tab) => {
   if (tab === 'transactions') {
     fetchTransactions()
   }
+  const kept = tab === RESULTS_TAB ? route.query : withoutResultsQuery(route.query)
+  const query = { ...kept, tab: tab === 'overview' ? undefined : tab }
+  router.replace({ query })
 })
 
 const deleteNameConfirm = ref('')

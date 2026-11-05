@@ -13,13 +13,19 @@ produce identical chunks.
 
 import hashlib
 import logging
+import os
 import shutil
+import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from syft_space.components.chunking.front_matter import (
+    front_matter_metadata,
+    split_front_matter,
+)
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.config import app_settings
 
@@ -289,6 +295,22 @@ def _resolve_backend() -> DoclingBackend:
     return LocalDoclingBackend()
 
 
+def _split_markdown_file(path: Path) -> tuple[dict[str, Any] | None, str]:
+    """Split the front matter header off a Markdown file.
+
+    Returns ``(None, "")`` when the file is not UTF-8 or has no header, so
+    the caller converts the file unchanged.
+    """
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        return None, ""
+    fields, body = split_front_matter(text)
+    if fields is None:
+        return None, ""
+    return fields, body
+
+
 def derive_doc_id(external_id: str) -> str:
     """Stable document id for a source item.
 
@@ -391,6 +413,9 @@ class DocumentChunker:
                 file_name: original filename
                 file_type: MIME type
                 file_size: size in bytes
+                doc_metadata: ``doc_*`` fields from a Markdown front matter
+                    header (only on ``.md`` files that have one; the header
+                    itself is not converted)
         """
         ext = Path(file.filename).suffix.lower()
         doc_id = derive_doc_id(file.external_id)
@@ -421,9 +446,31 @@ class DocumentChunker:
         def get_chunker():
             return self._get_chunker(tabular=ext in _TABULAR_EXTS)
 
-        return self._get_backend().convert_to_chunks(
-            file, images_dir, doc_id, get_chunker
-        )
+        fields, body = _split_markdown_file(file.path) if ext == ".md" else (None, "")
+        if fields is None:
+            return self._get_backend().convert_to_chunks(
+                file, images_dir, doc_id, get_chunker
+            )
+
+        # The source folder may be read-only, so the body goes to a temp file.
+        fd, tmp_name = tempfile.mkstemp(suffix=".md")
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(body.encode("utf-8"))
+            chunks = self._get_backend().convert_to_chunks(
+                file.model_copy(update={"path": tmp_path}),
+                images_dir,
+                doc_id,
+                get_chunker,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        doc_metadata = front_matter_metadata(fields)
+        for chunk in chunks:
+            chunk["doc_metadata"] = dict(doc_metadata)
+        return chunks
 
     def purge_page_images(self, collection_name: str) -> None:
         """Purge all page images for a collection."""

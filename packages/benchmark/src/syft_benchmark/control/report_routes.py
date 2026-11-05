@@ -1,0 +1,501 @@
+"""The console's API of benchmark results: runs, a run's report, its
+questions, writing and filter records, downloads, and deleting a run.
+
+Everything is scoped to the session's target; a job of another target is a
+404. Figures come from ``report.run_view``.
+"""
+
+from __future__ import annotations
+
+import os
+import tempfile
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Annotated, Any
+
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
+from sqlalchemy import exists, func, or_, select
+from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
+
+from syft_benchmark.config import JobState
+from syft_benchmark.control.auth import ConsoleAuth, ConsoleGuard
+from syft_benchmark.control.compose import target_panel
+from syft_benchmark.control.jobs import OVER_BUDGET, PROGRESS_PLAN, discard_run
+from syft_benchmark.control.refusals import job_or_404, target_or_404
+from syft_benchmark.control.schemas import PairResponse, RunPairResponse, csv_param
+from syft_benchmark.db import Job, Run, session_scope
+from syft_benchmark.generation import decisions, get_pair, list_pairs
+from syft_benchmark.generation.pairs import MAX_PAGE as PAIRS_MAX_PAGE
+from syft_benchmark.generation.pairs import PairView
+from syft_benchmark.report import (
+    export_xlsx,
+    filter_view,
+    job_params,
+    pair_calls,
+    run_questions,
+    run_view,
+    text_view,
+    writing_view,
+)
+from syft_benchmark.report.run_document import build_summary, filename
+
+router = APIRouter(prefix="/console/report", tags=["results"])
+
+PROGRESS_FIELDS = (
+    "state",
+    "trigger",
+    "kind",
+    "phase",
+    "block",
+    "model",
+    "step_done",
+    "step_total",
+    "done",
+    "total",
+    "message",
+)
+
+
+def _start_of(day: date) -> datetime:
+    return datetime.combine(day, time.min, tzinfo=UTC)
+
+
+def _summary(
+    job: Job,
+    run: dict[str, Any],
+    *,
+    build_only: bool = False,
+    build: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    summary = {
+        **run,
+        **job_params.job_times(job),
+        "build_only": build_only,
+        "state": job.state,
+        "stopped": _stopped(job),
+    }
+    if build is not None:
+        summary["build"] = build
+    return summary
+
+
+def _stopped(job: Job) -> str | None:
+    """Who stopped the job: ``spending_cap``, ``owner``; None — it was not stopped."""
+    if job.state != JobState.CANCELLED.value:
+        return None
+    return "spending_cap" if (job.error or "").startswith(OVER_BUDGET) else "owner"
+
+
+def _has_runs(session: Session, job_ids: list[str]) -> set[str]:
+    if not job_ids:
+        return set()
+    return set(
+        session.scalars(select(Run.job_id).where(Run.job_id.in_(job_ids)).distinct())
+    )
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _unknown_model(model: str) -> HTTPException:
+    return HTTPException(
+        status.HTTP_404_NOT_FOUND, f"model {model!r} did not answer in this run"
+    )
+
+
+@router.get("/runs")
+def list_runs(
+    auth: ConsoleGuard,
+    date_from: Annotated[date | None, Query(alias="from")] = None,
+    date_to: Annotated[date | None, Query(alias="to")] = None,
+    job_ids: str | None = None,
+    exclude_job_ids: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """Every queued or running job, and a page of the finished runs, newest
+    first."""
+    with session_scope(auth.settings) as session:
+        target = target_or_404(session, auth.target_key)
+        active = session.scalars(
+            select(Job)
+            .where(
+                Job.target == auth.target_key,
+                Job.state.in_(job_params.ACTIVE_STATES),
+            )
+            .order_by(Job.created_at.desc())
+        ).all()
+        in_progress = [
+            {
+                "job_id": job.id,
+                **{name: getattr(job, name) for name in PROGRESS_FIELDS},
+                "created_at": _iso(job.created_at),
+                "started_at": _iso(job.started_at),
+                "progress_plan": (job.params or {}).get(PROGRESS_PLAN),
+            }
+            for job in active
+        ]
+
+        where = [
+            Job.target == auth.target_key,
+            Job.state.not_in(job_params.ACTIVE_STATES),
+            # Build-only jobs too: they wrote or filtered questions.
+            or_(exists().where(Run.job_id == Job.id), filter_view.touched_by_job()),
+        ]
+        if date_from is not None:
+            where.append(Job.created_at >= _start_of(date_from))
+        if date_to is not None:
+            where.append(Job.created_at < _start_of(date_to + timedelta(days=1)))
+        wanted = csv_param(job_ids)
+        if job_ids is not None:
+            where.append(Job.id.in_(wanted))
+        unwanted = csv_param(exclude_job_ids)
+        if unwanted:
+            where.append(Job.id.not_in(unwanted))
+
+        total = session.execute(
+            select(func.count()).select_from(Job).where(*where)
+        ).scalar_one()
+        jobs = session.scalars(
+            select(Job)
+            .where(*where)
+            .order_by(Job.created_at.desc(), Job.id)
+            .limit(limit)
+            .offset(offset)
+        ).all()
+        runs = run_view.summaries(
+            session, jobs, configured=lambda: target_panel(target, auth.settings)
+        )
+        ids = [job.id for job in jobs]
+        measured = _has_runs(session, ids)
+        built = filter_view.build_counts(session, auth.target_key, ids)
+        return {
+            "in_progress": in_progress,
+            "items": [
+                _summary(
+                    job,
+                    runs[job.id],
+                    build_only=job.id not in measured,
+                    build=built[job.id],
+                )
+                for job in jobs
+            ],
+            "total": total,
+        }
+
+
+@router.get("/runs/{job_id}")
+def get_run(job_id: str, auth: ConsoleGuard) -> dict[str, Any]:
+    """The whole run except per-question rows."""
+    with session_scope(auth.settings) as session:
+        target = target_or_404(session, auth.target_key)
+        job = job_or_404(session, auth.target_key, job_id)
+        report = run_view.report_part(
+            session, job, configured=lambda: target_panel(target, auth.settings)
+        )
+        build_only = not _has_runs(session, [job.id])
+        report["run"] = _summary(
+            job,
+            report["run"],
+            build_only=build_only,
+            build=filter_view.build_counts(session, auth.target_key, [job.id])[job.id],
+        )
+        report["method"] = {**report["method"], **job_params.how_tested(job)}
+        report["timing"] = job_params.timing_of(job)
+        report["text_metrics"] = text_view.job_text_metrics(session, job.id)
+        return report
+
+
+def _refuse_active(job: Job) -> None:
+    if job.state in job_params.ACTIVE_STATES:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"run {job.id} is still queued or running — stop it first",
+        )
+
+
+@router.delete("/runs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_run(job_id: str, auth: ConsoleGuard) -> None:
+    """Delete a finished run and its answers; its questions stay."""
+    with session_scope(auth.settings) as session:
+        target_or_404(session, auth.target_key)
+        job = job_or_404(session, auth.target_key, job_id)
+        _refuse_active(job)
+        discard_run(session, job)
+
+
+@router.get("/runs/{job_id}/generated")
+def list_run_generated(
+    job_id: str,
+    auth: ConsoleGuard,
+    generator: str | None = None,
+    status_value: Annotated[str | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=PAIRS_MAX_PAGE)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """The questions this job wrote, paged, and its build per kind."""
+    with session_scope(auth.settings) as session:
+        target_or_404(session, auth.target_key)
+        kinds = job_params.generation_of(job_or_404(session, auth.target_key, job_id))
+    items, total = list_pairs(
+        auth.target_key,
+        status=status_value,
+        generator=generator,
+        job=job_id,
+        limit=limit,
+        offset=offset,
+        settings=auth.settings,
+    )
+    return {"kinds": kinds, "items": _run_pairs(auth, items), "total": total}
+
+
+def _run_pairs(auth: ConsoleAuth, pairs: list[PairView]) -> list[dict[str, Any]]:
+    """``pairs`` with the calls that wrote and checked them (``RunPairResponse``)."""
+    with session_scope(auth.settings) as session:
+        calls = pair_calls.pair_calls(session, auth.target_key, pairs)
+    return [
+        RunPairResponse.model_validate(
+            {**PairResponse.model_validate(pair).model_dump(), **calls[pair.id]}
+        ).model_dump(mode="json")
+        for pair in pairs
+    ]
+
+
+@router.get("/runs/{job_id}/writing")
+def list_run_writing(
+    job_id: str,
+    auth: ConsoleGuard,
+    generator: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=writing_view.MAX_PAGE)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """The job's writer calls that dropped drafts or failed, paged."""
+    with session_scope(auth.settings) as session:
+        target_or_404(session, auth.target_key)
+        job_or_404(session, auth.target_key, job_id)
+        return writing_view.job_writing(
+            session, job_id, generator=generator, limit=limit, offset=offset
+        )
+
+
+@router.get("/runs/{job_id}/pairs")
+def list_run_pairs(job_id: str, ids: str, auth: ConsoleGuard) -> dict[str, Any]:
+    """Questions of the target by id (comma-separated, at most a page), read
+    from a run. Not narrowed to the job: a question an earlier job wrote stays
+    readable after that job is deleted."""
+    wanted = csv_param(ids)
+    if len(wanted) > PAIRS_MAX_PAGE:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"at most {PAIRS_MAX_PAGE} ids per request",
+        )
+    with session_scope(auth.settings) as session:
+        target_or_404(session, auth.target_key)
+        job_or_404(session, auth.target_key, job_id)
+    if not wanted:
+        return {"items": [], "total": 0}
+    items, total = list_pairs(
+        auth.target_key, ids=wanted, limit=len(wanted), settings=auth.settings
+    )
+    return {"items": _run_pairs(auth, items), "total": total}
+
+
+@router.get("/runs/{job_id}/pairs/{qa_id}")
+def get_run_pair(job_id: str, qa_id: str, auth: ConsoleGuard) -> dict[str, Any]:
+    """One question of the target with its meta and calls, read from a run."""
+    with session_scope(auth.settings) as session:
+        target_or_404(session, auth.target_key)
+        job_or_404(session, auth.target_key, job_id)
+    view = get_pair(qa_id, target_key=auth.target_key, settings=auth.settings)
+    if view is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"there is no pair {qa_id}")
+    return _run_pairs(auth, [view])[0]
+
+
+@router.get("/runs/{job_id}/filter")
+def list_run_filter(
+    job_id: str,
+    auth: ConsoleGuard,
+    generator: str | None = None,
+    stage: str | None = None,
+    outcome: str | None = None,
+    limit: Annotated[int, Query(ge=0, le=filter_view.MAX_PAGE)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """The job's filter decisions, including questions earlier jobs wrote.
+
+    ``limit=0`` returns every decision of one ``generator`` unpaged: a kind is
+    bounded, and the whole list is computed for any page anyway.
+    """
+    if limit == 0 and generator is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "limit=0 (every decision) needs a generator",
+        )
+    if stage is not None and stage not in decisions.STAGES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"stage must be one of {', '.join(decisions.STAGES)}",
+        )
+    if outcome is not None and outcome not in decisions.OUTCOMES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"outcome must be one of {', '.join(decisions.OUTCOMES)}",
+        )
+    with session_scope(auth.settings) as session:
+        target_or_404(session, auth.target_key)
+        job = job_or_404(session, auth.target_key, job_id)
+        return filter_view.job_filter(
+            session,
+            job,
+            generator=generator,
+            stage=stage,
+            outcome=outcome,
+            limit=limit or None,
+            offset=offset,
+        )
+
+
+@router.get("/runs/{job_id}/questions")
+def list_run_questions(
+    job_id: str,
+    auth: ConsoleGuard,
+    model: str,
+    group: str | None = None,
+    generator: str | None = None,
+    q: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=run_questions.MAX_PAGE)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """One model's questions in this run, paged; trick questions are not
+    listed."""
+    if group is not None and group not in run_view.GROUPS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"group must be one of {', '.join(run_view.GROUPS)}",
+        )
+    with session_scope(auth.settings) as session:
+        target = target_or_404(session, auth.target_key)
+        job = job_or_404(session, auth.target_key, job_id)
+        try:
+            return run_questions.list_questions(
+                session,
+                job,
+                model=model,
+                group=group,
+                generator=generator,
+                q=q,
+                limit=limit,
+                offset=offset,
+                configured=lambda: target_panel(target, auth.settings),
+            )
+        except run_questions.UnknownModel as exc:
+            raise _unknown_model(model) from exc
+
+
+def _detail(
+    session: Session, auth: ConsoleAuth, job_id: str, qa_id: str, model: str | None
+) -> dict[str, Any]:
+    target = target_or_404(session, auth.target_key)
+    job = job_or_404(session, auth.target_key, job_id)
+    try:
+        detail = run_questions.question_detail(
+            session,
+            job,
+            qa_id,
+            model=model,
+            configured=lambda: target_panel(target, auth.settings),
+        )
+    except run_questions.UnknownModel as exc:
+        raise _unknown_model(model or "") from exc
+    if detail is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"question {qa_id} did not take part in job {job_id}",
+        )
+    return detail
+
+
+@router.get("/runs/{job_id}/questions/{qa_id}")
+def get_run_question(
+    job_id: str, qa_id: str, auth: ConsoleGuard, model: str | None = None
+) -> dict[str, Any]:
+    """One question of the run in full, for one model (the first by default)."""
+    with session_scope(auth.settings) as session:
+        return _detail(session, auth, job_id, qa_id, model)
+
+
+@router.get("/runs/{job_id}/questions/{qa_id}/fragments")
+def get_run_question_fragments(
+    job_id: str, qa_id: str, auth: ConsoleGuard, model: str | None = None
+) -> list[dict[str, Any]]:
+    """The passages sent with the with-data answer."""
+    with session_scope(auth.settings) as session:
+        target = target_or_404(session, auth.target_key)
+        job = job_or_404(session, auth.target_key, job_id)
+        try:
+            found = run_questions.fragments(
+                session,
+                job,
+                qa_id,
+                model=model,
+                configured=lambda: target_panel(target, auth.settings),
+            )
+        except run_questions.UnknownModel as exc:
+            raise _unknown_model(model or "") from exc
+        if found is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                f"question {qa_id} did not take part in job {job_id}",
+            )
+        return found
+
+
+@router.get("/runs/{job_id}/summary.docx")
+def download_summary(job_id: str, auth: ConsoleGuard) -> Response:
+    """The run's summary document: its figures only, no questions."""
+    with session_scope(auth.settings) as session:
+        target = target_or_404(session, auth.target_key)
+        job = job_or_404(session, auth.target_key, job_id)
+        report = run_view.report_part(
+            session, job, configured=lambda: target_panel(target, auth.settings)
+        )
+        title = target.title or target.endpoint or target.key
+        name = filename(target.endpoint or target.key, job.created_at)
+    return Response(
+        content=build_summary(report, title=title),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@router.get("/runs/{job_id}/export.xlsx")
+def download_export(job_id: str, auth: ConsoleGuard) -> FileResponse:
+    """Everything that took part in the run, full texts, as one workbook."""
+    handle, path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(handle)
+    try:
+        with session_scope(auth.settings) as session:
+            target = target_or_404(session, auth.target_key)
+            job = job_or_404(session, auth.target_key, job_id)
+            export_xlsx.write(
+                session,
+                job,
+                target,
+                path,
+                configured=lambda: target_panel(target, auth.settings),
+            )
+            name = export_xlsx.filename(target.endpoint or target.key, job.created_at)
+    except BaseException:
+        os.unlink(path)
+        raise
+    return FileResponse(
+        path,
+        media_type=export_xlsx.MEDIA_TYPE,
+        filename=name,
+        background=BackgroundTask(os.unlink, path),
+    )

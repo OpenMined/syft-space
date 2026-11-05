@@ -1,0 +1,76 @@
+/** The model catalogue of one benchmark, fetched whole once and cached per connection. */
+import { ref } from 'vue'
+
+import { benchmarksApi } from '@/api/endpoints/benchmarks'
+import type { BenchmarkModelCatalog } from '@/api/types'
+import { apiErrorDetail } from '@/lib/errors'
+
+const EMPTY: BenchmarkModelCatalog = {
+  models: [],
+  vendors: [],
+  pins: {},
+  fetched: {},
+}
+
+const cache = new Map<string, BenchmarkModelCatalog>()
+// Shared in-flight request, so pickers opening together make one call.
+const inFlight = new Map<string, Promise<BenchmarkModelCatalog>>()
+
+export function useModelCatalog() {
+  const catalog = ref<BenchmarkModelCatalog>(EMPTY)
+  const loading = ref(false)
+  const refreshing = ref(false)
+  const error = ref<string | null>(null)
+
+  /** Load the catalogue, from the cache when it is already here. */
+  const load = async (connectionId: string): Promise<void> => {
+    if (!connectionId) return
+
+    const held = cache.get(connectionId)
+    if (held) {
+      catalog.value = held
+      return
+    }
+
+    loading.value = true
+    error.value = null
+    try {
+      let pending = inFlight.get(connectionId)
+      if (!pending) {
+        pending = benchmarksApi.listModels(connectionId)
+        inFlight.set(connectionId, pending)
+      }
+      const data = await pending
+      cache.set(connectionId, data)
+      catalog.value = data
+    } catch (err) {
+      // Not fatal: without a catalogue the picker still takes a typed name.
+      error.value = apiErrorDetail(err, 'The model list could not be loaded')
+    } finally {
+      inFlight.delete(connectionId)
+      loading.value = false
+    }
+  }
+
+  /** Have the benchmark fetch its provider's list afresh. */
+  const refresh = async (connectionId: string): Promise<boolean> => {
+    if (!connectionId) return false
+
+    refreshing.value = true
+    error.value = null
+    try {
+      const data = await benchmarksApi.refreshModels(connectionId)
+      cache.set(connectionId, data)
+      catalog.value = data
+      return true
+    } catch (err) {
+      // Shown as the benchmark words it (e.g. which host to allow).
+      error.value = apiErrorDetail(err, 'The model list could not be refreshed')
+      return false
+    } finally {
+      refreshing.value = false
+    }
+  }
+
+  return { catalog, loading, refreshing, error, load, refresh }
+}

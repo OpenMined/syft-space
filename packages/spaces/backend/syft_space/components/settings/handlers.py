@@ -11,6 +11,7 @@ from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.settings.schemas import (
     DiagnosticsResponse,
+    FeaturesResponse,
     ManagedResponse,
     ProxyStatusResponse,
     PublicUrlResponse,
@@ -68,6 +69,14 @@ class SettingsHandler:
             managed=bool(app_settings.cluster.managed_by),
             public_url=settings.public_url,
         )
+
+    def get_features(self) -> FeaturesResponse:
+        """Feature flags from the app settings.
+
+        Returns:
+            Features response
+        """
+        return FeaturesResponse(benchmark=app_settings.benchmark_enabled)
 
     async def update_public_url(
         self, tenant: Tenant, new_url: HttpUrl | str

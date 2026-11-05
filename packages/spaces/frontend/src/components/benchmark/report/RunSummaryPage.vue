@@ -1,0 +1,333 @@
+<template>
+  <section v-if="data" class="space-y-6" data-testid="screen-RunSummaryPage">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="space-y-0.5">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <h1 class="heading-3">Run of {{ dayTime(utcStamp(data.run.created_at)) }}</h1>
+          <AlertBadge
+            v-if="stoppedLabel(data.run)"
+            :tip="stoppedTip(data.run)"
+            data-testid="run-stopped"
+          >
+            {{ stoppedLabel(data.run) }}
+          </AlertBadge>
+        </div>
+        <p v-if="header" class="text-sm text-muted-foreground" data-testid="run-articles">
+          {{ header }}
+        </p>
+      </div>
+      <div v-if="!buildOnly || details" class="flex flex-wrap gap-2">
+        <Button
+          v-if="!buildOnly"
+          variant="outline"
+          :disabled="downloading"
+          data-testid="download-summary"
+          @click="download"
+        >
+          Download summary
+        </Button>
+        <Hint v-if="details" text="Everything in this run, one sheet per part.">
+          <Button
+            variant="outline"
+            :disabled="exporting"
+            data-testid="download-excel"
+            @click="downloadExcel"
+          >
+            Download Excel
+          </Button>
+        </Hint>
+      </div>
+    </div>
+
+    <div
+      class="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-lg border border-border bg-card px-4 py-3 text-sm"
+      data-testid="funnel"
+    >
+      <span
+        ><b class="font-semibold">{{ count(data.funnel.written) }}</b> questions written</span
+      >
+      <span class="text-muted-foreground" aria-hidden="true">→</span>
+      <span>
+        <b
+          class="font-semibold"
+          :class="removed === null ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'"
+          data-testid="funnel-removed"
+          >{{ count(removed) }}</b
+        >
+        removed because a model with web search could already answer them
+      </span>
+      <template v-if="other">
+        <span class="text-muted-foreground" aria-hidden="true">→</span>
+        <Hint :text="other.tip">
+          <span class="cursor-help" data-testid="funnel-other">
+            <b class="font-semibold text-amber-700 dark:text-amber-400">{{ count(other.total) }}</b>
+            not asked for other reasons
+          </span>
+        </Hint>
+      </template>
+      <span class="text-muted-foreground" aria-hidden="true">→</span>
+      <span>
+        <b class="font-semibold text-primary">{{ count(data.funnel.asked) }}</b> asked to each model
+      </span>
+    </div>
+
+    <p v-if="buildOnly" class="text-sm text-muted-foreground" data-testid="build-only">
+      No model was asked: this run only wrote questions. See
+      <RouterLink :to="methodLocation(jobId)" class="text-primary hover:underline"
+        >How this was tested</RouterLink
+      >.
+    </p>
+
+    <section v-if="!buildOnly" class="space-y-2.5" aria-labelledby="models-title">
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="models-title" class="text-base font-semibold">How each model did</h2>
+          <p class="text-sm text-muted-foreground" data-testid="models-lead">{{ lead }}</p>
+        </div>
+        <div class="flex flex-wrap gap-4 text-xs text-muted-foreground">
+          <span class="flex items-center gap-1.5">
+            <i class="inline-block size-2.5 rounded-sm bg-primary" aria-hidden="true" />
+            With your data
+          </span>
+          <span class="flex items-center gap-1.5">
+            <i class="inline-block size-2.5 rounded-sm bg-muted-foreground/60" aria-hidden="true" />
+            On its own
+          </span>
+        </div>
+      </div>
+
+      <div class="overflow-hidden rounded-lg border border-border bg-card">
+        <RouterLink
+          v-for="m in data.models"
+          :key="m.model"
+          :to="modelLocation(jobId, m.model)"
+          class="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border px-5 py-4 transition-colors last:border-b-0 hover:bg-muted/40"
+          data-testid="model-row"
+        >
+          <span class="flex min-w-0 flex-1 flex-col md:flex-[0_0_11.25rem]">
+            <b class="font-semibold">{{ modelName(m.model) }}</b>
+            <span v-if="vendorName(m.model)" class="text-xs text-muted-foreground">
+              {{ vendorName(m.model) }}
+            </span>
+            <!-- Not focusable inside the row link; the model page shows it to keyboard focus. -->
+            <AlertBadge
+              v-if="m.failure"
+              :tip="m.failure.detail"
+              class="mt-1 w-fit"
+              data-testid="model-failure"
+            >
+              {{ m.failure.label }}
+            </AlertBadge>
+          </span>
+          <span
+            class="order-3 flex basis-full flex-col gap-2 md:order-none md:flex-[1_1_23.75rem] md:basis-auto"
+          >
+            <span class="flex flex-wrap items-center gap-x-3 gap-y-1 md:flex-nowrap">
+              <span
+                class="block h-2.5 basis-full overflow-hidden rounded bg-muted md:flex-1 md:basis-auto"
+                aria-hidden="true"
+              >
+                <span
+                  class="block h-full rounded bg-primary"
+                  :style="{ width: barWidth(m.rate_with) }"
+                />
+              </span>
+              <span class="text-sm md:w-[13.5rem] md:shrink-0" data-testid="right-with">
+                <b class="font-semibold">{{ ofText(m.right_with, m.graded_with) }}</b> right with
+                your data
+              </span>
+            </span>
+            <span class="flex flex-wrap items-center gap-x-3 gap-y-1 md:flex-nowrap">
+              <span
+                class="block h-2.5 basis-full overflow-hidden rounded bg-muted md:flex-1 md:basis-auto"
+                aria-hidden="true"
+              >
+                <span
+                  class="block h-full rounded bg-muted-foreground/60"
+                  :style="{ width: barWidth(m.rate_alone) }"
+                />
+              </span>
+              <span
+                class="text-sm text-muted-foreground md:w-[13.5rem] md:shrink-0"
+                data-testid="right-alone"
+              >
+                {{ ofText(m.right_alone, m.graded_alone) }} on its own
+              </span>
+            </span>
+          </span>
+          <span class="flex flex-col items-end md:w-24">
+            <b class="text-xl font-semibold text-primary tabular-nums">{{ points(m.lift) }}</b>
+            <span class="text-xs text-muted-foreground">points</span>
+          </span>
+          <ChevronRight class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </RouterLink>
+      </div>
+    </section>
+
+    <section
+      v-if="took !== null || cost !== null || parts"
+      class="space-y-2.5"
+      aria-labelledby="cost-title"
+      data-testid="time-cost"
+    >
+      <div>
+        <h2 id="cost-title" class="text-base font-semibold">Time and cost</h2>
+        <p class="text-sm text-muted-foreground">Paid with your own model keys.</p>
+      </div>
+      <div class="flex flex-wrap overflow-hidden rounded-lg border border-border bg-card">
+        <div v-if="took !== null" :class="TILE" class="flex-[1_1_12.5rem]" data-testid="took">
+          <span class="text-xs font-medium text-muted-foreground">Took</span>
+          <b class="text-2xl font-semibold tabular-nums">{{ tookText(took) }}</b>
+          <span v-if="startFinish" class="text-xs text-muted-foreground">{{ startFinish }}</span>
+        </div>
+        <div v-if="cost !== null" :class="TILE" class="flex-[1_1_12.5rem]" data-testid="cost">
+          <span class="text-xs font-medium text-muted-foreground">Cost</span>
+          <b class="text-2xl font-semibold tabular-nums">{{ usdText(cost) }}</b>
+          <span class="text-xs text-muted-foreground">All model calls in this run</span>
+        </div>
+        <div
+          v-if="parts"
+          :class="TILE"
+          class="flex-[2_1_26.25rem] gap-2.5"
+          data-testid="cost-parts"
+        >
+          <span class="text-xs font-medium text-muted-foreground">Where the cost went</span>
+          <div
+            class="flex h-3 gap-0.5 overflow-hidden rounded-md"
+            role="img"
+            :aria-label="costLabel(parts, usdText)"
+          >
+            <span
+              v-for="p in parts.filter((x) => x.usd > 0)"
+              :key="p.key"
+              class="block h-full"
+              :style="{ width: p.width, background: p.color }"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-x-5 gap-y-1 text-sm">
+            <span v-for="p in parts" :key="p.key" class="flex items-center gap-2">
+              <i
+                class="size-2.5 shrink-0 rounded-sm"
+                :style="{ background: p.color }"
+                aria-hidden="true"
+              />
+              <span class="min-w-0 flex-1 text-muted-foreground">{{ p.label }}</span>
+              <b class="font-semibold tabular-nums">{{ usdText(p.usd) }}</b>
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <RouterLink
+      :to="methodLocation(jobId)"
+      class="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3.5 transition-colors hover:bg-muted/40"
+      data-testid="method-link"
+    >
+      <span class="flex flex-col gap-0.5">
+        <b class="font-medium">How this was tested</b>
+        <span class="text-xs text-muted-foreground">
+          The settings this run used: how questions were written and filtered, which models and
+          judges took part, and what left your organization
+        </span>
+      </span>
+      <ChevronRight class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </RouterLink>
+  </section>
+</template>
+
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { toast } from 'vue-sonner'
+import { ChevronRight } from 'lucide-vue-next'
+import { Button } from '@/components/ui/button'
+import { apiErrorDetail } from '@/lib/errors'
+import Hint from '../Hint.vue'
+import AlertBadge from './AlertBadge.vue'
+import { useReport, useRun } from './context'
+import { useDetails } from './details/useDetails'
+import { barWidth, count, DASH, dayTime, points, utcStamp } from './figures'
+import { modelName, vendorName } from './labels'
+import { methodLocation, modelLocation } from './routing'
+import { saveRunExport } from './useRunReport'
+import {
+  otherNotAsked,
+  runHeaderText,
+  stoppedLabel,
+  stoppedTip,
+  usdText,
+  webRemoved,
+} from './selectors'
+import {
+  costLabel,
+  costParts,
+  customerCost,
+  runDuration,
+  startFinishText,
+  tookText,
+} from './timeCost'
+
+const TILE =
+  'flex flex-col gap-0.5 border-b border-border px-5 py-4 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0'
+
+const report = useReport()
+const { jobId, slug, data } = useRun()
+const details = useDetails()
+
+/** No model was asked: the page shows what the job wrote and filtered. */
+const buildOnly = computed(() => data.value?.run.build_only ?? false)
+const header = computed(() => (data.value ? runHeaderText(data.value) : null))
+const took = computed(() => (data.value ? runDuration(data.value.run) : null))
+const startFinish = computed(() => (data.value ? startFinishText(data.value.run) : null))
+const cost = computed(() => (data.value ? customerCost(data.value.method) : null))
+const parts = computed(() => (data.value ? costParts(data.value.method) : null))
+const removed = computed(() => (data.value ? webRemoved(data.value) : null))
+const other = computed(() => (data.value ? otherNotAsked(data.value) : null))
+
+/** Unsigned whole points: 47 → `47`, −5 → `−5`. */
+function bare(x: number): string {
+  const n = Math.round(x)
+  return n < 0 ? `−${-n}` : String(n)
+}
+
+const lead = computed(() => {
+  const lifts = (data.value?.models ?? [])
+    .map((m) => m.lift)
+    .filter((x): x is number => typeof x === 'number')
+  const tail = 'Select a model to see how it answered.'
+  if (!lifts.length) return tail
+  const lo = bare(Math.min(...lifts))
+  const hi = bare(Math.max(...lifts))
+  return `Your data added ${lo === hi ? lo : `${lo} to ${hi}`} points. ${tail}`
+})
+
+function ofText(right: number, graded: number): string {
+  return graded > 0 ? `${count(right)} of ${count(graded)}` : DASH
+}
+
+const downloading = ref(false)
+
+async function download(): Promise<void> {
+  downloading.value = true
+  try {
+    await report.downloadSummary(jobId)
+  } catch (e) {
+    toast.error(apiErrorDetail(e, 'Could not download the summary'))
+  } finally {
+    downloading.value = false
+  }
+}
+
+const exporting = ref(false)
+
+async function downloadExcel(): Promise<void> {
+  exporting.value = true
+  try {
+    await saveRunExport(slug, jobId)
+  } catch (e) {
+    toast.error(apiErrorDetail(e, 'Could not download the Excel file'))
+  } finally {
+    exporting.value = false
+  }
+}
+</script>

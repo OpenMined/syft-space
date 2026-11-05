@@ -34,6 +34,7 @@ dependencies = [
     "spacy>=3.8.14",
     "en-core-web-sm",
     "feedparser>=6.0.11",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,20 @@
+[
+    {
+        "key": "docs",
+        "title": "SyftHub and Syft Space documentation",
+        "url": "http://localhost:8081",
+        "endpoint": "syfthub-docs",
+        "container": "space",
+        "chroma_host": "localhost",
+        "chroma_port": 8091
+    },
+    {
+        "key": "atlantic",
+        "title": "The Atlantic",
+        "url": "http://localhost:8082",
+        "endpoint": "livetruth-atlantic",
+        "container": "space-atlantic",
+        "chroma_host": "localhost",
+        "chroma_port": 0
+    }
+]

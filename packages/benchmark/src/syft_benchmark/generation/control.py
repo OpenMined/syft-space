@@ -1,0 +1,252 @@
+"""Checking questions against live retrieval: the control gate and the archive check.
+
+A generated negative is the writer's conjecture from ONE chunk; retrieval
+searches the whole collection, and the answer may be in a neighbouring
+document. Unchecked, a correct answer would be recorded as a hallucination. So
+a candidate is put to live retrieval, and a judge (not the writer) decides
+whether a fragment found answers it.
+
+Two gates share that search and that judge. ``gate_unanswerable`` keeps a
+question retrieval does NOT answer (a missing detail). ``gate_answerable``
+keeps a question retrieval DOES answer; a false premise goes through it with
+its correction as the expected answer, since refuting the premise needs the
+archive to state the true fact.
+
+The gate uses the same retrieval that is measured afterwards: "there is no
+answer" is meaningful only relative to a specific endpoint.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from syft_benchmark.config import Settings, get_settings
+from syft_benchmark.llm import LLMError, Provider, chat, cost, parse_json_object
+from syft_benchmark.llm.roles import web_search_for
+
+# A question in, the texts of the chunks found out. A callable, so generation
+# does not depend on the runs module and the gate is testable offline.
+Retriever = Callable[[str], list[str]]
+
+_GATE_SYSTEM = """\
+You check whether a question can be answered from the material found for it.
+
+You are given a question and the fragments a search returned for it. Decide \
+whether ANY fragment states the answer.
+
+Be strict in one direction only: a fragment that is merely about the same \
+topic does NOT answer the question. The answer must actually be stated.
+
+Return ONLY a JSON object, no markdown and no commentary:
+{"answered": false, "where": "", "reasoning": "one short sentence"}
+
+Set "answered" to true only if a fragment states the answer, and put a short \
+quote from it in "where".
+"""
+
+_ANSWERABLE_SYSTEM = """\
+You check whether the material found for a question states its expected answer.
+
+You are given a question, its expected answer, sometimes the facts that answer \
+rests on, and the fragments a search returned for the question. Decide whether \
+the fragments, taken together, state the expected answer. When facts are given, \
+it is enough that the fragments state those facts: the expected answer may be \
+an explanation or a synthesis built on them.
+
+When a false premise is given, the question rests on a claim that is not true \
+and the expected answer is its correction. Then decide whether any fragment \
+states the true fact that contradicts the false premise.
+
+A fragment that is merely about the same topic does NOT count: the fact must \
+actually be stated. The wording may differ; the meaning must match.
+
+Return ONLY a JSON object, no markdown and no commentary:
+{"answered": false, "where": "", "reasoning": "one short sentence"}
+
+Set "answered" to true only if the fragments state it, and put a short quote \
+from one of them in "where".
+"""
+
+# Fragments beyond this many characters are not shown to the judge.
+_FRAGMENTS_CHARS = 8000
+
+
+@dataclass(frozen=True, slots=True)
+class Gate:
+    """The result of checking one candidate against live retrieval."""
+
+    clear: bool  # the candidate is fit for the set
+    note: str
+    fragments: int = 0
+    checked: bool = True  # False — the check failed, fitness is unknown
+    # The model call, for the record: {model, system, user, reply, cost_usd,
+    # latency_s}; empty — no call was made or it failed.
+    call: dict[str, Any] = field(default_factory=dict)
+
+
+def _search(question: str, retrieve: Retriever) -> list[str] | Gate:
+    """The non-empty fragments found, or the failed check.
+
+    A retriever signals a failed endpoint call by raising, never by returning
+    nothing: an empty list means retrieval genuinely found nothing.
+    """
+    try:
+        return [text.strip() for text in retrieve(question) if text.strip()]
+    except Exception as exc:  # noqa: BLE001 - the endpoint may have been rebooting
+        return Gate(False, f"retrieval unreachable: {exc}", checked=False)
+
+
+def _ask(
+    system: str, user: str, conf: Settings, judge: Provider
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The judge's parsed reply and the call record; raises ``LLMError``."""
+    searching, engine = web_search_for(conf, "judge", judge.model)
+    raw, usage = chat(
+        system,
+        user,
+        provider=judge,
+        max_tokens=600,
+        settings=conf,
+        judging=True,
+        web_search=searching,
+        web_search_engine=engine or "auto",
+        role=cost.WEB_CHECK,
+    )
+    call = {
+        "model": judge.model,
+        "system": system,
+        "user": user,
+        "reply": raw,
+        **cost.spent(usage),
+    }
+    return parse_json_object(raw), call
+
+
+def gate_unanswerable(
+    question: str,
+    retrieve: Retriever,
+    *,
+    judge: Provider,
+    settings: Settings | None = None,
+) -> Gate:
+    """Make sure live retrieval does not answer this question.
+
+    Args:
+        question: A candidate for the control set
+        retrieve: What to search with: question → the texts of the chunks found
+        settings: The process's settings
+        judge: Who decides; a judge, not the generator
+
+    Returns:
+        Gate: whether the candidate is fit, and why
+    """
+    conf = settings or get_settings()
+
+    fragments = _search(question, retrieve)
+    if isinstance(fragments, Gate):
+        return fragments
+
+    if not fragments:
+        # Nothing found: unanswerable by this endpoint, no judge needed.
+        return Gate(True, "retrieval returned nothing", fragments=0)
+
+    listed = "\n---\n".join(fragments)[:_FRAGMENTS_CHARS]
+    user = f"Question:\n{question}\n\nFragments:\n{listed}\n\nIs it answered?"
+    try:
+        data, call = _ask(_GATE_SYSTEM, user, conf, judge)
+    except LLMError as exc:
+        # Unknown is not fit.
+        return Gate(
+            False, f"the gate did not run: {exc}", len(fragments), checked=False
+        )
+
+    answered = bool(data.get("answered", False))
+    if answered:
+        where = str(data.get("where", ""))[:200]
+        return Gate(
+            False,
+            f"retrieval answers the question: {where}",
+            len(fragments),
+            call=call,
+        )
+    return Gate(
+        True,
+        f"retrieval does not answer ({len(fragments)} chunks)",
+        len(fragments),
+        call=call,
+    )
+
+
+def gate_answerable(
+    question: str,
+    expected: str,
+    retrieve: Retriever,
+    *,
+    facts: Sequence[str] = (),
+    premise: str = "",
+    judge: Provider,
+    settings: Settings | None = None,
+) -> Gate:
+    """Make sure live retrieval finds the expected answer to this question.
+
+    With ``premise`` set, the question rests on that false claim and
+    ``expected`` is its correction: a fragment must state the true fact.
+
+    Args:
+        question: The candidate question
+        expected: Its gold answer; for a false premise, the correction
+        retrieve: What to search with: question → the texts of the chunks found
+        facts: The stored facts the answer rests on (``meta.claims``)
+        premise: The false claim built into the question; empty — none
+        settings: The process's settings
+        judge: Who decides; a judge, not the generator
+
+    Returns:
+        Gate: whether the candidate is fit, and why
+    """
+    conf = settings or get_settings()
+    what = "correction" if premise else "answer"
+
+    fragments = _search(question, retrieve)
+    if isinstance(fragments, Gate):
+        return fragments
+    if not fragments:
+        return Gate(
+            False, f"{what} not found in the archive: retrieval returned nothing"
+        )
+
+    listed = "\n---\n".join(fragments)[:_FRAGMENTS_CHARS]
+    parts = [f"Question:\n{question}"]
+    if premise:
+        parts.append(f"False premise:\n{premise}")
+    parts.append(f"Expected answer:\n{expected}")
+    if facts:
+        parts.append("Facts it rests on:\n" + "\n".join(f"- {f}" for f in facts))
+    parts.append(f"Fragments:\n{listed}")
+    parts.append(
+        "Does any fragment state the true fact that contradicts the false premise?"
+        if premise
+        else "Does any fragment state the expected answer?"
+    )
+    user = "\n\n".join(parts)
+    try:
+        data, call = _ask(_ANSWERABLE_SYSTEM, user, conf, judge)
+    except LLMError as exc:
+        # Unknown is not fit, as in gate_unanswerable.
+        return Gate(
+            False, f"the gate did not run: {exc}", len(fragments), checked=False
+        )
+
+    if bool(data.get("answered", False)):
+        where = str(data.get("where", ""))[:200]
+        return Gate(
+            True, f"{what} found in the archive: {where}", len(fragments), call=call
+        )
+    return Gate(
+        False,
+        f"{what} not found in the archive ({len(fragments)} chunks)",
+        len(fragments),
+        call=call,
+    )

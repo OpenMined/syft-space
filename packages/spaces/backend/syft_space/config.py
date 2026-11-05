@@ -241,6 +241,15 @@ class AppSettings(BaseSettings):
         description="Timeout in seconds for local chat model/dataset calls",
     )
 
+    # Feature flags
+    benchmark_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the benchmark: its API routes and its pages in the "
+            "frontend. Off: neither is served."
+        ),
+    )
+
     @field_validator("public_url", "docling_serve_url", mode="before")
     @classmethod
     def validate_optional_url(cls, v: HttpUrl | str | None) -> HttpUrl | None:
