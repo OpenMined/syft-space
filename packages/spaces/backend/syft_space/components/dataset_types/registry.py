@@ -14,8 +14,9 @@ class DatasetTypeRegistry:
     and are reachable through ``cls.VECTOR_STORE_CLS.PROVISIONER_CLS``.
     """
 
-    _dataset_types: dict[str, type[BaseDatasetType]] = {}
-    _lazy_dataset_types: dict[str, tuple[str, str]] = {}
+    def __init__(self) -> None:
+        self._dataset_types: dict[str, type[BaseDatasetType]] = {}
+        self._lazy_dataset_types: dict[str, tuple[str, str]] = {}
 
     def get_dataset_type(self, name: str) -> type[BaseDatasetType]:
         """Get dataset type class by name.

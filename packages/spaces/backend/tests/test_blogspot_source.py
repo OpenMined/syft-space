@@ -680,9 +680,9 @@ class TestBinding:
         source_cfg, store_cfg = BlogspotChromaDBDatasetType.split_config(
             {**CONF, "collectionName": "blog_posts", "httpPort": 9000}
         )
-        assert source_cfg["blog_urls"] == BLOG_URL
-        assert source_cfg["api_key"] == API_KEY
-        assert store_cfg == {"collection_name": "blog_posts", "http_port": 9000}
+        assert source_cfg["blogUrls"] == BLOG_URL
+        assert source_cfg["apiKey"] == API_KEY
+        assert store_cfg == {"collectionName": "blog_posts", "httpPort": 9000}
 
     def test_redaction_drops_the_key_but_keeps_the_urls(self):
         redacted = BlogspotChromaDBDatasetType.redact_configuration(
@@ -764,3 +764,55 @@ class TestFetchDocument:
         async with source.fetch(bs._post_id("123", "456")) as file:
             heading = file.path.read_text().splitlines()[0]
         assert heading == "<h1>A &amp; &lt;b&gt;</h1>"
+
+
+class TestValidationScope:
+    """An edit resolves only the blogs the stored row did not already list."""
+
+    @pytest.fixture
+    def resolved(self, monkeypatch) -> list[tuple[str, list[str]]]:
+        calls: list[tuple[str, list[str]]] = []
+
+        async def fetch_blogs(client, api_key, blog_urls):
+            calls.append((api_key, list(blog_urls)))
+            return []
+
+        monkeypatch.setattr(bs, "_fetch_blogs", fetch_blogs)
+        return calls
+
+    async def test_a_new_configuration_resolves_every_blog(self, resolved):
+        await BlogspotProvider.validate_configuration(
+            {
+                "blogUrls": "https://a.blogspot.com, https://b.blogspot.com",
+                "apiKey": "k",
+            }
+        )
+        assert resolved == [("k", ["https://a.blogspot.com", "https://b.blogspot.com"])]
+
+    async def test_an_added_blog_is_the_only_one_resolved(self, resolved):
+        await BlogspotProvider.validate_configuration(
+            {
+                "blogUrls": "https://a.blogspot.com, https://b.blogspot.com",
+                "apiKey": "k",
+            },
+            previous={"blogUrls": "https://a.blogspot.com", "apiKey": "k"},
+        )
+        assert resolved == [("k", ["https://b.blogspot.com"])]
+
+    async def test_an_unchanged_list_resolves_nothing(self, resolved):
+        await BlogspotProvider.validate_configuration(
+            {
+                "blogUrls": "https://a.blogspot.com",
+                "apiKey": "k",
+                "pollIntervalSeconds": 60,
+            },
+            previous={"blogUrls": "https://a.blogspot.com", "apiKey": "k"},
+        )
+        assert resolved == []
+
+    async def test_a_new_key_resolves_every_blog_again(self, resolved):
+        await BlogspotProvider.validate_configuration(
+            {"blogUrls": "https://a.blogspot.com", "apiKey": "fresh"},
+            previous={"blogUrls": "https://a.blogspot.com", "apiKey": "k"},
+        )
+        assert resolved == [("fresh", ["https://a.blogspot.com"])]

@@ -22,6 +22,11 @@ from syft_space.components.datasets.entities import (
     ProvisionerState,
     ProvisionerStatus,
 )
+from syft_space.components.datasets.events import (
+    AxisChange,
+    ConfigurationChangeListener,
+    DatasetConfigurationChanged,
+)
 from syft_space.components.datasets.provisioner_state_repository import (
     ProvisionerStateRepository,
 )
@@ -32,6 +37,7 @@ from syft_space.components.datasets.schemas import (
     DatasetListItem,
     DatasetResponse,
     DatasetTypeInfoResponse,
+    HealthcheckRequest,
     HealthcheckResponse,
     ProvisionerActionResponse,
     ProvisionerInfoResponse,
@@ -47,6 +53,9 @@ from syft_space.components.datasets.selection_repository import (
     DatasetSelectionRepository,
 )
 from syft_space.components.endpoints.repository import EndpointRepository
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse as ConnectionHealth,
+)
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.ingest_types import IngestContext
 from syft_space.components.sources.errors import SourceError
@@ -66,6 +75,7 @@ class DatasetHandler:
         provisioner_state_repository: ProvisionerStateRepository,
         endpoint_repository: EndpointRepository,
         selection_repository: DatasetSelectionRepository,
+        configuration_listeners: list[ConfigurationChangeListener] | None = None,
     ):
         """Initialize the dataset handler.
 
@@ -75,12 +85,14 @@ class DatasetHandler:
             provisioner_state_repository: Provisioner state repository
             endpoint_repository: Endpoint repository (guards against deleting datasets in use)
             selection_repository: Selection repository (the source of truth for picks)
+            configuration_listeners: Told after a configuration edit is committed
         """
         self.registry = registry
         self.repository = repository
         self.provisioner_state_repository = provisioner_state_repository
         self.endpoint_repository = endpoint_repository
         self.selection_repository = selection_repository
+        self.configuration_listeners = list(configuration_listeners or ())
 
     # ============== Private Provisioner Lifecycle Methods ==============
 
@@ -609,6 +621,12 @@ class DatasetHandler:
     ) -> DatasetResponse:
         """Update a dataset by name within a tenant.
 
+        A configuration edit is merged into the stored configuration,
+        validated per axis, written in the same transaction as the other
+        fields, and then announced to the configuration listeners. The
+        response's ``connected_endpoints`` say which endpoints are
+        published; republishing them is the client's call.
+
         Args:
             name: Current dataset name
             request: Update request with fields to update
@@ -618,10 +636,21 @@ class DatasetHandler:
             Updated dataset details
 
         Raises:
-            HTTPException: If dataset not found or name already exists
-            ValidationError: If no fields provided (handled by FastAPI/Pydantic)
+            HTTPException: 404 unknown dataset, 409 name taken, 400 a key
+                that is not editable, 422 a merged configuration the axes
+                refuse.
         """
-        # Update dataset
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        new_configuration: dict[str, Any] | None = None
+        if request.configuration is not None:
+            new_configuration = await self._merge_configuration(
+                dataset, request.configuration
+            )
+            await self._validate_configuration(dataset, new_configuration)
+
         try:
             updated_dataset = await self.repository.update_by_name(
                 name,
@@ -629,6 +658,7 @@ class DatasetHandler:
                 name_new=request.name,
                 summary=request.summary,
                 tags=request.tags,
+                configuration=new_configuration,
             )
         except ValueError as e:
             # Name conflict or constraint violation
@@ -636,6 +666,11 @@ class DatasetHandler:
 
         if not updated_dataset:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        if new_configuration is not None and new_configuration != dataset.configuration:
+            await self._announce_configuration_change(
+                updated_dataset, dataset.configuration, new_configuration
+            )
 
         # Get provisioner state if exists
         provisioner_state = None
@@ -645,6 +680,102 @@ class DatasetHandler:
             )
 
         return await self._build_response(updated_dataset, provisioner_state)
+
+    async def healthcheck_with(
+        self, name: str, request: HealthcheckRequest, tenant: Tenant
+    ) -> ConnectionHealth:
+        """Dry run: does the stored configuration, with these edits, connect?
+
+        Same merge as ``update_dataset``; the shape must parse (422), then
+        the source's connection and the vector store are each tried and
+        reported as health, never as a refusal. Nothing is written.
+        """
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+
+        configuration = await self._merge_configuration(dataset, request.configuration)
+        dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        try:
+            return await dataset_type_cls.check_connection(configuration)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=422, detail=f"Invalid configuration: {e}"
+            ) from e
+
+    async def _merge_configuration(
+        self, dataset: Dataset, edits: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The stored configuration with ``edits`` applied; nothing is written.
+
+        The merge rules are the binding's (``apply_edits``); a key that is
+        not editable is a 400 naming it. Connection fields a provisioner
+        owns are re-applied from its state afterwards.
+        """
+        dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        try:
+            merged = dataset_type_cls.apply_edits(dataset.configuration, edits)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        provisioner_state = (
+            await self.provisioner_state_repository.get_by_id(
+                dataset.provisioner_state_id
+            )
+            if dataset.provisioner_state_id
+            else None
+        )
+        if provisioner_state:
+            for field in dataset_type_cls.connection_fields():
+                if field in provisioner_state.state:
+                    merged[field] = provisioner_state.state[field]
+        return merged
+
+    async def _validate_configuration(
+        self, dataset: Dataset, configuration: dict[str, Any]
+    ) -> None:
+        """Validate per axis against the stored row, 422 on refusal.
+
+        The source is handed the stored configuration as ``previous`` so it
+        probes only the connection fields that changed.
+        """
+        dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        try:
+            await dataset_type_cls.validate_configuration(
+                configuration, previous=dataset.configuration
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=422, detail=f"Invalid configuration: {e}"
+            ) from e
+
+    async def _announce_configuration_change(
+        self, dataset: Dataset, old: dict[str, Any], new: dict[str, Any]
+    ) -> None:
+        """Tell each listener, after the commit; one failing does not stop the rest.
+
+        Both sides are compared in canonical spelling, so an edit that only
+        rewrote a key's spelling reads as unchanged to the listeners.
+        """
+        dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        old_source, old_store = dataset_type_cls.split_config(
+            dataset_type_cls.canonical_configuration(old)
+        )
+        new_source, new_store = dataset_type_cls.split_config(new)
+        event = DatasetConfigurationChanged(
+            dataset=dataset,
+            source=AxisChange(old_source, new_source),
+            vector_store=AxisChange(old_store, new_store),
+            vector_store_cls=dataset_type_cls.VECTOR_STORE_CLS,
+        )
+        for listener in self.configuration_listeners:
+            try:
+                await listener.on_configuration_changed(event)
+            except Exception as e:
+                logger.error(
+                    f"Configuration listener {type(listener).__name__} failed "
+                    f"for dataset '{dataset.name}': {e}"
+                )
 
     # ============== Selection ==============
 

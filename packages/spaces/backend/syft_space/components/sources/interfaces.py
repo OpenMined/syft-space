@@ -163,11 +163,14 @@ class BaseSourceProvider(Protocol):
     the two factories that build a ``BaseBrowser`` or a ``BaseSource``
     from a configuration dict. The picker calls ``for_browse``;
     ingestion calls ``for_ingest``. ``METADATA_FIELDS`` declares the keys
-    the source writes into ``IngestFile.metadata``.
+    the source writes into ``IngestFile.metadata``. ``CONFIG_MODEL`` is the
+    dataset configuration model: its fields and flags
+    (``shared.config_flags``) are the source's whole configuration contract.
     """
 
     NAME: str
     METADATA_FIELDS: ClassVar[type[MetadataFields]]
+    CONFIG_MODEL: ClassVar[type[BaseModel]]
 
     @classmethod
     def name(cls) -> str:
@@ -250,14 +253,22 @@ class BaseSourceProvider(Protocol):
         ...
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
         """Validate the full dataset configuration for the source.
+
+        Shape is always checked. Live probes (reaching the site, fetching a
+        feed) run for whatever ``previous`` does not already cover: ``None``
+        means a new configuration and everything is probed; a stored
+        configuration means an edit, and the source probes only what changed.
 
         Args:
             configuration: Dataset-shaped payload (browse fields + ingestion fields).
+            previous: The configuration this one replaces, if any.
 
         Raises:
-            ValueError: If the payload doesn't match ``configuration_schema``.
+            ValueError: If the configuration is invalid.
         """
         ...
 

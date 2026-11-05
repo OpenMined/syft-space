@@ -4,6 +4,7 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
+from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.config import app_settings
 
 
@@ -15,9 +16,9 @@ def default_http_port() -> int:
 class ChromaDBLocalVectorStoreConfiguration(BaseModel):
     """Configuration for the ChromaDB local vector store.
 
-    Narrow vector-store-only config (no source-axis fields). The binding
-    layer (``dataset_types/chromadb_local/``) carries the combined
-    source + vector store schema and forwards the relevant subset here.
+    Narrow vector-store-only config (no source-axis fields); the binding
+    composes it with the source's. ``http_port`` is overlaid from the
+    shared provisioner, so it is internal: stored, never shown.
     """
 
     collection_name: str = Field(
@@ -29,6 +30,7 @@ class ChromaDBLocalVectorStoreConfiguration(BaseModel):
         default_factory=default_http_port,
         alias="httpPort",
         description="ChromaDB server HTTP port",
+        json_schema_extra=cfg_flags(visibility=Visibility.INTERNAL),
     )
 
     model_config = {"populate_by_name": True}
