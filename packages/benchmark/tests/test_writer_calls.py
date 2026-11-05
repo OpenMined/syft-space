@@ -95,7 +95,7 @@ def _generate(
 def _kept() -> list[dict[str, Any]]:
     with session_scope() as session:
         return list(
-            writing_view.job_writing(session, JOB, limit=200)["items"]  # type: ignore[arg-type]
+            writing_view.job_writing(session, [JOB], limit=200)["items"]  # type: ignore[arg-type]
         )
 
 

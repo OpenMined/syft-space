@@ -2,6 +2,8 @@
 
 The list is filtered and paged over the question index cached in the run's
 aggregate (``run_view``); only the rows of the page are read from the pairs.
+Each row names the job its answers come from: for a combined run, the member
+whose observation counts (the earliest), read with that member's judges.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from sqlalchemy.orm import Session
 from syft_benchmark.config import EvalBlock
 from syft_benchmark.db.models import Job, QaPair, Result, Run
 from syft_benchmark.llm.web_search import unused_reason
-from syft_benchmark.report import run_view
+from syft_benchmark.report import combined_view, run_view
 from syft_benchmark.report.counted import (
     OUTCOMES,
     AnswerKey,
@@ -38,13 +40,19 @@ def _escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _row(entry: dict[str, Any], model: str, pair: QaPair) -> dict[str, Any]:
+def _counted_from(entry: dict[str, Any] | None, model: str) -> str | None:
+    """The member a combined run's row counts ``model``'s answers from."""
+    return ((entry or {}).get("job_ids") or {}).get(model)
+
+
+def _row(entry: dict[str, Any], model: str, pair: QaPair, job: Job) -> dict[str, Any]:
     alone, with_, group, overridden = entry["models"].get(
         model, [None, None, None, False]
     )
     return {
         "n": entry["n"],
         "qa_id": entry["qa_id"],
+        "job_id": _counted_from(entry, model) or job.id,
         "generator": entry["generator"],
         "document_title": pair.document_title or "",
         "file_name": pair.file_name or "",
@@ -126,7 +134,7 @@ def list_questions(
     )
     return {
         "items": [
-            _row(e, model, pairs[e["qa_id"]]) for e in page if e["qa_id"] in pairs
+            _row(e, model, pairs[e["qa_id"]], job) for e in page if e["qa_id"] in pairs
         ],
         "total": len(entries),
         "counts": counts,
@@ -346,21 +354,90 @@ def question_detail(
     pair = session.get(QaPair, qa_id)
     if pair is None:
         return None
-    rows = _answer_rows(session, job, model, qa_id)
     entry = next((e for e in index if e["qa_id"] == qa_id), None)
+    source = _source(session, job, entry, model, qa_id)
+    if source is None:
+        return None
+    if source is not job:
+        judges = run_view.counting_judges(session, source, configured=configured)
+    rows = _answer_rows(session, source, model, qa_id)
     if entry is None:
-        if not rows and not run_view.took_part(session, job.id, qa_id):
+        if not rows and not run_view.took_part(session, source.id, qa_id):
             return None
         entry = _entry_of(rows, pair, judges)
     panel = [*judges, ""]
     judge_rows, agreed = _judges(rows, judges)
-    return {
-        "question": _row(entry, model, pair),
+    detail = {
+        "question": _row(entry, model, pair, source),
         "context": pair.context,
         "arms": {ALONE: _arm(rows, ALONE, panel), WITH: _arm(rows, WITH, panel)},
         "judges": judge_rows,
         "judges_agreed": agreed,
     }
+    if combined_view.is_combined(job):
+        detail["observations"] = _observations(
+            session, job, model, qa_id, configured=configured
+        )
+    return detail
+
+
+def _source(
+    session: Session,
+    job: Job,
+    entry: dict[str, Any] | None,
+    model: str,
+    qa_id: str,
+) -> Job | None:
+    """The job a question's answers are read from: the job itself; for a
+    combined run the member counted, else the first that asked it."""
+    if not combined_view.is_combined(job):
+        return job
+    members = combined_view.member_jobs(session, job.id)
+    wanted = _counted_from(entry, model)
+    for member in members:
+        if member.id == wanted:
+            return member
+    return next((m for m in members if run_view.took_part(session, m.id, qa_id)), None)
+
+
+def _observations(
+    session: Session, job: Job, model: str, qa_id: str, *, configured: Panel
+) -> list[dict[str, Any]]:
+    """A combined run's question per member that asked it, oldest first: the
+    verdicts as that member counts them."""
+    out = []
+    for member in combined_view.member_jobs(session, job.id):
+        rows = _answer_rows(session, member, model, qa_id)
+        if not rows:
+            continue
+        panel = [
+            *run_view.counting_judges(session, member, configured=configured),
+            "",
+        ]
+        verdicts: dict[str, str | None] = {}
+        overridden = False
+        for arm in (ALONE, WITH):
+            picked = pick(
+                [
+                    r
+                    for r, run in rows
+                    if ARM_OF[run.context_mode] == arm
+                    and run.block == EvalBlock.DIRECT.value
+                ],
+                panel,
+            )
+            verdicts[arm] = picked.counted.verdict if picked.counted else None
+            overridden = overridden or picked.override is not None
+        out.append(
+            {
+                "job_id": member.id,
+                "created_at": member.created_at.isoformat(),
+                "verdict_alone": verdicts[ALONE],
+                "verdict_with": verdicts[WITH],
+                "overridden": overridden,
+            }
+        )
+    return out
 
 
 def _entry_of(
@@ -419,6 +496,16 @@ def fragments(
     pair = session.get(QaPair, qa_id)
     if pair is None:
         return None
+    if combined_view.is_combined(job):
+        (index,) = run_view.aggregate_parts(
+            session, job, "questions", configured=configured
+        )
+        entry = next((e for e in index if e["qa_id"] == qa_id), None)
+        source = _source(session, job, entry, model, qa_id)
+        if source is None:
+            return None
+        job = source
+        judges = run_view.counting_judges(session, job, configured=configured)
     rows = [
         (result, run_row)
         for result, run_row in _answer_rows(session, job, model, qa_id)

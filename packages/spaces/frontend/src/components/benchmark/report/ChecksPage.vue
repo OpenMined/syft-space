@@ -55,17 +55,62 @@
           <p class="text-sm" data-testid="check-reading">{{ row.reading }}</p>
         </div>
       </div>
+
+      <div v-if="repeats" class="flex flex-wrap gap-x-8 gap-y-4 p-5" data-testid="check-repeats">
+        <div class="flex min-w-0 flex-[1_1_320px] flex-col gap-1">
+          <h2 class="text-[15px] font-semibold">Repeated questions</h2>
+          <p class="text-sm text-muted-foreground">
+            {{ plural(repeats.questions, 'question was', 'questions were') }} asked in more than one
+            run.
+          </p>
+        </div>
+        <div class="min-w-0 flex-[1_1_360px] overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="text-xs text-muted-foreground">
+              <tr>
+                <th scope="col" class="pb-1.5 text-left font-medium">
+                  <span class="sr-only">Figure</span>
+                </th>
+                <th
+                  v-for="arm in repeatArms"
+                  :key="arm.key"
+                  scope="col"
+                  class="pb-1.5 text-right font-medium"
+                >
+                  {{ arm.label }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="line in REPEAT_LINES" :key="line.key" data-testid="repeat-line">
+                <th scope="row" class="py-1 text-left font-normal text-muted-foreground">
+                  <Hint :text="line.tip">
+                    <span class="cursor-help">{{ line.label }}</span>
+                  </Hint>
+                </th>
+                <td
+                  v-for="arm in repeatArms"
+                  :key="arm.key"
+                  class="py-1 text-right font-medium tabular-nums"
+                >
+                  {{ line.value(arm.stats) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { BenchmarkRunMethod } from '@/api/types'
+import type { BenchmarkRepeatStats, BenchmarkRunMethod } from '@/api/types'
 import Hint from '../Hint.vue'
 import { plural } from '../labels'
 import { useRun } from './context'
-import { barWidth, DASH, pct } from './figures'
+import { barWidth, count, DASH, pct } from './figures'
 import { BEHAVIOR_LABEL, judgesText, modelName, type Behavior } from './labels'
 import { trickReading, trickSquares } from './selectors'
 
@@ -112,6 +157,63 @@ function repeatsText(repeats: BenchmarkRunMethod['repeats']): string {
   if (settings === 1) return `Each question was asked ${total} more times at the same setting.`
   return `Each question was asked ${total} more times, ${times(repeats.trials)} at each of ${settings} settings.`
 }
+
+interface RepeatLine {
+  key: string
+  label: string
+  tip: string
+  value: (s: BenchmarkRepeatStats | null) => string
+}
+
+const REPEAT_LINES: RepeatLine[] = [
+  {
+    key: 'repeated',
+    label: 'Repeated',
+    tip: 'Questions this model answered in more than one run.',
+    value: (s) => count(s?.questions),
+  },
+  {
+    key: 'agreement',
+    label: 'Agreement',
+    tip: 'Share of repeated questions graded the same in every run.',
+    value: (s) => pct(s?.agreement),
+  },
+  {
+    key: 'accuracy',
+    label: 'Accuracy',
+    tip: 'Right answers over every run’s answer.',
+    value: (s) => pct(s?.accuracy),
+  },
+  {
+    key: 'wrong_to_right',
+    label: 'Wrong → right',
+    tip: 'Wrong in one run, right in the next.',
+    value: (s) => count(s?.wrong_to_right),
+  },
+  {
+    key: 'right_to_wrong',
+    label: 'Right → wrong',
+    tip: 'Right in one run, wrong in the next.',
+    value: (s) => count(s?.right_to_wrong),
+  },
+]
+
+/** The selected model's figures on questions asked in more than one combined run. */
+const repeats = computed(() => {
+  const all = run.data.value?.repeats
+  if (!all?.questions) return null
+  const found = all.models.find((m) => m.model === run.model.value)
+  return found ? { questions: all.questions, alone: found.alone, with: found.with } : null
+})
+
+const repeatArms = computed(() =>
+  repeats.value
+    ? [
+        { key: 'alone', label: 'On its own', stats: repeats.value.alone },
+        { key: 'with', label: 'With your data', stats: repeats.value.with },
+      ]
+    : [],
+)
 
 const rows = computed<CheckRow[]>(() => {
   const report = run.modelReport.value

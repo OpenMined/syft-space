@@ -11,7 +11,8 @@ Only ``closed_book`` ("alone") and ``model_with_context`` ("with") count.
 trick check.
 
 A finished job's figures are cached in ``run_aggregates`` under
-``AGGREGATE_VERSION``; an in-progress job is always computed afresh.
+``AGGREGATE_VERSION``; an in-progress job is always computed afresh. A combined
+run (``combined_view``) goes through the same core over its members' answers.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from sqlalchemy.orm import Session
 from syft_benchmark.config import (
     ContextMode,
     EvalBlock,
+    JobKind,
     PairStatus,
     Settings,
     StatusReason,
@@ -52,6 +54,7 @@ from syft_benchmark.report.counted import (
     OUTCOMES,
     AnswerKey,
     Panel,
+    Picked,
     group_answers,
     judge_order,
     pick,
@@ -62,6 +65,7 @@ from syft_benchmark.report.job_params import (
     configured_panel,
     generation_of,
     is_finished,
+    is_scoped,
     iso,
     job_gate,
     job_panel,
@@ -74,7 +78,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 13
+AGGREGATE_VERSION = 14
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -92,6 +96,8 @@ ARM_OF: dict[str, str] = {
     ContextMode.CLOSED_BOOK.value: ALONE,
     ContextMode.MODEL_WITH_CONTEXT.value: WITH,
 }
+ARM_MODE: dict[str, str] = {arm: mode for mode, arm in ARM_OF.items()}
+ARMS = (ALONE, WITH)
 GROUPS = ("fixed", "either", "still", "worse")
 TECHNICAL = Verdict.TECHNICAL.value
 CORRECT = Verdict.CORRECT.value
@@ -137,10 +143,15 @@ class _Row:
     model: str
     denial: dict[str, Any] | None
     repeats: dict[str, Any] | None
+    job_id: str = ""
 
 
-def _load_rows(session: Session, job_id: str) -> list[_Row]:
-    """The job's answers in the two counted arms, oldest first, only the
+def answer_key(row: _Row) -> AnswerKey:
+    return AnswerKey.of(row.model, row.mode, row.block, row.qa_id)
+
+
+def load_rows(session: Session, job_ids: Sequence[str]) -> list[_Row]:
+    """The jobs' answers in the two counted arms, oldest first, only the
     columns the figures need."""
     stmt = (
         select(
@@ -153,9 +164,10 @@ def _load_rows(session: Session, job_id: str) -> list[_Row]:
             Run.model,
             Result.extra["denial"].op("-")("log"),
             Result.extra["monte_carlo"].op("-")("log"),
+            Run.job_id,
         )
         .join(Run, Run.id == Result.run_id)
-        .where(Run.job_id == job_id, Run.context_mode.in_(list(ARM_OF)))
+        .where(Run.job_id.in_(list(job_ids)), Run.context_mode.in_(list(ARM_OF)))
         .order_by(Result.created_at, Result.id)
     )
     return [
@@ -170,6 +182,7 @@ def _load_rows(session: Session, job_id: str) -> list[_Row]:
             model=model or "",
             denial=denial if isinstance(denial, dict) else None,
             repeats=repeats if isinstance(repeats, dict) else None,
+            job_id=job_id or "",
         )
         for (
             qa_id,
@@ -181,6 +194,7 @@ def _load_rows(session: Session, job_id: str) -> list[_Row]:
             model,
             denial,
             repeats,
+            job_id,
         ) in session.connection().execute(stmt).all()
     ]
 
@@ -208,13 +222,13 @@ def counting_judges(session: Session, job: Job, *, configured: Panel = ()) -> li
     return judge_order(seen, primary, job_panel(job) or configured)
 
 
-def _last_errors(session: Session, job_id: str) -> dict[str, str]:
+def last_errors(session: Session, job_ids: Sequence[str]) -> dict[str, str]:
     """model -> its latest failed answer text in the counted direct block."""
     stmt = (
         select(Run.model, Result.answer)
         .join(Run, Run.id == Result.run_id)
         .where(
-            Run.job_id == job_id,
+            Run.job_id.in_(list(job_ids)),
             Run.context_mode.in_(list(ARM_OF)),
             Run.block == EvalBlock.DIRECT.value,
             Result.answer.op("~")(rf"^\s*{ERROR_PREFIX}"),
@@ -275,14 +289,31 @@ def took_part(session: Session, job_id: str, qa_id: str) -> bool:
     return found is not None
 
 
-def _question_set_query(job_id: str) -> Any:
-    """The qa_id of every question with a result under the job."""
-    return (
+def question_pairs(session: Session, job_ids: Sequence[str]) -> list[Any]:
+    """(id, generator, title, doc_id, writer model) of every question with a
+    result under the jobs, in the question order."""
+    first_seen = (
         select(Result.qa_id)
         .join(Run, Run.id == Result.run_id)
-        .where(Run.job_id == job_id)
+        .where(Run.job_id.in_(list(job_ids)))
         .group_by(Result.qa_id)
         .subquery()
+    )
+    return list(
+        session.connection()
+        .execute(
+            select(
+                QaPair.id,
+                QaPair.generator,
+                QaPair.document_title,
+                QaPair.doc_id,
+                QaPair.model,
+            )
+            .join(first_seen, first_seen.c.qa_id == QaPair.id)
+            # The question order (report API, "Question order").
+            .order_by(*pair_order(QaPair.generator, QaPair.created_at, QaPair.id))
+        )
+        .all()
     )
 
 
@@ -333,11 +364,16 @@ def _funnel(
     }
 
 
-def _articles(
-    session: Session, job: Job, asked_ids: Sequence[str], *, asked: bool
+def articles_of(
+    session: Session,
+    job_ids: Sequence[str],
+    asked_ids: Sequence[str],
+    *,
+    asked: bool,
+    generated: bool,
 ) -> dict[str, Any]:
     """The asked questions' articles and their real date range (UTC days), and
-    the articles this job wrote questions from."""
+    the articles these jobs wrote questions from."""
     by_doc: dict[str, str | None] = {}
     if asked_ids:
         for doc, day in session.execute(
@@ -349,14 +385,16 @@ def _articles(
                 by_doc[doc] = by_doc.get(doc) or day
     days = sorted(day for day in by_doc.values() if day)
     new = session.execute(
-        select(func.count(func.distinct(QaPair.doc_id))).where(QaPair.job_id == job.id)
+        select(func.count(func.distinct(QaPair.doc_id))).where(
+            QaPair.job_id.in_(list(job_ids))
+        )
     ).scalar_one()
     return {
         "articles": len(by_doc) if asked else None,
         "articles_first": days[0] if days else None,
         "articles_last": days[-1] if days else None,
         "articles_dated": len(days) if asked else None,
-        "articles_new": new if new or generation_of(job) else None,
+        "articles_new": new if new or generated else None,
     }
 
 
@@ -372,8 +410,8 @@ class _RunParams(NamedTuple):
     temperatures: Any
 
 
-def _run_params(session: Session, job_id: str) -> list[_RunParams]:
-    """The distinct methodologies of the job's runs; owner overrides open none."""
+def run_params_of(session: Session, job_ids: Sequence[str]) -> list[_RunParams]:
+    """The distinct methodologies of the jobs' runs; owner overrides open none."""
     rows = session.execute(
         select(
             Run.context_mode,
@@ -384,7 +422,7 @@ def _run_params(session: Session, job_id: str) -> list[_RunParams]:
             Run.params["monte_carlo_trials"],
             Run.params["monte_carlo_temperatures"],
         )
-        .where(Run.job_id == job_id, Run.judge_model != OWNER_OVERRIDE)
+        .where(Run.job_id.in_(list(job_ids)), Run.judge_model != OWNER_OVERRIDE)
         .distinct()
     ).all()
     return [_RunParams(*row) for row in rows]
@@ -406,41 +444,47 @@ def _tally(verdicts: Iterable[str | None]) -> dict[str, int]:
     }
 
 
-def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, Any]:
-    """The whole payload of one job: summary, report and the question index."""
-    configured = resolve_panel(configured)
-    first_seen = _question_set_query(job.id)
-    pairs = (
-        session.connection()
-        .execute(
-            select(
-                QaPair.id,
-                QaPair.generator,
-                QaPair.document_title,
-                QaPair.doc_id,
-                QaPair.model,
-            )
-            .join(first_seen, first_seen.c.qa_id == QaPair.id)
-            # The question order (report API, "Question order").
-            .order_by(*pair_order(QaPair.generator, QaPair.created_at, QaPair.id))
-        )
-        .all()
-    )
-    run_params = _run_params(session, job.id)
-    rows = _load_rows(session, job.id)
-    errors = _last_errors(session, job.id)
+class Answer(NamedTuple):
+    """One counted answer: the picked verdict and the rows it was picked from."""
 
+    picked: Picked[_Row]
+    rows: list[_Row]
+
+
+@dataclass(slots=True)
+class Core:
+    """The figures shared by a single run and a combined one."""
+
+    generator_of: dict[str, str]
+    trick_ids: set[str]
+    counted_main: set[str]
+    reports: list[dict[str, Any]]
+    summary_models: list[dict[str, Any]]
+    lifts: list[int]
+    counted_pairs: list[Any]
+    index: list[dict[str, Any]]
+    # ``method`` without the article window.
+    method: dict[str, Any]
+
+
+def aggregate_core(
+    pairs: list[Any],
+    answers: dict[AnswerKey, Answer],
+    rows: Sequence[_Row],
+    run_params: Sequence[_RunParams],
+    errors: dict[str, str],
+    *,
+    origin: dict[AnswerKey, str] | None = None,
+) -> Core:
+    """The figures over counted answers, one per ``AnswerKey``.
+
+    ``origin``, for a combined run, names the member job each answer was
+    counted from; the question index then carries it per model.
+    """
     generator_of = {qa: gen for qa, gen, *_ in pairs}
     trick_ids = {qa for qa, gen in generator_of.items() if gen == TRICK_GENERATOR}
     main_ids = [qa for qa, *_ in pairs if qa not in trick_ids]
     counted_main = set(main_ids)
-
-    judges = counting_judges(session, job, configured=configured)
-    panel = [*judges, ""]
-
-    by_answer = group_answers(
-        rows, lambda r: AnswerKey.of(r.model, r.mode, r.block, r.qa_id)
-    )
 
     models = sorted(
         {r.model for r in rows if r.model and r.block == EvalBlock.DIRECT.value}
@@ -451,9 +495,8 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     retrieval: dict[tuple[str, str], bool | None] = {}
     blocks: dict[tuple[str, str], list[_Row]] = defaultdict(list)
     agreement: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    for (model, mode, block, qa), answer_rows in by_answer.items():
+    for (model, mode, block, qa), (chosen, answer_rows) in answers.items():
         arm = ARM_OF[mode]
-        chosen = pick(answer_rows, panel)
         counted = chosen.counted
         if counted is None:
             continue
@@ -566,31 +609,7 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     generator_model = Counter(
         m.removeprefix("llm:") for *_, m in counted_pairs if m
     ).most_common(1)
-    window_days = window_days_of(job)
-
-    articles = _articles(
-        session, job, [qa for qa, *_ in counted_pairs], asked=bool(pairs)
-    )
-    run = {
-        "job_id": job.id,
-        "created_at": iso(job.created_at),
-        "finished_at": iso(job.finished_at),
-        "trigger": job.trigger,
-        "window_days": window_days,
-        **articles,
-        "questions": len(counted_main) if pairs else None,
-        "models": summary_models,
-        "lift_lo": min(lifts) if lifts else None,
-        "lift_hi": max(lifts) if lifts else None,
-    }
-    since = (
-        job.created_at - timedelta(days=window_days)
-        if window_days and job.created_at
-        else None
-    )
     method = {
-        "articles_from": iso(since),
-        "articles_to": iso(job.created_at) if since else None,
         "generator_model": generator_model[0][0] if generator_model else None,
         "kinds": sorted(
             {gen for gen in generator_of.values() if gen}, key=generator_order
@@ -606,31 +625,124 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
     index = []
     for n, qa in enumerate(main_ids, start=1):
         verdicts = {}
+        sources: dict[str, str] = {}
         for model in models:
             a = direct.get((model, ALONE, qa))
             w = direct.get((model, WITH, qa))
             if a is None and w is None:
                 continue
             verdicts[model] = [a, w, group_of(a, w), (model, qa) in overridden]
-        index.append(
-            {
-                "qa_id": qa,
-                "n": n,
-                "generator": generator_of[qa],
-                "title": titles[qa] or "",
-                "models": verdicts,
-            }
-        )
+            if origin is not None:
+                key = AnswerKey(model, ARM_MODE[ALONE], EvalBlock.DIRECT.value, qa)
+                if key not in origin:
+                    key = key._replace(context_mode=ARM_MODE[WITH])
+                sources[model] = origin.get(key, "")
+        entry = {
+            "qa_id": qa,
+            "n": n,
+            "generator": generator_of[qa],
+            "title": titles[qa] or "",
+            "models": verdicts,
+        }
+        if origin is not None:
+            entry["job_ids"] = sources
+        index.append(entry)
+
+    return Core(
+        generator_of=generator_of,
+        trick_ids=trick_ids,
+        counted_main=counted_main,
+        reports=reports,
+        summary_models=summary_models,
+        lifts=lifts,
+        counted_pairs=counted_pairs,
+        index=index,
+        method=method,
+    )
+
+
+def run_entry(
+    job: Job,
+    core: Core,
+    articles: dict[str, Any],
+    *,
+    asked: bool,
+    window_days: int | None,
+) -> dict[str, Any]:
+    """The ``run`` part of a payload."""
+    return {
+        "job_id": job.id,
+        "created_at": iso(job.created_at),
+        "finished_at": iso(job.finished_at),
+        "trigger": job.trigger,
+        "window_days": window_days,
+        **articles,
+        "questions": len(core.counted_main) if asked else None,
+        "models": core.summary_models,
+        "lift_lo": min(core.lifts) if core.lifts else None,
+        "lift_hi": max(core.lifts) if core.lifts else None,
+    }
+
+
+def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, Any]:
+    """The whole payload of one job: summary, report and the question index."""
+    if job.kind == JobKind.COMBINED.value:
+        from syft_benchmark.report import combined_view
+
+        return combined_view.compute(session, job, configured=configured)
+    configured = resolve_panel(configured)
+    ids = [job.id]
+    pairs = question_pairs(session, ids)
+    run_params = run_params_of(session, ids)
+    rows = load_rows(session, ids)
+    errors = last_errors(session, ids)
+
+    judges = counting_judges(session, job, configured=configured)
+    panel = [*judges, ""]
+    answers = {
+        key: Answer(pick(answer_rows, panel), answer_rows)
+        for key, answer_rows in group_answers(rows, answer_key).items()
+    }
+    core = aggregate_core(pairs, answers, rows, run_params, errors)
+
+    window_days = window_days_of(job)
+    articles = articles_of(
+        session,
+        ids,
+        [qa for qa, *_ in core.counted_pairs],
+        asked=bool(pairs),
+        generated=bool(generation_of(job)),
+    )
+    run = run_entry(job, core, articles, asked=bool(pairs), window_days=window_days)
+    since = (
+        job.created_at - timedelta(days=window_days)
+        if window_days and job.created_at
+        else None
+    )
+    if is_scoped(job):
+        # A document-scoped run's period is its documents' articles.
+        period = (articles["articles_first"], articles["articles_last"])
+    else:
+        period = (iso(since), iso(job.created_at) if since else None)
+    method = {
+        "articles_from": period[0],
+        "articles_to": period[1],
+        **core.method,
+    }
 
     return {
         "run": run,
         "funnel": _funnel(
-            session, job, set(generator_of), len(counted_main), len(trick_ids)
+            session,
+            job,
+            set(core.generator_of),
+            len(core.counted_main),
+            len(core.trick_ids),
         ),
-        "models": reports,
+        "models": core.reports,
         "judges": judges,
         "method": method,
-        "questions": index,
+        "questions": core.index,
     }
 
 

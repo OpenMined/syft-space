@@ -5,6 +5,7 @@
  * Kept free of Vue so every rule here is testable on its own.
  */
 import type {
+  BenchmarkCombinePeriod,
   BenchmarkInstrumentLayer,
   BenchmarkLayer,
   BenchmarkTarget,
@@ -43,6 +44,24 @@ export const SCHEDULES: Choice[] = [
   { value: '6h', label: 'Every 6 hours' },
   { value: '1h', label: 'Every hour' },
 ]
+
+export const COMBINE_PERIODS: BenchmarkCombinePeriod[] = [
+  '1h',
+  '2h',
+  '3h',
+  '4h',
+  '6h',
+  '8h',
+  '12h',
+  '24h',
+]
+
+/** Known periods only, shortest first. */
+export function combinePeriodsOf(
+  values: readonly string[] | null | undefined,
+): BenchmarkCombinePeriod[] {
+  return COMBINE_PERIODS.filter((p) => values?.includes(p))
+}
 
 export const WEB_ENGINES: Choice[] = [
   { value: 'auto', label: 'Auto' },
@@ -125,6 +144,8 @@ export interface SetupForm {
   collection: string
   schedule: string
   scheduleAt: string
+  /** Periods whose finished runs are combined; empty — off. */
+  combinePeriods: BenchmarkCombinePeriod[]
   // step 1
   windowDays: number
   datasetMode: string
@@ -315,6 +336,7 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
     collection: target.collection ?? '',
     schedule: target.schedule ?? '',
     scheduleAt: target.schedule_at ?? '',
+    combinePeriods: combinePeriodsOf(target.combine_periods),
 
     windowDays: num(probe, 'document_window_days'),
     datasetMode: str(probe, 'dataset_mode', FALLBACK.dataset_mode),
@@ -573,6 +595,7 @@ export function buildRequest(
     schedule: form.schedule,
     // The hour only means anything to a daily schedule.
     schedule_at: form.schedule === '24h' ? form.scheduleAt.trim() : '',
+    combine_periods: combinePeriodsOf(form.combinePeriods),
   }
 }
 
@@ -585,6 +608,7 @@ export function storedRequest(target: BenchmarkTarget): BenchmarkTargetRequest {
     instrument: { ...target.instrument },
     schedule: target.schedule ?? '',
     schedule_at: target.schedule === '24h' ? (target.schedule_at ?? '') : '',
+    combine_periods: combinePeriodsOf(target.combine_periods),
   }
 }
 

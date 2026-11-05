@@ -33,6 +33,7 @@ def test_the_schema_is_measurement_plus_control_plus_configuration() -> None:
         "model_catalog",
         "run_aggregates",
         "writer_calls",
+        "combined_members",
     }
 
 

@@ -286,6 +286,9 @@ class StatusReason(StrEnum):
     # not identify.
     WRONG_LANGUAGE = "wrong_language"
     AMBIGUOUS_ENTITY = "ambiguous_entity"
+    # Retired in a document-scoped run: over ``control_max_share``
+    # (generation/rotation.py).
+    CONTROL_SHARE = "control_share"
     OTHER = "other"
 
 
@@ -332,11 +335,14 @@ class JobKind(StrEnum):
     of the ``generate``/``filter``/``evaluate`` flags is one call to
     ``scheduler.measure()``. ``FILTER`` and ``JUDGE`` work over already-stored
     input (pending pairs; pending verdicts), so each has its own kind and route.
+    ``COMBINED`` is never queued: a record over other jobs' results, finished
+    at creation (``control.combined``).
     """
 
     PIPELINE = "pipeline"
     FILTER = "filter"
     JUDGE = "judge"
+    COMBINED = "combined"
 
 
 class DatasetMode(StrEnum):
@@ -857,6 +863,10 @@ class Settings(BaseSettings):
             "pairs_per_chunk questions per run, walking every passage in the window"
         ),
     )
+    # A document-scoped launch's own (``DOCUMENT_FIELDS``).
+    passages_per_document: int = Field(default=1, ge=1, le=20)
+    control_max_share: float = Field(default=0.25, ge=0.0, lt=1.0)
+    top_up_passages_per_document: int = Field(default=0, ge=0, le=10)
     pairs_per_chunk: int = Field(default=2, ge=1)
     min_chunk_chars: int = Field(default=400, ge=0)
 
@@ -1126,9 +1136,20 @@ SECRET_FIELDS: frozenset[str] = frozenset(
 )
 
 
+# Set per launch by ``RunRequest.document_settings``, never stored.
+DOCUMENT_FIELDS: frozenset[str] = frozenset(
+    {"passages_per_document", "control_max_share", "top_up_passages_per_document"}
+)
+
+
 def stored_fields() -> frozenset[str]:
     """The settings the installation's row is allowed to carry."""
-    return frozenset(Settings.model_fields) - BOOTSTRAP_FIELDS - SECRET_FIELDS
+    return (
+        frozenset(Settings.model_fields)
+        - BOOTSTRAP_FIELDS
+        - SECRET_FIELDS
+        - DOCUMENT_FIELDS
+    )
 
 
 def env_settings() -> Settings:

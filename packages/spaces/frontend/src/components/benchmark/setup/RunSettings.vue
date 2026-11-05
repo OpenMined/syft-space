@@ -35,6 +35,22 @@
         </Hint>
       </SettingRow>
       <SettingRow
+        label="Combine automatically"
+        tip="The finished runs of each period, measured the same way, become one combined run."
+        for-id="bm-combine"
+      >
+        <Select v-model="form.combinePeriods" multiple>
+          <SelectTrigger id="bm-combine" class="w-44" data-testid="combine-periods">
+            <SelectValue placeholder="Off" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="period in COMBINE_PERIODS" :key="period" :value="period">
+              {{ period }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </SettingRow>
+      <SettingRow
         label="Stop after failures in a row"
         help="A wrong key or a server that is down won’t fix itself. 0 never stops."
         for-id="bm-failures"
@@ -96,10 +112,17 @@ import Hint from '@/components/benchmark/Hint.vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import ChoiceSelect from './ChoiceSelect.vue'
 import NumberInput from './NumberInput.vue'
 import SettingRow from './SettingRow.vue'
-import { MODEL_CONCURRENCY_MAX, SCHEDULES, type SetupForm } from './setupForm'
+import { COMBINE_PERIODS, MODEL_CONCURRENCY_MAX, SCHEDULES, type SetupForm } from './setupForm'
 
 defineProps<{
   /** Whether this endpoint is measured now. */

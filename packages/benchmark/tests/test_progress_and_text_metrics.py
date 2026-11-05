@@ -95,11 +95,11 @@ def test_the_plan_is_known_before_any_pass(monkeypatch: pytest.MonkeyPatch) -> N
     )
     monkeypatch.setattr("syft_benchmark.scheduler.check_perimeter", lambda conf: None)
     monkeypatch.setattr(
-        "syft_benchmark.scheduler.evaluation_gate", lambda key, conf: ""
+        "syft_benchmark.scheduler.evaluation_gate", lambda key, conf, **_: ""
     )
     monkeypatch.setattr(
         "syft_benchmark.scheduler._active_pairs",
-        lambda key, limit, conf: [object()] * 7,
+        lambda key, limit, conf, **_: [object()] * 7,
     )
 
     async def fake_run_pass(space: Any, mode: Any, **kwargs: Any) -> list[Any]:
@@ -209,6 +209,37 @@ def test_the_job_view_carries_the_plan() -> None:
     view = JobView.model_validate(job)
     assert view.progress_plan is None
     assert view.model_dump(mode="json")["progress_plan"] is None
+
+
+def test_the_job_view_carries_the_documents() -> None:
+    job = Job(
+        id="j",
+        target="t",
+        state="succeeded",
+        phase="done",
+        kind="pipeline",
+        done=1,
+        total=1,
+        arm="",
+        block="",
+        model="",
+        step_done=0,
+        step_total=0,
+        message="",
+        trigger="api",
+        error="",
+        created_at=datetime.now(UTC),
+        started_at=None,
+        finished_at=None,
+        params={"documents": ["/d/a.md", "/d/b.md"], "documents_missing": ["/d/b.md"]},
+    )
+    view = JobView.model_validate(job).model_dump(mode="json")
+    assert view["documents"] == 2
+    assert view["documents_missing"] == ["/d/b.md"]
+    job.params = {"evaluate": True}
+    view = JobView.model_validate(job).model_dump(mode="json")
+    assert view["documents"] is None
+    assert view["documents_missing"] is None
 
 
 # --- the database -----------------------------------------------------------

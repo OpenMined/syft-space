@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Any
@@ -224,16 +224,24 @@ def active_pairs(space: str, settings: Settings | None = None) -> list[QaPair]:
 
 
 def _active_pairs(
-    space: str, limit: int | None, settings: Settings | None = None
+    space: str,
+    limit: int | None,
+    settings: Settings | None = None,
+    *,
+    doc_ids: Collection[str] | None = None,
 ) -> list[QaPair]:
     """The pairs that go into the test.
 
-    Only active pairs that pass the web check gate (``runs.gate``). A frozen
-    slice, when set, is the whole selection and ``limit`` does not apply to it:
-    limiting it would bring back the drift the slice exists to prevent.
+    Only active pairs that pass the web check gate (``runs.gate``). With
+    ``doc_ids`` only those documents' pairs, and a frozen slice is not
+    applied. Otherwise a frozen slice, when set, is the whole selection and
+    ``limit`` does not apply to it: limiting it would bring back the drift the
+    slice exists to prevent.
     """
     conf = settings or get_settings()
     rows = evaluable(active_pairs(space, conf), conf)
+    if doc_ids is not None:
+        return pick_pairs([row for row in rows if row.doc_id in doc_ids], limit)
     if conf.question_set is not None:
         return apply_slice(
             load_slice(conf.question_set),
@@ -244,14 +252,22 @@ def _active_pairs(
     return pick_pairs(rows, limit)
 
 
-def evaluation_gate(space: str, settings: Settings | None = None) -> str:
-    """Why nothing can be asked on this Space; empty — something can.
+def evaluation_gate(
+    space: str,
+    settings: Settings | None = None,
+    *,
+    doc_ids: Collection[str] | None = None,
+) -> str:
+    """Why nothing can be asked on this Space (or of ``doc_ids``); empty —
+    something can.
 
     Non-empty when active questions exist and none passes the web check gate.
     An empty set is not this case: that is "nothing to ask" of its own.
     """
     conf = settings or get_settings()
     rows = active_pairs(space, conf)
+    if doc_ids is not None:
+        rows = [row for row in rows if row.doc_id in doc_ids]
     if not rows or evaluable(rows, conf):
         return ""
     return nothing_passed(len(rows), conf)
@@ -1089,6 +1105,7 @@ async def arun_pass(
     watch: Callable[[Progress], None] | None = None,
     job_id: str | None = None,
     launch: Launch | None = None,
+    doc_ids: frozenset[str] | None = None,
 ) -> list[RunReport]:
     """Run a Space's questions through one arm with the whole panel of judges.
 
@@ -1117,13 +1134,14 @@ async def arun_pass(
         launch: What the passes running at the same time share (question
             slots, refused names, the answerer's failure streak); None — this
             pass alone
+        doc_ids: Ask only these documents' questions; None — the whole Space
 
     Returns:
         One report per judge, including those that recused themselves
     """
     conf = settings or get_settings()
     launch = launch if launch is not None else Launch(conf)
-    pairs = _active_pairs(space.key, limit, conf)
+    pairs = _active_pairs(space.key, limit, conf, doc_ids=doc_ids)
     if mode is ContextMode.CLOSED_BOOK:
         source = ContextSource.NONE
     else:
@@ -1195,7 +1213,7 @@ async def arun_pass(
         return [unopened(seat.model, notes=[blocker]) for seat in seated]
 
     if not pairs:
-        held = evaluation_gate(space.key, conf)
+        held = evaluation_gate(space.key, conf, doc_ids=doc_ids)
         if held:
             # Active questions exist, none passed the web check.
             logger.warning(f"{space.key}: {held}")

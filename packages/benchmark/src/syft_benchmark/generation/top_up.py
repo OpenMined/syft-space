@@ -22,13 +22,13 @@ SURVIVAL_WINDOW = 200
 MIN_SURVIVAL = 0.1
 
 
-def kind_targets(keys: Sequence[str], cap: int, conf: Settings) -> dict[str, int]:
+def kind_targets(budgets: Mapping[str, int], conf: Settings) -> dict[str, int]:
     """How many of each kind should pass the checks: its write budget, and
     with a set cap (``dataset_max_pairs``) no more than an even share of it."""
-    share = cap
-    if conf.dataset_max_pairs and keys:
-        share = math.ceil(conf.dataset_max_pairs / len(keys))
-    return {key: min(cap, share) for key in keys}
+    if conf.dataset_max_pairs and budgets:
+        share = math.ceil(conf.dataset_max_pairs / len(budgets))
+        return {key: min(budget, share) for key, budget in budgets.items()}
+    return dict(budgets)
 
 
 def survival_rates(space: str, keys: Sequence[str], conf: Settings) -> dict[str, float]:

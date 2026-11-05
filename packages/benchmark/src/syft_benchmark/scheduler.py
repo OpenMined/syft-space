@@ -185,6 +185,7 @@ def measure(
     limit: int | None = None,
     observer: Observer | None = None,
     job_id: str | None = None,
+    doc_ids: frozenset[str] | None = None,
 ) -> Measured:
     """Measure one node in full: the dataset, then all the runs.
 
@@ -220,6 +221,9 @@ def measure(
             it opens, and that is what later makes the report and the audit of
             THIS measurement possible rather than of the node in general. None —
             the console: such runs belong to no job
+        doc_ids: Measure only these documents: build only from them, whatever
+            the mode and window, screen and revive only their pairs, and ask
+            only their active questions. None — the whole Space
 
     Returns:
         The metrics of all the runs, what failed, and how many items were added
@@ -274,6 +278,7 @@ def measure(
                 # filter pass below takes what is left and recomputes the set.
                 screen=filter_effective,
                 retrieve=retrieve,
+                doc_ids=doc_ids,
             )
             streamed = made.screened
             if job_id:
@@ -308,6 +313,7 @@ def measure(
                 should_stop=observer.stop_requested if observer else None,
                 rotate_anyway=generate_effective,
                 job_id=job_id or "",
+                doc_ids=doc_ids,
             )
             if streamed is not None:
                 filtered.absorb(streamed)
@@ -328,7 +334,7 @@ def measure(
     if not evaluate:
         return out
 
-    held = evaluation_gate(space.key, conf)
+    held = evaluation_gate(space.key, conf, doc_ids=doc_ids)
     if held:
         # Active questions exist and none passed the web check: nothing to ask.
         out.failures.append(f"{space.key}: {held}")
@@ -357,7 +363,7 @@ def measure(
         passes = len(specs)
         observer.planned(passes)
         # Every pass asks the same set, so the whole extent is known now.
-        questions = len(_active_pairs(space.key, limit, conf))
+        questions = len(_active_pairs(space.key, limit, conf, doc_ids=doc_ids))
         observer.plan(
             {
                 "questions": questions,
@@ -398,6 +404,7 @@ def measure(
                         defer_judging=defer_judging,
                         observer=observer,
                         job_id=job_id,
+                        doc_ids=doc_ids,
                     )
                     for mode, block, subject in specs
                 )
@@ -428,6 +435,7 @@ async def _one_pass(
     defer_judging: bool,
     observer: Observer | None,
     job_id: str | None,
+    doc_ids: frozenset[str] | None = None,
 ) -> PassTime | None:
     """One pass of the launch, alongside the others; None — not started."""
     # A name the provider refused outright is not asked in passes still to
@@ -479,6 +487,7 @@ async def _one_pass(
             watch=observer.watcher(label) if observer else None,
             job_id=job_id,
             launch=launch,
+            doc_ids=doc_ids,
         )
     except Exception as exc:  # noqa: BLE001 - the node may have rebooted
         out.failures.append(f"{label}: {exc}")

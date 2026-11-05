@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ConnectionRequest(BaseModel):
@@ -154,6 +154,14 @@ class TargetRequest(BaseModel):
             "count from the previous launch"
         ),
     )
+    combine_periods: list[str] | None = Field(
+        default=None,
+        description=(
+            "Periods (1h, 2h, 3h, 4h, 6h, 8h, 12h, 24h) over which the benchmark "
+            "combines the finished runs of each closed UTC period; empty — none; "
+            "omitted — the stored ones are kept"
+        ),
+    )
 
 
 class JobResponse(BaseModel):
@@ -180,6 +188,10 @@ class JobResponse(BaseModel):
     finished_at: datetime | None = None
     # The evaluation plan behind step_total; null until evaluation starts.
     progress_plan: dict[str, Any] | None = None
+    # A run launched with `documents`: how many it asked for, and those the
+    # index did not hold. Null for other jobs.
+    documents: int | None = None
+    documents_missing: list[str] | None = None
 
 
 class TargetResponse(BaseModel):
@@ -204,6 +216,7 @@ class TargetResponse(BaseModel):
     instrument: dict[str, Any] = Field(default_factory=dict)
     schedule: str = ""
     schedule_at: str = ""
+    combine_periods: list[str] = Field(default_factory=list)
     # Next scheduled run in UTC, as reported by the benchmark.
     next_run_at: datetime | None = None
 
@@ -245,3 +258,39 @@ class RunRequest(BaseModel):
         ge=1,
         description=("Questions per generator, for a trial run"),
     )
+    documents: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=500,
+        description=(
+            "Measure only these documents (Space container paths); "
+            "409 with `active_job_id` while the endpoint has a job queued or running"
+        ),
+    )
+    document_settings: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Only with `documents`: `passages_per_document`, `control_max_share`, "
+            "`top_up_passages_per_document`, checked by the benchmark"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _document_settings_need_documents(self) -> "RunRequest":
+        if self.document_settings is not None and not self.documents:
+            raise ValueError("document_settings applies only with documents")
+        return self
+
+
+class CombineMembersRequest(BaseModel):
+    """Runs to add to a combined run."""
+
+    job_ids: list[str] = Field(
+        ..., min_length=1, description="Runs; a combined run stands for its runs"
+    )
+
+
+class CombineRequest(CombineMembersRequest):
+    """Runs to combine, or to check whether they combine."""
+
+    title: str | None = Field(default=None, max_length=200)

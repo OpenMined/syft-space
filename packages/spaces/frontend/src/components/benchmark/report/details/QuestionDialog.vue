@@ -25,6 +25,8 @@ const props = defineProps<{
   qaId: string
   question: string
   generator: string
+  /** The run the answers come from, when it is not the shown run (a combined run's). */
+  answersJobId?: string
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
@@ -36,6 +38,7 @@ const report = useReport()
 const run = useRun()
 
 const model = computed(() => run.model.value ?? '')
+const jobId = computed(() => props.answersJobId || run.jobId)
 const rows = shallowRef<BenchmarkResult[] | null>(null)
 const error = ref<string | null>(null)
 let request = 0
@@ -44,7 +47,7 @@ async function load(): Promise<void> {
   const mine = ++request
   error.value = null
   try {
-    const query = { qa_id: props.qaId, model: model.value, job: run.jobId, prompts: true }
+    const query = { qa_id: props.qaId, model: model.value, job: jobId.value, prompts: true }
     const all = await allPages(
       (offset, limit) => benchmarksApi.listResults(run.slug, { ...query, limit, offset }),
       PAGE,
@@ -76,6 +79,7 @@ watch(arms, (list) => {
 /** Reload this question and every figure of the run. */
 async function changed(): Promise<void> {
   await load()
+  if (jobId.value !== run.jobId) report.invalidate(jobId.value)
   report.invalidate(run.jobId)
 }
 </script>
@@ -129,7 +133,7 @@ async function changed(): Promise<void> {
           v-if="originShown"
           class="pt-3"
           :slug="run.slug"
-          :job-id="run.jobId"
+          :job-id="jobId"
           :qa-id="qaId"
         />
       </details>

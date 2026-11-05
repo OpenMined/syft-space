@@ -103,6 +103,15 @@ the enabled targets every 30 seconds and queues a measurement with
 `PUT /targets/{key}` with an enabled schedule is refused (422) when no web
 check model (`filter_model`) is set.
 
+`combine_periods` (`1h` `2h` `3h` `4h` `6h` `8h` `12h` `24h`; empty — off)
+has the same thread combine runs: per period, each closed UTC-aligned period
+of the last 7 days not yet dealt with (`targets.combine_marks`), its
+finished, measured leaf jobs created inside it, grouped by `settings_hash`
+(jobs without one are left to combining by hand); a group of two or more
+becomes a combined run (`trigger=auto`, title `24h · 2026-11-04`). A period
+with a job still queued or running waits. A period is dealt with once: a
+deleted combination is not made again.
+
 ## The routes
 
 All routes except `/health` require `BENCH_CONTROL_TOKEN`.
@@ -180,9 +189,12 @@ Run reports, under `/console/report`:
 
 | Route | What it does |
 | --- | --- |
-| `GET /runs` | Active jobs and a page of finished runs (`from`, `to`, `limit`, `offset`) |
+| `GET /runs` | Active jobs and a page of finished runs (`from`, `to`, `limit`, `offset`). Runs a combined run holds are left out unless `show_combined_members=true`. Items carry `combined` (`{members, origin, period, period_start, title}` on a combined run, else null) and `combined_into` (`[{job_id, title}]`, the combined runs holding it) |
 | `GET /runs/{job}` | One run's report, without per-question rows |
-| `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, cached figures, writer calls and its records on the questions. Questions stay. 409 while queued or running |
+| `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, cached figures, writer calls and its records on the questions. Questions stay. 409 while queued or running. A combined run goes alone; a deleted run leaves every combined run, and one left with fewer than two runs is deleted |
+| `POST /combined/check` | `{job_ids}` → `{ok, members, settings_hash, differences: [{field, values: [{job_id, value}]}], repeated_questions}` |
+| `POST /combined` | `{job_ids, title?}` → 201, the new combined run's `/runs` item. 422 for fewer than two runs, or `{detail, differences}` when they differ |
+| `POST /combined/{job}/members` | `{job_ids}`: add runs to a combined run; same replies |
 | `GET /runs/{job}/generated` | The questions the job wrote (`generator`, `status`), and its build per kind (`topped_up`: written by the top-up) |
 | `GET /runs/{job}/writing` | The job's writer calls that dropped drafts or failed, one item per call and kind |
 | `GET /runs/{job}/pairs?ids=` | Questions of the target by id (comma-separated, at most 200), whichever job wrote them |
@@ -193,6 +205,37 @@ Run reports, under `/console/report`:
 | `GET /runs/{job}/questions/{qa}/fragments` | The passages sent with the arm C answer |
 | `GET /runs/{job}/summary.docx` | The run's summary document: figures only |
 | `GET /runs/{job}/export.xlsx` | Everything in the run, full texts: sheets Run, Generated, Rejected, Kept, Writer calls (the writer-call log: dropped drafts, failed calls), Filter, Answers, Judging, Timing |
+
+### Combined runs
+
+A combined run is a job of kind `combined`, finished at creation, over leaf
+jobs (`control/combined.py`); naming a combined run takes its runs. Runs
+combine when finished, measured, of one target, with one `settings_hash`;
+jobs without a hash must match on `judge_panel`, `judge_policy`,
+`web_check_model`, `web_check_judge` and every (arm, block, model) →
+`Run.params`. Its report (`report/combined_view.py`) has the single run's
+shape plus `members` (per run: times, trigger, window, `documents`,
+`questions`, `cost_usd`, state) and `repeats`; both are null on a single run.
+
+* Every figure is recomputed from the pooled answers, never from per-run
+  ratios; each answer is picked with its own run's judges (primary first,
+  owner override first).
+* An answer (model × arm × block × question) asked in several runs counts
+  once, from the earliest run. `repeats` compares them per model and arm, direct
+  block: `questions`, `observations`, `graded`, `compared`, `agreed`,
+  `agreement`, `right`, `accuracy` (over every answer), `wrong_to_right`,
+  `right_to_wrong` (consecutive runs).
+* Sums over the runs: cost (key spend from the first run's before to the last
+  one's after), timing (phases, passes, calls; call `mean_s` weighted, `max_s`
+  the maximum, `p90_s` from the answers' latencies for the answer role, null
+  for other roles), the build per kind, the funnel, build counts. Article
+  range: union; `window_days` null.
+* Questions, question detail and fragments name the run each answer comes from
+  (`job_id`); the detail adds `observations`, every run's verdicts. The
+  workbook adds a Members sheet and a Job column; the summary document a
+  runs table and the repeated questions.
+* Any change that drops a run's cached figures drops those of the combined
+  runs holding it.
 
 The pairs of `/generated`, `/pairs` and `/pairs/{qa}` carry `writer_call` and
 `entity_call` (`RecordedCall`): the call's texts, `user` with the passage in
@@ -212,7 +255,9 @@ Space.
 ## Jobs
 
 A launch queues a job and answers `202`; a worker thread runs it. One active
-job per target: launching while one is queued or running returns that job.
+job per target: launching while one is queued or running returns that job. A
+launch with `documents` answers `409` instead, with
+`{"detail": …, "active_job_id": …}`.
 
 | State | Meaning |
 | --- | --- |
@@ -240,6 +285,7 @@ Runs started from the CLI have no job.
 | `no_questions` | There was nothing to ask |
 | `nothing_graded: …` | Questions were asked, no verdict came out |
 | `over_budget: …` | The spending cap stopped the job |
+| `documents_not_found: …` | None of the launch's `documents` is in the index |
 | `target_gone` | The target was deleted |
 | `service_restarted` | The process restarted mid-job |
 
@@ -254,10 +300,44 @@ Runs started from the CLI have no job.
 | `evaluate` | Ask and grade. `null` — yes |
 | `defer_judging` | Collect answers without a judge, leaving verdicts `pending`. Default `false` |
 | `limit` | Items **per generator**, for a trial run |
+| `documents` | Measure only these documents: 1–500 Space container paths, as the index stores them in `absolute_path` |
+| `document_settings` | Only with `documents` (else 422); each field optional, see below |
 | `instrument`, `probe` | Layers for this launch only |
 
 `evaluate: false` only refreshes the set: no questions, `total` stays
 `0`. `defer_judging: true` leaves grading to `POST /targets/{key}/judge`.
+
+With `documents`, the paths are resolved to the index's document ids
+(`doc_id`) when the job starts. Questions are written only from those
+documents, whatever `dataset_mode` and `document_window_days` say, into the
+current cohort, each document giving every passage kind
+`passages_per_document` unread passages and every article kind one unit
+(`chunks_per_run` does not apply); only their pending pairs are screened; the
+set is not recomputed, only their pairs retired by a recompute come back; and
+only their active pairs that pass the web check are asked. A frozen
+`question_set` is not applied. The job view carries `documents` (how many were
+asked for) and `documents_missing` (the paths the index did not hold, once the
+job has started); both are `null` for a launch without `documents`.
+
+`document_settings` (not stored on the target or the installation):
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `passages_per_document` | `1` (1–20) | Passages each document gives every passage kind |
+| `control_max_share` | `0.25` (0 ≤ x < 1) | The most of the asked questions false premise and trick questions may take; the rest are retired (`control_share`). `0` — off |
+| `top_up_passages_per_document` | `0` (0–10) | More passages of each document the top-up may give a short passage kind; control kinds take none |
+
+They enter the job's `settings_snapshot`; `passages_per_document` is left out
+of `settings_hash`, the other two are in it.
+
+Every pipeline, filter and judge job keeps in `params`:
+
+| Key | Meaning |
+| --- | --- |
+| `documents` | The paths asked for (a scoped launch) |
+| `documents_missing` | Those the index did not hold |
+| `settings_snapshot` | The effective settings of the launch, secrets left out |
+| `settings_hash` | sha256 of the snapshot's canonical JSON without the fields in `job_params.HASH_EXCLUDED` (scope, volume, spending caps, schedules, execution and plumbing): one hash, one methodology |
 
 ## The target registry
 

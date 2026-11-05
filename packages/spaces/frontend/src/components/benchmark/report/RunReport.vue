@@ -104,13 +104,14 @@ const SCREEN_TITLE: Partial<Record<RunScreen, string>> = {
 }
 
 const crumbs = computed(() => {
-  const created =
-    data.value?.run.created_at ??
-    report.runs.value.find((r) => r.job_id === props.jobId)?.created_at
-  const day = dayOf(utcStamp(created))
+  const run = data.value?.run ?? report.runs.value.find((r) => r.job_id === props.jobId)
+  const day = dayOf(utcStamp(run?.created_at))
   const list: { label: string; to?: RouteLocationRaw }[] = [
     { label: 'Benchmark runs', to: runsListLocation() },
-    { label: day ? `Run of ${day}` : 'Run', to: runLocation(props.jobId) },
+    {
+      label: run?.combined?.title || (day ? `Run of ${day}` : 'Run'),
+      to: runLocation(props.jobId),
+    },
   ]
   if (props.modelId)
     list.push({ label: modelName(props.modelId), to: modelLocation(props.jobId, props.modelId) })

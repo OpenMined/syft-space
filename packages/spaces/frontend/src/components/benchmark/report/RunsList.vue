@@ -31,6 +31,21 @@
           data-testid="filter-to"
         />
       </div>
+      <Hint text="Also list runs that a combined run holds." :focusable="false">
+        <label class="flex h-9 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+          <Checkbox v-model="showCombined" data-testid="show-combined" />
+          Show combined
+        </label>
+      </Hint>
+      <Button
+        v-if="checked.length >= 2"
+        class="ml-auto"
+        :disabled="checking"
+        data-testid="combine"
+        @click="startCombine"
+      >
+        Combine
+      </Button>
     </div>
 
     <Alert v-if="report.error.value" variant="destructive" data-testid="runs-error">
@@ -104,13 +119,46 @@
             @click="open(run.job_id)"
           >
             <td class="px-4 py-3">
-              <RouterLink
-                :to="runLocation(run.job_id)"
-                class="font-semibold tabular-nums hover:underline focus-visible:underline"
-                @click.stop
-              >
-                {{ dayTime(utcStamp(run.created_at)) }}
-              </RouterLink>
+              <div class="flex items-center gap-2.5">
+                <Hint :text="run.combined ? 'Combining uses its runs.' : null" :focusable="false">
+                  <span class="flex" @click.stop>
+                    <Checkbox
+                      :model-value="selected.has(run.job_id)"
+                      :aria-label="`Select ${runName(run)}`"
+                      data-testid="run-select"
+                      @update:model-value="(on) => select(run.job_id, on === true)"
+                    />
+                  </span>
+                </Hint>
+                <RouterLink
+                  :to="runLocation(run.job_id)"
+                  class="font-semibold tabular-nums hover:underline focus-visible:underline"
+                  @click.stop
+                >
+                  {{ runName(run) }}
+                </RouterLink>
+                <Hint v-if="run.combined" :text="combinedTip(run.combined)">
+                  <Badge
+                    variant="outline"
+                    class="border-primary text-primary"
+                    data-testid="run-combined"
+                  >
+                    {{ combinedBadge(run.combined) }}
+                  </Badge>
+                </Hint>
+                <Hint
+                  v-else-if="showCombined && run.combined_into?.length"
+                  :text="heldTip(run.combined_into, report.runs.value)"
+                >
+                  <Badge
+                    variant="outline"
+                    class="border-transparent bg-muted text-muted-foreground"
+                    data-testid="run-held"
+                  >
+                    In combined
+                  </Badge>
+                </Hint>
+              </div>
             </td>
             <td class="px-3 py-3 text-right tabular-nums">{{ count(run.articles) }}</td>
             <td class="px-3 py-3 text-right tabular-nums">{{ count(run.questions) }}</td>
@@ -164,12 +212,12 @@
             </td>
             <td class="pr-3 text-muted-foreground">
               <div class="flex items-center justify-end gap-1">
-                <Hint text="Delete this run">
+                <Hint :text="run.combined ? 'Delete this combined run' : 'Delete this run'">
                   <Button
                     variant="ghost"
                     size="icon"
                     class="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    aria-label="Delete this run"
+                    :aria-label="run.combined ? 'Delete this combined run' : 'Delete this run'"
                     data-testid="run-delete"
                     @click.stop="askDelete(run)"
                   >
@@ -233,34 +281,53 @@
 
     <DeleteConfirmationDialog
       :open="toDelete !== null"
-      item-type="run"
-      :item-name="toDelete ? dayTime(utcStamp(toDelete.created_at)) : ''"
-      :description="DELETE_TEXT"
+      :item-type="toDelete?.combined ? 'combined run' : 'run'"
+      :item-name="toDelete ? runName(toDelete) : ''"
+      :description="toDelete?.combined ? DELETE_COMBINED_TEXT : DELETE_TEXT"
       :is-deleting="deleting"
       @update:open="(open) => !open && !deleting && (toDelete = null)"
       @confirm="confirmDelete"
+    />
+
+    <CombineDialog
+      v-if="combineCheck"
+      v-model:open="combineOpen"
+      :members="combineCheck.members.length"
+      :repeated="combineCheck.repeated_questions"
+      :differences="combineCheck.differences"
+      :runs="report.runs.value"
+      :creating="creating"
+      @confirm="confirmCombine"
     />
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronRight, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import type { BenchmarkRunSummary } from '@/api/types'
+import type {
+  BenchmarkCombineCheck,
+  BenchmarkCombineRefusal,
+  BenchmarkRunSummary,
+} from '@/api/types'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { apiErrorDetail } from '@/lib/errors'
 import Hint from '../Hint.vue'
 import AlertBadge from './AlertBadge.vue'
+import CombineDialog from './CombineDialog.vue'
 import DetailsToggle from './DetailsToggle.vue'
+import { combinedBadge, combinedTip, heldTip, runName } from './combined'
 import { useReport } from './context'
+import { useShowCombined } from './useShowCombined'
 import { barWidth, count, DASH, dayTime, pointsRange, scheduleText, utcStamp } from './figures'
 import { modelName } from './labels'
 import { runLocation } from './routing'
@@ -272,8 +339,10 @@ import { RUNS_PAGE } from './useRunReport'
 const BUILD_ONLY_TIP = 'Questions were written and filtered; no model was asked.'
 const DELETE_TEXT =
   'The run and its answers will be deleted; its questions are kept. This cannot be undone.'
+const DELETE_COMBINED_TEXT = 'Only the combined run will be deleted; its runs stay.'
 
 const report = useReport()
+const showCombined = useShowCombined()
 const router = useRouter()
 
 const schedule = computed(() => scheduleText(report.target.value))
@@ -297,6 +366,74 @@ const deleting = ref(false)
 
 function askDelete(run: BenchmarkRunSummary): void {
   toDelete.value = run
+}
+
+/** Checked runs, by job id; pruned to the rows shown. */
+const selected = ref(new Set<string>())
+const checked = computed(() =>
+  report.runs.value.filter((r) => selected.value.has(r.job_id)).map((r) => r.job_id),
+)
+
+function select(jobId: string, on: boolean): void {
+  const next = new Set(selected.value)
+  if (on) next.add(jobId)
+  else next.delete(jobId)
+  selected.value = next
+}
+
+watch(
+  () => report.runs.value,
+  (runs) => {
+    const shown = new Set(runs.map((r) => r.job_id))
+    const kept = [...selected.value].filter((id) => shown.has(id))
+    if (kept.length !== selected.value.size) selected.value = new Set(kept)
+  },
+)
+
+const combineCheck = shallowRef<BenchmarkCombineCheck | null>(null)
+const combineOpen = ref(false)
+const checking = ref(false)
+const creating = ref(false)
+
+async function startCombine(): Promise<void> {
+  if (checking.value) return
+  checking.value = true
+  try {
+    combineCheck.value = await report.checkCombined(checked.value)
+    combineOpen.value = true
+  } catch (e) {
+    toast.error(apiErrorDetail(e, 'Could not check these runs'))
+  } finally {
+    checking.value = false
+  }
+}
+
+/** The differences of a refused combine, if the refusal carries them. */
+function refusalOf(e: unknown): BenchmarkCombineRefusal | null {
+  const data = (e as { response?: { status?: number; data?: unknown } })?.response
+  const body = data?.status === 422 ? (data.data as BenchmarkCombineRefusal | undefined) : null
+  return body && Array.isArray(body.differences) ? body : null
+}
+
+async function confirmCombine(title: string): Promise<void> {
+  const ids = checked.value
+  if (creating.value) return
+  creating.value = true
+  try {
+    await report.createCombined(ids, title || undefined)
+    combineOpen.value = false
+    selected.value = new Set()
+    toast.success('Runs combined')
+  } catch (e) {
+    const refusal = refusalOf(e)
+    if (refusal && combineCheck.value) {
+      combineCheck.value = { ...combineCheck.value, ok: false, differences: refusal.differences }
+    } else {
+      toast.error(apiErrorDetail(e, 'Could not combine the runs'))
+    }
+  } finally {
+    creating.value = false
+  }
 }
 
 async function confirmDelete(): Promise<void> {

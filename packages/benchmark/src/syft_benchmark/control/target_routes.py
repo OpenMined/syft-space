@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from syft_benchmark.control.auth import Guard
 from syft_benchmark.control.check import IndexUnreachable, articles_in_window, check
 from syft_benchmark.control.compose import merge, settings_for
 from syft_benchmark.control.refusals import (
+    active_job_conflict,
     refuse_clash,
     refuse_run_clash,
     refuse_unfiltered,
@@ -130,14 +132,26 @@ def target_window(
     )
 
 
-@router.post("/targets/{key}/runs", response_model=JobView, status_code=202)
-def start_run(key: str, request: RunRequest, conf: Guard) -> JobView:
-    """Put a measurement in the queue; the answer is the job to watch it by."""
+@router.post(
+    "/targets/{key}/runs",
+    response_model=JobView,
+    status_code=202,
+    responses={409: {"description": "A launch with documents met an active job"}},
+)
+def start_run(key: str, request: RunRequest, conf: Guard) -> JobView | JSONResponse:
+    """Put a measurement in the queue; the answer is the job to watch it by.
+
+    Without ``documents`` an active job of the target is the answer; with them
+    it is a 409 that names it in ``active_job_id``.
+    """
     with session_scope(conf) as session:
         row = target_or_404(session, key)
         require_enabled(row)
         refuse_run_clash(row, request, conf)
-        job = job_queue.enqueue(session, row, request)
+        try:
+            job = job_queue.enqueue(session, row, request)
+        except job_queue.ActiveJobClash as clash:
+            return active_job_conflict(key, clash.job_id)
         return JobView.model_validate(job)
 
 
@@ -201,7 +215,10 @@ def cancel_job(job_id: str, conf: Guard) -> JobView:
 def _last_job(session: Session, key: str) -> JobView | None:
     """The target's latest job, shown in the list without opening the target."""
     row = session.scalars(
-        select(Job).where(Job.target == key).order_by(Job.created_at.desc()).limit(1)
+        select(Job)
+        .where(Job.target == key, Job.kind != JobKind.COMBINED.value)
+        .order_by(Job.created_at.desc())
+        .limit(1)
     ).first()
     return JobView.model_validate(row) if row is not None else None
 
@@ -213,7 +230,7 @@ def _last_jobs(session: Session, keys: list[str]) -> dict[str, JobView]:
     rows = session.scalars(
         select(Job)
         .distinct(Job.target)
-        .where(Job.target.in_(keys))
+        .where(Job.target.in_(keys), Job.kind != JobKind.COMBINED.value)
         .order_by(Job.target, Job.created_at.desc())
     )
     return {row.target: JobView.model_validate(row) for row in rows}

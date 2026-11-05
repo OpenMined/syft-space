@@ -1,7 +1,8 @@
 """Dropping a run's cached aggregate when something it was computed from changes.
 
 The aggregate (``run_aggregates``) is recomputed on the next read once its row
-is gone.
+is gone. Dropping a job's aggregate also drops those of the combined runs that
+hold it.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from collections.abc import Iterable
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from syft_benchmark.db.models import Result, Run, RunAggregate
+from syft_benchmark.db.models import CombinedMember, Result, Run, RunAggregate
 
 
 def invalidate_run(session: Session, job_id: str | None) -> None:
@@ -21,10 +22,18 @@ def invalidate_run(session: Session, job_id: str | None) -> None:
 
 
 def invalidate_runs(session: Session, job_ids: Iterable[str | None]) -> None:
-    """Drop the cached aggregates of these jobs."""
+    """Drop the cached aggregates of these jobs and of the combined runs
+    holding any of them."""
     wanted = sorted({j for j in job_ids if j})
     if wanted:
-        session.execute(delete(RunAggregate).where(RunAggregate.job_id.in_(wanted)))
+        holders = select(CombinedMember.combined_job_id).where(
+            CombinedMember.member_job_id.in_(wanted)
+        )
+        session.execute(
+            delete(RunAggregate).where(
+                RunAggregate.job_id.in_(wanted) | RunAggregate.job_id.in_(holders)
+            )
+        )
 
 
 def jobs_with_pairs(session: Session, pair_ids: Iterable[str]) -> list[str]:

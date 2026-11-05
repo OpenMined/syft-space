@@ -64,9 +64,14 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
     doc = Document()
     doc.styles["Normal"].font.size = Pt(10)
     doc.add_heading(f"Benchmark results: {title}", level=0)
+    members = report.get("members")
     para(
         doc,
-        f"Run of {_stamp(run['created_at'])}, finished {_stamp(run['finished_at'])}",
+        f"Combined run of {len(members)} runs, {_stamp(run['created_at'])} to "
+        f"{_stamp(run['finished_at'])}"
+        if members
+        else f"Run of {_stamp(run['created_at'])}, "
+        f"finished {_stamp(run['finished_at'])}",
     )
     lifts = (
         f" Your data moved accuracy by {_points(run['lift_lo'])} to "
@@ -182,6 +187,9 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
         ],
     )
 
+    _repeats_section(doc, report.get("repeats"))
+    _members_section(doc, report.get("members"))
+
     heading(doc, "How this was tested")
     removed = ", ".join(f"{k}: {v}" for k, v in sorted(funnel["removed"].items()))
     table(
@@ -211,3 +219,66 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
+
+
+def _members_section(doc: Any, members: list[dict[str, Any]] | None) -> None:
+    """The runs a combined run is made of."""
+    if not members:
+        return
+    heading(doc, "Runs combined")
+    table(
+        doc,
+        ["Run", "Started", "Finished", "Trigger", "Articles", "Questions", "Cost"],
+        [
+            [
+                m["job_id"][:8],
+                _stamp(m.get("started_at") or m.get("created_at")),
+                _stamp(m.get("finished_at")),
+                m.get("trigger") or "—",
+                _count(m.get("documents")),
+                _count(m.get("questions")),
+                "—" if m.get("cost_usd") is None else f"${m['cost_usd']:.2f}",
+            ]
+            for m in members
+        ],
+    )
+    note(
+        doc,
+        "A question asked in more than one run counts once, from the earliest run.",
+    )
+
+
+def _repeats_section(doc: Any, repeats: dict[str, Any] | None) -> None:
+    """How the answers to questions asked in more than one run compare."""
+    if not repeats or not repeats.get("questions"):
+        return
+    heading(doc, "Questions asked in more than one run")
+    rows = []
+    for m in repeats["models"]:
+        for arm, label in (("alone", "On its own"), ("with", "With your data")):
+            s = m.get(arm)
+            if s:
+                rows.append(
+                    [
+                        m["model"],
+                        label,
+                        str(s["questions"]),
+                        _pct(s["agreement"]),
+                        _pct(s["accuracy"]),
+                        str(s["wrong_to_right"]),
+                        str(s["right_to_wrong"]),
+                    ]
+                )
+    table(
+        doc,
+        [
+            "Model",
+            "Condition",
+            "Questions",
+            "Same verdict every time",
+            "Right over all answers",
+            "Wrong to right",
+            "Right to wrong",
+        ],
+        rows,
+    )

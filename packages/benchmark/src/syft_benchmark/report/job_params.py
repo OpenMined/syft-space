@@ -1,20 +1,30 @@
 """What a job keeps about its launch: the ``jobs.params`` snapshot, times, state.
 
 The snapshot freezes the judging panel, the web check gate, the article window,
-the cost, the build stats and the timing, so a run is reported as it was
-launched, not as the settings read today.
+the effective settings and their fingerprint, the cost, the build stats and the
+timing, so a run is reported as it was launched, not as the settings read today.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 from typing import Any
 
-from syft_benchmark.config import JobState, ManualStatusPriority, Settings
+from syft_benchmark.config import (
+    SECRET_FIELDS,
+    JobState,
+    ManualStatusPriority,
+    Settings,
+)
 from syft_benchmark.db.models import Job
 from syft_benchmark.db.session import session_scope
 
 ACTIVE_STATES = (JobState.QUEUED.value, JobState.RUNNING.value)
+
+# The error code of a job the spending cap stopped.
+OVER_BUDGET = "over_budget"
 
 # Keys of the snapshot a job carries in ``jobs.params``.
 JUDGE_PANEL = "judge_panel"
@@ -33,6 +43,14 @@ COST = "cost"
 GENERATION = "generation"
 # Where the job's time went (``runs.timing``; report API, "Timing").
 TIMING = "timing"
+# The launch's effective settings, secrets left out, and the sha256 of their
+# methodology part (``settings_hash``).
+SETTINGS_SNAPSHOT = "settings_snapshot"
+SETTINGS_HASH = "settings_hash"
+# A document-scoped launch: the paths asked for (a ``RunRequest`` field) and
+# those the index did not hold.
+DOCUMENTS = "documents"
+DOCUMENTS_MISSING = "documents_missing"
 SNAPSHOT_KEYS = frozenset(
     {
         JUDGE_PANEL,
@@ -45,6 +63,64 @@ SNAPSHOT_KEYS = frozenset(
         COST,
         GENERATION,
         TIMING,
+        SETTINGS_SNAPSHOT,
+        SETTINGS_HASH,
+        DOCUMENTS_MISSING,
+    }
+)
+
+# Secrets and the addresses that carry them: never in the snapshot.
+_SECRETS = SECRET_FIELDS | {
+    "database_url",
+    "control_token",
+    "secret_key",
+    "secret_keys_retired",
+}
+
+# Left out of the hash: how much and which material a launch takes, what it may
+# spend, when and how fast it runs — not how it measures.
+HASH_EXCLUDED: frozenset[str] = frozenset(
+    {
+        # scope and volume
+        "documents",
+        "limit",
+        "document_window_days",
+        "dataset_mode",
+        "dataset_max_pairs",
+        "chunks_per_run",
+        "passages_per_document",
+        "pairs_per_chunk",
+        "min_chunk_chars",
+        "question_set",
+        "strict_question_set",
+        # spending caps
+        "max_job_usd",
+        "top_up_max_usd",
+        # schedules
+        "schedule",
+        "schedule_at",
+        "generate_in_cycle",
+        # how the run is executed and recorded
+        "concurrency",
+        "endpoint_concurrency",
+        "llm_timeout",
+        "max_consecutive_failures",
+        "resume",
+        "resume_window_hours",
+        "reuse_answers",
+        "audit_log",
+        "audit_max_chars",
+        "llm_app_name",
+        # process plumbing
+        "spaces_file",
+        "control_host",
+        "control_port",
+        "control_origins",
+        "allow_external_models",
+        "external_hosts",
+        "chroma_tenant",
+        "chroma_database",
+        "chroma_internal_port",
     }
 )
 
@@ -84,15 +160,42 @@ def judging_snapshot(settings: Settings) -> dict[str, Any]:
     }
 
 
-def dataset_snapshot(settings: Settings) -> dict[str, Any]:
-    """The article window a pipeline launch builds and asks from."""
-    return {WINDOW_DAYS: settings.document_window_days}
+def dataset_snapshot(settings: Settings, *, scoped: bool = False) -> dict[str, Any]:
+    """The article window a pipeline launch builds and asks from; none (0) for
+    a document-scoped launch."""
+    return {WINDOW_DAYS: 0 if scoped else settings.document_window_days}
+
+
+def settings_snapshot(settings: Settings) -> dict[str, Any]:
+    """The effective settings of a launch, secrets left out, as JSON values."""
+    return settings.model_dump(mode="json", exclude=set(_SECRETS))
+
+
+def settings_hash(snapshot: dict[str, Any]) -> str:
+    """sha256 of the canonical JSON of the snapshot's methodology part: two
+    launches with one hash measured the same way."""
+    method = {k: v for k, v in snapshot.items() if k not in HASH_EXCLUDED}
+    canonical = json.dumps(
+        method, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def fingerprint(settings: Settings) -> dict[str, Any]:
+    """``settings_snapshot`` and ``settings_hash`` for ``jobs.params``."""
+    snapshot = settings_snapshot(settings)
+    return {SETTINGS_SNAPSHOT: snapshot, SETTINGS_HASH: settings_hash(snapshot)}
 
 
 def window_days_of(job: Job) -> int | None:
     """The job's article window in days; None when not recorded."""
     days = (job.params or {}).get(WINDOW_DAYS)
     return days if isinstance(days, int) and not isinstance(days, bool) else None
+
+
+def is_scoped(job: Job) -> bool:
+    """Whether the job was launched with ``documents``."""
+    return bool((job.params or {}).get(DOCUMENTS))
 
 
 def job_panel(job: Job) -> list[str]:
@@ -151,6 +254,13 @@ def _cost(cost: dict[str, Any]) -> dict[str, Any]:
         "total_usd": cost.get("total_usd"),
         "by_role": dict(by_role) if isinstance(by_role, dict) else None,
     }
+
+
+def stopped_of(job: Job) -> str | None:
+    """Who stopped the job: ``spending_cap``, ``owner``; None — it was not stopped."""
+    if job.state != JobState.CANCELLED.value:
+        return None
+    return "spending_cap" if (job.error or "").startswith(OVER_BUDGET) else "owner"
 
 
 def job_times(job: Job) -> dict[str, Any]:

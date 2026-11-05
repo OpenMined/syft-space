@@ -362,7 +362,9 @@ class _Stand:
         monkeypatch.setattr(execute, "check_grounded", lambda *a, **k: (True, "ok"))
         monkeypatch.setattr(parallel, "ask_endpoint", endpoint)
         monkeypatch.setattr(execute, "endpoint_mode", lambda space: "both")
-        monkeypatch.setattr(execute, "_active_pairs", lambda key, limit, conf: pairs)
+        monkeypatch.setattr(
+            execute, "_active_pairs", lambda key, limit, conf, **_: pairs
+        )
 
 
 def _conf(**overrides: Any) -> Settings:

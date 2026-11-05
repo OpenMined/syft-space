@@ -464,3 +464,84 @@ def test_results_paging_passes_through_as_given() -> None:
     assert resp.status_code == 200
     params = console.calls[-1][3]
     assert (params["limit"], params["offset"]) == (50, 100)
+
+
+# --- combined runs -----------------------------------------------------------
+
+
+def test_runs_route_asks_for_combined_members_only_when_told() -> None:
+    handler, console = _handler()
+    client = _app(handler)
+    client.get(f"/benchmarks/endpoints/{SLUG}/report/runs")
+    assert "show_combined_members" not in _runs_call(console)
+    console.calls.clear()
+    client.get(
+        f"/benchmarks/endpoints/{SLUG}/report/runs",
+        params={"show_combined_members": "true"},
+    )
+    assert _runs_call(console)["show_combined_members"] == "true"
+
+
+def test_combining_routes_pass_the_body_through() -> None:
+    handler, console = _handler()
+    client = _app(handler)
+    base = f"/benchmarks/endpoints/{SLUG}/report/combined"
+
+    checked = client.post(f"{base}/check", json={"job_ids": ["a", "b"]})
+    assert checked.status_code == 200
+    assert console.calls[-1][:3] == (
+        "POST",
+        "/console/report/combined/check",
+        {"job_ids": ["a", "b"]},
+    )
+
+    made = client.post(base, json={"job_ids": ["a", "b"], "title": "Week"})
+    assert made.status_code == 201
+    assert console.calls[-1][:3] == (
+        "POST",
+        "/console/report/combined",
+        {"job_ids": ["a", "b"], "title": "Week"},
+    )
+
+    grown = client.post(f"{base}/job-c1/members", json={"job_ids": ["c"]})
+    assert grown.status_code == 200
+    assert console.calls[-1][:3] == (
+        "POST",
+        "/console/report/combined/job-c1/members",
+        {"job_ids": ["c"]},
+    )
+    assert client.post(base, json={"job_ids": []}).status_code == 422
+
+
+def test_a_refused_combination_passes_its_differences_on() -> None:
+    handler, console = _handler()
+    body = {
+        "detail": "these runs were not measured the same way",
+        "differences": [
+            {
+                "field": "judge_policy",
+                "values": [
+                    {"job_id": "a", "value": "lenient"},
+                    {"job_id": "b", "value": "strict"},
+                ],
+            }
+        ],
+    }
+    console.raw = AsyncMock(  # type: ignore[method-assign]
+        return_value=Reply(ok=False, status=422, detail=body["detail"], body=body)
+    )
+    client = _app(handler)
+    base = f"/benchmarks/endpoints/{SLUG}/report/combined"
+    refused = client.post(base, json={"job_ids": ["a", "b"]})
+    assert refused.status_code == 422
+    assert refused.json() == body
+    grown = client.post(f"{base}/job-c1/members", json={"job_ids": ["b"]})
+    assert grown.status_code == 422
+    assert grown.json() == body
+
+    console.raw = AsyncMock(  # type: ignore[method-assign]
+        return_value=Reply(ok=False, status=422, detail="needs two runs")
+    )
+    too_few = client.post(base, json={"job_ids": ["a"]})
+    assert too_few.status_code == 422
+    assert too_few.json()["detail"] == "needs two runs"

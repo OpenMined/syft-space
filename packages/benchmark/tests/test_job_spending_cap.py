@@ -36,8 +36,8 @@ def test_the_cap_defaults_to_100_usd_and_zero_means_none() -> None:
 
 
 def test_a_run_summary_says_who_stopped_the_job() -> None:
-    from syft_benchmark.control.report_routes import _stopped
     from syft_benchmark.db.models import Job
+    from syft_benchmark.report.job_params import stopped_of as _stopped
 
     def job(state: str, error: str = "") -> Job:
         return Job(id="j", target="t", state=state, error=error)

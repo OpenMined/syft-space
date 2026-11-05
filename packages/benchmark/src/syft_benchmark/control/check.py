@@ -153,6 +153,22 @@ def articles_in_window(space: SpaceConfig, settings: Settings) -> WindowCount:
     return window_count({doc.doc_id: doc.dated_at for doc in documents}, settings)
 
 
+def resolve_documents(
+    space: SpaceConfig, settings: Settings, paths: list[str]
+) -> dict[str, str]:
+    """Each of ``paths`` (Space container paths) the node's index holds -> its
+    document id. Ids only; a missing collection holds none.
+
+    Raises:
+        ChromaError: the index cannot be reached
+    """
+    client = ChromaClient(space, settings)
+    collection_id = client.collection_id(space.collection or space.key)
+    if collection_id is None:
+        return {}
+    return client.doc_ids_by_path(collection_id, paths)
+
+
 def _unreachable_models(conf: Settings) -> list[str]:
     """Every configured model a role cannot actually get an answer from.
 

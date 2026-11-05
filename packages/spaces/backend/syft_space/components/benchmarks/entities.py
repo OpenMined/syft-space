@@ -113,6 +113,11 @@ class BenchmarkTarget(SQLModel, table=True):
 
     schedule: str = Field(default="", description="Interval like 24h; empty — manual")
     schedule_at: str = Field(default="", description="Hour HH:MM, if fixed")
+    combine_periods: list | None = Field(
+        default=None,
+        sa_column=Column(JSON(none_as_null=True)),
+        description="Periods (24h, 4h, ...) the benchmark combines runs over",
+    )
 
     # Last job seen, shown while the benchmark is unreachable.
     last_job: dict | None = Field(

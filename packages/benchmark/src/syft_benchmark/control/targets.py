@@ -47,6 +47,7 @@ def _row(spec: TargetSpec, row: Target | None = None) -> Target:
         target.next_run_at = None
     target.schedule = spec.schedule
     target.schedule_at = spec.schedule_at
+    target.combine_periods = list(spec.combine_periods)
     # The token is not here. It speaks for the Space's owner, so it is sealed
     # and lives among the credentials — `_store_token` puts it there, where a
     # session is at hand to write both in one transaction.
@@ -91,6 +92,7 @@ def view(target: Target, *, has_token: bool = False) -> TargetView:
         enabled=target.enabled if target.enabled is not None else True,
         schedule=target.schedule or "",
         schedule_at=target.schedule_at or "",
+        combine_periods=list(target.combine_periods or []),
         next_run_at=target.next_run_at,
         has_token=has_token,
     )

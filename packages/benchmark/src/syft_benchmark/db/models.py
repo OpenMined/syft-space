@@ -445,6 +445,16 @@ class Target(Base):
         DateTime(timezone=True), nullable=True, default=None
     )
 
+    # Periods ("24h", "4h", ...) whose finished runs the ticker combines;
+    # empty — none.
+    combine_periods: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
+    # Per period, the start of the last period the ticker has dealt with (ISO).
+    combine_marks: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -483,7 +493,7 @@ class Job(Base):
         default="pipeline",
         index=True,
         comment="What operation this job is: pipeline (measure(), any "
-        "combination of generate/filter/evaluate), filter, or judge",
+        "combination of generate/filter/evaluate), filter, judge, or combined",
     )
 
     # The progress of the measurement. The full volume is not known at once — it comes
@@ -543,6 +553,25 @@ class RunAggregate(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+
+class CombinedMember(Base):
+    """A job taken into a combined run (``JobKind.COMBINED``); a member is
+    always a leaf job and may belong to any number of combined runs."""
+
+    __tablename__ = "combined_members"
+
+    combined_job_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    member_job_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+    # Time order of the members, oldest first.
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class WriterCall(Base):

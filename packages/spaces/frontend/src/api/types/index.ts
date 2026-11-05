@@ -771,6 +771,8 @@ export interface BenchmarkTarget {
   instrument: BenchmarkLayer
   schedule: string
   schedule_at: string
+  /** Periods whose finished runs the benchmark combines; empty — none. */
+  combine_periods?: BenchmarkCombinePeriod[]
   /** When the benchmark next runs the schedule, UTC. */
   next_run_at: string | null
   /** The benchmark's own values, under the endpoint's layers. */
@@ -786,6 +788,7 @@ export interface BenchmarkTargetRequest {
   instrument?: BenchmarkLayer
   schedule?: string
   schedule_at?: string
+  combine_periods?: BenchmarkCombinePeriod[]
 }
 
 export interface ProviderRole {
@@ -1078,6 +1081,10 @@ export interface BenchmarkRunSummary {
   /** Who stopped the job; null — it was not stopped. */
   stopped?: 'owner' | 'spending_cap' | null
   build?: BenchmarkBuildCounts | null
+  /** Set on a combined run; null on any other. */
+  combined?: BenchmarkCombinedInfo | null
+  /** The combined runs holding this run; empty on a combined run. */
+  combined_into?: BenchmarkCombinedRef[]
 }
 
 /** What one job wrote, and its filter decisions by outcome. */
@@ -1303,11 +1310,17 @@ export interface BenchmarkRunReport {
   /** Primary first. */
   judges: string[]
   method: BenchmarkRunMethod
+  /** A combined run's runs, oldest first; null on any other run. */
+  members?: BenchmarkCombinedMember[] | null
+  /** Questions asked in more than one combined run; null on any other run. */
+  repeats?: BenchmarkRepeatedQuestions | null
 }
 
 export interface BenchmarkQuestionRow {
   n: number
   qa_id: string
+  /** The run the answers come from: for a combined run, the earliest that asked it. */
+  job_id?: string
   generator: string
   document_title: string
   file_name: string
@@ -1364,6 +1377,8 @@ export interface BenchmarkQuestionJudge {
 export interface BenchmarkQuestionDetail {
   arms: { alone: BenchmarkArmDetail | null; with: BenchmarkArmDetail | null }
   judges: BenchmarkQuestionJudge[]
+  /** A combined run's question per run that asked it, oldest first. */
+  observations?: BenchmarkQuestionObservation[]
 }
 
 /** A passage sent with the with-data answer. */
@@ -1372,4 +1387,98 @@ export interface BenchmarkReportFragment {
   document_title: string
   score: number
   content: string
+}
+
+// --- combined runs -------------------------------------------------------------
+
+/** A period runs are combined over; each divides a UTC day. */
+export type BenchmarkCombinePeriod = '1h' | '2h' | '3h' | '4h' | '6h' | '8h' | '12h' | '24h'
+
+/** What a runs-list item says about a combined run. */
+export interface BenchmarkCombinedInfo {
+  members: number
+  origin: 'manual' | 'auto'
+  period: BenchmarkCombinePeriod | null
+  /** UTC start of the period, for an automatic combination. */
+  period_start: string | null
+  title: string | null
+}
+
+/** A combined run holding a run. */
+export interface BenchmarkCombinedRef {
+  job_id: string
+  title: string | null
+}
+
+/** One run of a combined run. */
+export interface BenchmarkCombinedMember {
+  job_id: string
+  created_at: string | null
+  started_at: string | null
+  finished_at: string | null
+  trigger: string
+  window_days: number | null
+  /** Articles of its asked questions. */
+  documents: number | null
+  questions: number | null
+  cost_usd: number | null
+  state: string
+  stopped: 'owner' | 'spending_cap' | null
+}
+
+/** How answers to one question asked in more than one run compare (direct block). */
+export interface BenchmarkRepeatStats {
+  questions: number
+  observations: number
+  graded: number
+  /** Questions with at least two graded answers. */
+  compared: number
+  agreed: number
+  /** agreed / compared; 0..1. */
+  agreement: number | null
+  right: number
+  /** right / graded over every answer; 0..1. */
+  accuracy: number | null
+  wrong_to_right: number
+  right_to_wrong: number
+}
+
+export interface BenchmarkRepeatedQuestions {
+  /** Questions asked in more than one run. */
+  questions: number
+  models: Array<{
+    model: string
+    alone: BenchmarkRepeatStats | null
+    with: BenchmarkRepeatStats | null
+  }>
+}
+
+/** One run's verdicts on a question of a combined run. */
+export interface BenchmarkQuestionObservation {
+  job_id: string
+  created_at: string
+  verdict_alone: BenchmarkVerdict | null
+  verdict_with: BenchmarkVerdict | null
+  overridden: boolean
+}
+
+/** A setting that differs between runs to combine, with each run's value. */
+export interface BenchmarkCombineDifference {
+  field: string
+  values: Array<{ job_id: string; value: unknown }>
+}
+
+export interface BenchmarkCombineCheck {
+  ok: boolean
+  /** The runs that would be combined, combined runs flattened, oldest first. */
+  members: string[]
+  settings_hash: string | null
+  differences: BenchmarkCombineDifference[]
+  repeated_questions: number
+}
+
+/** The 422 body when runs differ. */
+export interface BenchmarkCombineRefusal {
+  detail: string
+  differences: BenchmarkCombineDifference[]
 }

@@ -1,10 +1,12 @@
 """The Excel export of one run (job): everything that took part, full texts.
 
 Nine sheets (report API, "Excel export"): Run, Generated, Rejected, Kept,
-Writer calls, Filter, Answers, Judging, Timing. Rows follow the question order
-(``question_order``). A text longer than an Excel cell holds continues in
-"(part 2)", "(part 3)" columns of the same row. What a run did not record is
-left empty.
+Writer calls, Filter, Answers, Judging, Timing. A combined run adds a Members
+sheet after Run; its Filter, Answers and Judging rows lead with the member
+job, and "Counted" marks only the observation its figures count. Rows follow
+the question order (``question_order``). A text longer than an Excel cell
+holds continues in "(part 2)", "(part 3)" columns of the same row. What a run
+did not record is left empty.
 
 Written with openpyxl in write-only mode: one sheet's rows are built in memory
 (the part columns must be known before the header), written, then dropped.
@@ -34,7 +36,13 @@ from syft_benchmark.db.models import Job, QaPair, Result, Run, Target, WriterCal
 from syft_benchmark.generation import decisions, entities, recorded
 from syft_benchmark.generation.article_dates import DATE_KEY
 from syft_benchmark.question_order import answer_order, pair_key, pair_order
-from syft_benchmark.report import job_params, pair_calls, run_view, writing_view
+from syft_benchmark.report import (
+    combined_view,
+    job_params,
+    pair_calls,
+    run_view,
+    writing_view,
+)
 from syft_benchmark.report.counted import (
     AnswerKey,
     Panel,
@@ -72,6 +80,13 @@ TEXT_METRICS = ("bleu", "rouge1_f", "rouge2_f", "rougeL_f", "bertscore_f1")
 
 # The Rejected stage of questions the set cap took out.
 CAP = "cap"
+# The Rejected stage of control questions over the control share.
+CONTROL_SHARE = "control share"
+# Set by the set, not by a filter decision: the stage each is listed under.
+_SET_STAGES = {
+    StatusReason.ROTATION.value: CAP,
+    StatusReason.CONTROL_SHARE.value: CONTROL_SHARE,
+}
 
 
 def filename(endpoint: str, created_at: datetime | None) -> str:
@@ -879,8 +894,7 @@ def _run_rows(
     return rows
 
 
-def _timing_rows(job: Job) -> list[list[Any]]:
-    timing = _dict((job.params or {}).get(job_params.TIMING))
+def _timing_rows(timing: dict[str, Any]) -> list[list[Any]]:
     rows: list[list[Any]] = []
     if timing.get("total_s") is not None:
         rows.append(["total", *[None] * 5, timing.get("total_s")])
@@ -928,6 +942,14 @@ def _timing_rows(job: Job) -> list[list[Any]]:
     return [[*row, *[None] * (width - len(row))] for row in rows]
 
 
+RUN_COLS = (Col("Field", 34), Col("Value", 60, long=True))
+REJECTED_COLS = (
+    Col("Stage", 14),
+    Col("Reason", 16),
+    Col("Note", 40, long=True),
+    *PAIR_COLS,
+)
+
 TIMING_COLS = (
     Col("Part", 8),
     Col("Phase", 10),
@@ -958,6 +980,9 @@ def write(
     configured: Panel = (),
 ) -> None:
     """Write the run's workbook to ``out`` (a path or a binary file)."""
+    if combined_view.is_combined(job):
+        _write_combined(session, job, target, out, configured=configured)
+        return
     wb = Workbook(write_only=True)
     report = run_view.report_part(session, job, configured=configured)
     primary = primary_judge(session, job, configured=configured)
@@ -973,7 +998,7 @@ def write(
     _sheet(
         wb,
         "Run",
-        (Col("Field", 34), Col("Value", 60, long=True)),
+        RUN_COLS,
         _run_rows(session, job, target, report, counts, len(asked_ids)),
     )
 
@@ -984,7 +1009,7 @@ def write(
     _sheet(
         wb,
         "Rejected",
-        (Col("Stage", 14), Col("Reason", 16), Col("Note", 40, long=True), *PAIR_COLS),
+        REJECTED_COLS,
         _rejected(written, found, calls),
     )
     _sheet(wb, "Kept", PAIR_COLS, [_pair_cells(r, calls) for r in kept])
@@ -994,12 +1019,7 @@ def write(
     _sheet(wb, "Filter", FILTER_COLS, [_filter_cells(d, job.id) for d in found])
     del pairs, found, written, kept, calls
 
-    groups = group_answers(
-        answers,
-        lambda a: AnswerKey.of(
-            a.run.model, a.run.context_mode, a.run.block, a.result.qa_id
-        ),
-    )
+    groups = _answer_groups(answers)
     panel = [*judges, ""]
     answer_rows: list[list[Any]] = []
     for rows in groups.values():
@@ -1019,8 +1039,22 @@ def write(
     _sheet(wb, "Judging", JUDGING_COLS, judging)
     del judging, groups, answers
 
-    _sheet(wb, "Timing", TIMING_COLS, _timing_rows(job))
+    _sheet(
+        wb,
+        "Timing",
+        TIMING_COLS,
+        _timing_rows(_dict((job.params or {}).get(job_params.TIMING))),
+    )
     wb.save(out)
+
+
+def _answer_groups(answers: Sequence[_Answer]) -> dict[AnswerKey, list[_Answer]]:
+    return group_answers(
+        answers,
+        lambda a: AnswerKey.of(
+            a.run.model, a.run.context_mode, a.run.block, a.result.qa_id
+        ),
+    )
 
 
 def _key(row: QaPair) -> tuple[Any, ...]:
@@ -1035,7 +1069,7 @@ def _rejected(
     written: Sequence[QaPair], found: Sequence[Decision], calls: Calls
 ) -> list[list[Any]]:
     """The job's removals: its filter decisions, and its questions the set cap
-    took out."""
+    or the control share took out."""
     out: list[tuple[tuple[Any, ...], list[Any]]] = []
     removed = set()
     for d in found:
@@ -1046,11 +1080,12 @@ def _rejected(
         cells = [entry.get("stage"), entry.get("reason"), entry.get("note")]
         out.append((_key(d.row), [*cells, *_pair_cells(d.row, calls)]))
     for row in written:
-        if row.id in removed or row.status_reason != StatusReason.ROTATION.value:
+        stage = _SET_STAGES.get(row.status_reason or "")
+        if row.id in removed or stage is None:
             continue
         if row.status not in (PairStatus.REJECTED.value, PairStatus.RETIRED.value):
             continue
-        cells = [CAP, row.status_reason, row.status_note]
+        cells = [stage, row.status_reason, row.status_note]
         out.append((_key(row), [*cells, *_pair_cells(row, calls)]))
     out.sort(key=lambda item: item[0])
     return [cells for _, cells in out]
@@ -1076,3 +1111,189 @@ def _kept(
         if r.status == PairStatus.ACTIVE.value
         and (r.id in kept_ids or r.job_id == job.id)
     )
+
+
+# --- a combined run ---------------------------------------------------------
+
+JOB_COL = Col("Job", 34)
+
+MEMBER_COLS = (
+    JOB_COL,
+    Col("Created (UTC)", 20),
+    Col("Started (UTC)", 20),
+    Col("Finished (UTC)", 20),
+    Col("Trigger", 10),
+    Col("Window (days)", 9),
+    Col("Articles", 9),
+    Col("Questions", 9),
+    Col("Cost (USD)", 10),
+    Col("State", 10),
+    Col("Stopped", 12),
+)
+
+
+def _combined_run_rows(
+    job: Job, target: Target, report: dict[str, Any]
+) -> list[list[Any]]:
+    run = _dict(report.get("run"))
+    method = _dict(report.get("method"))
+    funnel = _dict(report.get("funnel"))
+    cost = _dict(report.get("cost"))
+    timing = _dict(report.get("timing"))
+    repeats = _dict(report.get("repeats"))
+    params = dict(job.params or {})
+    rows: list[list[Any]] = [
+        ["Endpoint", target.endpoint or target.key],
+        ["Target", target.key],
+        ["Job", job.id],
+        ["Job kind", job.kind],
+        ["Title", params.get(combined_view.TITLE)],
+        ["Origin", params.get(combined_view.ORIGIN)],
+        ["Period", params.get(combined_view.PERIOD)],
+        ["Period start (UTC)", params.get(combined_view.PERIOD_START)],
+        ["Settings hash", params.get(job_params.SETTINGS_HASH)],
+        ["Members", len(report.get("members") or [])],
+        ["First started (UTC)", job.started_at],
+        ["Last finished (UTC)", job.finished_at],
+        ["Window from", method.get("articles_from")],
+        ["Window to", method.get("articles_to")],
+        ["Articles", run.get("articles")],
+        ["Articles dated", run.get("articles_dated")],
+        ["Articles published from", run.get("articles_first")],
+        ["Articles published to", run.get("articles_last")],
+        ["Articles new in these runs", run.get("articles_new")],
+        ["Questions in the figures", run.get("questions")],
+        ["Questions asked in more than one run", repeats.get("questions")],
+        ["Cost total (USD)", cost.get("total_usd")],
+    ]
+    for role, usd in _dict(cost.get("by_role")).items():
+        rows.append([f"Cost: {role} (USD)", usd])
+    rows += [
+        ["Cost of all priced calls (USD)", cost.get("usd_calls")],
+        ["Key spend before (USD)", cost.get("spend_before")],
+        ["Key spend after (USD)", cost.get("spend_after")],
+        ["Key spend delta (USD)", cost.get("usd")],
+        ["Timing total (s)", timing.get("total_s")],
+        ["Judges", "\n".join(str(j) for j in report.get("judges") or [])],
+        ["Question writer", method.get("generator_model")],
+        ["Kinds", "\n".join(str(k) for k in method.get("kinds") or [])],
+        ["Profile", method.get("profile")],
+        ["Excerpts per question", method.get("context_docs")],
+        ["Challenge rounds", method.get("denial_rounds")],
+        ["Repeats", method.get("repeats")],
+    ]
+    for key, value in funnel.items():
+        rows.append([f"Funnel: {key}", value])
+    for m in repeats.get("models") or []:
+        for arm in run_view.ARMS:
+            for key, value in _dict(m.get(arm)).items():
+                rows.append([f"Asked again: {m.get('model')} {arm} {key}", value])
+    return rows
+
+
+def _member_cells(m: dict[str, Any]) -> list[Any]:
+    return [
+        m.get("job_id"),
+        m.get("created_at"),
+        m.get("started_at"),
+        m.get("finished_at"),
+        m.get("trigger"),
+        m.get("window_days"),
+        m.get("documents"),
+        m.get("questions"),
+        m.get("cost_usd"),
+        m.get("state"),
+        m.get("stopped"),
+    ]
+
+
+def _write_combined(
+    session: Session,
+    job: Job,
+    target: Target,
+    out: IO[bytes] | str,
+    *,
+    configured: Panel = (),
+) -> None:
+    """The workbook of a combined run: its figures, its members, and every
+    member's rows."""
+    wb = Workbook(write_only=True)
+    report = run_view.report_part(session, job, configured=configured)
+    members = combined_view.member_jobs(session, job.id)
+    ids = [m.id for m in members]
+    _sheet(
+        wb,
+        "Run",
+        RUN_COLS,
+        _combined_run_rows(job, target, report),
+    )
+    _sheet(
+        wb,
+        "Members",
+        MEMBER_COLS,
+        [_member_cells(m) for m in report.get("members") or []],
+    )
+
+    pairs = job_pairs(session, job.target, ids)
+    found = [(m.id, d) for m in members for d in job_decisions(pairs, m.id)]
+    answers = {m.id: _job_answers(session, m.id) for m in members}
+    asked_ids = list(
+        dict.fromkeys(a.result.qa_id for rows in answers.values() for a in rows)
+    )
+    written = _ordered(row for row in pairs if row.job_id in set(ids))
+    kept = _ordered(
+        session.scalars(select(QaPair).where(QaPair.id.in_(set(asked_ids))))
+    )
+    calls = _writer_calls(session, job.target, [*pairs, *kept])
+    _sheet(wb, "Generated", PAIR_COLS, [_pair_cells(r, calls) for r in written])
+    _sheet(
+        wb,
+        "Rejected",
+        REJECTED_COLS,
+        _rejected(written, [d for _, d in found], calls),
+    )
+    _sheet(wb, "Kept", PAIR_COLS, [_pair_cells(r, calls) for r in kept])
+    _sheet(
+        wb,
+        "Writer calls",
+        WRITER_LOG_COLS,
+        [row for m in members for row in _writer_log_rows(session, m.id)],
+    )
+    found.sort(key=lambda item: _key(item[1].row))
+    _sheet(
+        wb,
+        "Filter",
+        (JOB_COL, *FILTER_COLS),
+        [[job_id, *_filter_cells(d, job_id)] for job_id, d in found],
+    )
+    del pairs, found, written, kept, calls
+
+    earliest: dict[AnswerKey, str] = {}
+    groups_of: dict[str, dict[AnswerKey, list[_Answer]]] = {}
+    for m in members:
+        groups = _answer_groups(answers[m.id])
+        groups_of[m.id] = groups
+        for key in groups:
+            earliest.setdefault(key, m.id)
+    answer_rows: list[list[Any]] = []
+    judging: list[list[Any]] = []
+    for m in members:
+        panel = [*run_view.counting_judges(session, m, configured=configured), ""]
+        primary = primary_judge(session, m, configured=configured)
+        for key, rows in groups_of[m.id].items():
+            answer_rows.extend([m.id, *row] for row in _answer_rows(rows, panel))
+            measured = key.context_mode in run_view.ARM_OF and earliest[key] == m.id
+            chosen = pick([a.result for a in rows], panel).counted if measured else None
+            for a in rows:
+                if a.result.judge_model == "":
+                    continue
+                judging.extend(
+                    [m.id, *row]
+                    for row in _judging_rows(a, primary, a.result is chosen)
+                )
+    _sheet(wb, "Answers", (JOB_COL, *ANSWER_COLS), answer_rows)
+    _sheet(wb, "Judging", (JOB_COL, *JUDGING_COLS), judging)
+    del answer_rows, judging, answers, groups_of
+
+    _sheet(wb, "Timing", TIMING_COLS, _timing_rows(_dict(report.get("timing"))))
+    wb.save(out)

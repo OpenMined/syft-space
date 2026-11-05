@@ -3,7 +3,7 @@
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="space-y-0.5">
         <div class="flex flex-wrap items-center gap-2.5">
-          <h1 class="heading-3">Run of {{ dayTime(utcStamp(data.run.created_at)) }}</h1>
+          <h1 class="heading-3" data-testid="run-heading">{{ runHeading(data.run) }}</h1>
           <AlertBadge
             v-if="stoppedLabel(data.run)"
             :tip="stoppedTip(data.run)"
@@ -165,6 +165,51 @@
     </section>
 
     <section
+      v-if="data.members?.length"
+      class="space-y-2.5"
+      aria-labelledby="members-title"
+      data-testid="members"
+    >
+      <h2 id="members-title" class="text-base font-semibold">Runs</h2>
+      <div class="overflow-x-auto rounded-lg border border-border bg-card">
+        <table class="w-full min-w-[560px] text-sm">
+          <thead class="bg-muted/40 text-xs text-muted-foreground">
+            <tr class="border-b border-border">
+              <th scope="col" class="px-4 py-2.5 text-left font-medium">Run</th>
+              <th scope="col" class="px-3 py-2.5 text-left font-medium">Trigger</th>
+              <th scope="col" class="px-3 py-2.5 text-right font-medium">Articles</th>
+              <th scope="col" class="px-3 py-2.5 text-right font-medium">Questions</th>
+              <th scope="col" class="px-4 py-2.5 text-right font-medium">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="m in data.members"
+              :key="m.job_id"
+              class="border-b border-border last:border-b-0"
+              data-testid="member-row"
+            >
+              <td class="px-4 py-2.5">
+                <RouterLink
+                  :to="runLocation(m.job_id)"
+                  class="font-medium text-primary tabular-nums hover:underline"
+                >
+                  {{ dayTime(utcStamp(m.created_at)) }}
+                </RouterLink>
+              </td>
+              <td class="px-3 py-2.5 text-muted-foreground">{{ triggerLabel(m.trigger) }}</td>
+              <td class="px-3 py-2.5 text-right tabular-nums">{{ count(m.documents) }}</td>
+              <td class="px-3 py-2.5 text-right tabular-nums">{{ count(m.questions) }}</td>
+              <td class="px-4 py-2.5 text-right tabular-nums">
+                {{ m.cost_usd === null ? DASH : usdText(m.cost_usd) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section
       v-if="took !== null || cost !== null || parts"
       class="space-y-2.5"
       aria-labelledby="cost-title"
@@ -248,7 +293,8 @@ import { useReport, useRun } from './context'
 import { useDetails } from './details/useDetails'
 import { barWidth, count, DASH, dayTime, points, utcStamp } from './figures'
 import { modelName, vendorName } from './labels'
-import { methodLocation, modelLocation } from './routing'
+import { methodLocation, modelLocation, runLocation } from './routing'
+import { runHeading, triggerLabel } from './combined'
 import { saveRunExport } from './useRunReport'
 import {
   otherNotAsked,

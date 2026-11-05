@@ -19,7 +19,15 @@ import string
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from syft_benchmark.config import (
     ContextMode,
@@ -35,6 +43,9 @@ from syft_benchmark.config import (
     WebSearchEngine,
 )
 from syft_benchmark.llm.catalog import ModelEntry
+
+# The most documents one document-scoped launch may name.
+MAX_RUN_DOCUMENTS = 500
 
 
 def csv_param(value: str | None) -> tuple[str, ...]:
@@ -325,6 +336,20 @@ class Probe(Layer):
     )
 
 
+# The periods runs may be combined over: each divides a day, so a period is
+# aligned to UTC midnight (``control.combined``).
+COMBINE_PERIOD_HOURS = {
+    "1h": 1,
+    "2h": 2,
+    "3h": 3,
+    "4h": 4,
+    "6h": 6,
+    "8h": 8,
+    "12h": 12,
+    "24h": 24,
+}
+
+
 class TargetSpec(BaseModel):
     """A node under test, as its owner enters it.
 
@@ -382,6 +407,25 @@ class TargetSpec(BaseModel):
             "has no way of knowing what the owner's night is"
         ),
     )
+    combine_periods: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Periods (one of " + ", ".join(COMBINE_PERIOD_HOURS) + ") over which "
+            "the service combines the finished runs launched in each closed UTC "
+            "period into a combined run, per settings hash. Empty — none"
+        ),
+    )
+
+    @field_validator("combine_periods")
+    @classmethod
+    def _known_periods(cls, value: list[str]) -> list[str]:
+        unknown = [p for p in value if p not in COMBINE_PERIOD_HOURS]
+        if unknown:
+            raise ValueError(
+                f"unknown combine periods {unknown}; allowed: "
+                + ", ".join(COMBINE_PERIOD_HOURS)
+            )
+        return sorted(set(value), key=COMBINE_PERIOD_HOURS.__getitem__)
 
 
 class TargetView(TargetSpec):
@@ -431,6 +475,36 @@ class SecretView(BaseModel):
 
     name: str
     updated_at: datetime
+
+
+class DocumentSettings(Layer):
+    """How a document-scoped launch builds and asks; applies only with
+    ``RunRequest.documents``. Unset fields keep the settings' defaults."""
+
+    passages_per_document: int | None = Field(
+        default=None,
+        ge=1,
+        le=20,
+        description="Passages each document gives every passage kind",
+    )
+    control_max_share: float | None = Field(
+        default=None,
+        ge=0.0,
+        lt=1.0,
+        description=(
+            "The most of the asked questions false premise and trick questions "
+            "may take; the rest are retired. Zero — no limit"
+        ),
+    )
+    top_up_passages_per_document: int | None = Field(
+        default=None,
+        ge=0,
+        le=10,
+        description=(
+            "More passages of each document the top-up may give a kind short "
+            "of its target. Zero — none"
+        ),
+    )
 
 
 class RunRequest(BaseModel):
@@ -489,6 +563,29 @@ class RunRequest(BaseModel):
             "measurement"
         ),
     )
+    documents: list[Annotated[str, StringConstraints(min_length=1)]] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_RUN_DOCUMENTS,
+        description=(
+            "Measure only these documents: Space container paths, as the "
+            "index stores them in `absolute_path`. Questions are written only "
+            "from them, whatever the dataset mode and window, and only their "
+            "questions are asked. Paths the index does not hold are listed in "
+            "the job's `documents_missing`; none found fails the job. A launch "
+            "with documents is refused with 409 while the target has a job in "
+            "the queue or running"
+        ),
+    )
+    document_settings: DocumentSettings | None = Field(
+        default=None, description="Only with `documents`"
+    )
+
+    @model_validator(mode="after")
+    def _document_settings_need_documents(self) -> RunRequest:
+        if self.document_settings is not None and not self.documents:
+            raise ValueError("document_settings applies only with documents")
+        return self
 
 
 class FilterRequest(BaseModel):
@@ -833,6 +930,24 @@ class VerdictOverride(BaseModel):
         return value
 
 
+class CombineCheck(BaseModel):
+    """Runs to combine, or to check whether they combine."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Runs; a combined run stands for its members",
+    )
+
+
+class CombineRequest(CombineCheck):
+    """A new combined run."""
+
+    title: str | None = Field(default=None, max_length=200)
+
+
 class JobView(BaseModel):
     """The state of a launch — what the owner watches while a measurement runs."""
 
@@ -869,12 +984,35 @@ class JobView(BaseModel):
         default=None, validation_alias=AliasChoices("progress_plan", "params")
     )
 
+    # A document-scoped launch: how many paths it asked for, and those the
+    # index did not hold (known once the job starts). Null for other jobs.
+    documents: int | None = Field(
+        default=None, validation_alias=AliasChoices("documents", "params")
+    )
+    documents_missing: list[str] | None = Field(
+        default=None, validation_alias=AliasChoices("documents_missing", "params")
+    )
+
     @field_validator("progress_plan", mode="before")
     @classmethod
     def _plan_of(cls, value: Any) -> Any:
         # A Job hands in its whole params; the plan is one key of them.
         if isinstance(value, dict) and "steps" not in value:
             return value.get("progress_plan")
+        return value
+
+    @field_validator("documents", mode="before")
+    @classmethod
+    def _documents_of(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            value = value.get("documents")
+        return len(value) if isinstance(value, list) else value
+
+    @field_validator("documents_missing", mode="before")
+    @classmethod
+    def _missing_of(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return value.get("documents_missing")
         return value
 
 

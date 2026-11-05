@@ -86,6 +86,7 @@ def list_pairs(
     cohort: str | None = None,
     generator: str | None = None,
     job: str | None = None,
+    jobs: Collection[str] | None = None,
     ids: Collection[str] | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -101,6 +102,7 @@ def list_pairs(
         job: Only what this launch generated; None — everything the node has.
             A pair with no ``job_id`` belongs to no launch and is matched by
             no value of this
+        jobs: Only what these launches generated; None — no such filter
         ids: Only these pairs; None — every pair
         limit: Page size, capped at `MAX_PAGE`
         offset: How many to skip, for paging
@@ -122,6 +124,8 @@ def list_pairs(
             base = base.where(QaPair.generator == generator)
         if job:
             base = base.where(QaPair.job_id == job)
+        if jobs is not None:
+            base = base.where(QaPair.job_id.in_(sorted(jobs)))
         if ids is not None:
             base = base.where(QaPair.id.in_(sorted(ids)))
 

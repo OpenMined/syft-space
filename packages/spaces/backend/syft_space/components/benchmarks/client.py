@@ -35,6 +35,8 @@ class Reply:
     detail: str = ""
     # File headers, set by `download` and `stream`.
     headers: dict[str, str] = field(default_factory=dict)
+    # A refusal's JSON body, as the benchmark sent it; None when unreadable.
+    body: Any = None
 
     @property
     def unconfigured(self) -> bool:
@@ -83,7 +85,12 @@ class BenchmarkClient:
             )
             if resp.status_code >= 400:
                 await resp.aread()
-                return Reply(ok=False, status=resp.status_code, detail=_detail(resp))
+                return Reply(
+                    ok=False,
+                    status=resp.status_code,
+                    detail=_detail(resp),
+                    body=_body(resp),
+                )
         except httpx.HTTPError as exc:
             logger.warning(f"benchmark {url}: {exc}")
             return Reply(ok=False, detail=str(exc))
@@ -270,6 +277,14 @@ def _file_headers(resp: httpx.Response) -> dict[str, str]:
     """Content type and disposition, to pass a file on."""
     kept = ("content-type", "content-disposition")
     return {k.lower(): v for k, v in resp.headers.items() if k.lower() in kept}
+
+
+def _body(resp: httpx.Response) -> Any:
+    """The JSON body of a response; None when it is not JSON."""
+    try:
+        return resp.json()
+    except ValueError:
+        return None
 
 
 def _detail(resp: httpx.Response) -> str:

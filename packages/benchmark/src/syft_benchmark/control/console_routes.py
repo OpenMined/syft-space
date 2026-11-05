@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 
 from syft_benchmark.config import JobKind, Settings
 from syft_benchmark.control import jobs as job_queue
@@ -20,6 +21,7 @@ from syft_benchmark.control.compose import (
 )
 from syft_benchmark.control.formfields import catalogue
 from syft_benchmark.control.refusals import (
+    active_job_conflict,
     job_or_404,
     refuse_run_clash,
     require_enabled,
@@ -227,13 +229,18 @@ def console_withdraw_verdict(result_id: str, auth: ConsoleGuard) -> None:
 
 
 @router.post("/runs", response_model=JobView, status_code=202)
-def console_start_run(request: RunRequest, auth: ConsoleGuard) -> JobView:
+def console_start_run(
+    request: RunRequest, auth: ConsoleGuard
+) -> JobView | JSONResponse:
     """Preparation and Testing both launch here, with different ``RunRequest`` flags."""
     with session_scope(auth.settings) as session:
         row = target_or_404(session, auth.target_key)
         require_enabled(row)
         refuse_run_clash(row, request, auth.settings)
-        job = job_queue.enqueue(session, row, request)
+        try:
+            job = job_queue.enqueue(session, row, request)
+        except job_queue.ActiveJobClash as clash:
+            return active_job_conflict(auth.target_key, clash.job_id)
         return JobView.model_validate(job)
 
 

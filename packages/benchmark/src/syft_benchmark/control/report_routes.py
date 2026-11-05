@@ -1,34 +1,44 @@
 """The console's API of benchmark results: runs, a run's report, its
-questions, writing and filter records, downloads, and deleting a run.
+questions, writing and filter records, downloads, deleting a run, and
+combined runs.
 
 Everything is scoped to the session's target; a job of another target is a
-404. Figures come from ``report.run_view``.
+404. Figures come from ``report.run_view`` (``report.combined_view`` for a
+combined run).
 """
 
 from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from fastapi.responses import FileResponse
-from sqlalchemy import exists, func, or_, select
-from sqlalchemy.orm import Session
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import ColumnElement, case, exists, func, or_, select
+from sqlalchemy.orm import Session, aliased
 from starlette.background import BackgroundTask
 
-from syft_benchmark.config import JobState
+from syft_benchmark.control import combined
 from syft_benchmark.control.auth import ConsoleAuth, ConsoleGuard
 from syft_benchmark.control.compose import target_panel
-from syft_benchmark.control.jobs import OVER_BUDGET, PROGRESS_PLAN, discard_run
+from syft_benchmark.control.jobs import PROGRESS_PLAN, discard_run
 from syft_benchmark.control.refusals import job_or_404, target_or_404
-from syft_benchmark.control.schemas import PairResponse, RunPairResponse, csv_param
-from syft_benchmark.db import Job, Run, session_scope
+from syft_benchmark.control.schemas import (
+    CombineCheck,
+    CombineRequest,
+    PairResponse,
+    RunPairResponse,
+    csv_param,
+)
+from syft_benchmark.db import CombinedMember, Job, Run, Target, session_scope
 from syft_benchmark.generation import decisions, get_pair, list_pairs
 from syft_benchmark.generation.pairs import MAX_PAGE as PAIRS_MAX_PAGE
 from syft_benchmark.generation.pairs import PairView
 from syft_benchmark.report import (
+    combined_view,
     export_xlsx,
     filter_view,
     job_params,
@@ -61,6 +71,23 @@ def _start_of(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=UTC)
 
 
+def _listed_at() -> ColumnElement[datetime]:
+    """When a job sits in the runs list: a combined run at its latest member's
+    time (finished, else created), any other job at its creation."""
+    member = aliased(Job)
+    latest = (
+        select(func.max(func.coalesce(member.finished_at, member.created_at)))
+        .join(CombinedMember, CombinedMember.member_job_id == member.id)
+        .where(CombinedMember.combined_job_id == Job.id)
+        .correlate(Job)
+        .scalar_subquery()
+    )
+    return case(
+        (Job.kind == combined_view.COMBINED, func.coalesce(latest, Job.created_at)),
+        else_=Job.created_at,
+    )
+
+
 def _summary(
     job: Job,
     run: dict[str, Any],
@@ -73,18 +100,55 @@ def _summary(
         **job_params.job_times(job),
         "build_only": build_only,
         "state": job.state,
-        "stopped": _stopped(job),
+        "stopped": job_params.stopped_of(job),
     }
     if build is not None:
         summary["build"] = build
     return summary
 
 
-def _stopped(job: Job) -> str | None:
-    """Who stopped the job: ``spending_cap``, ``owner``; None — it was not stopped."""
-    if job.state != JobState.CANCELLED.value:
-        return None
-    return "spending_cap" if (job.error or "").startswith(OVER_BUDGET) else "owner"
+def _items(
+    session: Session, auth: ConsoleAuth, target: Target, jobs: Sequence[Job]
+) -> list[dict[str, Any]]:
+    """Runs-list items: the summary, ``combined`` for a combined run and
+    ``combined_into`` for a leaf one."""
+    runs = run_view.summaries(
+        session, jobs, configured=lambda: target_panel(target, auth.settings)
+    )
+    members = {
+        job.id: combined_view.member_ids(session, job.id)
+        for job in jobs
+        if combined_view.is_combined(job)
+    }
+    ids = [job.id for job in jobs]
+    leaves = [job_id for job_id in ids if job_id not in members]
+    measured = _has_runs(session, leaves)
+    every = list(
+        dict.fromkeys([*ids, *(m for found in members.values() for m in found)])
+    )
+    built = filter_view.build_counts(session, auth.target_key, every)
+    holders = combined_view.holders_of(session, leaves)
+    items = []
+    for job in jobs:
+        if job.id in members:
+            item = _summary(
+                job,
+                runs[job.id],
+                build=combined_view.combined_build(built, members[job.id]),
+            )
+            item["combined"] = combined_view.summary_of(job, len(members[job.id]))
+            item["combined_into"] = []
+        else:
+            item = _summary(
+                job,
+                runs[job.id],
+                build_only=job.id not in measured,
+                build=built[job.id],
+            )
+            item["combined"] = None
+            item["combined_into"] = holders[job.id]
+        items.append(item)
+    return items
 
 
 def _has_runs(session: Session, job_ids: list[str]) -> set[str]:
@@ -112,11 +176,13 @@ def list_runs(
     date_to: Annotated[date | None, Query(alias="to")] = None,
     job_ids: str | None = None,
     exclude_job_ids: str | None = None,
+    show_combined_members: bool = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict[str, Any]:
     """Every queued or running job, and a page of the finished runs, newest
-    first."""
+    first (a combined run by its latest member, ``_listed_at``). Runs a
+    combined run holds are left out unless ``show_combined_members``."""
     with session_scope(auth.settings) as session:
         target = target_or_404(session, auth.target_key)
         active = session.scalars(
@@ -142,12 +208,19 @@ def list_runs(
             Job.target == auth.target_key,
             Job.state.not_in(job_params.ACTIVE_STATES),
             # Build-only jobs too: they wrote or filtered questions.
-            or_(exists().where(Run.job_id == Job.id), filter_view.touched_by_job()),
+            or_(
+                exists().where(Run.job_id == Job.id),
+                filter_view.touched_by_job(),
+                Job.kind == combined_view.COMBINED,
+            ),
         ]
+        if not show_combined_members:
+            where.append(~exists().where(CombinedMember.member_job_id == Job.id))
+        listed_at = _listed_at()
         if date_from is not None:
-            where.append(Job.created_at >= _start_of(date_from))
+            where.append(listed_at >= _start_of(date_from))
         if date_to is not None:
-            where.append(Job.created_at < _start_of(date_to + timedelta(days=1)))
+            where.append(listed_at < _start_of(date_to + timedelta(days=1)))
         wanted = csv_param(job_ids)
         if job_ids is not None:
             where.append(Job.id.in_(wanted))
@@ -161,27 +234,13 @@ def list_runs(
         jobs = session.scalars(
             select(Job)
             .where(*where)
-            .order_by(Job.created_at.desc(), Job.id)
+            .order_by(listed_at.desc(), Job.id)
             .limit(limit)
             .offset(offset)
         ).all()
-        runs = run_view.summaries(
-            session, jobs, configured=lambda: target_panel(target, auth.settings)
-        )
-        ids = [job.id for job in jobs]
-        measured = _has_runs(session, ids)
-        built = filter_view.build_counts(session, auth.target_key, ids)
         return {
             "in_progress": in_progress,
-            "items": [
-                _summary(
-                    job,
-                    runs[job.id],
-                    build_only=job.id not in measured,
-                    build=built[job.id],
-                )
-                for job in jobs
-            ],
+            "items": _items(session, auth, target, jobs),
             "total": total,
         }
 
@@ -195,6 +254,8 @@ def get_run(job_id: str, auth: ConsoleGuard) -> dict[str, Any]:
         report = run_view.report_part(
             session, job, configured=lambda: target_panel(target, auth.settings)
         )
+        if combined_view.is_combined(job):
+            return _combined_report(session, auth, job, report)
         build_only = not _has_runs(session, [job.id])
         report["run"] = _summary(
             job,
@@ -204,8 +265,38 @@ def get_run(job_id: str, auth: ConsoleGuard) -> dict[str, Any]:
         )
         report["method"] = {**report["method"], **job_params.how_tested(job)}
         report["timing"] = job_params.timing_of(job)
-        report["text_metrics"] = text_view.job_text_metrics(session, job.id)
+        report["text_metrics"] = text_view.job_text_metrics(session, [job.id])
+        report["members"] = None
+        report["repeats"] = None
         return report
+
+
+def _combined_report(
+    session: Session, auth: ConsoleAuth, job: Job, report: dict[str, Any]
+) -> dict[str, Any]:
+    """``get_run`` of a combined run: cost and timing from its payload, the
+    build and text metrics over its members."""
+    members = [m["job_id"] for m in report["members"]]
+    built = filter_view.build_counts(session, auth.target_key, members)
+    report["run"] = _summary(
+        job, report["run"], build=combined_view.combined_build(built, members)
+    )
+    report["run"]["combined"] = combined_view.summary_of(job, len(members))
+    report["method"] = {
+        **report["method"],
+        **job_params.how_tested(job),
+        job_params.COST: report.pop("cost", None),
+    }
+    report["timing"] = report.pop("timing", None)
+    report["text_metrics"] = text_view.job_text_metrics(session, members)
+    return report
+
+
+def _members(session: Session, job: Job) -> list[Job] | None:
+    """A combined run's members; None for any other job."""
+    if not combined_view.is_combined(job):
+        return None
+    return combined_view.member_jobs(session, job.id)
 
 
 def _refuse_active(job: Job) -> None:
@@ -218,7 +309,8 @@ def _refuse_active(job: Job) -> None:
 
 @router.delete("/runs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_run(job_id: str, auth: ConsoleGuard) -> None:
-    """Delete a finished run and its answers; its questions stay."""
+    """Delete a finished run and its answers; its questions stay. A combined
+    run goes alone: its members stay."""
     with session_scope(auth.settings) as session:
         target_or_404(session, auth.target_key)
         job = job_or_404(session, auth.target_key, job_id)
@@ -235,15 +327,24 @@ def list_run_generated(
     limit: Annotated[int, Query(ge=1, le=PAIRS_MAX_PAGE)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict[str, Any]:
-    """The questions this job wrote, paged, and its build per kind."""
+    """The questions this job wrote, paged, and its build per kind; for a
+    combined run, its members'."""
     with session_scope(auth.settings) as session:
         target_or_404(session, auth.target_key)
-        kinds = job_params.generation_of(job_or_404(session, auth.target_key, job_id))
+        job = job_or_404(session, auth.target_key, job_id)
+        members = _members(session, job)
+        if members is None:
+            kinds = job_params.generation_of(job)
+            written_by = None
+        else:
+            kinds = combined_view.combined_generation(members)
+            written_by = [m.id for m in members]
     items, total = list_pairs(
         auth.target_key,
         status=status_value,
         generator=generator,
-        job=job_id,
+        job=job_id if written_by is None else None,
+        jobs=written_by,
         limit=limit,
         offset=offset,
         settings=auth.settings,
@@ -274,9 +375,13 @@ def list_run_writing(
     """The job's writer calls that dropped drafts or failed, paged."""
     with session_scope(auth.settings) as session:
         target_or_404(session, auth.target_key)
-        job_or_404(session, auth.target_key, job_id)
+        members = _members(session, job_or_404(session, auth.target_key, job_id))
         return writing_view.job_writing(
-            session, job_id, generator=generator, limit=limit, offset=offset
+            session,
+            [job_id] if members is None else [m.id for m in members],
+            generator=generator,
+            limit=limit,
+            offset=offset,
         )
 
 
@@ -347,6 +452,7 @@ def list_run_filter(
     with session_scope(auth.settings) as session:
         target_or_404(session, auth.target_key)
         job = job_or_404(session, auth.target_key, job_id)
+        members = _members(session, job)
         return filter_view.job_filter(
             session,
             job,
@@ -355,6 +461,7 @@ def list_run_filter(
             outcome=outcome,
             limit=limit or None,
             offset=offset,
+            members=None if members is None else [m.id for m in members],
         )
 
 
@@ -499,3 +606,86 @@ def download_export(job_id: str, auth: ConsoleGuard) -> FileResponse:
         filename=name,
         background=BackgroundTask(os.unlink, path),
     )
+
+
+# --- combined runs --------------------------------------------------------
+
+
+def _unknown_job(exc: combined.UnknownJob) -> HTTPException:
+    return HTTPException(status.HTTP_404_NOT_FOUND, f"there is no job {exc.job_id}")
+
+
+def _combined_item(
+    session: Session, auth: ConsoleAuth, make: Callable[[], Job]
+) -> dict[str, Any] | JSONResponse:
+    """The runs-list item of the combined run ``make`` creates or grows; its
+    refusals as 404 and 422."""
+    target = target_or_404(session, auth.target_key)
+    try:
+        job = make()
+    except combined.UnknownJob as exc:
+        raise _unknown_job(exc) from exc
+    except combined.TooFew as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except combined.NotCombinable as exc:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={
+                "detail": "these runs were not measured the same way",
+                "differences": exc.differences,
+            },
+        )
+    return _items(session, auth, target, [job])[0]
+
+
+@router.post("/combined/check")
+def check_combined(body: CombineCheck, auth: ConsoleGuard) -> dict[str, Any]:
+    """Whether the runs combine, and what differs if they do not."""
+    with session_scope(auth.settings) as session:
+        target_or_404(session, auth.target_key)
+        try:
+            return combined.check(session, auth.target_key, body.job_ids)
+        except combined.UnknownJob as exc:
+            raise _unknown_job(exc) from exc
+
+
+@router.post(
+    "/combined",
+    status_code=status.HTTP_201_CREATED,
+    response_model=None,
+    responses={422: {"description": "Fewer than two runs, or runs that differ"}},
+)
+def create_combined(
+    body: CombineRequest, auth: ConsoleGuard
+) -> dict[str, Any] | JSONResponse:
+    """A new combined run; the reply is its runs-list item."""
+    with session_scope(auth.settings) as session:
+        return _combined_item(
+            session,
+            auth,
+            lambda: combined.create(
+                session, auth.target_key, body.job_ids, title=body.title
+            ),
+        )
+
+
+@router.post(
+    "/combined/{job_id}/members",
+    response_model=None,
+    responses={422: {"description": "Not a combined run, or runs that differ"}},
+)
+def add_combined_members(
+    job_id: str, body: CombineCheck, auth: ConsoleGuard
+) -> dict[str, Any] | JSONResponse:
+    """Add runs to a combined run; the reply is its runs-list item."""
+    with session_scope(auth.settings) as session:
+        target_or_404(session, auth.target_key)
+        job = job_or_404(session, auth.target_key, job_id)
+        if not combined_view.is_combined(job):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"run {job_id} is not a combined run",
+            )
+        return _combined_item(
+            session, auth, lambda: combined.add_members(session, job, body.job_ids)
+        )

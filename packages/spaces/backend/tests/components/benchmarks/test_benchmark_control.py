@@ -512,6 +512,30 @@ async def test_a_job_carries_its_progress_plan() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_job_carries_its_documents() -> None:
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+    client.known_jobs = [
+        {
+            "id": "scoped",
+            "state": "succeeded",
+            "phase": "done",
+            "documents": 2,
+            "documents_missing": ["/root/documents/b.md"],
+        },
+        {"id": "plain", "state": "succeeded", "phase": "done"},
+    ]
+    scoped, plain = await handler.list_jobs(TENANT, "support-kb")
+    assert scoped.documents == 2
+    assert scoped.documents_missing == ["/root/documents/b.md"]
+    assert plain.documents is None
+    assert plain.documents_missing is None
+
+
+@pytest.mark.asyncio
 async def test_a_run_the_benchmark_has_forgotten_leaves_the_page_too() -> None:
     """An empty job list clears the remembered job."""
     row = _connection()
@@ -1359,3 +1383,152 @@ def test_the_locality_route_answers_the_connection_form() -> None:
 
     assert answer.status_code == 200, answer.text
     assert answer.json() == {"host": "bench.example.com", "local": False}
+
+
+# --- document-scoped runs ---------------------------------------------------
+
+ACTIVE_JOB = {
+    "detail": "target support-kb has job job-0 running",
+    "active_job_id": "job-0",
+}
+
+
+class _BusyClient(_Client):
+    """A benchmark whose queue is taken: a run with documents is its 409."""
+
+    async def start_run(self, key: str, request: dict) -> Reply:
+        self.runs.append((key, request))
+        return Reply(ok=False, status=409, detail=ACTIVE_JOB["detail"], body=ACTIVE_JOB)
+
+
+def _measured() -> tuple[BenchmarkConnection, BenchmarkTarget]:
+    row = _connection()
+    return row, BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_runs_documents_reach_the_benchmark() -> None:
+    row, target = _measured()
+    handler, client = _handler(connections=[row], target=target)
+    paths = ["/root/documents/a.md", "/root/documents/b.md"]
+    settings = {"passages_per_document": 2, "control_max_share": 0}
+    await handler.start_run(
+        TENANT,
+        "support-kb",
+        RunRequest(documents=paths, document_settings=settings),
+    )
+    assert client.runs[0][1]["documents"] == paths
+    assert client.runs[0][1]["document_settings"] == settings
+
+
+def test_a_run_needs_at_least_one_document_when_it_names_them() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RunRequest(documents=[])
+
+
+def test_document_settings_need_documents() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RunRequest(document_settings={"passages_per_document": 2})
+
+
+def test_the_benchmarks_409_with_the_active_job_reaches_the_caller_unchanged() -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from syft_space.components.benchmarks.routes import build_benchmark_routes
+    from syft_space.components.tenants.dependency import get_tenant_dependency
+
+    row, target = _measured()
+    handler, _ = _handler(client=_BusyClient(), connections=[row], target=target)
+    app = FastAPI()
+    app.include_router(build_benchmark_routes(handler))
+    app.dependency_overrides[get_tenant_dependency] = lambda: TENANT
+
+    answer = TestClient(app).post(
+        "/benchmarks/endpoints/support-kb/runs",
+        json={"documents": ["/root/documents/a.md"]},
+    )
+
+    assert answer.status_code == 409
+    assert answer.json() == ACTIVE_JOB
+    handler.targets.remember_job.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_keeps_the_benchmarks_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+
+    from syft_space.components.benchmarks import client as client_module
+    from syft_space.components.benchmarks.client import BenchmarkClient
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, json=ACTIVE_JOB)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        client_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: real(transport=httpx.MockTransport(refuse), **kwargs),
+    )
+
+    reply = await BenchmarkClient("http://benchmark:8200").start_run(
+        "support-kb", {"documents": ["/a.md"]}
+    )
+
+    assert reply.ok is False
+    assert reply.status == 409
+    assert reply.body == ACTIVE_JOB
+    assert reply.detail == ACTIVE_JOB["detail"]
+
+
+# --- combining runs per period ----------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_combine_periods_reach_the_benchmark_only_when_set() -> None:
+    """Periods are pushed when set; omitted, the stored ones are kept."""
+    handler, client = _handler(connections=[_connection()], endpoint=_endpoint())
+    await handler.save_target(
+        TENANT,
+        "support-kb",
+        TargetRequest(enabled=True, combine_periods=["24h", "4h"]),
+    )
+    assert client.targets["support-kb"]["combine_periods"] == ["24h", "4h"]
+    await handler.save_target(
+        TENANT, "support-kb", TargetRequest(enabled=True, combine_periods=[])
+    )
+    assert "combine_periods" not in client.targets["support-kb"]
+
+    stored = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, combine_periods=["24h"]
+    )
+    handler, client = _handler(
+        connections=[_connection()], endpoint=_endpoint(), target=stored
+    )
+    await handler.save_target(TENANT, "support-kb", TargetRequest(enabled=True))
+    assert client.targets["support-kb"]["combine_periods"] == ["24h"]
+    assert stored.combine_periods == ["24h"]
+
+
+@pytest.mark.asyncio
+async def test_stored_combine_periods_are_shown() -> None:
+    handler, _ = _handler(
+        connections=[_connection()],
+        endpoint=_endpoint(),
+        target=BenchmarkTarget(
+            tenant_id=TENANT.id,
+            endpoint_id=ENDPOINT_ID,
+            enabled=True,
+            combine_periods=["24h"],
+        ),
+    )
+    out = await handler.get_target(TENANT, "support-kb")
+    assert out.combine_periods == ["24h"]

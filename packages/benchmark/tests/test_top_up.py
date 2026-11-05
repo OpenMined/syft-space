@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import uuid
+from collections import Counter
 from typing import Any
 
 import pytest
@@ -143,10 +144,12 @@ KINDS = ("qa", "multihop_synthesis")
 
 def test_a_kind_targets_its_budget_or_an_even_share_of_the_cap() -> None:
     keys = ["qa", "mcq", "unanswerable_property"]
-    assert top_up.kind_targets(keys, 10, Settings()) == dict.fromkeys(keys, 10)
+    budgets = dict.fromkeys(keys, 10)
+    assert top_up.kind_targets(budgets, Settings()) == budgets
     capped = Settings(dataset_max_pairs=10)
-    assert top_up.kind_targets(keys, 10, capped) == dict.fromkeys(keys, 4)
-    assert top_up.kind_targets(keys, 2, capped) == dict.fromkeys(keys, 2)
+    assert top_up.kind_targets(budgets, capped) == dict.fromkeys(keys, 4)
+    assert top_up.kind_targets(dict.fromkeys(keys, 2), capped) == dict.fromkeys(keys, 2)
+    assert top_up.kind_targets({"qa": 6, "mcq": 2}, Settings()) == {"qa": 6, "mcq": 2}
 
 
 def test_the_plan_writes_more_of_a_kind_that_usually_gets_filtered() -> None:
@@ -258,3 +261,213 @@ def test_no_top_up_without_screening_or_a_limit(
 
     assert report.kinds["qa"].written == 4
     assert not any(note.startswith("top-up") for note in report.notes)
+
+
+@pytest.mark.needs_db
+@pytest.mark.parametrize("share", [1, 2])
+def test_a_scoped_top_up_takes_no_passage_beyond_a_documents_share(
+    clean: None, monkeypatch: pytest.MonkeyPatch, share: int
+) -> None:
+    _Build(monkeypatch)
+    scope = frozenset(f"doc{d}" for d in range(4))
+
+    report = pipeline.generate_for_space(
+        _space(),
+        generators=KINDS,
+        settings=_settings(passages_per_document=share),
+        screen=True,
+        doc_ids=scope,
+    )
+
+    qa, hop = report.kinds["qa"], report.kinds["multihop_synthesis"]
+    # qa never survives, yet its share is spent: nothing is left to top up.
+    assert (qa.budget, qa.units_read, qa.written, qa.topped_up) == (
+        4 * share * 2,
+        4 * share,
+        4 * share * 2,
+        0,
+    )
+    assert (hop.budget, hop.units_read) == (4 * 2, 4)
+    assert not any(note.startswith("top-up round") for note in report.notes)
+
+
+@pytest.mark.needs_db
+def test_a_capped_scoped_top_up_stays_within_the_share(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Build(monkeypatch)
+    scope = frozenset(f"doc{d}" for d in range(4))
+
+    report = pipeline.generate_for_space(
+        _space(),
+        generators=("qa",),
+        settings=_settings(passages_per_document=1),
+        screen=True,
+        doc_ids=scope,
+        per_generator=2,
+    )
+
+    qa = report.kinds["qa"]
+    # One passage for the budget, one per top-up round: each from a document
+    # whose share is still unread.
+    assert (qa.budget, qa.topped_up) == (2, 2 * top_up.TOP_UP_ROUNDS)
+    assert qa.units_read == 1 + top_up.TOP_UP_ROUNDS
+    with session_scope() as session:
+        per_doc = Counter(
+            session.execute(
+                select(QaPair.doc_id).where(QaPair.space == SPACE)
+            ).scalars()
+        )
+    assert len(per_doc) == qa.units_read
+    assert set(per_doc.values()) == {2}
+
+
+# --- extra passages in a scoped run ------------------------------------------
+
+
+def _chunks_per_doc(generator: str) -> Counter[str]:
+    with session_scope() as session:
+        rows = session.execute(
+            select(QaPair.doc_id, QaPair.chunk_id).where(
+                QaPair.space == SPACE, QaPair.generator == generator
+            )
+        ).all()
+    return Counter(doc for doc, _ in set(rows))
+
+
+@pytest.mark.needs_db
+def test_a_scoped_top_up_takes_extra_passages_of_each_document(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Build(monkeypatch)
+    scope = frozenset(f"doc{d}" for d in range(4))
+
+    report = pipeline.generate_for_space(
+        _space(),
+        generators=KINDS,
+        settings=_settings(passages_per_document=1, top_up_passages_per_document=2),
+        screen=True,
+        doc_ids=scope,
+    )
+
+    qa, hop = report.kinds["qa"], report.kinds["multihop_synthesis"]
+    # One passage of each document, then two more of each over two rounds.
+    assert (qa.budget, qa.units_read, qa.topped_up) == (8, 4 + 8, 16)
+    assert _chunks_per_doc("qa") == dict.fromkeys(scope, 3)
+    # An article kind has one unit per document and takes nothing extra.
+    assert (hop.units_read, hop.topped_up) == (4, 0)
+    assert any(note.startswith("top-up: qa takes up to 2") for note in report.notes)
+
+
+@pytest.mark.needs_db
+def test_extra_passages_stay_within_the_top_up_cost_limit(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Build(monkeypatch, usd=1.0)
+    scope = frozenset(f"doc{d}" for d in range(4))
+
+    report = pipeline.generate_for_space(
+        _space(),
+        generators=("qa",),
+        settings=_settings(
+            passages_per_document=1,
+            top_up_passages_per_document=2,
+            top_up_max_usd=0.5,
+        ),
+        screen=True,
+        doc_ids=scope,
+    )
+
+    qa = report.kinds["qa"]
+    assert (qa.units_read, qa.topped_up) == (5, 2)
+    assert qa.stopped == pipeline.COST_LIMIT
+
+
+def test_control_and_article_kinds_get_no_reserve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pipeline, "_processed_ids", lambda *a: set())
+    specs = list(GENERATORS.values())
+    extractive = tuple(s.key for s in specs if s.key in pipeline.EXTRACTIVE_KEYS)
+    queues = pipeline._queues(
+        SPACE,
+        specs,
+        extractive,
+        _documents(3, 4),
+        "c1",
+        _settings(),
+        pipeline.GenerationReport(space=SPACE, cohort="c1"),
+        per_document=1,
+        extra=2,
+    )
+
+    for queue in queues:
+        units = Counter(doc.doc_id for doc, _ in queue.units)
+        reserve = Counter(doc.doc_id for doc, _ in queue.reserve)
+        assert set(units.values()) == {1}, queue.label
+        spec = queue.spec
+        if spec is not None and (spec.is_control or spec.scope.value == "document"):
+            assert not reserve, queue.label
+        else:
+            assert set(reserve.values()) == {2}, queue.label
+            assert not {c for _, c in queue.units} & {c for _, c in queue.reserve}
+
+
+@pytest.mark.needs_db
+def test_extra_passages_off_by_default(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Build(monkeypatch)
+    assert Settings().top_up_passages_per_document == 0
+
+    report = pipeline.generate_for_space(
+        _space(),
+        generators=("qa",),
+        settings=_settings(passages_per_document=1),
+        screen=True,
+        doc_ids=frozenset(f"doc{d}" for d in range(4)),
+    )
+
+    assert (report.kinds["qa"].units_read, report.kinds["qa"].topped_up) == (4, 0)
+    assert _chunks_per_doc("qa") == dict.fromkeys((f"doc{d}" for d in range(4)), 1)
+
+
+@pytest.mark.needs_db
+def test_extra_passages_and_the_control_share_together(
+    clean: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _Build(monkeypatch)
+    scope = frozenset(f"doc{d}" for d in range(4))
+    conf = _settings(passages_per_document=1, top_up_passages_per_document=1)
+
+    report = pipeline.generate_for_space(
+        _space(), generators=KINDS, settings=conf, screen=True, doc_ids=scope
+    )
+    assert report.kinds["qa"].topped_up == 8
+    # Trick questions on the same documents, as a control kind would leave them.
+    with session_scope() as session:
+        for n in range(8):
+            session.add(
+                QaPair(
+                    id=f"trick-{n}",
+                    space=SPACE,
+                    generator="unanswerable_property",
+                    task_type="negative",
+                    doc_id=f"doc{n % 4}",
+                    question=f"Trick {n}?",
+                    answer="",
+                    context="",
+                    meta={"grading": "behavior"},
+                    status=PairStatus.ACTIVE.value,
+                    model="gen/model",
+                    question_hash=f"trick-{n}",
+                )
+            )
+
+    filtered = pipeline.filter_and_rotate(
+        _space(), settings=conf, rotate_anyway=True, doc_ids=scope
+    )
+
+    # Eight multihop questions are asked: two trick questions fit under 25%.
+    assert _active() == {"multihop_synthesis": 8, "unanswerable_property": 2}
+    assert filtered.control_share == 6

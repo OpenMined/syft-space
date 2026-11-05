@@ -87,6 +87,22 @@ def _require(reply: Reply, fallback: str, *, keep_status: bool = True) -> None:
     )
 
 
+class PassedRefusal(Exception):
+    """A benchmark refusal whose JSON body goes to the caller unchanged: the 409
+    naming the active job, the 422 listing the differences of runs to combine."""
+
+    def __init__(self, status: int, body: dict[str, Any]) -> None:
+        super().__init__(body.get("detail"))
+        self.status = status
+        self.body = body
+
+
+def _pass_refusal(reply: Reply, status: int, key: str) -> None:
+    """Raise ``PassedRefusal`` for a ``status`` reply whose body carries ``key``."""
+    if reply.status == status and isinstance(reply.body, dict) and key in reply.body:
+        raise PassedRefusal(status, reply.body)
+
+
 def _raise_if_refused(reply: Reply) -> None:
     """Raise the benchmark's 422 (invalid configuration); other failures pass."""
     if reply.status == 422:
@@ -182,6 +198,8 @@ class _TargetSettings(Protocol):
     def schedule(self) -> str: ...
     @property
     def schedule_at(self) -> str: ...
+    @property
+    def combine_periods(self) -> list[str] | None: ...
 
 
 class BenchmarkHandler:
@@ -399,6 +417,7 @@ class BenchmarkHandler:
         out.instrument = target.instrument or {}
         out.schedule = target.schedule
         out.schedule_at = target.schedule_at
+        out.combine_periods = list(target.combine_periods or [])
         out.next_run_at = await self._next_run_at(connection, slug)
         return out
 
@@ -408,6 +427,15 @@ class BenchmarkHandler:
         """Start measuring this endpoint, or change how."""
         endpoint = await self._endpoint_or_404(tenant, slug)
         connection = await self._pick_connection(tenant, request.connection_id)
+        if request.combine_periods is None:
+            stored = await self.targets.for_endpoint(endpoint.id)
+            request = request.model_copy(
+                update={
+                    "combine_periods": list(
+                        (stored.combine_periods if stored else None) or []
+                    )
+                }
+            )
 
         # Pushed before storing, so a configuration the benchmark refuses is not kept.
         spec = await self._spec(tenant, connection, endpoint, request)
@@ -422,6 +450,7 @@ class BenchmarkHandler:
             target.instrument = request.instrument or None
             target.schedule = request.schedule
             target.schedule_at = request.schedule_at
+            target.combine_periods = list(request.combine_periods or []) or None
             target.updated_at = datetime.now(timezone.utc)
             return target
 
@@ -469,6 +498,7 @@ class BenchmarkHandler:
         reply = await self._client(connection).start_run(
             slug, request.model_dump(exclude_none=True)
         )
+        _pass_refusal(reply, 409, "active_job_id")
         _raise_if_refused(reply)
         _require(reply, "the benchmark did not take the run", keep_status=False)
         job = _parsed(JobResponse, reply.data)
@@ -540,6 +570,42 @@ class BenchmarkHandler:
         return _console_dict(
             await console.raw("GET", "/console/report/runs", params=dict(query))
         )
+
+    async def check_combined(
+        self, tenant: Tenant, slug: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Whether runs combine, and what differs if they do not."""
+        console = await self._console(tenant, slug)
+        return _console_dict(
+            await console.raw("POST", "/console/report/combined/check", body=body)
+        )
+
+    async def create_combined(
+        self, tenant: Tenant, slug: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """A new combined run.
+
+        Raises:
+            PassedRefusal: the runs differ (422)
+        """
+        console = await self._console(tenant, slug)
+        reply = await console.raw("POST", "/console/report/combined", body=body)
+        _pass_refusal(reply, 422, "differences")
+        return _console_dict(reply)
+
+    async def add_combined_members(
+        self, tenant: Tenant, slug: str, job_id: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Add runs to a combined run.
+
+        Raises:
+            PassedRefusal: the runs differ (422)
+        """
+        console = await self._console(tenant, slug)
+        path = f"/console/report/combined/{_seg(job_id)}/members"
+        reply = await console.raw("POST", path, body=body)
+        _pass_refusal(reply, 422, "differences")
+        return _console_dict(reply)
 
     async def get_report_run(
         self, tenant: Tenant, slug: str, job_id: str
@@ -726,7 +792,7 @@ class BenchmarkHandler:
     ) -> dict[str, Any]:
         """The target as the benchmark takes it."""
         collection = settings.collection or await self._collection_for(tenant, endpoint)
-        return {
+        spec: dict[str, Any] = {
             "key": endpoint.slug,
             "title": endpoint.name or endpoint.slug,
             "url": connection.space_url,
@@ -741,6 +807,11 @@ class BenchmarkHandler:
             "schedule": settings.schedule,
             "schedule_at": settings.schedule_at,
         }
+        # Sent only when set: a benchmark without combined runs refuses the field,
+        # and the PUT replaces the whole target, so leaving it out clears it.
+        if settings.combine_periods:
+            spec["combine_periods"] = list(settings.combine_periods)
+        return spec
 
     async def _resync(self, tenant: Tenant, connection: BenchmarkConnection) -> None:
         """Re-push every target this connection measures."""

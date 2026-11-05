@@ -12,7 +12,9 @@ import {
 import { benchmarksApi } from '@/api/endpoints/benchmarks'
 import { ACTIVE_POLL_MS } from '@/composables/useBenchmarkJobs'
 import { apiErrorDetail } from '@/lib/errors'
+import { useShowCombined } from './useShowCombined'
 import type {
+  BenchmarkCombineCheck,
   BenchmarkQuestionDetail,
   BenchmarkQuestionPage,
   BenchmarkQuestionQuery,
@@ -71,6 +73,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
   const revision = ref(0)
 
   const filtered = computed(() => Boolean(filters.from || filters.to))
+  const showCombined = useShowCombined()
 
   const reportCache = new Map<string, Promise<BenchmarkRunReport>>()
   const detailCache = new Map<string, Promise<BenchmarkQuestionDetail>>()
@@ -99,6 +102,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
       to: filters.to || undefined,
       limit: RUNS_PAGE,
       offset: page.value * RUNS_PAGE,
+      show_combined_members: showCombined.value || undefined,
     })
     return request === listRequest ? list : null
   }
@@ -156,7 +160,7 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
   if (getCurrentScope()) onScopeDispose(stopPolling)
 
   watch(
-    () => [filters.from, filters.to],
+    () => [filters.from, filters.to, showCombined.value],
     () => {
       if (page.value !== 0) page.value = 0
       else void refresh()
@@ -232,6 +236,18 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     await refresh()
   }
 
+  /** Whether the runs combine, and what differs if they do not. */
+  function checkCombined(jobIds: string[]): Promise<BenchmarkCombineCheck> {
+    return benchmarksApi.checkCombined(toValue(slug), jobIds)
+  }
+
+  /** Combine runs, then reload the list. */
+  async function createCombined(jobIds: string[], title?: string): Promise<BenchmarkRunSummary> {
+    const created = await benchmarksApi.createCombined(toValue(slug), jobIds, title)
+    await refresh()
+    return created
+  }
+
   async function downloadSummary(jobId: string): Promise<void> {
     const { blob, fileName } = await benchmarksApi.downloadRunSummary(toValue(slug), jobId)
     saveBlob(blob, fileName ?? `${toValue(slug)}-${jobId}.docx`)
@@ -257,6 +273,8 @@ export function useRunReport(slug: MaybeRefOrGetter<string>) {
     loadQuestion,
     loadFragments,
     deleteRun,
+    checkCombined,
+    createCombined,
     downloadSummary,
   }
 }

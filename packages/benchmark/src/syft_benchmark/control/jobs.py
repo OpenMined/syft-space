@@ -21,6 +21,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from syft_benchmark.config import JobKind, JobPhase, JobState, Settings, SpaceConfig
+from syft_benchmark.control import combined
+from syft_benchmark.control.check import resolve_documents
 from syft_benchmark.control.compose import merge, settings_for
 from syft_benchmark.control.schemas import FilterRequest, JudgeRequest, RunRequest
 from syft_benchmark.db import store
@@ -64,7 +66,8 @@ SERVICE_RESTARTED = "service_restarted"
 NOTHING_GRADED = "nothing_graded"
 NO_QUESTIONS = "no_questions"
 NOTHING_GENERATED = "nothing_generated"
-OVER_BUDGET = "over_budget"
+OVER_BUDGET = job_params.OVER_BUDGET
+DOCUMENTS_NOT_FOUND = "documents_not_found"
 
 # How many recent jobs a target's history shows: enough to see that yesterday's
 # measurement failed.
@@ -286,6 +289,14 @@ class Reporter:
                 self.cancelled = True
 
 
+class ActiveJobClash(Exception):
+    """A document-scoped launch found the target's queue taken."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__(job_id)
+        self.job_id = job_id
+
+
 def enqueue(
     session: Session,
     target: Target,
@@ -300,6 +311,10 @@ def enqueue(
     there is returned, whatever kind it is: the queue is one per target
     regardless of what the job does, since a filter or a judge pass reads and
     writes the same rows a measurement would.
+
+    Raises:
+        ActiveJobClash: a launch with ``documents`` while a job is queued or
+            running: its documents would not be the ones the active job measures
     """
     # Locks the target row for the rest of this transaction, so two concurrent
     # launches for the same target serialize on the check below instead of
@@ -314,6 +329,8 @@ def enqueue(
         .order_by(Job.created_at)
     ).first()
     if active is not None:
+        if isinstance(request, RunRequest) and request.documents:
+            raise ActiveJobClash(active.id)
         return active
 
     job = Job(
@@ -331,11 +348,12 @@ def enqueue(
 
 
 def recent_jobs(session: Session, target_key: str) -> list[Job]:
-    """The target's newest jobs, newest first, at most ``JOBS_PER_TARGET``."""
+    """The target's newest jobs, newest first, at most ``JOBS_PER_TARGET``;
+    combined runs are not jobs that ran."""
     return list(
         session.scalars(
             select(Job)
-            .where(Job.target == target_key)
+            .where(Job.target == target_key, Job.kind != JobKind.COMBINED.value)
             .order_by(Job.created_at.desc())
             .limit(JOBS_PER_TARGET)
         )
@@ -364,8 +382,11 @@ def discard_run(session: Session, job: Job) -> None:
 
     Its runs, answers, verdicts and overrides, cached figures, kept writer
     calls, and its build and filter records on the questions. The questions
-    themselves stay: a question once asked is never deleted.
+    themselves stay: a question once asked is never deleted. A combined run
+    goes alone, its members untouched; a member leaves every combined run
+    holding it (``combined.drop_member``).
     """
+    combined.drop_member(session, job)
     runs = select(Run.id).where(Run.job_id == job.id)
     session.execute(sa_delete(Result).where(Result.run_id.in_(runs)))
     session.execute(sa_delete(Run).where(Run.job_id == job.id))
@@ -484,17 +505,40 @@ def _execute_pipeline(
     # target and do not change the target: a trial run with a different
     # similarity threshold must not rewrite the setting the ordinary nightly
     # measurement will go by.
-    extra = [x for x in (request.instrument, request.probe) if x is not None]
+    extra = [
+        x
+        for x in (request.instrument, request.probe, request.document_settings)
+        if x is not None
+    ]
     if extra:
         node_conf = merge(node_conf, *extra)
     _snapshot(
         job_id,
         {
             **job_params.judging_snapshot(node_conf),
-            **job_params.dataset_snapshot(node_conf),
+            **job_params.dataset_snapshot(node_conf, scoped=bool(request.documents)),
+            **job_params.fingerprint(node_conf),
         },
         base_settings,
     )
+
+    doc_ids: frozenset[str] | None = None
+    if request.documents:
+        found = resolve_documents(space, node_conf, request.documents)
+        missing = [path for path in request.documents if path not in found]
+        _snapshot(job_id, {job_params.DOCUMENTS_MISSING: missing}, base_settings)
+        if not found:
+            _finish(
+                job_id,
+                JobState.FAILED,
+                error=(
+                    f"{DOCUMENTS_NOT_FOUND}: none of the "
+                    f"{len(request.documents)} documents is in the index"
+                ),
+                settings=base_settings,
+            )
+            return
+        doc_ids = frozenset(found.values())
 
     # None means "yes" — the ordinary shape of a launch that measures. False
     # is for a launch that only wants the question set refreshed: the runs
@@ -513,6 +557,7 @@ def _execute_pipeline(
         limit=request.limit,
         observer=reporter,
         job_id=job_id,
+        doc_ids=doc_ids,
     )
     reporter.pass_times = done.pass_times
     reporter.calls = done.clock
@@ -557,7 +602,14 @@ def _execute_filter(
     """Screen this target's pending pairs on their own — no fresh generate."""
     base_settings = reporter.settings
     request = FilterRequest.model_validate(params)
-    _snapshot(job_id, job_params.judging_snapshot(node_conf), base_settings)
+    _snapshot(
+        job_id,
+        {
+            **job_params.judging_snapshot(node_conf),
+            **job_params.fingerprint(node_conf),
+        },
+        base_settings,
+    )
     reporter.phase(JobPhase.FILTER)
     outcome = filter_and_rotate(
         space,
@@ -594,7 +646,14 @@ def _execute_judge(
     """Grade this target's pending verdicts on their own — no fresh evaluate."""
     base_settings = reporter.settings
     request = JudgeRequest.model_validate(params)
-    _snapshot(job_id, job_params.judging_snapshot(node_conf), base_settings)
+    _snapshot(
+        job_id,
+        {
+            **job_params.judging_snapshot(node_conf),
+            **job_params.fingerprint(node_conf),
+        },
+        base_settings,
+    )
     reporter.phase(JobPhase.JUDGE)
     outcome = judge_pending(
         space,

@@ -108,6 +108,8 @@ class FilterSummary:
     public_knowledge: int = 0
     # Left pending: the archive check failed (retrieval or its judge).
     archive_failed: int = 0
+    # Control questions a document-scoped run retired over its control share.
+    control_share: int = 0
     notes: list[str] = field(default_factory=list)
     rotation: RotationReport | None = None
     # None — the web check is off or had nothing to check.
@@ -121,6 +123,7 @@ class FilterSummary:
         self.web_answerable += other.web_answerable
         self.public_knowledge += other.public_knowledge
         self.archive_failed += other.archive_failed
+        self.control_share += other.control_share
         self.notes += [note for note in other.notes if note not in self.notes]
         if other.web is None:
             return
@@ -139,6 +142,8 @@ class FilterSummary:
         )
         if self.archive_failed:
             line += f", archive check failed for {self.archive_failed} (left pending)"
+        if self.control_share:
+            line += f", {self.control_share} over the control share"
         if self.web is not None:
             line += f"; {self.web.line()}"
         return line
@@ -605,6 +610,7 @@ def _pending_rows(
     generator: str | None,
     cohort: str | None,
     limit: int | None,
+    documents: Collection[str] | None = None,
 ) -> list[QaPair]:
     with session_scope(conf) as session:
         query = select(QaPair).where(
@@ -615,6 +621,8 @@ def _pending_rows(
             query = query.where(QaPair.generator == generator)
         if cohort:
             query = query.where(QaPair.cohort == cohort)
+        if documents is not None:
+            query = query.where(QaPair.doc_id.in_(list(documents)))
         if limit:
             query = query.limit(limit)
         rows = list(session.execute(query).scalars())
@@ -644,6 +652,7 @@ def filter_pending(
     recheck_cohort: str | None = None,
     recheck_docs: Collection[str] | None = None,
     job_id: str = "",
+    documents: Collection[str] | None = None,
 ) -> FilterSummary:
     """Screen this node's pending pairs, deciding active or rejected.
 
@@ -664,6 +673,7 @@ def filter_pending(
         recheck_docs: Limit those to pairs from these documents (the window);
             None — no limit
         job_id: The job every decision is stamped with; empty — none
+        documents: Screen only these documents' pending pairs; None — all
 
     Returns:
         A summary of what was screened and how it came out
@@ -682,7 +692,7 @@ def filter_pending(
         space.key, conf, retrieve=retrieve, should_stop=should_stop, job_id=job_id
     )
     width = max(1, conf.concurrency)
-    rows = _pending_rows(space.key, conf, generator, cohort, limit)
+    rows = _pending_rows(space.key, conf, generator, cohort, limit, documents)
     if conf.dataset_mode is DatasetMode.REBUILD and cohort is None:
         # A rebuild measures only the current cohort: an older cohort's pending
         # leftover screened active would be retired at once, its checks paid

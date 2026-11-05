@@ -13,14 +13,20 @@ documents inside the freshness window. The rules:
   not that everything aged out;
 * only the current cohort is measured: two pools over one material would give
   two verdicts for the same thing;
-* the set cap (``dataset_max_pairs``) is shared round-robin across generators.
+* the set cap (``dataset_max_pairs``) is shared round-robin across generators;
+* a document-scoped launch retires nothing by the window or the cap: it only
+  revives its documents' current-cohort items that a recompute took out; after
+  its filter pass the control kinds over ``control_max_share`` of what it asks
+  are retired for good (``trim_control_share``).
 
 This module sees only document ids and dates, never their text (invariant 1).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import math
+import random
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -37,7 +43,8 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
-from syft_benchmark.generation.web_check import web_checked
+from syft_benchmark.generation.generators import CONTROL_KEYS
+from syft_benchmark.generation.web_check import passed_filter, web_checked
 
 _EPOCH = datetime.min.replace(tzinfo=UTC)
 # The note on an item the set cap took out; the filter stage re-checks these.
@@ -272,6 +279,50 @@ def _newest_order(
     return key
 
 
+def _revive_scope(
+    report: RotationReport, scope: Collection[str], conf: Settings
+) -> RotationReport:
+    """Bring back the scope's items of the cohort that a recompute retired."""
+    docs = list(scope)
+    with session_scope(conf) as session:
+        revived = list(
+            session.execute(
+                update(QaPair)
+                .where(
+                    QaPair.space == report.space,
+                    QaPair.cohort == report.cohort,
+                    QaPair.doc_id.in_(docs),
+                    QaPair.status == PairStatus.RETIRED.value,
+                    QaPair.status_reason == StatusReason.ROTATION.value,
+                )
+                .values(
+                    status=PairStatus.ACTIVE.value,
+                    status_note="back in the measurement",
+                    status_reason=None,
+                )
+                .returning(QaPair.id)
+            ).scalars()
+        )
+        invalidate_runs_with_pairs(session, revived)
+        report.active = session.execute(
+            select(func.count())
+            .select_from(QaPair)
+            .where(
+                QaPair.space == report.space,
+                QaPair.doc_id.in_(docs),
+                QaPair.status == PairStatus.ACTIVE.value,
+            )
+        ).scalar_one()
+    report.window_days = 0
+    report.revived = len(revived)
+    report.notes.append(
+        "document scope: the window, cohort and cap were not applied, "
+        "nothing left the set"
+    )
+    logger.info(f"{report.space}: the scope was reconciled — {report.line()}")
+    return report
+
+
 def rotate(
     space: str,
     dated: Mapping[str, datetime | None],
@@ -280,6 +331,7 @@ def rotate(
     rebuilding: bool = False,
     settings: Settings | None = None,
     now: datetime | None = None,
+    scope: Collection[str] | None = None,
 ) -> RotationReport:
     """Recompute which items are in the measurement now.
 
@@ -294,6 +346,9 @@ def rotate(
             mode: a human named it outright, and the set is obliged to keep within it
         settings: The process settings
         now: The moment to count from; None — now
+        scope: A document-scoped launch's documents: only their items of
+            ``cohort`` retired by a recompute come back, nothing leaves, and
+            ``dated`` is not read; None — the whole set is recomputed
 
     Returns:
         What became of the set; with no documents read, the set is left as it is
@@ -302,6 +357,8 @@ def rotate(
     report = RotationReport(
         space=space, window_days=conf.document_window_days, cohort=cohort
     )
+    if scope is not None:
+        return _revive_scope(report, scope, conf)
 
     if not dated:
         # Nothing was read: a recompute would empty the measurement.
@@ -330,7 +387,8 @@ def rotate(
         # A document gone from the collection does not take its items out.
         fresh = set()
 
-    # Rejected items never come back: their failure has nothing to do with time.
+    # Rejected items never come back: their failure has nothing to do with
+    # time. Nor do those over the control share.
     with session_scope(conf) as session:
         rows = list(
             session.execute(
@@ -338,6 +396,9 @@ def rotate(
                     QaPair.space == space,
                     QaPair.status.in_(
                         [PairStatus.ACTIVE.value, PairStatus.RETIRED.value]
+                    ),
+                    QaPair.status_reason.is_distinct_from(
+                        StatusReason.CONTROL_SHARE.value
                     ),
                 )
             ).scalars()
@@ -416,3 +477,125 @@ def rotate(
 
     logger.info(f"{space}: the set was recomputed — {report.line()}")
     return report
+
+
+# The note on an item retired over the control share.
+CONTROL_SHARE_NOTE = "over the control share"
+
+
+@dataclass(frozen=True, slots=True)
+class ControlTrim:
+    """What ``trim_control_share`` did to a scope's set."""
+
+    share: float
+    # Questions the run will ask: ordinary, and control before the trim.
+    ordinary: int
+    control: int
+    kept: int
+    retired: tuple[str, ...]
+
+    def note(self) -> str:
+        return (
+            f"control share {self.share:.0%}: {len(self.retired)} of "
+            f"{self.control} control questions retired, {self.kept} kept "
+            f"beside {self.ordinary} others"
+        )
+
+
+def control_allowance(ordinary: int, control: int, share: float) -> int:
+    """How many control questions may stay beside ``ordinary`` others: the
+    most that keep them within ``share`` of the total (rounded down), at
+    least one when any is there."""
+    if share <= 0 or control == 0:
+        return control
+    room = math.floor(share * ordinary / (1 - share) + 1e-9)
+    return min(control, max(1, room))
+
+
+def _spread(rows: Sequence[QaPair], keep: int, seed: str) -> list[str]:
+    """``keep`` control rows taken round-robin over the articles in a seeded
+    order, each article alternating the kinds, the one it starts with
+    rotating from article to article."""
+    by_doc: dict[str, dict[str, list[QaPair]]] = {}
+    for row in sorted(rows, key=lambda r: (_created(r), r.id)):
+        by_doc.setdefault(row.doc_id, {}).setdefault(row.generator, []).append(row)
+    docs = sorted(by_doc)
+    docs = random.Random(seed).sample(docs, len(docs))
+    kinds = sorted(CONTROL_KEYS)
+    lines: list[list[QaPair]] = []
+    for at, doc in enumerate(docs):
+        order = kinds[at % len(kinds) :] + kinds[: at % len(kinds)]
+        buckets = [list(by_doc[doc].get(kind, ())) for kind in order]
+        line: list[QaPair] = []
+        while any(buckets):
+            for bucket in buckets:
+                if bucket:
+                    line.append(bucket.pop(0))
+        lines.append(line)
+    picked: list[str] = []
+    depth = 0
+    while len(picked) < keep:
+        for line in lines:
+            if depth < len(line) and len(picked) < keep:
+                picked.append(line[depth].id)
+        depth += 1
+    return picked
+
+
+def trim_control_share(
+    space: str, scope: Collection[str], settings: Settings | None = None
+) -> ControlTrim | None:
+    """Retire a document-scoped run's control questions over
+    ``control_max_share`` of the questions it will ask.
+
+    Counted over the scope's active questions that pass the web check gate,
+    as the run asks them. Those kept are spread over the articles and the
+    control kinds (``_spread``, seeded by the scope); the rest are retired
+    with the reason ``control_share`` and never come back. None — the share
+    is off or nothing is over it.
+    """
+    conf = settings or get_settings()
+    share = conf.control_max_share
+    if share <= 0:
+        return None
+    docs = sorted(set(scope))
+    with session_scope(conf) as session:
+        rows = list(
+            session.execute(
+                select(QaPair).where(
+                    QaPair.space == space,
+                    QaPair.doc_id.in_(docs),
+                    QaPair.status == PairStatus.ACTIVE.value,
+                )
+            ).scalars()
+        )
+        for row in rows:
+            session.expunge(row)
+    asked = [row for row in rows if passed_filter(row, conf)]
+    control = [row for row in asked if row.generator in CONTROL_KEYS]
+    ordinary = len(asked) - len(control)
+    keep = control_allowance(ordinary, len(control), share)
+    if keep >= len(control):
+        return None
+    kept = set(_spread(control, keep, seed=f"{space}:{'|'.join(docs)}"))
+    retired = tuple(sorted(row.id for row in control if row.id not in kept))
+    with session_scope(conf) as session:
+        session.execute(
+            update(QaPair)
+            .where(QaPair.id.in_(retired), QaPair.status == PairStatus.ACTIVE.value)
+            .values(
+                status=PairStatus.RETIRED.value,
+                status_reason=StatusReason.CONTROL_SHARE.value,
+                status_note=CONTROL_SHARE_NOTE,
+            )
+        )
+        invalidate_runs_with_pairs(session, list(retired))
+    trim = ControlTrim(
+        share=share,
+        ordinary=ordinary,
+        control=len(control),
+        kept=keep,
+        retired=retired,
+    )
+    logger.info(f"{space}: {trim.note()}")
+    return trim

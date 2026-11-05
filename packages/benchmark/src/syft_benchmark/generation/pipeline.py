@@ -23,7 +23,7 @@ import random
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
@@ -72,7 +72,12 @@ from syft_benchmark.generation.language import detect_language, written_text
 from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.recorded import new_call, writer_meta
-from syft_benchmark.generation.rotation import RotationReport, fresh_ids, rotate
+from syft_benchmark.generation.rotation import (
+    RotationReport,
+    fresh_ids,
+    rotate,
+    trim_control_share,
+)
 from syft_benchmark.generation.slots import Latch, model_slots
 from syft_benchmark.generation.top_up import (
     TOP_UP_ROUNDS,
@@ -212,6 +217,7 @@ def pick_chunks(
     processed: set[str],
     limit: int | None = None,
     seed: str = "",
+    per_document: int | None = None,
 ) -> list[tuple[Document, Chunk]]:
     """What to parse in this run, in the order to parse it.
 
@@ -225,6 +231,8 @@ def pick_chunks(
         limit: How many to pick; None — every unparsed chunk
         seed: Shuffle each document's passages with this seed, so a walk
             stopped early does not read only the opening ones; empty — in order
+        per_document: How many unparsed passages each document gives at most;
+            None — all of them
     """
     order = {
         doc.doc_id: (
@@ -235,6 +243,7 @@ def pick_chunks(
         for doc in documents
     }
     picked: list[tuple[Document, Chunk]] = []
+    taken: dict[str, int] = {}
     depth = 0
     while limit is None or len(picked) < limit:
         added = False
@@ -242,11 +251,14 @@ def pick_chunks(
             chunks = order[doc.doc_id]
             if depth >= len(chunks):
                 continue
+            if per_document is not None and taken.get(doc.doc_id, 0) >= per_document:
+                continue
             chunk = chunks[depth]
             added = True
             if chunk.chunk_id in processed:
                 continue
             picked.append((doc, chunk))
+            taken[doc.doc_id] = taken.get(doc.doc_id, 0) + 1
             if limit is not None and len(picked) >= limit:
                 break
         if not added:
@@ -805,6 +817,8 @@ class _Queue:
     per_unit: int
     # None — the extractive group.
     spec: Generator | None = None
+    # Units only the top-up may take (``top_up_passages_per_document``).
+    reserve: Sequence[tuple[Document, Chunk | None]] = ()
     pos: int = 0
     streak: int = 0
     done: bool = False
@@ -840,6 +854,8 @@ def _queues(
     cohort: str,
     conf: Settings,
     report: GenerationReport,
+    per_document: int | None = None,
+    extra: int = 0,
 ) -> list[_Queue]:
     """Each kind's unparsed units, in the order to parse them.
 
@@ -850,7 +866,9 @@ def _queues(
     The documents are shuffled once per cohort and each queue starts at its own
     point of that order, so kinds that stop on their budget together cover the
     whole window. Each queue also takes every article's passages in its own
-    shuffled order.
+    shuffled order; ``per_document`` — at most that many from each article,
+    and ``extra`` more after them held in reserve for the top-up of a passage
+    kind that is not a control kind.
     """
     keys = ([extractive[0]] if extractive else []) + [
         spec.key for spec in specs if spec.key not in EXTRACTIVE_KEYS
@@ -866,12 +884,32 @@ def _queues(
         at = keys.index(key) * len(shuffled) // max(1, len(keys))
         return shuffled[at:] + shuffled[:at]
 
+    def picked(
+        key: str, processed: set[str], reserved: bool
+    ) -> tuple[list[tuple[Document, Chunk]], list[tuple[Document, Chunk]]]:
+        """The queue's units and its reserve."""
+        more = extra if reserved and per_document is not None else 0
+        units = pick_chunks(
+            start(key),
+            processed,
+            seed=f"{cohort}:{key}",
+            per_document=None if per_document is None else per_document + more,
+        )
+        if not more:
+            return units, []
+        assert per_document is not None
+        taken: dict[str, int] = {}
+        first: list[tuple[Document, Chunk]] = []
+        rest: list[tuple[Document, Chunk]] = []
+        for doc, chunk in units:
+            taken[doc.doc_id] = taken.get(doc.doc_id, 0) + 1
+            (first if taken[doc.doc_id] <= per_document else rest).append((doc, chunk))
+        return first, rest
+
     queues: list[_Queue] = []
     if extractive:
         processed = _processed_ids(space, extractive[0], cohort, conf)
-        batch = pick_chunks(
-            start(extractive[0]), processed, seed=f"{cohort}:{extractive[0]}"
-        )
+        batch, held = picked(extractive[0], processed, reserved=True)
         if not batch:
             report.notes.append("masking: there are no new chunks")
         else:
@@ -883,6 +921,7 @@ def _queues(
                     Scope.CHUNK,
                     batch,
                     conf.pairs_per_chunk,
+                    reserve=held,
                 )
             )
     for spec in specs:
@@ -890,20 +929,31 @@ def _queues(
             continue
         processed = _processed_ids(space, spec.key, cohort, conf)
         units: Sequence[tuple[Document, Chunk | None]]
-        mine = start(spec.key)
+        reserve: Sequence[tuple[Document, Chunk | None]] = ()
         if spec.scope is Scope.DOCUMENT:
-            units = [(doc, None) for doc in mine if doc.doc_id not in processed]
+            units = [
+                (doc, None) for doc in start(spec.key) if doc.doc_id not in processed
+            ]
             if not units:
                 report.notes.append(f"{spec.key}: there are no new documents")
                 continue
         else:
-            units = pick_chunks(mine, processed, seed=f"{cohort}:{spec.key}")
+            units, reserve = picked(spec.key, processed, reserved=not spec.is_control)
             if not units:
                 report.notes.append(f"{spec.key}: there are no new chunks")
                 continue
         per_unit = 1 if spec.single_item else conf.pairs_per_chunk
         queues.append(
-            _Queue(spec.key, (spec.key,), spec.key, spec.scope, units, per_unit, spec)
+            _Queue(
+                spec.key,
+                (spec.key,),
+                spec.key,
+                spec.scope,
+                units,
+                per_unit,
+                spec,
+                reserve=reserve,
+            )
         )
     return queues
 
@@ -1269,9 +1319,14 @@ class _Build:
                 # stop the checks not started leave their questions pending.
                 self._check_pool.shutdown(wait=True)
 
-    def top_up(self, cap: int) -> bool:
+    def top_up(self, budgets: Mapping[str, int]) -> bool:
         """More of each kind the checks left short of its target, within
-        ``top_up_max_usd``; returns whether that cost limit was hit."""
+        ``top_up_max_usd``; returns whether that cost limit was hit.
+
+        A round adds at most a kind's budget, and only from units its queue
+        has not dispatched yet; a queue short of units takes its reserve
+        (``top_up_passages_per_document``) then.
+        """
         conf = self.conf
         report = self.report
         current = cost.current()
@@ -1284,26 +1339,41 @@ class _Build:
             def over() -> bool:
                 return meter.total_usd - start >= conf.top_up_max_usd
 
-            targets = kind_targets(list(report.kinds), cap, conf)
+            targets = kind_targets(
+                {key: budgets.get(key, 0) for key in report.kinds}, conf
+            )
             for turn in range(1, TOP_UP_ROUNDS + 1):
                 if self.called_off() or over():
                     break
                 open_keys = {
                     key
                     for queue in self.queues
-                    if not queue.done and queue.pos < len(queue.units)
+                    if not queue.done
+                    and (queue.pos < len(queue.units) or queue.reserve)
                     for key in queue.keys
                 }
                 rates = survival_rates(self.space.key, list(targets), conf)
                 plan = {
-                    key: extra
+                    key: min(extra, budgets[key])
                     for key, extra in top_up_plan(
-                        targets, survivors(self.built, conf), rates, cap
+                        targets,
+                        survivors(self.built, conf),
+                        rates,
+                        max(budgets.values(), default=0),
                     ).items()
                     if key in open_keys
                 }
                 if not plan:
                     break
+                for queue in self.queues:
+                    if queue.reserve and plan.keys() & set(queue.keys):
+                        queue.units = [*queue.units, *queue.reserve]
+                        queue.reserve = ()
+                        report.notes.append(
+                            f"top-up: {queue.label} takes up to "
+                            f"{conf.top_up_passages_per_document} more passage(s) "
+                            f"of each document"
+                        )
                 report.notes.append(
                     f"top-up round {turn}: "
                     + ", ".join(
@@ -1339,6 +1409,7 @@ def generate_for_space(
     screen: bool = False,
     retrieve: Retriever | None = None,
     on_progress: Callable[[str], None] | None = None,
+    doc_ids: Collection[str] | None = None,
 ) -> GenerationReport:
     """Build items from the not-yet-parsed material of one Space.
 
@@ -1354,7 +1425,8 @@ def generate_for_space(
         limit: The question budget per kind, in units: each kind writes at
             most ``limit * pairs_per_chunk`` questions; defaults to
             ``chunks_per_run``. Every passage in the window is eligible, and a
-            kind's walk stops once its budget is spent
+            kind's walk stops once its budget is spent. With ``doc_ids`` it
+            only caps the budget below
         settings: Process settings
         new_cohort: Build the question pool afresh, as a separate cohort, from
             the same material. In rebuild mode this is implied
@@ -1379,6 +1451,15 @@ def generate_for_space(
             ``top_up_max_usd`` is spent
         retrieve: What the control gate checks with when screening
         on_progress: Told "written N · checked M · removed R" as the build goes
+        doc_ids: Build only from these documents, in every dataset mode: the
+            window is not applied, no new cohort is minted, and the set is
+            not recomputed beyond reviving these documents' pairs
+            (``rotation.rotate`` with ``scope``); None — the whole Space.
+            Each document gives every passage kind ``passages_per_document``
+            unparsed passages and every article kind one unit; a kind's budget
+            is its units times the questions per unit. The top-up may give a
+            short passage kind that is not a control kind up to
+            ``top_up_passages_per_document`` more of each document
 
     Units run ``concurrency`` at a time across kinds and passages; generator
     calls and checks share that limit (``slots.ModelSlots``). A kind's budget
@@ -1398,7 +1479,9 @@ def generate_for_space(
     # The cohort is decided before the first generator call: both what counts
     # as already parsed and where the items land depend on it. A rebuild mints
     # a new label; the other modes top up the current cohort.
-    rebuilding = new_cohort or conf.dataset_mode is DatasetMode.REBUILD
+    rebuilding = doc_ids is None and (
+        new_cohort or conf.dataset_mode is DatasetMode.REBUILD
+    )
     cohort = (
         (cohort_label or cohorts.new_label())
         if rebuilding
@@ -1461,7 +1544,10 @@ def generate_for_space(
     # outside the measurement is paid for. In incremental mode it bounds what
     # to build from but does not pull built items out of the set.
     dated = {doc.doc_id: doc.dated_at for doc in documents}
-    if conf.document_window_days:
+    if doc_ids is not None:
+        documents = [doc for doc in documents if doc.doc_id in doc_ids]
+        report.notes.append(f"document scope: documents in play {len(documents)}")
+    elif conf.document_window_days:
         fresh, undated = fresh_ids(dated, conf)
         documents = [doc for doc in documents if doc.doc_id in fresh]
         report.notes.append(
@@ -1477,11 +1563,40 @@ def generate_for_space(
             report.notes.append("there is not a single document in the window")
 
     extractive = tuple(s.key for s in specs if s.key in EXTRACTIVE_KEYS)
-    queues = _queues(space.key, specs, extractive, documents, cohort, conf, report)
+    scoped = doc_ids is not None
+    queues = _queues(
+        space.key,
+        specs,
+        extractive,
+        documents,
+        cohort,
+        conf,
+        report,
+        per_document=conf.passages_per_document if scoped else None,
+        extra=conf.top_up_passages_per_document if scoped else 0,
+    )
+    if scoped:
+        # Every document weighs the same whatever batch it came in: a kind's
+        # budget is what its documents' share of units writes, capped as asked.
+        caps = dict.fromkeys(caps, 0)
+        for queue in queues:
+            for key in queue.keys:
+                caps[key] = len(queue.units) * queue.per_unit
+        for key in caps:
+            if limit:
+                caps[key] = min(caps[key], quota)
+            if per_generator is not None:
+                caps[key] = min(caps[key], per_generator)
+            report.kinds[key].budget = caps[key]
+        report.notes.append(
+            f"document scope: {conf.passages_per_document} passage(s) of each "
+            f"document per passage kind"
+        )
     for queue in queues:
         for key in queue.keys:
             if key in report.kinds:
                 report.kinds[key].units_available = len(queue.units)
+    budgets = dict(caps)
 
     build = _Build(
         space,
@@ -1503,7 +1618,7 @@ def generate_for_space(
 
     limited = False
     if build.screening is not None and conf.top_up_max_usd > 0 and not build.stopped:
-        limited = build.top_up(cap)
+        limited = build.top_up(budgets)
         if limited:
             report.notes.append(
                 f"top-up stopped at its cost limit, ${conf.top_up_max_usd:g}"
@@ -1526,7 +1641,12 @@ def generate_for_space(
         return report
 
     report.rotation = rotate(
-        space.key, dated, cohort=cohort, rebuilding=rebuilding, settings=conf
+        space.key,
+        dated,
+        cohort=cohort,
+        rebuilding=rebuilding,
+        settings=conf,
+        scope=doc_ids,
     )
     report.notes += report.rotation.notes
     if conf.dataset_mode is not DatasetMode.INCREMENTAL or rebuilding:
@@ -1547,6 +1667,7 @@ def filter_and_rotate(
     should_stop: Callable[[], bool] | None = None,
     rotate_anyway: bool = False,
     job_id: str = "",
+    doc_ids: Collection[str] | None = None,
 ) -> FilterSummary:
     """Screen pending pairs, then reconcile the window, the cohort and the cap.
 
@@ -1574,6 +1695,10 @@ def filter_and_rotate(
         rotate_anyway: Recompute the set even when this pass changed nothing:
             after a build whose questions were checked as they were written
         job_id: The job every filter decision is stamped with; empty — none
+        doc_ids: Screen and recheck only these documents' pairs, and revive
+            only theirs instead of recomputing the set, then hold their control
+            questions to ``control_max_share`` (``rotation.trim_control_share``);
+            None — the whole Space
 
     Returns:
         What was screened, and what became of the window/cohort/cap once it
@@ -1599,8 +1724,8 @@ def filter_and_rotate(
 
     # With the web check on, the set's unchecked pairs are checked in the same
     # pass; the window keeps that to the pairs that can still be measured.
-    in_window: set[str] | None = None
-    if web_on:
+    in_window: Collection[str] | None = doc_ids
+    if web_on and doc_ids is None:
         dated = read_dates()
         if dated and conf.dataset_mode in (DatasetMode.ROLLING, DatasetMode.REBUILD):
             in_window = fresh_ids(dated, conf)[0]
@@ -1616,6 +1741,7 @@ def filter_and_rotate(
         recheck_cohort=current if web_on else None,
         recheck_docs=in_window,
         job_id=job_id,
+        documents=doc_ids,
     )
     rechecked = report.web is not None and report.web.rechecked > 0
     if (
@@ -1623,13 +1749,34 @@ def filter_and_rotate(
         and not rechecked
         and (not report.checked or not report.active)
     ):
+        if doc_ids is not None:
+            _trim_control(space.key, doc_ids, conf, report)
         return report
 
-    report.rotation = rotate(
-        space.key,
-        dated if dated is not None else read_dates(),
-        cohort=current,
-        settings=conf,
-    )
+    if doc_ids is not None:
+        report.rotation = rotate(
+            space.key, {}, cohort=current, settings=conf, scope=doc_ids
+        )
+        _trim_control(space.key, doc_ids, conf, report)
+    else:
+        report.rotation = rotate(
+            space.key,
+            dated if dated is not None else read_dates(),
+            cohort=current,
+            settings=conf,
+        )
     report.notes += report.rotation.notes
     return report
+
+
+def _trim_control(
+    space: str, doc_ids: Collection[str], conf: Settings, report: FilterSummary
+) -> None:
+    """Hold a scoped run's control questions to ``control_max_share``."""
+    trim = trim_control_share(space, doc_ids, conf)
+    if trim is None:
+        return
+    report.control_share += len(trim.retired)
+    report.notes.append(trim.note())
+    if report.rotation is not None:
+        report.rotation.active -= len(trim.retired)

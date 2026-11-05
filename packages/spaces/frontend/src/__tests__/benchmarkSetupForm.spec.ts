@@ -629,3 +629,18 @@ describe('judge settings', () => {
     expect(formFromTarget(target, KEYS).judgeReasoning).toBe('low')
   })
 })
+
+describe('combine automatically', () => {
+  it('reads, writes and compares the periods shortest first', () => {
+    const target = makeTarget({ combine_periods: ['24h', '4h'] })
+    const form = formFromTarget(target, KEYS)
+    expect(form.combinePeriods).toEqual(['4h', '24h'])
+    expect(storedRequest(target).combine_periods).toEqual(['4h', '24h'])
+    expect(holdsChanges(saveAsIs(target))).toBe(false)
+
+    form.combinePeriods = ['12h', '1h']
+    expect(buildRequest(target, form, KEYS).combine_periods).toEqual(['1h', '12h'])
+    form.combinePeriods = []
+    expect(buildRequest(target, form, KEYS).combine_periods).toEqual([])
+  })
+})

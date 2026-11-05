@@ -118,16 +118,16 @@ class _Stand:
         monkeypatch.setattr(execute, "endpoint_mode", lambda space: "both")
         # Both readers of the set: the pass and the plan announced before it.
         monkeypatch.setattr(
-            scheduler, "_active_pairs", lambda key, limit, conf: self.pairs
+            scheduler, "_active_pairs", lambda key, limit, conf, **_: self.pairs
         )
         monkeypatch.setattr(
-            execute, "_active_pairs", lambda key, limit, conf=None: self.pairs
+            execute, "_active_pairs", lambda key, limit, conf=None, **_: self.pairs
         )
         monkeypatch.setattr(execute, "session_scope", lambda *a, **k: _Scope())
         monkeypatch.setattr(execute, "skips_monte_carlo", lambda *a: False)
         monkeypatch.setattr(scheduler, "skips_monte_carlo", lambda *a: False)
         monkeypatch.setattr(scheduler, "check_perimeter", lambda conf: None)
-        monkeypatch.setattr(scheduler, "evaluation_gate", lambda key, conf: "")
+        monkeypatch.setattr(scheduler, "evaluation_gate", lambda key, conf, **_: "")
         monkeypatch.setattr(scheduler, "summarize", lambda *a, **k: None)
         monkeypatch.setattr(scheduler, "subject_providers", lambda conf: self.subjects)
         monkeypatch.setattr(scheduler, "judge_providers", lambda conf: self.judges)

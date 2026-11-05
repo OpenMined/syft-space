@@ -610,7 +610,7 @@ class _Stand:
         monkeypatch.setattr(blocks, "chat", chat)
         monkeypatch.setattr(execute, "endpoint_mode", lambda space: "both")
         monkeypatch.setattr(
-            execute, "_active_pairs", lambda key, limit, conf=None: self.pairs
+            execute, "_active_pairs", lambda key, limit, conf=None, **_: self.pairs
         )
         monkeypatch.setattr(execute, "session_scope", lambda *a, **k: _Scope())
 

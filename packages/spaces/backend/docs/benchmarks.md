@@ -57,7 +57,9 @@ sent there.
   resolved from the endpoint's dataset unless set explicitly.
 - **Settings**: the endpoint's `instrument`/`probe` over the benchmark's own
   defaults; an unset field takes the default. The Space stores them as opaque
-  documents and pushes them with `PUT /targets/{slug}`.
+  documents and pushes them with `PUT /targets/{slug}`. `combine_periods`
+  (`1h` … `24h`) is pushed with them when set; a save that omits it keeps the
+  stored value.
 
 ## The endpoint's tabs
 
@@ -92,18 +94,25 @@ measuring* disables the target (`enabled: false`) and keeps settings and runs;
 | --- | --- |
 | `GET`, `PUT` | Target settings |
 | `GET /window?days=` | Articles in the window |
-| `POST /runs` | Start a run (202) |
-| `GET /jobs`, `POST /jobs/{id}/cancel` | Runs, stop one |
+| `POST /runs` | Start a run (202); `documents` (Space container paths) measures only those documents, with optional `document_settings` (`passages_per_document`, `control_max_share`, `top_up_passages_per_document`; see control-api.md), and is answered with the benchmark's 409 `{"detail", "active_job_id"}` while a job is queued or running |
+| `GET /jobs`, `POST /jobs/{id}/cancel` | Runs, stop one; a run launched with `documents` carries `documents` (count) and `documents_missing` (paths the index did not hold), `null` otherwise |
 | `PATCH /console/pairs/{id}`, `POST/DELETE /console/results/{id}/verdict` | The benchmark's console, proxied |
-| `GET /report/runs?from=&to=` | Runs in progress, and finished runs paged |
+| `GET /report/runs?from=&to=&show_combined_members=` | Runs in progress, and finished runs paged; runs a combined run holds only with `show_combined_members=true` |
 | `GET /report/runs/{job}` and `/questions`, `/generated`, `/filter`, `/writing`, `/pairs?ids=`, `/pairs/{qa}`, `/questions/{qa}`, `/questions/{qa}/fragments` | One run's report, passed through with its query (`filter?generator=`) |
 | `GET /console/results?qa_id=&model=&job=&prompts=` | One question's verdicts for one model; with `job`, `counted` marks the row the figures count |
-| `DELETE /report/runs/{job}` | Delete a finished run and its answers; questions stay |
+| `DELETE /report/runs/{job}` | Delete a finished run and its answers; questions stay. A combined run goes alone |
+| `POST /report/combined/check` | `{job_ids}`: whether the runs combine, and what differs |
+| `POST /report/combined` | `{job_ids, title?}`: a combined run (201); runs that differ are the benchmark's 422 `{"detail", "differences"}` |
+| `POST /report/combined/{job}/members` | `{job_ids}`: add runs to a combined run; same 422 |
 | `GET /report/runs/{job}/summary.docx`, `/export.xlsx` | Downloads |
 
 Console and report calls are proxied: for each call the Space mints a session
 token scoped to this target and calls the benchmark's `/console/*` routes with
 it (see [control-api.md](../../../benchmark/docs/control-api.md)). The token
 never reaches the browser.
+
+A combined run reads several finished runs of one endpoint, measured the same
+way, as one: figures recomputed from their answers, a question asked twice
+counted once from the earlier run (see control-api.md, "Combined runs").
 
 Benchmark wiring lives in `benchmark_connections` and `benchmark_targets`.

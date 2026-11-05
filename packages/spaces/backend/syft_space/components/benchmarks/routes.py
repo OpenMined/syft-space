@@ -4,15 +4,18 @@ Connections (Settings) say which benchmark and how it reaches this Space;
 targets are per endpoint. The rest proxies the benchmark's console and reports.
 """
 
-from typing import Any
+from collections.abc import Awaitable
+from typing import Any, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from syft_space.components.benchmarks.handlers import BenchmarkHandler
+from syft_space.components.benchmarks.handlers import BenchmarkHandler, PassedRefusal
 from syft_space.components.benchmarks.locality import Locality, locality
 from syft_space.components.benchmarks.schemas import (
+    CombineMembersRequest,
+    CombineRequest,
     ConnectionRequest,
     ConnectionResponse,
     JobResponse,
@@ -30,6 +33,16 @@ from syft_space.components.tenants.entities import Tenant
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+T = TypeVar("T")
+
+
+async def _or_refusal(call: Awaitable[T]) -> T | JSONResponse:
+    """The call's result, or the benchmark's refusal body under its status."""
+    try:
+        return await call
+    except PassedRefusal as refused:
+        return JSONResponse(status_code=refused.status, content=refused.body)
 
 
 def _file_meta(headers: dict[str, str], default_type: str) -> dict[str, Any]:
@@ -255,15 +268,20 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         "/endpoints/{slug}/runs",
         response_model=JobResponse,
         status_code=status.HTTP_202_ACCEPTED,
+        responses={
+            409: {"description": "A run with documents met an active job"},
+        },
     )
     async def start_run(
         slug: str,
         request: RunRequest,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
-    ) -> JobResponse:
-        """Start a run; 202, the job runs in the background."""
-        return await handler.start_run(tenant, slug, request)
+    ) -> JobResponse | JSONResponse:
+        """Start a run; 202, the job runs in the background. A run with
+        ``documents`` while a job is queued or running is the benchmark's 409,
+        ``{"detail", "active_job_id"}``."""
+        return await _or_refusal(handler.start_run(tenant, slug, request))
 
     # --- the console, embedded: pairs, results, judging, report ------------
 
@@ -345,14 +363,69 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         date_to: str = Query(default="", alias="to"),
         limit: int | None = None,
         offset: int | None = None,
+        show_combined_members: bool = False,
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> dict:
-        """Runs in progress, and finished runs paged."""
-        return await handler.list_report_runs(
-            tenant,
-            slug,
-            {"from": date_from, "to": date_to, "limit": limit, "offset": offset},
+        """Runs in progress, and finished runs paged. Runs a combined run holds
+        are left out unless ``show_combined_members``."""
+        query: dict = {
+            "from": date_from,
+            "to": date_to,
+            "limit": limit,
+            "offset": offset,
+        }
+        if show_combined_members:
+            query["show_combined_members"] = "true"
+        return await handler.list_report_runs(tenant, slug, query)
+
+    @router.post("/endpoints/{slug}/report/combined/check")
+    async def check_combined(
+        slug: str,
+        body: CombineRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict:
+        """Whether runs combine: ``{ok, members, settings_hash, differences,
+        repeated_questions}``."""
+        return await handler.check_combined(
+            tenant, slug, body.model_dump(exclude_none=True)
+        )
+
+    @router.post(
+        "/endpoints/{slug}/report/combined",
+        status_code=status.HTTP_201_CREATED,
+        response_model=None,
+        responses={422: {"description": "Fewer than two runs, or runs that differ"}},
+    )
+    async def create_combined(
+        slug: str,
+        body: CombineRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict | JSONResponse:
+        """Combine runs into a new combined run; the reply is its runs-list
+        item. Runs that differ are the benchmark's 422, ``{"detail",
+        "differences"}``."""
+        return await _or_refusal(
+            handler.create_combined(tenant, slug, body.model_dump(exclude_none=True))
+        )
+
+    @router.post(
+        "/endpoints/{slug}/report/combined/{job_id}/members",
+        response_model=None,
+        responses={422: {"description": "Not a combined run, or runs that differ"}},
+    )
+    async def add_combined_members(
+        slug: str,
+        job_id: str,
+        body: CombineMembersRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> dict | JSONResponse:
+        """Add runs to a combined run; the reply is its runs-list item."""
+        return await _or_refusal(
+            handler.add_combined_members(tenant, slug, job_id, body.model_dump())
         )
 
     @router.get("/endpoints/{slug}/report/runs/{job_id}")
@@ -375,7 +448,8 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         tenant: Tenant = Depends(get_tenant_dependency),
         handler: BenchmarkHandler = Depends(get_handler),
     ) -> None:
-        """Delete a finished run and its answers; questions stay. 409 while running."""
+        """Delete a finished run and its answers; questions stay. 409 while
+        running. A combined run goes alone; its runs stay."""
         await handler.delete_report_run(tenant, slug, job_id)
 
     @router.get("/endpoints/{slug}/report/runs/{job_id}/questions")

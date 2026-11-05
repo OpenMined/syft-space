@@ -25,7 +25,7 @@ from syft_benchmark.db import (
     Target,
     session_scope,
 )
-from syft_benchmark.report import run_view
+from syft_benchmark.report import job_params, run_view
 
 from support import console_auth
 
@@ -858,6 +858,9 @@ def test_a_launch_keeps_the_judging_it_ran_with(
             assert row.params.pop("web_check_judge") == ""
             assert row.params.pop("cost")["usd"] is None
             assert row.params.pop("manual_status_priority") == "filter"
+            snapshot = row.params.pop("settings_snapshot")
+            assert snapshot["judge_models"] == panel
+            assert row.params.pop("settings_hash") == job_params.settings_hash(snapshot)
             timing = row.params.pop("timing")
             assert set(timing) == {
                 "total_s",

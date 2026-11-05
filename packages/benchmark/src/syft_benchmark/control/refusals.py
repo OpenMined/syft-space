@@ -5,6 +5,7 @@ check gate forbids."""
 from __future__ import annotations
 
 from fastapi import HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from syft_benchmark.config import Settings
@@ -38,6 +39,20 @@ def require_enabled(row: Target) -> None:
             status.HTTP_409_CONFLICT,
             f"target {row.key} is disabled — enable it before measuring",
         )
+
+
+def active_job_conflict(key: str, job_id: str) -> JSONResponse:
+    """409 for a launch with documents on a busy target, naming the active job."""
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "detail": (
+                f"target {key} has job {job_id} queued or running; "
+                f"a launch with documents waits until it finishes"
+            ),
+            "active_job_id": job_id,
+        },
+    )
 
 
 def refuse_clash(effective: Settings) -> None:

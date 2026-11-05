@@ -336,16 +336,22 @@ def job_filter(
     outcome: str | None = None,
     limit: int | None = 50,
     offset: int = 0,
+    members: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """The job's filter decisions in the question order; only ``generator``'s
     when given. Counts are of that kind, before the stage and outcome filters.
+    For a combined run, ``members``: every member's decisions, each with its
+    ``job_id``.
 
     Paged by ``limit``, capped at ``MAX_PAGE``; ``None`` returns every decision
     from ``offset`` on. The list is computed whole on each call, so a reader
     that needs all of one kind asks once rather than page by page.
     """
-    rows = job_pairs(session, job.target, [job.id], generator=generator)
-    found = _decisions_of(rows, job.id, _writer_dates(session, rows))
+    if members:
+        found = _members_decisions(session, job.target, members, generator)
+    else:
+        rows = job_pairs(session, job.target, [job.id], generator=generator)
+        found = _decisions_of(rows, job.id, _writer_dates(session, rows))
     counts = decisions.outcome_counts(found)
     if stage:
         found = [d for d in found if d["stage"] == stage]
@@ -357,6 +363,21 @@ def job_filter(
         "total": len(found),
         "counts": counts,
     }
+
+
+def _members_decisions(
+    session: Session, target: str, members: Sequence[str], generator: str | None
+) -> list[dict[str, Any]]:
+    rows = job_pairs(session, target, members, generator=generator)
+    written = _writer_dates(session, rows)
+    order = {row.id: pair_key(row.generator, row.created_at, row.id) for row in rows}
+    found = [
+        {**decision, "job_id": job_id}
+        for job_id in members
+        for decision in _decisions_of(rows, job_id, written)
+    ]
+    found.sort(key=lambda d: order[d["qa_id"]])
+    return found
 
 
 def counts_of(rows: Sequence[QaPair], job_id: str) -> dict[str, int]:

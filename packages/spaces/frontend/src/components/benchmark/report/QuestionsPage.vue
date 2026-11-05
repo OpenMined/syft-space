@@ -56,10 +56,12 @@
       :aria-busy="listLoading"
     >
       <div
-        class="flex min-w-[680px] items-center gap-4 border-b border-border bg-muted/40 px-4 py-2.5 text-xs font-medium text-muted-foreground"
+        class="flex items-center gap-4 border-b border-border bg-muted/40 px-4 py-2.5 text-xs font-medium text-muted-foreground"
+        :class="minWidth"
       >
         <span class="w-7 shrink-0">#</span>
         <span class="flex-[1_1_420px]">Question</span>
+        <span v-if="combined" class="w-[110px] shrink-0" data-testid="run-column">Run</span>
         <span class="w-[110px] shrink-0">On its own</span>
         <span class="w-[110px] shrink-0">With your data</span>
         <span class="w-[18px] shrink-0" />
@@ -72,7 +74,7 @@
         class="border-b border-border last:border-b-0"
         data-testid="question-row"
       >
-        <div class="flex min-w-[680px] items-center" :class="openId === q.qa_id && 'bg-muted/40'">
+        <div class="flex items-center" :class="[minWidth, openId === q.qa_id && 'bg-muted/40']">
           <button
             type="button"
             class="flex min-w-0 flex-1 items-center gap-4 py-3 pl-4 text-left hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
@@ -88,6 +90,12 @@
                 >{{ kindLabel(q.generator) }} · {{ articleOf(q) }}</span
               >
             </span>
+            <span
+              v-if="combined"
+              class="w-[110px] shrink-0 text-xs text-muted-foreground tabular-nums"
+              data-testid="question-run"
+              >{{ memberStamp(q.job_id) }}</span
+            >
             <span class="w-[110px] shrink-0" data-testid="verdict-closed">
               <VerdictPill :verdict="q.verdict_alone" :generator="q.generator" :focusable="false" />
             </span>
@@ -240,6 +248,27 @@
               }}</b>
             </div>
 
+            <div
+              v-for="o in detail.observations ?? []"
+              :key="o.job_id"
+              :class="GRID_ROW"
+              data-testid="row-observation"
+            >
+              <Hint :text="o.overridden ? 'The owner set this verdict.' : null">
+                <span class="text-muted-foreground tabular-nums">{{
+                  shortStamp(o.created_at) ?? DASH
+                }}</span>
+              </Hint>
+              <span v-for="arm in ARMS" :key="arm">
+                <VerdictPill
+                  v-if="observed(o, arm)"
+                  :verdict="observed(o, arm)"
+                  :generator="q.generator"
+                />
+                <template v-else>{{ DASH }}</template>
+              </span>
+            </div>
+
             <div :class="GRID_ROW" class="border-b-0" data-testid="row-repeats">
               <span class="flex flex-col gap-0.5">
                 <span class="text-muted-foreground">Right when asked again</span>
@@ -328,6 +357,7 @@
       v-if="audited"
       v-model:open="auditOpen"
       :qa-id="audited.qa_id"
+      :answers-job-id="audited.job_id"
       :question="audited.question"
       :generator="audited.generator"
     />
@@ -340,9 +370,11 @@ import { ChevronDown, CircleHelp } from 'lucide-vue-next'
 import type {
   BenchmarkQuestionDetail,
   BenchmarkQuestionJudge,
+  BenchmarkQuestionObservation,
   BenchmarkQuestionPage,
   BenchmarkQuestionRow,
   BenchmarkReportFragment,
+  BenchmarkVerdict,
 } from '@/api/types'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -370,7 +402,7 @@ import { useReport, useRun } from './context'
 import QuestionDialog from './details/QuestionDialog.vue'
 import VerdictPill from './details/VerdictPill.vue'
 import { useDetails } from './details/useDetails'
-import { DASH } from './figures'
+import { DASH, shortStamp } from './figures'
 import { kindLabel } from '../kinds'
 import { GROUP_LABEL, SEARCH_UNUSED_TIP, judgesText, modelName } from './labels'
 import { heldOf, isTrick } from './selectors'
@@ -583,6 +615,19 @@ function heldText(d: BenchmarkQuestionDetail, arm: Arm): string {
 function repeatText(d: BenchmarkQuestionDetail, arm: Arm): string {
   const repeats = armOf(d, arm)?.repeats
   return repeats?.trials ? `${repeats.right} of ${repeats.trials}` : DASH
+}
+
+/** A combined run: questions name the run their answers come from. */
+const combined = computed(() => Boolean(run.data.value?.members?.length))
+const minWidth = computed(() => (combined.value ? 'min-w-[806px]' : 'min-w-[680px]'))
+
+function memberStamp(jobId: string | undefined): string {
+  const member = run.data.value?.members?.find((m) => m.job_id === jobId)
+  return shortStamp(member?.created_at) ?? DASH
+}
+
+function observed(o: BenchmarkQuestionObservation, arm: Arm): BenchmarkVerdict | null {
+  return arm === 'closed' ? o.verdict_alone : o.verdict_with
 }
 
 function trials(d: BenchmarkQuestionDetail): number | null {

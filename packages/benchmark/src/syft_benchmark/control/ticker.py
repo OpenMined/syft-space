@@ -1,4 +1,5 @@
-"""The schedule thread: fires each target's ``schedule`` / ``schedule_at``.
+"""The schedule thread: fires each target's ``schedule`` / ``schedule_at``, and
+combines the runs of each closed period of its ``combine_periods``.
 
 This thread decides *when*, the worker decides *what next*; a scheduled job
 differs from a pressed button only by ``trigger``. The hour is UTC: a container
@@ -16,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from syft_benchmark.config import Settings, get_settings
+from syft_benchmark.control.combined import combine_all
 from syft_benchmark.control.jobs import enqueue
 from syft_benchmark.control.schemas import RunRequest
 from syft_benchmark.db.models import Target
@@ -157,4 +159,9 @@ class Ticker:
                 # until the next restart is worse than one that missed a window,
                 # because nobody would notice.
                 logger.warning(f"the schedule could not be read: {exc}")
+            try:
+                with session_scope(conf) as session:
+                    combine_all(session)
+            except Exception as exc:  # noqa: BLE001 - as above
+                logger.warning(f"runs could not be combined: {exc}")
             self._stop.wait(TICK_SECONDS)

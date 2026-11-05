@@ -50,17 +50,18 @@ def system_prompts(session: Session, rows: Sequence[WriterCall]) -> dict[str, st
 
 def job_writing(
     session: Session,
-    job_id: str,
+    job_ids: Sequence[str],
     *,
     generator: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """The job's kept writer calls per kind, in registry order, then time, paged."""
+    """The jobs' kept writer calls per kind, in registry order, then time, paged."""
+    ids = list(job_ids)
     calls = select(
         WriterCall.id.label("id"),
         func.jsonb_object_keys(WriterCall.dropped).label("kind"),
-    ).where(WriterCall.job_id == job_id)
+    ).where(WriterCall.job_id.in_(ids))
     if generator:
         calls = calls.where(WriterCall.dropped.has_key(generator))
     per_kind = calls.subquery()

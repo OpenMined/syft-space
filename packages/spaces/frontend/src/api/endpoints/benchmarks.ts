@@ -2,6 +2,7 @@
 import { apiClient } from '../client'
 import type {
   AddressLocality,
+  BenchmarkCombineCheck,
   BenchmarkConnection,
   BenchmarkConnectionRequest,
   BenchmarkFilterOutcome,
@@ -23,6 +24,7 @@ import type {
   BenchmarkRunList,
   BenchmarkRunReport,
   BenchmarkRunRequest,
+  BenchmarkRunSummary,
   BenchmarkTarget,
   BenchmarkTargetRequest,
   BenchmarkVerdict,
@@ -229,6 +231,8 @@ export const benchmarksApi = {
       to?: string
       limit?: number
       offset?: number
+      /** Also list runs a combined run holds. */
+      show_combined_members?: boolean
     } = {},
   ): Promise<BenchmarkRunList> => {
     const response = await apiClient.get(reportPath(slug), { params })
@@ -355,8 +359,31 @@ export const benchmarksApi = {
     }
   },
 
-  /** Deletes a finished run and its answers; questions are kept. */
+  /** Deletes a finished run and its answers; questions are kept. A combined run goes alone. */
   deleteRun: async (slug: string, jobId: string): Promise<void> => {
     await apiClient.delete(reportPath(slug, jobId))
+  },
+
+  // --- combined runs -------------------------------------------------------
+
+  /** Whether runs combine, and what differs if they do not. */
+  checkCombined: async (slug: string, jobIds: string[]): Promise<BenchmarkCombineCheck> => {
+    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/report/combined/check`, {
+      job_ids: jobIds,
+    })
+    return response.data
+  },
+
+  /** Combines runs; a 422 carries `BenchmarkCombineRefusal` when they differ. */
+  createCombined: async (
+    slug: string,
+    jobIds: string[],
+    title?: string,
+  ): Promise<BenchmarkRunSummary> => {
+    const response = await apiClient.post(`/benchmarks/endpoints/${slug}/report/combined`, {
+      job_ids: jobIds,
+      title: title || undefined,
+    })
+    return response.data
   },
 }

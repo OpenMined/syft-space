@@ -250,6 +250,38 @@ class ChromaClient:
                 return
             offset += len(ids)
 
+    def doc_ids_by_path(self, collection_id: str, paths: list[str]) -> dict[str, str]:
+        """The document id of each of ``paths`` the collection holds, matched
+        on the chunks' ``absolute_path``; paths it does not hold are left out."""
+        wanted = list(dict.fromkeys(paths))
+        lookup = set(wanted)
+        found: dict[str, str] = {}
+        if not wanted:
+            return found
+        offset = 0
+        while True:
+            page = self.request(
+                "POST",
+                f"{self._base}/{collection_id}/get",
+                {
+                    "where": {"absolute_path": {"$in": wanted}},
+                    "limit": _PAGE,
+                    "offset": offset,
+                    "include": ["metadatas"],
+                },
+            )
+            ids: list[str] = page.get("ids") or []
+            metadatas: list[dict[str, Any]] = page.get("metadatas") or []
+            for i, chunk_id in enumerate(ids):
+                meta = (metadatas[i] if i < len(metadatas) else None) or {}
+                path = str(meta.get("absolute_path") or "")
+                if path in lookup:
+                    doc_id = str(meta.get("doc_id") or chunk_id.rsplit("_", 1)[0])
+                    found.setdefault(path, doc_id)
+            if len(ids) < _PAGE:
+                return found
+            offset += len(ids)
+
 
 # ---------------------------------------------------------------------------
 # Parsing the chunks

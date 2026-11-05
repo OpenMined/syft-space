@@ -88,9 +88,10 @@ erDiagram
 | `processed_units` | which chunk or document each generator has processed, per cohort |
 | `runs` | one pass: arm × block × model, with its settings snapshot |
 | `results` | one answer and its verdict; judges and hand verdicts add rows, never rewrite |
-| `targets` | nodes under test: address, endpoint, index location, `instrument` and `probe` overrides, `enabled`, `schedule`, `schedule_at`, `next_run_at` |
+| `targets` | nodes under test: address, endpoint, index location, `instrument` and `probe` overrides, `enabled`, `schedule`, `schedule_at`, `next_run_at`, `combine_periods` and `combine_marks` (per period, the last one combined) |
 | `jobs` | launches: `state`, `phase`, `kind`, `trigger`, progress, `params` (request, launch snapshot, cost and timing), `error` |
-| `run_aggregates` | cached figures of one job; no row means recompute |
+| `combined_members` | the leaf jobs of a combined job (`kind = combined`), many-to-many, `position` in time order; cascades from either job |
+| `run_aggregates` | cached figures of one job; no row means recompute. Dropping a job's row drops those of the combined jobs holding it |
 | `writer_calls` | a job's writer calls that dropped drafts or failed, one row per call (unique `(job_id, call)`): prompt, reply, the dropped drafts per kind with their reason; no FK, deleted with the job |
 | `installation_settings` | the single (`id = 1`) row of installation overrides |
 | `credentials` | sealed secrets: provider keys and Space tokens |
@@ -145,9 +146,13 @@ resuming.
   references it (`results.qa_id` cascades); retire it instead.
 * **`jobs.params`** — the request plus what the launch ran with
   (`report/job_params.py`): the judge panel and policy, the web check gate,
-  the article window (`window_days`), then the cost, the build per kind, the
-  timing and, once fixed, `primary_judge`. Reports read these, never today's
-  settings.
+  the article window (`window_days`), the effective settings
+  (`settings_snapshot`) and their methodology hash (`settings_hash`), the
+  paths a scoped launch did not find (`documents_missing`), then the cost, the
+  build per kind, the timing and, once fixed, `primary_judge`. Reports read
+  these, never today's settings. A combined job holds `members`, `origin`
+  (`manual`/`auto`), `period`, `period_start`, `title`, `settings_hash`; its
+  times span its members'.
 * **`writer_calls.dropped`** — `{kind: [drafts]}`: a masking call writes
   several kinds in one reply and is one row; `GET /console/report/runs/{job}/writing`
   lists it once per kind. The system prompt is stored on the first row of a build that carries
