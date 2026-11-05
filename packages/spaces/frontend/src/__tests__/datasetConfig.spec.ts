@@ -134,12 +134,13 @@ describe('isPublicProperty', () => {
 
 describe('displayedConfiguration', () => {
   it('keeps every public value that is set, whatever its shape', () => {
+    // A stored FilterCondition has five keys once defaults are serialized.
     const filters = {
-      operator: 'and',
-      conditions: [
-        { property: 'status', operator: 'equal', value: 'published' },
-        { property: 'year', operator: 'greater_than', value: 2020 },
-      ],
+      type: 'condition',
+      property: 'status',
+      op: 'eq',
+      value_dtype: 'string',
+      value: 'published',
     }
     const shown = displayedConfiguration(weaviate, {
       http_url: 'http://w:8080',
