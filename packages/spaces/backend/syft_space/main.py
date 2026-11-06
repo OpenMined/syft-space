@@ -156,6 +156,7 @@ from syft_space.components.tenants.middleware import TenantMiddleware
 from syft_space.components.tenants.repository import TenantRepository
 from syft_space.components.tenants.routes import build_tenant_routes
 from syft_space.components.vector_stores import register_builtin_vector_stores
+from syft_space.components.vector_stores.config_change import ClientCacheEvictor
 
 # Import wallet components
 from syft_space.components.wallets.cluster.provider import ClusterWalletProvider
@@ -496,6 +497,15 @@ register_policy_types(POLICY_TYPE_REGISTRY)
 logger.info("Initializing rate limiter storage ...")
 set_rate_limit_storage(InMemoryRateLimitStorage())
 
+# Initialize the ingestion manager before the dataset handler: it listens
+# for configuration edits (restarts the source's stream).
+ingestion_manager = IngestionManager(
+    dataset_repository=dataset_repository,
+    ingestion_repository=ingestion_job_repository,
+    selection_repository=dataset_selection_repository,
+    registry=DATASET_TYPE_REGISTRY,
+)
+
 # Initialize handlers
 dataset_handler = DatasetHandler(
     DATASET_TYPE_REGISTRY,
@@ -503,6 +513,7 @@ dataset_handler = DatasetHandler(
     provisioner_state_repository,
     endpoint_repository=endpoint_repository,
     selection_repository=dataset_selection_repository,
+    configuration_listeners=[ingestion_manager, ClientCacheEvictor()],
 )
 model_handler = ModelHandler(MODEL_TYPE_REGISTRY, model_repository)
 capability_checker = CapabilityChecker(
@@ -705,13 +716,7 @@ benchmark_handler = BenchmarkHandler(
     settings_repository=settings_repository,
 )
 
-# Initialize ingestion manager and handler
-ingestion_manager = IngestionManager(
-    dataset_repository=dataset_repository,
-    ingestion_repository=ingestion_job_repository,
-    selection_repository=dataset_selection_repository,
-    registry=DATASET_TYPE_REGISTRY,
-)
+# Initialize ingestion handler
 ingestion_handler = IngestionHandler(
     ingestion_manager=ingestion_manager,
     dataset_repository=dataset_repository,

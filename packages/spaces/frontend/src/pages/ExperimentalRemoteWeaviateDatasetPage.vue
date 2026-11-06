@@ -286,23 +286,38 @@
                 </p>
               </div>
 
-              <!-- Similarity Threshold -->
+              <!-- Search Mode -->
               <div class="space-y-2">
-                <Label for="similarity-threshold" class="text-sm font-medium">
-                  Similarity Threshold
-                </Label>
+                <Label for="search-mode" class="text-sm font-medium">Search Mode</Label>
+                <Select v-model="formData.configuration.search_mode">
+                  <SelectTrigger id="search-mode" class="font-mono">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="vector">vector</SelectItem>
+                    <SelectItem value="hybrid">hybrid</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p class="text-sm text-muted-foreground">
+                  Vector matches by embedding only; hybrid adds a keyword (BM25) leg over every
+                  searchable text property.
+                </p>
+              </div>
+
+              <!-- Alpha -->
+              <div v-if="formData.configuration.search_mode === 'hybrid'" class="space-y-2">
+                <Label for="alpha" class="text-sm font-medium">Vector Weight (alpha)</Label>
                 <Input
-                  id="similarity-threshold"
-                  v-model.number="formData.configuration.default_similarity_threshold"
+                  id="alpha"
+                  v-model.number="formData.configuration.alpha"
                   type="number"
                   step="0.1"
                   min="0"
                   max="1"
-                  placeholder="0.5"
                   class="w-full font-mono"
                 />
                 <p class="text-sm text-muted-foreground">
-                  Minimum similarity score (0.0 - 1.0). Default: 0.5
+                  1.0 is vector only, 0.0 is keywords only.
                 </p>
               </div>
             </div>
@@ -767,9 +782,10 @@ const formData = ref({
     api_key: '',
     collection_name: '',
     headers: [] as { key: string; value: string }[],
-    default_similarity_threshold: 0.5,
     content_property: '',
     metadata_properties: [] as string[],
+    search_mode: 'vector' as 'vector' | 'hybrid',
+    alpha: 0.7,
   },
 })
 
@@ -995,12 +1011,13 @@ const jsonPreview = computed(() => {
       api_key: formData.value.configuration.api_key ? '***' : '',
       collection_name: formData.value.configuration.collection_name,
       headers: headersPreview,
-      default_similarity_threshold: formData.value.configuration.default_similarity_threshold,
       content_property: formData.value.configuration.content_property,
       metadata_properties:
         formData.value.configuration.metadata_properties.length > 0
           ? formData.value.configuration.metadata_properties
           : null,
+      search_mode: formData.value.configuration.search_mode,
+      alpha: formData.value.configuration.alpha,
       filters: buildFiltersPayload(),
     },
   }
@@ -1087,12 +1104,13 @@ const handleCreate = async () => {
         api_key: formData.value.configuration.api_key.trim(),
         collection_name: formData.value.configuration.collection_name.trim(),
         headers: headersAsObject.value,
-        default_similarity_threshold: formData.value.configuration.default_similarity_threshold,
         content_property: formData.value.configuration.content_property.trim(),
         metadata_properties:
           formData.value.configuration.metadata_properties.length > 0
             ? formData.value.configuration.metadata_properties
             : null,
+        search_mode: formData.value.configuration.search_mode,
+        alpha: formData.value.configuration.alpha,
         filters: buildFiltersPayload(),
       },
     }

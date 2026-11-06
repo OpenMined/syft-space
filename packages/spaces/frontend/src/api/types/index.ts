@@ -93,6 +93,13 @@ export interface HealthcheckResponse {
   message: string
 }
 
+// Result of a dry-run health check against a proposed configuration
+// (POST /datasets/{name}/health). Nothing is stored.
+export interface ConnectionHealth {
+  status: 'healthy' | 'unhealthy' | string
+  message: string
+}
+
 export interface EndpointListItem {
   id: string
   name: string
@@ -100,6 +107,9 @@ export interface EndpointListItem {
   summary: string
   response_type: string
   published: boolean
+  // Marketplace ids the endpoint is published to; a client republishes
+  // there after the dataset's configuration changed.
+  published_to?: string[]
   tags: string
   system_prompt?: string | null
   created_at: string
@@ -154,10 +164,33 @@ export interface BrowseSchema {
   required?: string[]
 }
 
+// One property of a dataset type's composed configuration schema. The
+// backend tags each with the axis that owns it and, when set, whether an
+// owner may change it after creation and who may see its value.
+export interface ConfigSchemaProperty {
+  title?: string
+  description?: string
+  type?: string
+  format?: string
+  default?: unknown
+  enum?: (string | number)[]
+  minimum?: number
+  maximum?: number
+  anyOf?: Array<Record<string, unknown>>
+  axis?: 'source' | 'vector_store'
+  editable?: boolean
+  visibility?: 'public' | 'secret' | 'internal'
+}
+
+export interface ConfigSchema {
+  properties?: Record<string, ConfigSchemaProperty>
+  required?: string[]
+}
+
 export interface DatasetTypeInfoResponse {
   name: string
   description: string
-  config_schema: Record<string, unknown>
+  config_schema: ConfigSchema
   icon: string
   enabled: boolean
   browse_schema: BrowseSchema
@@ -216,6 +249,9 @@ export interface UpdateDatasetRequest {
   name?: string
   summary?: string
   tags?: string
+  // Only the editable keys being changed. A null value removes an optional
+  // field; an absent key keeps the stored value.
+  configuration?: Record<string, unknown>
 }
 
 // Model API types
@@ -324,6 +360,9 @@ export interface EndpointResponse {
   model_id?: string
   response_type: string
   published: boolean
+  // Marketplace ids the endpoint is published to; a client republishes
+  // there after the dataset's configuration changed.
+  published_to?: string[]
   tags: string
   system_prompt?: string | null
   created_at: string

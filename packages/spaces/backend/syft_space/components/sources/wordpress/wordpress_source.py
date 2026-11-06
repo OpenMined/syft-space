@@ -28,8 +28,9 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, field_validator
 
+from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
 from syft_space.components.shared.timestamps import parse_datetime
@@ -44,6 +45,11 @@ from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
     SourceItem,
     SourcePage,
+)
+from syft_space.components.sources.validation import (
+    changed_fields,
+    parse_config,
+    previous_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,11 +89,13 @@ class WordPressBrowseConfig(BaseModel):
         alias="siteUrl",
         title="Site URL",
         description="Base URL of the WordPress site (e.g. https://example.com)",
+        json_schema_extra=cfg_flags(editable=True),
     )
     username: str = Field(
         ...,
         title="Username",
         description="WordPress user_login or display name — used for Basic Auth",
+        json_schema_extra=cfg_flags(editable=True),
     )
     application_password: str = Field(
         ...,
@@ -97,7 +105,9 @@ class WordPressBrowseConfig(BaseModel):
             "WordPress Application Password (24 chars; generate under "
             "Users → Profile → Application Passwords in wp-admin)"
         ),
-        json_schema_extra={"format": "password"},
+        json_schema_extra=cfg_flags(
+            editable=True, visibility=Visibility.SECRET, format="password"
+        ),
     )
     user_agent: str = Field(
         default=DEFAULT_USER_AGENT,
@@ -135,6 +145,7 @@ class WordPressDatasetConfig(WordPressBrowseConfig):
         alias="pollIntervalSeconds",
         description="Seconds between change-stream polls",
         gt=0,
+        json_schema_extra=cfg_flags(editable=True),
     )
 
 
@@ -223,11 +234,15 @@ async def _fetch_post_types(client: httpx.AsyncClient) -> dict[str, dict[str, st
     return types
 
 
-async def _validate_connection(cfg: WordPressBrowseConfig) -> None:
+async def _validate_connection(
+    cfg: WordPressBrowseConfig, previous: WordPressBrowseConfig | None = None
+) -> None:
     """Verify the credentials and that the site exposes ingestable content.
 
-    Delegates to ``_fetch_post_types`` (whose ``edit``-context request is
-    the actual auth check) and fails if no content types come back.
+    Skipped when nothing about how we reach the site changed since
+    ``previous``. Delegates to ``_fetch_post_types`` (whose ``edit``-context
+    request is the actual auth check) and fails if no content types come
+    back.
 
     Raises:
         SourceAuthError: credentials rejected (401).
@@ -235,6 +250,8 @@ async def _validate_connection(cfg: WordPressBrowseConfig) -> None:
         ValueError: connected, but no ingestable post types are exposed
             over REST.
     """
+    if not changed_fields(WordPressBrowseConfig, cfg, previous):
+        return
     async with _make_client(cfg) as client:
         if not await _fetch_post_types(client):
             raise ValueError(
@@ -606,6 +623,7 @@ class WordPressProvider:
 
     NAME = "wordpress"
     METADATA_FIELDS = WordPressMetadataFields
+    CONFIG_MODEL = WordPressDatasetConfig
 
     @classmethod
     def name(cls) -> str:
@@ -656,19 +674,17 @@ class WordPressProvider:
 
     @classmethod
     async def validate_browse_config(cls, configuration: dict[str, Any]) -> None:
-        try:
-            cfg = WordPressBrowseConfig.model_validate(configuration)
-        except ValidationError as e:
-            raise ValueError(f"Invalid browse configuration: {e}") from e
+        cfg = parse_config(WordPressBrowseConfig, configuration, "browse configuration")
         await _validate_connection(cfg)
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
-        try:
-            cfg = WordPressDatasetConfig.model_validate(configuration)
-        except ValidationError as e:
-            raise ValueError(f"Invalid configuration: {e}") from e
-        await _validate_connection(cfg)
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
+        cfg = parse_config(WordPressDatasetConfig, configuration, "configuration")
+        await _validate_connection(
+            cfg, previous_config(WordPressBrowseConfig, previous)
+        )
 
     @classmethod
     def for_browse(cls, configuration: dict[str, Any]) -> WordPressBrowser:

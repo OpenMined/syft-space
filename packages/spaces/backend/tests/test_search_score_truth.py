@@ -19,12 +19,13 @@ from syft_space.components.vector_stores.weaviate_remote import weaviate_vector_
 # ============== Weaviate ==============
 
 
-def test_weaviate_score_is_certainty_not_bm25_score():
-    """``near_text`` populates ``certainty``; ``score`` stays None (BM25 only)."""
+def test_weaviate_vector_mode_reads_certainty_not_bm25_score():
+    """``near_text`` populates ``certainty``; ``score`` is only set by
+    BM25/hybrid, so vector mode must not read it. Hybrid is covered in
+    ``test_weaviate_search_modes.py``."""
     src = Path(weaviate_vector_store.__file__).read_text()
     assert "certainty=True" in src
-    assert "similarity_score=result.metadata.certainty" in src
-    assert "metadata.score" not in src
+    assert "return result.metadata.certainty or 0.0" in src
 
 
 # ============== ChromaDB ==============

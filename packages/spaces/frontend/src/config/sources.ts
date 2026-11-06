@@ -17,6 +17,9 @@ export interface FieldCopy {
   // Human labels for an enum field's values, keyed by raw value. The schema
   // decides which options exist; anything missing here shows its raw value.
   choices?: Record<string, string>
+  // What one entry of a map field is called, e.g. "header". Used in the
+  // map editor's buttons and placeholders.
+  entry?: string
 }
 
 export interface SourceCopy {
@@ -84,6 +87,21 @@ export const SOURCE_PRESENTATION: Record<string, SourceCopy> = {
           86400: 'Once a day',
         },
       },
+    },
+  },
+  remote_weaviate: {
+    label: 'Weaviate',
+    icon: '🧭',
+    description: 'An existing collection in a Weaviate cluster you run.',
+    fields: {
+      http_url: { label: 'HTTP URL', placeholder: 'https://my-cluster.weaviate.cloud' },
+      grpc_url: { label: 'gRPC URL', placeholder: 'grpc-my-cluster.weaviate.cloud:443' },
+      api_key: { label: 'API key' },
+      headers: { label: 'Extra headers', entry: 'header' },
+      content_property: { label: 'Content property', placeholder: 'text' },
+      metadata_properties: { label: 'Metadata properties', placeholder: 'title' },
+      search_mode: { label: 'Search mode' },
+      alpha: { label: 'Vector weight (alpha)', placeholder: '0.7' },
     },
   },
 }

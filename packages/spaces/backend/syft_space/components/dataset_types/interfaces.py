@@ -1,12 +1,17 @@
 """Dataset type interfaces.
 
 A ``BaseDatasetType`` binds a source (data origin) to a vector store.
-Concrete bindings declare a source provider and a vector store class,
-plus a ``split_config`` classmethod that splits the flat user
-configuration into the two per-axis configs. The default ``__init__``
-builds the source via the provider's ``for_ingest`` factory and the
-vector store via direct construction, exposing both as
-``self.source`` and ``self.vector_store``.
+Concrete bindings declare a source provider and a vector store class.
+The user-facing configuration is flat: the binding composes it from the
+two axis schemas, tagging each property with its ``axis``, and
+``split_config`` partitions a flat config by key ownership. Each axis
+declares its own editable / secret fields (``shared.config_flags``);
+the binding only reads them back out of the composed schema. Flags:
+``editable`` (may change after creation) and ``visibility`` (``public``,
+``secret``: value never returned, ``internal``: never shown). The
+default ``__init__`` builds the source via the provider's
+``for_ingest`` factory and the vector store via direct construction,
+exposing both as ``self.source`` and ``self.vector_store``.
 
 The lifecycle methods (``search``, ``healthcheck``, ``ingest``,
 ``delete``) delegate to the collaborators by default. Bindings
@@ -14,9 +19,17 @@ override them only when cross-axis policy is needed — for example, to
 apply a source-defined allow-list at ingest time.
 """
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 
-from syft_space.components.shared.domain_types import HealthcheckResponse
+from syft_space.components.shared.config_flags import (
+    Visibility,
+    editable_fields,
+    fields_with_visibility,
+)
+from syft_space.components.shared.domain_types import (
+    HealthcheckResponse,
+    HealthcheckStatus,
+)
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
 from syft_space.components.shared.metadata_types import DatasetMetadata
 from syft_space.components.shared.search_types import (
@@ -35,8 +48,7 @@ class BaseDatasetType:
     """Binding of a source with a vector store.
 
     Subclasses set ``SOURCE_PROVIDER_CLS`` and ``VECTOR_STORE_CLS``
-    class attributes and implement ``split_config`` to produce the
-    per-axis configs. The default ``__init__`` builds each collaborator
+    class attributes. The default ``__init__`` builds each collaborator
     and the lifecycle methods delegate to them.
     """
 
@@ -74,19 +86,58 @@ class BaseDatasetType:
         """A document's metadata reduced to the keys that may leave the space."""
         return self.metadata.public(metadata)
 
-    # ── Required per-binding ─────────────────────────────────────────
+    # ── Configuration shape ──────────────────────────────────────────
+
+    @classmethod
+    def configuration_schema(cls) -> dict[str, Any]:
+        """The flat user-facing schema: source properties, then store properties.
+
+        Every property is tagged ``axis`` (``source`` / ``vector_store``)
+        and keeps the flags its axis declared. A key present on both axes
+        is a programming error.
+        """
+        source = cls.SOURCE_PROVIDER_CLS.configuration_schema()
+        store = cls.VECTOR_STORE_CLS.configuration_schema()
+        return compose_schema(source, store)
 
     @classmethod
     def split_config(
         cls, configuration: dict[str, Any]
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Translate flat user configuration into per-axis configs.
+        """Partition a flat config into ``(source_config, vector_store_config)``.
 
-        Returns:
-            ``(source_config, vector_store_config)`` — each in the shape
-            its constructor expects.
+        Keys keep their spelling: a row may hold a key as the schema prints
+        it (``collectionName``) or as its Python name (``collection_name``),
+        and the axis models accept both. Keys no axis declares are dropped.
         """
-        raise NotImplementedError
+        owner = _axes(cls).owner
+        halves: dict[str, dict[str, Any]] = {"source": {}, "vector_store": {}}
+        for key, value in configuration.items():
+            axis = owner.get(key)
+            if axis is not None:
+                halves[axis][key] = value
+        return halves["source"], halves["vector_store"]
+
+    @classmethod
+    def canonical_configuration(cls, configuration: dict[str, Any]) -> dict[str, Any]:
+        """``configuration`` with every key spelled as the schema prints it.
+
+        Keys no axis declares are kept as they are.
+        """
+        printed = _axes(cls).printed
+        return {printed.get(k, k): v for k, v in configuration.items()}
+
+    @classmethod
+    def editable_fields(cls) -> list[str]:
+        """Keys an owner may change after creation, as the schema prints them."""
+        return editable_fields(cls.configuration_schema())
+
+    @classmethod
+    def secret_fields(cls) -> list[str]:
+        """Keys holding credentials, as the schema prints them."""
+        return fields_with_visibility(cls.configuration_schema(), Visibility.SECRET)
+
+    # ── Required per-binding ─────────────────────────────────────────
 
     @classmethod
     def description(cls) -> str:
@@ -96,16 +147,6 @@ class BaseDatasetType:
     @classmethod
     def icon(cls) -> str:
         """Icon for the binding (display only)."""
-        raise NotImplementedError
-
-    @classmethod
-    def configuration_schema(cls) -> dict[str, Any]:
-        """Return the combined source + vector store configuration schema.
-
-        Bindings own the user-facing schema because the public API is
-        flat — the schema describes what the user types in, before
-        ``split_config`` translates it.
-        """
         raise NotImplementedError
 
     # ── Default classmethods (overridable) ───────────────────────────
@@ -139,25 +180,102 @@ class BaseDatasetType:
     def redact_configuration(cls, configuration: dict[str, Any]) -> dict[str, Any]:
         """Return a copy of the stored configuration safe to expose over the API.
 
-        The default exposes the configuration unchanged. Bindings with
-        credential fields override this to drop or mask them before the
-        configuration is serialized into a response.
+        Secret scalars are dropped. A secret dict (``headers``) keeps its
+        keys with ``None`` values, so a client can see which entries exist
+        and edit them per key without learning the values.
         """
-        return dict(configuration)
+        spellings = _axes(cls).spellings
+        secrets = {s for key in cls.secret_fields() for s in spellings[key]}
+        redacted: dict[str, Any] = {}
+        for key, value in configuration.items():
+            if key not in secrets:
+                redacted[key] = value
+            elif isinstance(value, dict):
+                redacted[key] = dict.fromkeys(value)
+        return redacted
 
     @classmethod
-    async def validate_configuration(cls, configuration: dict[str, Any]) -> None:
+    def apply_edits(
+        cls, stored: dict[str, Any], edits: dict[str, Any]
+    ) -> dict[str, Any]:
+        """``stored`` with ``edits`` applied, the inverse of ``redact_configuration``.
+
+        Per key of ``edits``: the key must be editable (``ValueError`` names
+        the first that is not); ``None`` removes it; a dict on a secret dict
+        is merged per entry (``None`` keeps the stored value, a string
+        replaces it, an absent entry removes it); anything else replaces.
+        Both sides are canonicalised to the schema's spelling first, so an
+        edit may name a key either way and never leaves two spellings of
+        one key behind. Nothing is validated beyond editability.
+        """
+        editable = set(cls.editable_fields())
+        secret = set(cls.secret_fields())
+        edits = cls.canonical_configuration(edits)
+        for key in edits:
+            if key not in editable:
+                raise ValueError(f"Configuration key '{key}' is not editable")
+
+        merged = cls.canonical_configuration(stored)
+        for key, value in edits.items():
+            current = merged.get(key)
+            if value is None:
+                merged.pop(key, None)
+            elif (
+                key in secret and isinstance(value, dict) and isinstance(current, dict)
+            ):
+                merged[key] = {
+                    entry: current[entry] if new is None else new
+                    for entry, new in value.items()
+                    if new is not None or entry in current
+                }
+            else:
+                merged[key] = value
+        return merged
+
+    @classmethod
+    async def validate_configuration(
+        cls, configuration: dict[str, Any], *, previous: dict[str, Any] | None = None
+    ) -> None:
         """Validate by splitting and delegating to each collaborator.
 
-        Bindings override when they need cross-axis or pre-split logic
-        (e.g. defaulting a generated identifier before validation).
+        ``previous`` is the configuration being replaced, if this is an
+        edit; the source uses it to probe only what changed. Bindings
+        override when they need cross-axis or pre-split logic (e.g.
+        defaulting a generated identifier before validation).
 
         Raises:
             ValueError: If configuration is invalid.
         """
         source_cfg, vector_store_cfg = cls.split_config(configuration)
-        await cls.SOURCE_PROVIDER_CLS.validate_configuration(source_cfg)
+        previous_source = (
+            cls.split_config(previous)[0] if previous is not None else None
+        )
+        # Store first: its check is shape-only, a source's may reach the network.
         await cls.VECTOR_STORE_CLS.validate_configuration(vector_store_cfg)
+        await cls.SOURCE_PROVIDER_CLS.validate_configuration(
+            source_cfg, previous=previous_source
+        )
+
+    @classmethod
+    async def check_connection(
+        cls, configuration: dict[str, Any]
+    ) -> HealthcheckResponse:
+        """Does ``configuration`` connect? A dry run; nothing is written.
+
+        The shape must parse (``ValueError``). Then the source's connection
+        and the vector store are each tried and reported as health, never
+        raised. ``validate_configuration`` is the full check for a write;
+        this is what the dry-run health route runs.
+        """
+        dataset_type = cls(configuration)
+        source_cfg, _ = cls.split_config(configuration)
+        try:
+            await cls.SOURCE_PROVIDER_CLS.validate_browse_config(source_cfg)
+            return await dataset_type.healthcheck()
+        except Exception as e:
+            return HealthcheckResponse(
+                status=HealthcheckStatus.UNHEALTHY, message=str(e)
+            )
 
     # ── Default lifecycle (overridable) ──────────────────────────────
 
@@ -170,6 +288,66 @@ class BaseDatasetType:
     async def healthcheck(self) -> HealthcheckResponse:
         """Delegate healthcheck to the vector store."""
         return await self.vector_store.healthcheck()
+
+
+def compose_schema(
+    source: dict[str, Any], vector_store: dict[str, Any]
+) -> dict[str, Any]:
+    """Merge two axis schemas into one flat schema, tagging each property's axis."""
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    defs: dict[str, Any] = {}
+    for axis, schema in (("source", source), ("vector_store", vector_store)):
+        for key, prop in (schema.get("properties") or {}).items():
+            if key in properties:
+                raise ValueError(f"configuration key {key!r} is declared by both axes")
+            properties[key] = {**prop, "axis": axis}
+        required.extend(schema.get("required") or [])
+        defs.update(schema.get("$defs") or {})
+    composed: dict[str, Any] = {"properties": properties, "required": required}
+    if defs:
+        composed["$defs"] = defs
+    return composed
+
+
+class _Axes(NamedTuple):
+    """Key ownership of one binding, read from the two ``CONFIG_MODEL``s."""
+
+    # Every accepted spelling of a key -> the axis that owns it.
+    owner: dict[str, str]
+    # Printed key -> all spellings the axis model accepts for it.
+    spellings: dict[str, frozenset[str]]
+    # Every accepted spelling -> the printed key.
+    printed: dict[str, str]
+
+
+_AXES_BY_CLASS: dict[type[BaseDatasetType], _Axes] = {}
+
+
+def _axes(dataset_type_cls: type[BaseDatasetType]) -> _Axes:
+    """Ownership of one binding class, computed once; a duplicate spelling raises."""
+    if dataset_type_cls in _AXES_BY_CLASS:
+        return _AXES_BY_CLASS[dataset_type_cls]
+    owner: dict[str, str] = {}
+    spellings: dict[str, frozenset[str]] = {}
+    printed_of: dict[str, str] = {}
+    models = (
+        ("source", dataset_type_cls.SOURCE_PROVIDER_CLS.CONFIG_MODEL),
+        ("vector_store", dataset_type_cls.VECTOR_STORE_CLS.CONFIG_MODEL),
+    )
+    for axis, model in models:
+        for name, field in model.model_fields.items():
+            printed = field.alias or name
+            for spelling in {printed, name}:
+                if owner.get(spelling, axis) != axis:
+                    raise ValueError(
+                        f"configuration key {spelling!r} is declared by both axes"
+                    )
+                owner[spelling] = axis
+                printed_of[spelling] = printed
+            spellings[printed] = frozenset({printed, name})
+    _AXES_BY_CLASS[dataset_type_cls] = _Axes(owner, spellings, printed_of)
+    return _AXES_BY_CLASS[dataset_type_cls]
 
 
 class IngestableDatasetType(BaseDatasetType):

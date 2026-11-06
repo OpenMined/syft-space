@@ -63,11 +63,12 @@ def _response(body: bytes, status: int = 200, **headers: str) -> httpx.Response:
     )
 
 
-def _serve(handler) -> httpx.AsyncClient:
-    """A client with no base URL, so absolute feed URLs route unchanged."""
-    return httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), follow_redirects=False
-    )
+_make_client = rss._make_client  # the real factory, before any test patches it
+
+
+def _serve(handler):
+    """The real client (redirects, scheme hook) over a mocked transport."""
+    return _make_client(transport=httpx.MockTransport(handler))
 
 
 def _always(body: bytes, **headers: str):
@@ -304,6 +305,66 @@ class TestFetchFeed:
         async with _serve(handler) as client:
             with pytest.raises(SourceError, match="Could not fetch"):
                 await rss._fetch_feed(client, FEED_URL)
+
+
+class TestProbeFeed:
+    async def test_a_feed_passes(self):
+        async with _serve(_always(_rss(_item()))) as client:
+            await rss._probe_feed(client, FEED_URL)
+
+    async def test_a_prolog_and_comment_before_the_root_are_fine(self):
+        body = b'<?xml version="1.0"?>\n<!-- generated -->\n<feed xmlns="x"></feed>'
+        async with _serve(_always(body)) as client:
+            await rss._probe_feed(client, FEED_URL)
+
+    async def test_a_utf8_bom_before_the_prolog_is_fine(self):
+        body = b'\xef\xbb\xbf<?xml version="1.0"?>\n<rss version="2.0"><channel></channel></rss>'
+        async with _serve(_always(body)) as client:
+            await rss._probe_feed(client, FEED_URL)
+
+    async def test_a_web_page_is_not_a_feed(self):
+        body = b"<!DOCTYPE html><html><head><title>Blog</title></head></html>"
+        async with _serve(_always(body, **{"content-type": "text/html"})) as client:
+            with pytest.raises(SourceError, match="not an RSS or Atom feed"):
+                await rss._probe_feed(client, FEED_URL)
+
+    async def test_a_large_feed_is_read_only_up_to_the_probe_size(self, monkeypatch):
+        monkeypatch.setattr(rss, "PROBE_BYTES", 2048)
+        pulled = 0
+
+        class _Stream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                nonlocal pulled
+                yield b"<rss>" + b" " * 1019
+                for _ in range(99):
+                    pulled += 1
+                    yield b" " * 1024
+
+        def handler(request):
+            return httpx.Response(200, stream=_Stream(), request=request)
+
+        async with _serve(handler) as client:
+            await rss._probe_feed(client, FEED_URL)
+        assert pulled <= 2
+
+    async def test_a_redirect_to_http_is_refused_before_it_is_requested(self):
+        requested: list[str] = []
+
+        def handler(request):
+            requested.append(str(request.url))
+            return httpx.Response(
+                302, headers={"location": "http://10.0.0.1/feed"}, request=request
+            )
+
+        async with _serve(handler) as client:
+            with pytest.raises(SourceError, match="https"):
+                await rss._probe_feed(client, FEED_URL)
+        assert requested == [FEED_URL]
+
+    async def test_an_http_error_is_reported(self):
+        async with _serve(lambda r: _response(b"", status=404)) as client:
+            with pytest.raises(SourceError, match="HTTP 404"):
+                await rss._probe_feed(client, FEED_URL)
 
 
 class TestParseTolerance:
@@ -848,7 +909,7 @@ class TestProvider:
             RssProvider.configuration_schema()["properties"]
         )
 
-    async def test_validating_the_connection_fetches_every_feed(self, monkeypatch):
+    async def test_validating_the_connection_probes_every_feed(self, monkeypatch):
         requested: list[str] = []
 
         def handler(request):
@@ -866,10 +927,51 @@ class TestProvider:
         _patch_client(monkeypatch, _always(_rss("")))
         await RssProvider.validate_configuration(CONF)
 
+    async def test_a_web_page_fails_validation(self, monkeypatch):
+        _patch_client(monkeypatch, _always(b"<html><body>hi</body></html>"))
+        with pytest.raises(SourceError, match="not an RSS or Atom feed"):
+            await RssProvider.validate_configuration(CONF)
+
     async def test_an_unreachable_feed_fails_validation(self, monkeypatch):
         _patch_client(monkeypatch, _always(b"", status=404))
         with pytest.raises(SourceError):
             await RssProvider.validate_configuration(CONF)
+
+    async def test_an_edit_only_fetches_feeds_the_stored_row_lacked(self, monkeypatch):
+        requested: list[str] = []
+
+        def handler(request):
+            requested.append(str(request.url))
+            return _response(_rss(_item()))
+
+        _patch_client(monkeypatch, handler)
+        await RssProvider.validate_configuration(
+            {"feedUrls": f"{FEED_URL}, {OTHER_URL}"},
+            previous={"feedUrls": FEED_URL, "pollIntervalSeconds": 3600},
+        )
+        assert requested == [OTHER_URL]
+
+    async def test_an_edit_that_keeps_the_feeds_fetches_nothing(self, monkeypatch):
+        """Changing the poll interval must not re-download every feed."""
+        _patch_client(monkeypatch, _always(b"", status=500))
+        await RssProvider.validate_configuration(
+            {"feedUrls": FEED_URL, "pollIntervalSeconds": 900},
+            previous={
+                "feedUrls": f"{FEED_URL},{OTHER_URL}",
+                "pollIntervalSeconds": 3600,
+            },
+        )
+
+    async def test_an_unreadable_previous_fetches_everything(self, monkeypatch):
+        requested: list[str] = []
+
+        def handler(request):
+            requested.append(str(request.url))
+            return _response(_rss(_item()))
+
+        _patch_client(monkeypatch, handler)
+        await RssProvider.validate_configuration(CONF, previous={})
+        assert requested == [FEED_URL]
 
 
 class TestBinding:
@@ -890,8 +992,8 @@ class TestBinding:
                 "pollIntervalSeconds": 900,
             }
         )
-        assert source_cfg == {"feed_urls": FEED_URL, "poll_interval_seconds": 900}
-        assert store_cfg == {"collection_name": "feeds", "http_port": 8123}
+        assert source_cfg == {"feedUrls": FEED_URL, "pollIntervalSeconds": 900}
+        assert store_cfg == {"collectionName": "feeds", "httpPort": 8123}
 
     def test_the_schema_offers_both_axes(self):
         properties = RssChromaDBDatasetType.configuration_schema()["properties"]

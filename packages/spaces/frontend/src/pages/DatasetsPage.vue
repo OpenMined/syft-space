@@ -66,6 +66,12 @@
 
     <!-- Data Sources List -->
     <div v-else class="space-y-3">
+      <RepublishBanner
+        :endpoints="republishPending"
+        :dataset-names="changedDatasetNames"
+        @update:endpoints="republishPending = $event"
+        @dismiss="clearRepublish"
+      />
       <div
         v-for="dataSource in filteredDataSources"
         :key="dataSource.id"
@@ -217,12 +223,17 @@
   <!-- Create Dataset Dialog -->
   <CreateDatasetDialogSimple
     v-model:open="showCreateDataSourceDialog"
-    :dataset="editingDataset"
     :source-type="pickedSourceType"
     :credentials="pickedCredentials"
     @dataset-created="handleDatasetCreated"
-    @dataset-updated="handleDatasetUpdated"
     @update:open="!$event && handleDialogClose()"
+  />
+
+  <EditDatasetDialog
+    v-model:open="showEditDialog"
+    :dataset="editingDataset"
+    @dataset-updated="handleDatasetUpdated"
+    @update:open="!$event && (editingDataset = null)"
   />
 
   <!-- Delete Confirmation Dialog -->
@@ -247,6 +258,10 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import CreateDatasetDialogSimple from '@/components/CreateDatasetDialogSimple.vue'
+import EditDatasetDialog, { type EditableDataset } from '@/components/EditDatasetDialog.vue'
+import RepublishBanner from '@/components/RepublishBanner.vue'
+import type { RepublishTarget } from '@/composables/useRepublish'
+import type { DatasetResponse } from '@/api/types'
 import PickSourceDialog from '@/components/PickSourceDialog.vue'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import { useDatasets } from '@/composables/useDatasets'
@@ -291,12 +306,8 @@ const showPickSourceDialog = ref(false)
 const pickedSourceType = ref<string>('local_file')
 const pickedCredentials = ref<Record<string, string>>({})
 const searchQuery = ref('')
-const editingDataset = ref<{
-  id: string
-  name: string
-  summary: string
-  tags: string[]
-} | null>(null)
+const showEditDialog = ref(false)
+const editingDataset = ref<EditableDataset | null>(null)
 const showDeleteDialog = ref(false)
 const datasetToDelete = ref<DataSource | null>(null)
 const isDeleting = ref(false)
@@ -333,7 +344,6 @@ const filteredDataSources = computed(() => {
 })
 
 const openSourcePicker = () => {
-  editingDataset.value = null
   pickedSourceType.value = 'local_file'
   pickedCredentials.value = {}
   showPickSourceDialog.value = true
@@ -358,8 +368,8 @@ const handleEditDataset = async (dataset: DataSource) => {
     const fullDataset = await getDataset(dataset.name)
     if (fullDataset) {
       editingDataset.value = {
-        id: fullDataset.id,
         name: fullDataset.name,
+        dtype: fullDataset.dtype,
         summary: fullDataset.summary,
         tags: fullDataset.tags
           ? fullDataset.tags
@@ -367,8 +377,9 @@ const handleEditDataset = async (dataset: DataSource) => {
               .map((tag) => tag.trim())
               .filter(Boolean)
           : [],
+        configuration: fullDataset.configuration,
       }
-      showCreateDataSourceDialog.value = true
+      showEditDialog.value = true
     } else {
       toast.error('Failed to load dataset details for editing')
     }
@@ -377,15 +388,29 @@ const handleEditDataset = async (dataset: DataSource) => {
   }
 }
 
-const handleDatasetUpdated = () => {
-  // Refresh the dataset list after update
-  refreshDatasets()
-  editingDataset.value = null
+const republishPending = ref<RepublishTarget[]>([])
+const changedDatasetNames = ref<string[]>([])
+
+const clearRepublish = () => {
+  republishPending.value = []
+  changedDatasetNames.value = []
 }
 
-// Reset editing state when dialog closes
-const handleDialogClose = () => {
+const handleDatasetUpdated = async (updated: DatasetResponse, configurationChanged: boolean) => {
   editingDataset.value = null
+  await refreshDatasets()
+  if (!configurationChanged) return
+  // One banner for every edit this session: endpoints belong to one
+  // dataset each, so the pending set has no overlap.
+  const published = updated.connected_endpoints.filter((e) => e.published)
+  const pending = republishPending.value.filter((p) => !published.some((e) => e.slug === p.slug))
+  republishPending.value = [...pending, ...published]
+  if (!changedDatasetNames.value.includes(updated.name)) {
+    changedDatasetNames.value = [...changedDatasetNames.value, updated.name]
+  }
+}
+
+const handleDialogClose = () => {
   pickedCredentials.value = {}
 }
 
