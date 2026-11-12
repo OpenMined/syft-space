@@ -35,6 +35,7 @@ from syft_space.components.benchmarks.schemas import (
     ProviderResponse,
     ProviderRole,
     ProviderUrls,
+    ReaskRequest,
     RunRequest,
     TargetRequest,
     TargetResponse,
@@ -495,15 +496,47 @@ class BenchmarkHandler:
                 detail="Measuring is paused for this endpoint",
             )
         _raise_if_refused(await self._push(tenant, connection, target, endpoint))
-        reply = await self._client(connection).start_run(
-            slug, request.model_dump(exclude_none=True)
+        body = request.model_dump(
+            exclude_none=True, exclude={"web_search_excluded_domains"}
         )
+        # The benchmark takes it in the launch's instrument layer.
+        if request.web_search_excluded_domains is not None:
+            body["instrument"] = {
+                "web_search_excluded_domains": request.web_search_excluded_domains
+            }
+        reply = await self._client(connection).start_run(slug, body)
         _pass_refusal(reply, 409, "active_job_id")
         _raise_if_refused(reply)
         _require(reply, "the benchmark did not take the run", keep_status=False)
         job = _parsed(JobResponse, reply.data)
         await self.targets.remember_job(target.id, job.model_dump(mode="json"))
         return job
+
+    async def start_reask(
+        self, tenant: Tenant, slug: str, request: ReaskRequest
+    ) -> JobResponse | dict[str, Any]:
+        """Queue a re-ask; a dry run answers its estimate instead.
+
+        Raises:
+            PassedRefusal: a re-ask is already active (409), or the runs
+                cannot be re-asked (422)
+        """
+        endpoint = await self._endpoint_or_404(tenant, slug)
+        target, connection = await self._measured_pair_or_409(tenant, endpoint, slug)
+        if not target.enabled:
+            raise HTTPException(
+                status_code=409,
+                detail="Measuring is paused for this endpoint",
+            )
+        reply = await self._client(connection).start_reask(
+            slug, request.model_dump(exclude_none=True)
+        )
+        _pass_refusal(reply, 409, "active_job_id")
+        _pass_refusal(reply, 422, "detail")
+        _require(reply, "the benchmark did not take the re-ask", keep_status=False)
+        if request.dry_run:
+            return dict(reply.data or {})
+        return _parsed(JobResponse, reply.data)
 
     async def list_jobs(self, tenant: Tenant, slug: str) -> list[JobResponse]:
         endpoint = await self._endpoint_or_404(tenant, slug)

@@ -52,6 +52,15 @@ def merge(base: Settings, *layers: Layer) -> Settings:
     return type(base)(**values)
 
 
+def node_settings(target: Target, base: Settings) -> Settings:
+    """The base with the target's instrument and probe applied."""
+    return merge(
+        base,
+        Instrument.model_validate(target.instrument or {}),
+        Probe.model_validate(target.probe or {}),
+    )
+
+
 def settings_for(
     target: Target, base: Settings | None = None
 ) -> tuple[Settings, SpaceConfig]:
@@ -64,11 +73,7 @@ def settings_for(
         them silently loses, and working out which would take reading the code.
     """
     settings = base or get_settings()
-    conf = merge(
-        settings,
-        Instrument.model_validate(target.instrument or {}),
-        Probe.model_validate(target.probe or {}),
-    )
+    conf = node_settings(target, settings)
     # The empty values are filled in here rather than read as they are: column
     # defaults are applied on insert, and on a row not yet written they are None.
     space = SpaceConfig(
@@ -89,12 +94,7 @@ def settings_for(
 
 def target_panel(target: Target, base: Settings) -> list[str]:
     """The judges configured for the target, primary first."""
-    conf = merge(
-        base,
-        Instrument.model_validate(target.instrument or {}),
-        Probe.model_validate(target.probe or {}),
-    )
-    return configured_panel(conf)
+    return configured_panel(node_settings(target, base))
 
 
 def effective_defaults(conf: Settings) -> dict[str, Any]:

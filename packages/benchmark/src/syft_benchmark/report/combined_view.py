@@ -214,6 +214,8 @@ def _member(job: Job, run: dict[str, Any]) -> dict[str, Any]:
         "cost_usd": usd if usd is not None else cost.get("usd"),
         "state": job.state,
         "stopped": job_params.stopped_of(job),
+        "kind": job.kind,
+        "label": (job_params.reask_of(job) or {}).get("label"),
     }
 
 

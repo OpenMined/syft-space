@@ -21,7 +21,7 @@ from loguru import logger
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from syft_benchmark.config import JobPhase, JobState
+from syft_benchmark.config import JobKind, JobPhase, JobState
 from syft_benchmark.control.schemas import COMBINE_PERIOD_HOURS
 from syft_benchmark.db.models import CombinedMember, Job, Result, Run, Target
 from syft_benchmark.db.run_cache import invalidate_run
@@ -366,7 +366,8 @@ class PeriodCombiner:
     ``combine_periods`` not yet dealt with, at most ``LOOKBACK`` back.
 
     A period with a job still queued or running waits, and so do the later
-    ones of that length. A period's finished, measured leaf jobs are grouped by
+    ones of that length; re-asks are left to combining by hand, with their
+    runs. A period's finished, measured leaf jobs are grouped by
     ``settings_hash`` (jobs without one are left to combining by hand); each
     group of two or more becomes a combined run. ``target.combine_marks``
     keeps, per period length, the start of the last period dealt with.
@@ -402,7 +403,7 @@ class PeriodCombiner:
             select(Job)
             .where(
                 Job.target == self.target.key,
-                Job.kind != COMBINED,
+                Job.kind.not_in([COMBINED, JobKind.REASK.value]),
                 Job.created_at >= start,
                 Job.created_at < start + step,
             )

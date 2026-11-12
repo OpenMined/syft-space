@@ -14,11 +14,12 @@ from sqlalchemy.orm import Session
 
 from syft_benchmark.config import JobKind
 from syft_benchmark.control import jobs as job_queue
+from syft_benchmark.control import reask
 from syft_benchmark.control import session as console_sessions
 from syft_benchmark.control import targets as registry
 from syft_benchmark.control.auth import Guard
 from syft_benchmark.control.check import IndexUnreachable, articles_in_window, check
-from syft_benchmark.control.compose import merge, settings_for
+from syft_benchmark.control.compose import merge, node_settings, settings_for
 from syft_benchmark.control.refusals import (
     active_job_conflict,
     refuse_clash,
@@ -31,6 +32,7 @@ from syft_benchmark.control.schemas import (
     FilterRequest,
     JobView,
     JudgeRequest,
+    ReaskRequest,
     RunRequest,
     SessionView,
     TargetSpec,
@@ -40,6 +42,7 @@ from syft_benchmark.control.schemas import (
 from syft_benchmark.db.crypto import SecretsNotConfigured
 from syft_benchmark.db.models import Job
 from syft_benchmark.db.session import session_scope
+from syft_benchmark.report import job_params
 
 router = APIRouter()
 
@@ -151,7 +154,53 @@ def start_run(key: str, request: RunRequest, conf: Guard) -> JobView | JSONRespo
         try:
             job = job_queue.enqueue(session, row, request)
         except job_queue.ActiveJobClash as clash:
-            return active_job_conflict(key, clash.job_id)
+            return active_job_conflict(key, clash.job_id, clash.detail)
+        return JobView.model_validate(job)
+
+
+@router.post(
+    "/targets/{key}/reasks",
+    response_model=JobView,
+    status_code=202,
+    responses={
+        200: {"description": "A dry run: what the re-ask would ask and cost"},
+        409: {"description": "A re-ask of the target is queued or running"},
+        422: {"description": "The runs cannot be re-asked"},
+    },
+)
+def start_reask(key: str, request: ReaskRequest, conf: Guard) -> JobView | JSONResponse:
+    """Queue a re-ask of finished runs (``control.reask``); it runs beside the
+    target's other jobs. ``dry_run`` answers 200 with what it would ask and
+    cost, queueing nothing."""
+    with session_scope(conf) as session:
+        row = target_or_404(session, key)
+        require_enabled(row)
+        node_conf = node_settings(row, conf)
+        try:
+            found = reask.check(
+                session,
+                key,
+                request.jobs,
+                reask.Scope.of(request.model_dump(mode="json")),
+                node_conf,
+                dry_run=request.dry_run,
+            )
+        except reask.Refused as exc:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content=exc.body()
+            )
+        if request.dry_run:
+            return JSONResponse(content=found.estimate(node_conf.max_job_usd))
+        try:
+            job = job_queue.enqueue(
+                session,
+                row,
+                request,
+                kind=JobKind.REASK,
+                params={job_params.REASK: found.params(request.label)},
+            )
+        except job_queue.ActiveJobClash as clash:
+            return active_job_conflict(key, clash.job_id, clash.detail)
         return JobView.model_validate(job)
 
 

@@ -60,10 +60,12 @@ class Pool:
         self._endpoint = asyncio.Semaphore(self.endpoint_limit)
         self._storage = asyncio.Semaphore(_STORAGE_LANE)
         # As many threads as calls allowed in flight: the asyncio default is
-        # sized by cores and would become a second, undeclared ceiling.
+        # sized by cores and would become a second, undeclared ceiling. The
+        # workers charge the job's meter, whatever other jobs run beside it.
         self._workers = ThreadPoolExecutor(
             max_workers=self.model_limit + self.endpoint_limit + _STORAGE_LANE,
             thread_name_prefix="bench",
+            **cost.pool_kwargs(),
         )
 
     def close(self) -> None:
@@ -137,7 +139,7 @@ class RunCache:
         self.savings = Savings()
         self._endpoint: dict[tuple[str, str], _Cached] = {}
         self._answers: dict[
-            tuple[str, str, str, str, tuple[str, str, int] | None],
+            tuple[str, str, str, str, tuple[str, str, int, tuple[str, ...]] | None],
             tuple[str, dict[str, Any]],
         ] = {}
         self._running: dict[Any, asyncio.Task[Any]] = {}
@@ -217,6 +219,7 @@ class RunCache:
                 web_search_engine,
                 search_mechanism(provider.model, settings),
                 settings.web_search_max_results,
+                tuple(settings.web_search_excluded_domains),
             )
             if web_search
             else None

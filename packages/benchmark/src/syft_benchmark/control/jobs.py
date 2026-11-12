@@ -1,9 +1,9 @@
-"""Jobs: the queue, the worker thread, progress, cost and stopping.
+"""Jobs: the queue, the worker, progress, cost and stopping.
 
-A route puts a job in the queue and answers at once; a worker thread runs the
-queue one job at a time and writes progress into the row the owner watches.
-Stopping is a request, not a kill: a run finishes the current question and
-exits, and what it measured stays in the database.
+A route puts a job in the queue and answers at once; the worker runs it in a
+thread of its own once its lane is free, and the job writes progress into the
+row the owner watches. Stopping is a request, not a kill: a run finishes the
+current question and exits, and what it measured stays in the database.
 """
 
 from __future__ import annotations
@@ -21,10 +21,15 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from syft_benchmark.config import JobKind, JobPhase, JobState, Settings, SpaceConfig
-from syft_benchmark.control import combined
+from syft_benchmark.control import combined, reask
 from syft_benchmark.control.check import resolve_documents
 from syft_benchmark.control.compose import merge, settings_for
-from syft_benchmark.control.schemas import FilterRequest, JudgeRequest, RunRequest
+from syft_benchmark.control.schemas import (
+    FilterRequest,
+    JudgeRequest,
+    ReaskRequest,
+    RunRequest,
+)
 from syft_benchmark.db import store
 from syft_benchmark.db.models import (
     Job,
@@ -43,7 +48,8 @@ from syft_benchmark.report import job_params, run_view
 from syft_benchmark.runs import endpoint_retriever, judge_pending
 from syft_benchmark.runs.parallel import Progress
 from syft_benchmark.runs.timing import CallClock, JobClock, PassTime
-from syft_benchmark.scheduler import measure
+from syft_benchmark.scheduler import Measured, measure
+from syft_benchmark.scheduler import reask as reask_passes
 
 # How often the worker thread looks into the queue. A second is the delay
 # between pressing the button and the work starting; a measurement runs for
@@ -68,6 +74,7 @@ NO_QUESTIONS = "no_questions"
 NOTHING_GENERATED = "nothing_generated"
 OVER_BUDGET = job_params.OVER_BUDGET
 DOCUMENTS_NOT_FOUND = "documents_not_found"
+REASK_REFUSED = "reask_refused"
 
 # How many recent jobs a target's history shows: enough to see that yesterday's
 # measurement failed.
@@ -290,31 +297,35 @@ class Reporter:
 
 
 class ActiveJobClash(Exception):
-    """A document-scoped launch found the target's queue taken."""
+    """A launch the target's active jobs leave no room for."""
 
-    def __init__(self, job_id: str) -> None:
-        super().__init__(job_id)
+    def __init__(self, job_id: str, detail: str) -> None:
+        super().__init__(detail)
         self.job_id = job_id
+        self.detail = detail
 
 
 def enqueue(
     session: Session,
     target: Target,
-    request: RunRequest | FilterRequest | JudgeRequest,
+    request: RunRequest | FilterRequest | JudgeRequest | ReaskRequest,
     *,
     kind: JobKind = JobKind.PIPELINE,
     trigger: str = "manual",
+    params: dict[str, Any] | None = None,
 ) -> Job:
     """Put a job in the queue.
 
-    A second job for the same target is not created — the one already standing
-    there is returned, whatever kind it is: the queue is one per target
-    regardless of what the job does, since a filter or a judge pass reads and
-    writes the same rows a measurement would.
+    One active job per target and lane: re-asks have a lane of their own,
+    beside every other kind. In the other lane a second job is not created —
+    the one already standing there is returned, whatever kind it is, since a
+    filter or a judge pass reads and writes the same rows a measurement
+    would. ``params`` replaces the request's dump as the job's params.
 
     Raises:
-        ActiveJobClash: a launch with ``documents`` while a job is queued or
-            running: its documents would not be the ones the active job measures
+        ActiveJobClash: a re-ask, or a launch with ``documents``, while its
+            lane is taken: its questions or documents would not be the ones
+            the active job measures
     """
     # Locks the target row for the rest of this transaction, so two concurrent
     # launches for the same target serialize on the check below instead of
@@ -322,15 +333,23 @@ def enqueue(
     session.execute(
         select(Target.key).where(Target.key == target.key).with_for_update()
     )
+    reasking = kind is JobKind.REASK
+    lane = Job.kind == JobKind.REASK.value
     active = session.scalars(
         select(Job)
-        .where(Job.target == target.key)
-        .where(Job.state.in_([JobState.QUEUED.value, JobState.RUNNING.value]))
-        .order_by(Job.created_at)
+        .where(Job.target == target.key, lane if reasking else ~lane)
+        .where(Job.state.in_(job_params.ACTIVE_STATES))
+        .order_by(Job.created_at, Job.id)
     ).first()
     if active is not None:
+        if reasking:
+            raise ActiveJobClash(active.id, f"re-ask {active.id} is queued or running")
         if isinstance(request, RunRequest) and request.documents:
-            raise ActiveJobClash(active.id)
+            raise ActiveJobClash(
+                active.id,
+                f"job {active.id} is queued or running; "
+                f"a launch with documents waits until it finishes",
+            )
         return active
 
     job = Job(
@@ -340,7 +359,9 @@ def enqueue(
         phase=JobPhase.PENDING.value,
         kind=kind.value,
         trigger=trigger,
-        params=request.model_dump(mode="json", exclude_none=True),
+        params=params
+        if params is not None
+        else request.model_dump(mode="json", exclude_none=True),
     )
     session.add(job)
     session.flush()
@@ -473,6 +494,10 @@ def execute(job_id: str, settings: Settings | None = None) -> None:
                         _execute_judge(
                             job_id, space, node_conf, params, reporter=reporter
                         )
+                    case JobKind.REASK:
+                        _execute_reask(
+                            job_id, space, node_conf, params, reporter=reporter
+                        )
                     case _:
                         _execute_pipeline(
                             job_id, space, node_conf, params, reporter=reporter
@@ -559,14 +584,21 @@ def _execute_pipeline(
         job_id=job_id,
         doc_ids=doc_ids,
     )
+    _conclude(job_id, reporter, done, evaluated=want_evaluate)
+
+
+def _conclude(
+    job_id: str, reporter: Reporter, done: Measured, *, evaluated: bool
+) -> None:
+    """Close a measuring job with what ``done`` says went wrong."""
     reporter.pass_times = done.pass_times
     reporter.calls = done.clock
     failures = reporter.budget_problem() + list(done.failures)
-    # Outside `want_evaluate` on purpose: a launch that only refreshes the
+    # Outside `evaluated` on purpose: a launch that only refreshes the
     # question set can fail this way too.
     if done.generated_nothing:
         failures.append(_with_sample(NOTHING_GENERATED, done.generation_failure_sample))
-    if want_evaluate:
+    if evaluated:
         if done.had_nothing_to_ask:
             # The set is empty: the freshness window let no document through,
             # or generation has not reached this node yet. Without this line
@@ -587,8 +619,54 @@ def _execute_pipeline(
         state,
         error="; ".join(failures),
         message="; ".join(done.notes),
-        settings=base_settings,
+        settings=reporter.settings,
     )
+
+
+def _execute_reask(
+    job_id: str,
+    space: SpaceConfig,
+    node_conf: Settings,
+    params: dict[str, Any],
+    *,
+    reporter: Reporter,
+) -> None:
+    """Ask the questions of the job's runs again, by the runs' settings."""
+    base_settings = reporter.settings
+    asked = dict(params.get(job_params.REASK) or {})
+    try:
+        with session_scope(base_settings) as session:
+            found = reask.plan(
+                session, space.key, list(asked.get("jobs") or []), reask.Scope.of(asked)
+            )
+        conf, snapshot = reask.settings_of(node_conf, found)
+    except reask.Refused as exc:
+        _finish(
+            job_id,
+            JobState.FAILED,
+            error=f"{REASK_REFUSED}: {exc.detail}",
+            settings=base_settings,
+        )
+        return
+    _snapshot(
+        job_id,
+        {
+            **job_params.judging_snapshot(conf),
+            job_params.SETTINGS_SNAPSHOT: snapshot,
+            job_params.SETTINGS_HASH: found.settings_hash,
+        },
+        base_settings,
+    )
+    reporter.max_usd = conf.max_job_usd
+    done = reask_passes(
+        space,
+        conf,
+        found.passes,
+        primary_only=found.scope.primary_only,
+        observer=reporter,
+        job_id=job_id,
+    )
+    _conclude(job_id, reporter, done, evaluated=True)
 
 
 def _execute_filter(
@@ -802,18 +880,26 @@ def sweep(settings: Settings | None = None) -> int:
         return len(stale)
 
 
-class Worker:
-    """The worker thread: takes one job from the queue at a time and runs it.
+def lane_of(kind: str | None) -> str:
+    """The worker lane a job of ``kind`` runs in: ``reask`` or ``main``."""
+    return "reask" if kind == JobKind.REASK.value else "main"
 
-    A thread rather than a process: a measurement spends almost all its time
-    waiting on a socket, and there is no point splitting the interpreter. A
-    daemon, so as not to hold the process up on shutdown.
+
+class Worker:
+    """Runs the queue in two lanes, one job at a time in each: re-asks, and
+    every other kind; each job in a thread of its own, oldest first.
+
+    Threads rather than processes: a measurement spends almost all its time
+    waiting on a socket. Daemons, so as not to hold the process up on
+    shutdown.
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        # Per lane, the job this process runs there and its thread.
+        self._running: dict[str, tuple[str, threading.Thread]] = {}
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -830,28 +916,38 @@ class Worker:
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
-    def _next(self) -> str | None:
-        """The next job — if nothing is running right now."""
+    def dispatch(self) -> list[str]:
+        """Start the oldest queued job of each free lane; their ids."""
+        self._running = {
+            lane: entry for lane, entry in self._running.items() if entry[1].is_alive()
+        }
+        busy = {job_id for job_id, _ in self._running.values()}
+        started: dict[str, str] = {}
         with session_scope(self.settings) as session:
-            running = session.scalars(
-                select(Job.id).where(Job.state == JobState.RUNNING.value)
-            ).first()
-            if running is not None:
-                return None
-            return session.scalars(
-                select(Job.id)
-                .where(Job.state == JobState.QUEUED.value)
-                .order_by(Job.created_at)
-            ).first()
+            queued = session.execute(
+                select(Job.id, Job.kind)
+                .where(Job.state == JobState.QUEUED.value, Job.id.not_in(busy))
+                .order_by(Job.created_at, Job.id)
+            ).all()
+        for job_id, kind in queued:
+            lane = lane_of(kind)
+            if lane not in self._running and lane not in started:
+                started[lane] = job_id
+        for lane, job_id in started.items():
+            thread = threading.Thread(
+                target=execute,
+                args=(job_id, self.settings),
+                name=f"benchmark-{lane}-{job_id[:8]}",
+                daemon=True,
+            )
+            self._running[lane] = (job_id, thread)
+            thread.start()
+        return list(started.values())
 
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                job_id = self._next()
+                self.dispatch()
             except Exception as exc:  # noqa: BLE001 - the database may have blinked
                 logger.warning(f"the job queue is unavailable: {exc}")
-                job_id = None
-            if job_id is None:
-                self._stop.wait(POLL_SECONDS)
-                continue
-            execute(job_id, self.settings)
+            self._stop.wait(POLL_SECONDS)

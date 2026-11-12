@@ -6,7 +6,7 @@ schedule) is typed here.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -192,6 +192,9 @@ class JobResponse(BaseModel):
     # index did not hold. Null for other jobs.
     documents: int | None = None
     documents_missing: list[str] | None = None
+    # A re-ask: `{jobs, label, questions, answers_planned, estimated_usd, arms,
+    # models, judges}`. Null for other jobs.
+    reask: dict[str, Any] | None = None
 
 
 class TargetResponse(BaseModel):
@@ -274,12 +277,48 @@ class RunRequest(BaseModel):
             "`top_up_passages_per_document`, checked by the benchmark"
         ),
     )
+    web_search_excluded_domains: list[str] | None = Field(
+        default=None,
+        max_length=20,
+        description=(
+            "Domains the tested models' and the web check's searches leave out "
+            "for this run (`bloomberg.com`); replaces the endpoint's list, `[]` "
+            "excludes nothing; empty — the endpoint's"
+        ),
+    )
 
     @model_validator(mode="after")
     def _document_settings_need_documents(self) -> "RunRequest":
         if self.document_settings is not None and not self.documents:
             raise ValueError("document_settings applies only with documents")
         return self
+
+
+class ReaskRequest(BaseModel):
+    """Ask the questions of finished runs again, the same way."""
+
+    jobs: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Runs of this endpoint with one settings hash; a combined run stands for its runs",
+    )
+    label: str | None = Field(default=None, max_length=64)
+    arms: list[str] | None = Field(
+        default=None, min_length=1, description="Only these arms; empty — every one"
+    )
+    models: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description="Only these tested models; empty — every one",
+    )
+    judges: Literal["primary", "all"] = "all"
+    dry_run: bool = Field(
+        default=False,
+        description=(
+            "Answer `{questions, answers_planned, estimated_usd, max_job_usd}` "
+            "without queueing"
+        ),
+    )
 
 
 class CombineMembersRequest(BaseModel):

@@ -65,6 +65,7 @@ GROUPS: dict[str, FieldGroup] = {
     "web_search_with_context": FieldGroup.ARMS,
     "web_search_max_results": FieldGroup.ARMS,
     "web_search_max_calls": FieldGroup.ARMS,
+    "web_search_excluded_domains": FieldGroup.ARMS,
     "web_search_generator": FieldGroup.DATASET,
     "entity_check": FieldGroup.DATASET,
     "web_search_judge": FieldGroup.JUDGING,

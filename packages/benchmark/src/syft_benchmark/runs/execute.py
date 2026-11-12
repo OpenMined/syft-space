@@ -223,6 +223,24 @@ def active_pairs(space: str, settings: Settings | None = None) -> list[QaPair]:
         return rows
 
 
+def pairs_by_id(
+    space: str, qa_ids: Collection[str], settings: Settings | None = None
+) -> list[QaPair]:
+    """The Space's pairs of ``qa_ids``, whatever their status, newest first."""
+    conf = settings or get_settings()
+    with session_scope(conf) as session:
+        rows = list(
+            session.execute(
+                select(QaPair)
+                .where(QaPair.space == space, QaPair.id.in_(list(qa_ids)))
+                .order_by(QaPair.created_at.desc(), QaPair.id.desc())
+            ).scalars()
+        )
+        for row in rows:
+            session.expunge(row)
+        return rows
+
+
 def _active_pairs(
     space: str,
     limit: int | None,
@@ -648,6 +666,8 @@ _AUDITED_CALL_FIELDS = (
     "web_search_forced",
     "web_search_requests",
     "web_search_retry",
+    # Whether the search left out web_search_excluded_domains.
+    "web_search_exclusion",
     # USD of the call (None: not priced).
     "cost_usd",
 )
@@ -1106,6 +1126,8 @@ async def arun_pass(
     job_id: str | None = None,
     launch: Launch | None = None,
     doc_ids: frozenset[str] | None = None,
+    qa_ids: frozenset[str] | None = None,
+    primary_only: bool = False,
 ) -> list[RunReport]:
     """Run a Space's questions through one arm with the whole panel of judges.
 
@@ -1135,13 +1157,20 @@ async def arun_pass(
             slots, refused names, the answerer's failure streak); None — this
             pass alone
         doc_ids: Ask only these documents' questions; None — the whole Space
+        qa_ids: Ask exactly these questions, whatever their status and the
+            web check (a re-ask); None — the selection above
+        primary_only: Grade with the first judge seated only
 
     Returns:
         One report per judge, including those that recused themselves
     """
     conf = settings or get_settings()
     launch = launch if launch is not None else Launch(conf)
-    pairs = _active_pairs(space.key, limit, conf, doc_ids=doc_ids)
+    pairs = (
+        pairs_by_id(space.key, qa_ids, conf)
+        if qa_ids is not None
+        else _active_pairs(space.key, limit, conf, doc_ids=doc_ids)
+    )
     if mode is ContextMode.CLOSED_BOOK:
         source = ContextSource.NONE
     else:
@@ -1201,6 +1230,8 @@ async def arun_pass(
         check_judge_independence(candidate, subject, conf)
         seated.append(candidate)
 
+    if primary_only:
+        seated = seated[:1]
     if not seated:
         return reports
 

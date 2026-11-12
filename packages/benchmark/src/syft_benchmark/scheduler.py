@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -126,6 +126,18 @@ class Measured:
         already exist, and that is exactly the opposite case.
         """
         return self.passes > 0 and self.asked == 0 and self.resumed == 0
+
+
+@dataclass(frozen=True, slots=True)
+class PassSpec:
+    """One pass of a launch; ``qa_ids`` — the questions a re-ask asks, None —
+    the launch's selection; ``primary_only`` — one judge, the first seated."""
+
+    mode: ContextMode
+    block: EvalBlock
+    subject: Provider
+    qa_ids: frozenset[str] | None = None
+    primary_only: bool = False
 
 
 class Observer(Protocol):
@@ -341,7 +353,7 @@ def measure(
         return out
 
     # A skipped monte_carlo block is not a pass.
-    specs: list[tuple[ContextMode, EvalBlock, Provider]] = []
+    specs: list[PassSpec] = []
     skipped_mc: list[str] = []
     for block in conf.blocks:
         for mode in conf.arms:
@@ -353,7 +365,7 @@ def measure(
                     if subject.model not in skipped_mc:
                         skipped_mc.append(subject.model)
                     continue
-                specs.append((mode, block, subject))
+                specs.append(PassSpec(mode, block, subject))
 
     if observer is not None:
         # Planned only now: a launch that stops here (evaluate=False) never
@@ -377,9 +389,96 @@ def measure(
         )
         observer.phase(JobPhase.EVALUATE)
 
-    # Every pass runs at once, under the one model lane and the one endpoint
-    # lane, so no lane idles through a pass's slow tail. The cache makes the
-    # passes of one question share their calls.
+    _evaluate(
+        space,
+        conf,
+        specs,
+        judges=judges,
+        out=out,
+        cache=shared,
+        limit=limit,
+        resume=resume,
+        defer_judging=defer_judging,
+        observer=observer,
+        job_id=job_id,
+        doc_ids=doc_ids,
+    )
+    return out
+
+
+def reask(
+    space: SpaceConfig,
+    conf: Settings,
+    passes: Mapping[tuple[str, str, str], frozenset[str]],
+    *,
+    primary_only: bool = False,
+    observer: Observer | None = None,
+    job_id: str | None = None,
+) -> Measured:
+    """Ask exactly ``passes`` again — (arm, block, model) -> question ids —
+    with fresh answers and verdicts: nothing is built, screened or resumed.
+    ``primary_only`` seats one judge per pass, the first the panel seats.
+
+    ``conf`` carries the methodology of the runs asked again
+    (``control.reask``); every model of ``passes`` is one of its subjects.
+    """
+    out = Measured()
+    check_perimeter(conf)
+    subjects = {subject.model: subject for subject in subject_providers(conf)}
+    specs = [
+        PassSpec(
+            ContextMode(mode),
+            EvalBlock(block),
+            subjects[model],
+            qa_ids,
+            primary_only=primary_only,
+        )
+        for (mode, block, model), qa_ids in sorted(passes.items())
+    ]
+    if observer is not None:
+        observer.planned(len(specs))
+        observer.phase(JobPhase.EVALUATE)
+    _evaluate(
+        space,
+        conf,
+        specs,
+        judges=judge_providers(conf),
+        out=out,
+        cache=RunCache(enabled=conf.reuse_answers),
+        limit=None,
+        resume=False,
+        defer_judging=False,
+        observer=observer,
+        job_id=job_id,
+        doc_ids=None,
+    )
+    return out
+
+
+def _evaluate(
+    space: SpaceConfig,
+    conf: Settings,
+    specs: list[PassSpec],
+    *,
+    judges: list[Provider],
+    out: Measured,
+    cache: RunCache,
+    limit: int | None,
+    resume: bool,
+    defer_judging: bool,
+    observer: Observer | None,
+    job_id: str | None,
+    doc_ids: frozenset[str] | None,
+) -> None:
+    """Run the passes into ``out``.
+
+    Every pass runs at once, under the one model lane and the one endpoint
+    lane, so no lane idles through a pass's slow tail. The cache makes the
+    passes of one question share their calls.
+    """
+    if not specs:
+        return
+
     async def evaluate_all() -> None:
         pool = Pool(conf, clock=out.clock)
         launch = Launch(
@@ -391,14 +490,12 @@ def measure(
                     _one_pass(
                         space,
                         conf,
-                        mode,
-                        block,
-                        subject,
+                        spec,
                         judges=judges,
                         out=out,
                         pool=pool,
                         launch=launch,
-                        cache=shared,
+                        cache=cache,
                         limit=limit,
                         resume=resume,
                         defer_judging=defer_judging,
@@ -406,24 +503,20 @@ def measure(
                         job_id=job_id,
                         doc_ids=doc_ids,
                     )
-                    for mode, block, subject in specs
+                    for spec in specs
                 )
             )
             out.pass_times = [timed for timed in ran if timed is not None]
         finally:
             pool.close()
 
-    if specs:
-        asyncio.run(evaluate_all())
-    return out
+    asyncio.run(evaluate_all())
 
 
 async def _one_pass(
     space: SpaceConfig,
     conf: Settings,
-    mode: ContextMode,
-    block: EvalBlock,
-    subject: Provider,
+    spec: PassSpec,
     *,
     judges: list[Provider],
     out: Measured,
@@ -438,6 +531,7 @@ async def _one_pass(
     doc_ids: frozenset[str] | None = None,
 ) -> PassTime | None:
     """One pass of the launch, alongside the others; None — not started."""
+    mode, block, subject = spec.mode, spec.block, spec.subject
     # A name the provider refused outright is not asked in passes still to
     # come. A refusal is about the name, the key or the money, and no later
     # pass changes any of those — but each pass asked in that name costs a
@@ -488,6 +582,8 @@ async def _one_pass(
             job_id=job_id,
             launch=launch,
             doc_ids=doc_ids,
+            qa_ids=spec.qa_ids,
+            primary_only=spec.primary_only,
         )
     except Exception as exc:  # noqa: BLE001 - the node may have rebooted
         out.failures.append(f"{label}: {exc}")

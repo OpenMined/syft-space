@@ -30,6 +30,7 @@ from pydantic import (
 )
 
 from syft_benchmark.config import (
+    MAX_EXCLUDED_DOMAINS,
     ContextMode,
     ContextSource,
     DatasetMode,
@@ -41,11 +42,14 @@ from syft_benchmark.config import (
     TextMetric,
     Verdict,
     WebSearchEngine,
+    search_domains,
 )
 from syft_benchmark.llm.catalog import ModelEntry
 
 # The most documents one document-scoped launch may name.
 MAX_RUN_DOCUMENTS = 500
+# The most runs one re-ask names.
+MAX_REASK_JOBS = 1000
 
 
 def csv_param(value: str | None) -> tuple[str, ...]:
@@ -205,6 +209,14 @@ class Instrument(Layer):
             "provider's own limit"
         ),
     )
+    web_search_excluded_domains: list[str] | None = Field(
+        default=None,
+        max_length=MAX_EXCLUDED_DOMAINS,
+        description=(
+            "Domains the tested models' and the web check's searches leave out "
+            '("bloomberg.com"). Empty — none'
+        ),
+    )
 
     # --- How every judge is called
     judge_temperature: (
@@ -268,6 +280,11 @@ class Instrument(Layer):
     @classmethod
     def _one_model_name(cls, value: str | None) -> str | None:
         return None if value is None else _model_name(value)
+
+    @field_validator("web_search_excluded_domains")
+    @classmethod
+    def _search_domains(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else search_domains(value)
 
     @field_validator("subject_models", "judge_models")
     @classmethod
@@ -618,6 +635,50 @@ class JudgeRequest(BaseModel):
     )
 
 
+class ReaskRequest(BaseModel):
+    """A request to ask the questions finished runs asked again, the same way."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    jobs: list[Annotated[str, StringConstraints(min_length=1)]] = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_REASK_JOBS,
+        description=(
+            "Finished, measured runs of this target with one settings hash; a "
+            "combined run stands for its runs"
+        ),
+    )
+    label: str | None = Field(
+        default=None, max_length=64, description="A name for the re-ask, e.g. 4h"
+    )
+    arms: list[ContextMode] | None = Field(
+        default=None,
+        min_length=1,
+        description="Re-ask only these arms of the runs; empty — every one",
+    )
+    models: list[Annotated[str, StringConstraints(min_length=1)]] | None = Field(
+        default=None,
+        min_length=1,
+        description="Re-ask only these tested models of the runs; empty — every one",
+    )
+    judges: Literal["primary", "all"] = Field(
+        default="all",
+        description=(
+            "Grade with the whole panel, or with the first judge seated for "
+            "each answer only — the verdict every figure counts"
+        ),
+    )
+    dry_run: bool = Field(
+        default=False,
+        description=(
+            "Answer what the re-ask would ask and cost "
+            "(`{questions, answers_planned, estimated_usd, max_job_usd}`) "
+            "without queueing it"
+        ),
+    )
+
+
 class SessionView(BaseModel):
     """A freshly minted console session: one target, until it expires."""
 
@@ -958,7 +1019,8 @@ class JobView(BaseModel):
     state: str
     phase: str
     # What operation this job is, as opposed to `phase` (where it is): one of
-    # `JobKind` — `pipeline` (a whole launch), `filter` or `judge` on its own.
+    # `JobKind` — `pipeline` (a whole launch), `filter` or `judge` on its own,
+    # `reask` (finished runs' questions asked again).
     kind: str = "pipeline"
     # Runs: how many are finished out of how many. The full extent is not known
     # at once, and a zero in total means "still counting", not "nothing to do".
@@ -992,6 +1054,11 @@ class JobView(BaseModel):
     documents_missing: list[str] | None = Field(
         default=None, validation_alias=AliasChoices("documents_missing", "params")
     )
+    # A re-ask: ``{jobs, label, questions}`` — the runs it asks again, its
+    # label, how many questions. Null for other jobs.
+    reask: dict[str, Any] | None = Field(
+        default=None, validation_alias=AliasChoices("reask", "params")
+    )
 
     @field_validator("progress_plan", mode="before")
     @classmethod
@@ -1013,6 +1080,13 @@ class JobView(BaseModel):
     def _missing_of(cls, value: Any) -> Any:
         if isinstance(value, dict):
             return value.get("documents_missing")
+        return value
+
+    @field_validator("reask", mode="before")
+    @classmethod
+    def _reask_of(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "questions" not in value:
+            return value.get("reask")
         return value
 
 

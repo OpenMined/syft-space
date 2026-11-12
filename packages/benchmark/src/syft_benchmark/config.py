@@ -335,13 +335,15 @@ class JobKind(StrEnum):
     of the ``generate``/``filter``/``evaluate`` flags is one call to
     ``scheduler.measure()``. ``FILTER`` and ``JUDGE`` work over already-stored
     input (pending pairs; pending verdicts), so each has its own kind and route.
-    ``COMBINED`` is never queued: a record over other jobs' results, finished
-    at creation (``control.combined``).
+    ``REASK`` asks the questions finished runs asked again, the same way
+    (``control.reask``). ``COMBINED`` is never queued: a record over other
+    jobs' results, finished at creation (``control.combined``).
     """
 
     PIPELINE = "pipeline"
     FILTER = "filter"
     JUDGE = "judge"
+    REASK = "reask"
     COMBINED = "combined"
 
 
@@ -416,6 +418,25 @@ class SpaceSeed(SpaceConfig):
             "for any question, including one whose answer is not in the corpus"
         ),
     )
+
+
+# The most domains a search may be told to leave out.
+MAX_EXCLUDED_DOMAINS = 20
+
+
+def search_domains(values: list[str]) -> list[str]:
+    """Domains to keep out of web search, as the search APIs take them: no
+    scheme or trailing slash, lower case, sorted, no repeats. A path after the
+    host is kept ("example.com/blog")."""
+    out: set[str] = set()
+    for value in values:
+        domain = re.sub(r"^[a-z]+://", "", value.strip().lower()).rstrip("/")
+        if not domain:
+            continue
+        if not re.fullmatch(r"[a-z0-9*][a-z0-9.*-]*(/\S*)?", domain):
+            raise ValueError(f"{value!r} is not a domain")
+        out.add(domain)
+    return sorted(out)
 
 
 class Settings(BaseSettings):
@@ -567,6 +588,16 @@ class Settings(BaseSettings):
         description=(
             "Searches one answer of a tested model may make. Zero — the "
             "provider's own limit (30 on OpenRouter)"
+        ),
+    )
+    web_search_excluded_domains: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_EXCLUDED_DOMAINS,
+        description=(
+            "Domains the tested models' and the web check's searches leave out, "
+            "e.g. the measured publisher's. Exa and the native search of "
+            "Anthropic and xAI honour it; each answer records whether it was "
+            "applied (``web_search_exclusion``)"
         ),
     )
 
@@ -948,6 +979,11 @@ class Settings(BaseSettings):
         ),
     )
 
+    @field_validator("web_search_excluded_domains")
+    @classmethod
+    def _search_domains(cls, value: list[str]) -> list[str]:
+        return search_domains(value)
+
     @field_validator("judge_temperature", mode="before")
     @classmethod
     def _model_default_temperature(cls, value: Any) -> Any:
@@ -1004,6 +1040,7 @@ class Settings(BaseSettings):
             "web_search_judge": self.web_search_judge,
             "web_search_max_results": self.web_search_max_results,
             "web_search_max_calls": self.web_search_max_calls,
+            "web_search_excluded_domains": list(self.web_search_excluded_domains),
             # How the judges were tuned decides their verdicts.
             "judge_temperature": self.judge_temperature,
             "judge_reasoning_effort": self.judge_reasoning_effort.value,

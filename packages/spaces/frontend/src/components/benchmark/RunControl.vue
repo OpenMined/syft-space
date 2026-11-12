@@ -291,8 +291,11 @@ function removeModel(id: string): void {
 
 const { jobs, refresh: refreshJobs } = useBenchmarkJobs(props.slug)
 
+/** The active measurement; a re-ask runs beside it and is shown in the runs list. */
 const activeJob = computed(() =>
-  jobs.value.find((job) => job.state === 'queued' || job.state === 'running'),
+  jobs.value.find(
+    (job) => job.kind !== 'reask' && (job.state === 'queued' || job.state === 'running'),
+  ),
 )
 
 const request = computed<BenchmarkTargetRequest | null>(() =>

@@ -114,11 +114,15 @@ STOP_WORDS: dict[str, frozenset[str]] = {
 LANGUAGES: tuple[str, ...] = tuple(STOP_WORDS)
 
 
-def detect_language(text: str) -> str | None:
+def detect_language(text: str, prefer: str | None = None) -> str | None:
     """Which of the known languages (``LANGUAGES``) the text most resembles.
 
     Args:
         text: A chunk of the document, or an item's text
+        prefer: The language that wins a tie. Related languages share many
+            function words (Spanish and French share "de", "la", "que", "en"),
+            so a short item can score the same in both; its document's
+            language is then the likelier one
 
     Returns:
         A language code, or None if none of them reached the threshold
@@ -130,7 +134,8 @@ def detect_language(text: str) -> str | None:
     best: tuple[float, str] | None = None
     for lang, stop in STOP_WORDS.items():
         share = sum(1 for w in words if w in stop) / len(words)
-        if share >= _HIT_THRESHOLD and (best is None or share > best[0]):
+        tie_won = best is not None and share == best[0] and lang == prefer
+        if share >= _HIT_THRESHOLD and (best is None or share > best[0] or tie_won):
             best = (share, lang)
 
     return best[1] if best else None

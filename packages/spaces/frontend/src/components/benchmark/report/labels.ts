@@ -52,6 +52,24 @@ export function verdictTone(verdict: string): string {
 /** Tooltip of a `Searched: no` chip when the API gives no reason. */
 export const SEARCH_UNUSED_TIP = 'Asked to search the web, but cited nothing.'
 
+/** The chip naming the search an answer was given: `Exa search`, `OpenAI search`. */
+export function searchEngineLabel(engine: string, model: string): string {
+  if (engine === 'exa') return 'Exa search'
+  return `${vendorName(model) ?? 'Native'} search`
+}
+
+export function searchEngineTip(engine: string): string {
+  return engine === 'exa'
+    ? 'Searched the web through Exa, the search OpenRouter runs for any model.'
+    : 'Searched the web with its provider’s own search engine.'
+}
+
+export const CITES_ARTICLE_TIP =
+  'One of the pages it cited is the article this question was written from.'
+
+export const EXCLUSION_NOT_APPLIED_TIP =
+  'The run keeps some domains out of search, but this model’s own search can’t leave them out, so it searched them too.'
+
 /** Control questions: graded on how the model behaves, not on a right answer. */
 const CONTROL_KINDS = new Set(['unanswerable_property', 'false_premise'])
 

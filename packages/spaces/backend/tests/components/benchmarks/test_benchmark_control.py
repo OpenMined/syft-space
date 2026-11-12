@@ -1423,6 +1423,20 @@ async def test_a_runs_documents_reach_the_benchmark() -> None:
     assert client.runs[0][1]["document_settings"] == settings
 
 
+@pytest.mark.asyncio
+async def test_a_runs_excluded_domains_reach_the_benchmark_as_its_instrument() -> None:
+    row, target = _measured()
+    handler, client = _handler(connections=[row], target=target)
+    await handler.start_run(
+        TENANT, "support-kb", RunRequest(web_search_excluded_domains=["bloomberg.com"])
+    )
+    await handler.start_run(TENANT, "support-kb", RunRequest())
+    excluding, plain = (body for _, body in client.runs)
+    assert excluding["instrument"] == {"web_search_excluded_domains": ["bloomberg.com"]}
+    assert "web_search_excluded_domains" not in excluding
+    assert "instrument" not in plain
+
+
 def test_a_run_needs_at_least_one_document_when_it_names_them() -> None:
     from pydantic import ValidationError
 
@@ -1532,3 +1546,108 @@ async def test_stored_combine_periods_are_shown() -> None:
     )
     out = await handler.get_target(TENANT, "support-kb")
     assert out.combine_periods == ["24h"]
+
+
+# --- re-asks -----------------------------------------------------------------
+
+REASK_VIEW = {
+    "id": "reask-1",
+    "state": "queued",
+    "phase": "pending",
+    "kind": "reask",
+    "reask": {"jobs": ["a", "b"], "label": "4h", "questions": 3},
+}
+ESTIMATE = {
+    "questions": 3,
+    "answers_planned": 5,
+    "estimated_usd": 1.2,
+    "max_job_usd": 100.0,
+}
+REASK_REFUSED = {"detail": "the runs asked no questions"}
+
+
+class _ReaskClient(_Client):
+    """A benchmark that takes a re-ask, estimates a dry run, or refuses."""
+
+    def __init__(self, reply: Reply | None = None) -> None:
+        super().__init__()
+        self.reasks: list[tuple[str, dict]] = []
+        self.reply = reply
+
+    async def start_reask(self, key: str, request: dict) -> Reply:
+        self.reasks.append((key, request))
+        if self.reply is not None:
+            return self.reply
+        if request.get("dry_run"):
+            return Reply(ok=True, status=200, data=ESTIMATE)
+        return Reply(ok=True, status=202, data=REASK_VIEW)
+
+
+def _reask_app(client: _Client) -> object:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from syft_space.components.benchmarks.routes import build_benchmark_routes
+    from syft_space.components.tenants.dependency import get_tenant_dependency
+
+    row, target = _measured()
+    handler, _ = _handler(client=client, connections=[row], target=target)
+    app = FastAPI()
+    app.include_router(build_benchmark_routes(handler))
+    app.dependency_overrides[get_tenant_dependency] = lambda: TENANT
+    return TestClient(app)
+
+
+def test_a_reask_passes_through_to_the_benchmark() -> None:
+    client = _ReaskClient()
+    body = {
+        "jobs": ["a", "b"],
+        "label": "4h",
+        "arms": ["closed_book"],
+        "models": ["vendor/model"],
+        "judges": "primary",
+    }
+
+    answer = _reask_app(client).post(  # type: ignore[attr-defined]
+        "/benchmarks/endpoints/support-kb/reasks", json=body
+    )
+
+    assert answer.status_code == 202, answer.text
+    assert answer.json()["kind"] == "reask"
+    assert answer.json()["reask"] == REASK_VIEW["reask"]
+    assert client.reasks == [("support-kb", {**body, "dry_run": False})]
+
+
+def test_a_reask_dry_run_answers_the_estimate() -> None:
+    answer = _reask_app(_ReaskClient()).post(  # type: ignore[attr-defined]
+        "/benchmarks/endpoints/support-kb/reasks",
+        json={"jobs": ["a"], "dry_run": True},
+    )
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == ESTIMATE
+
+
+@pytest.mark.parametrize(("status", "body"), [(409, ACTIVE_JOB), (422, REASK_REFUSED)])
+def test_a_refused_reask_reaches_the_caller_unchanged(status: int, body: dict) -> None:
+    refused = Reply(ok=False, status=status, detail=str(body["detail"]), body=body)
+
+    answer = _reask_app(_ReaskClient(refused)).post(  # type: ignore[attr-defined]
+        "/benchmarks/endpoints/support-kb/reasks", json={"jobs": ["a"]}
+    )
+
+    assert answer.status_code == status
+    assert answer.json() == body
+
+
+@pytest.mark.asyncio
+async def test_a_job_carries_its_reask() -> None:
+    row, target = _measured()
+    handler, client = _handler(connections=[row], target=target)
+    client.known_jobs = [REASK_VIEW, {"id": "plain", "state": "queued", "phase": "x"}]
+
+    reasked, plain = await handler.list_jobs(TENANT, "support-kb")
+
+    assert reasked.kind == "reask"
+    assert reasked.reask == REASK_VIEW["reask"]
+    assert plain.reask is None

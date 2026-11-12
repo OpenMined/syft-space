@@ -190,6 +190,44 @@
                 :data-testid="`answer-${arm}`"
               >
                 <span>{{ armOf(detail, arm)?.answer || DASH }}</span>
+                <span
+                  v-if="
+                    armOf(detail, arm)?.search_engine ||
+                    armOf(detail, arm)?.cites_article ||
+                    armOf(detail, arm)?.search_exclusion === false
+                  "
+                  class="flex flex-wrap gap-1"
+                >
+                  <Hint
+                    v-if="armOf(detail, arm)?.search_engine"
+                    :text="searchEngineTip(armOf(detail, arm)!.search_engine!)"
+                  >
+                    <span
+                      class="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      data-testid="search-engine"
+                      ><Search class="size-3" aria-hidden="true" />{{
+                        searchLabel(armOf(detail, arm)!.search_engine!)
+                      }}</span
+                    >
+                  </Hint>
+                  <Hint v-if="armOf(detail, arm)?.cites_article" :text="CITES_ARTICLE_TIP">
+                    <span
+                      class="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
+                      data-testid="cites-article"
+                      ><FileText class="size-3" aria-hidden="true" />Cites this article</span
+                    >
+                  </Hint>
+                  <Hint
+                    v-if="armOf(detail, arm)?.search_exclusion === false"
+                    :text="EXCLUSION_NOT_APPLIED_TIP"
+                  >
+                    <span
+                      class="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
+                      data-testid="exclusion-not-applied"
+                      ><SearchX class="size-3" aria-hidden="true" />Excluded domains searched</span
+                    >
+                  </Hint>
+                </span>
                 <Hint
                   v-if="armOf(detail, arm)?.web_search_unused"
                   :text="armOf(detail, arm)?.web_search_unused_reason || SEARCH_UNUSED_TIP"
@@ -366,7 +404,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import { ChevronDown, CircleHelp } from 'lucide-vue-next'
+import { ChevronDown, CircleHelp, FileText, Search, SearchX } from 'lucide-vue-next'
 import type {
   BenchmarkQuestionDetail,
   BenchmarkQuestionJudge,
@@ -404,7 +442,16 @@ import VerdictPill from './details/VerdictPill.vue'
 import { useDetails } from './details/useDetails'
 import { DASH, shortStamp } from './figures'
 import { kindLabel } from '../kinds'
-import { GROUP_LABEL, SEARCH_UNUSED_TIP, judgesText, modelName } from './labels'
+import {
+  CITES_ARTICLE_TIP,
+  EXCLUSION_NOT_APPLIED_TIP,
+  GROUP_LABEL,
+  SEARCH_UNUSED_TIP,
+  judgesText,
+  modelName,
+  searchEngineLabel,
+  searchEngineTip,
+} from './labels'
 import { heldOf, isTrick } from './selectors'
 import { KIND_ORDER, sortKinds, sortQuestions } from '../questionOrder'
 import { ARM_KEY, type Arm, type Group } from './types'
@@ -605,6 +652,10 @@ function judgeBehavior(judge: BenchmarkQuestionJudge, arm: Arm): string | null {
 
 function armOf(d: BenchmarkQuestionDetail, arm: Arm) {
   return d.arms[ARM_KEY[arm]]
+}
+
+function searchLabel(engine: string): string {
+  return searchEngineLabel(engine, run.model.value ?? '')
 }
 
 function heldText(d: BenchmarkQuestionDetail, arm: Arm): string {

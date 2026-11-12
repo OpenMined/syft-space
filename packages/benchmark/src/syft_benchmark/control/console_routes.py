@@ -240,7 +240,7 @@ def console_start_run(
         try:
             job = job_queue.enqueue(session, row, request)
         except job_queue.ActiveJobClash as clash:
-            return active_job_conflict(auth.target_key, clash.job_id)
+            return active_job_conflict(auth.target_key, clash.job_id, clash.detail)
         return JobView.model_validate(job)
 
 

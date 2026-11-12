@@ -156,7 +156,7 @@
       </SettingRow>
       <SettingRow
         label="Search engine"
-        help="Auto uses built-in search where the model has it, else the OpenRouter plugin."
+        help="Auto uses built-in search where the model has it, else the OpenRouter plugin. Only the OpenRouter plugin leaves out the domains below for every model."
         for-id="bm-web-engine"
       >
         <ChoiceSelect id="bm-web-engine" v-model="form.webEngine" :choices="WEB_ENGINES" />
@@ -167,6 +167,18 @@
         for-id="bm-web-results"
       >
         <NumberInput id="bm-web-results" v-model="form.webMaxResults" :min="1" :max="20" />
+      </SettingRow>
+      <SettingRow
+        label="Leave out of search"
+        help="Domains the tested models and the web check don’t search, e.g. the publisher measured. Not every model’s own search can leave them out; the report marks those answers."
+        for-id="bm-web-excluded"
+      >
+        <Input
+          id="bm-web-excluded"
+          v-model="form.webExcludedDomains"
+          placeholder="bloomberg.com"
+          class="w-70"
+        />
       </SettingRow>
     </template>
   </SetupStep>

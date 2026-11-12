@@ -1213,3 +1213,257 @@ def test_the_control_gate_follows_the_judge_toggle(
 
     sent = provider.bodies[0].get("tools")
     assert (sent[0]["parameters"]["engine"] if sent else None) == engine
+
+
+# --- what the report says about an answer's search ----------------------------
+
+
+def test_the_search_engine_is_read_from_the_audit() -> None:
+    assert web_search.search_engine_of({"call": {"web_search": "plugin"}}) == "exa"
+    assert web_search.search_engine_of({"call": {"web_search": "native"}}) == "native"
+    assert web_search.search_engine_of({"call": {"web_search": False}}) is None
+    assert web_search.search_engine_of({}) is None
+
+
+ARTICLE = "https://ladiaria.com.uy/politica/articulo/2026/11/gonzalo-civila/"
+
+
+def test_a_citation_of_the_article_is_found_whatever_its_form() -> None:
+    citations = [
+        {"url": "https://www.elobservador.com.uy/nota", "title": ""},
+        {
+            "url": "http://www.ladiaria.com.uy/politica/articulo/2026/11/gonzalo-civila?x=1"
+        },
+    ]
+    assert web_search.cites_article(citations, ARTICLE) is True
+
+
+def test_another_page_of_the_publisher_is_not_the_article() -> None:
+    citations = [{"url": "https://ladiaria.com.uy/politica/articulo/2026/11/other/"}]
+    assert web_search.cites_article(citations, ARTICLE) is False
+
+
+def test_an_unknown_article_address_gives_no_answer() -> None:
+    assert web_search.cites_article([{"url": ARTICLE}], "") is None
+
+
+# --- excluded domains ---------------------------------------------------------
+
+ANTHROPIC = "anthropic/claude-sonnet-5"
+GROK = "x-ai/grok-5"
+GEMINI = "google/gemini-3-pro"
+KEPT_OUT = ["bloomberg.com"]
+
+
+@pytest.fixture
+def native_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    shipped = _catalog()
+    for model, vendor in (
+        (ANTHROPIC, "anthropic"),
+        (GROK, "x-ai"),
+        (GEMINI, "google"),
+        (NATIVE, "openai"),
+    ):
+        shipped.models[model] = ModelEntry(
+            id=model,
+            name=model,
+            vendor=vendor,
+            supports=["temperature", "tools"],
+            web_search="native",
+        )
+    monkeypatch.setattr(catalog, "load", lambda settings=None: shipped)
+
+
+def test_the_excluded_domains_go_in_the_tool_and_the_plugin() -> None:
+    assert web_search_tool("plugin", 5, excluded=KEPT_OUT)["parameters"] == {
+        "engine": "exa",
+        "max_results": 5,
+        "excluded_domains": KEPT_OUT,
+    }
+    assert web_plugin("native", 5, KEPT_OUT) == {
+        "id": "web",
+        "engine": "native",
+        "exclude_domains": KEPT_OUT,
+    }
+
+
+def test_the_domains_are_normalised() -> None:
+    conf = Settings(
+        web_search_excluded_domains=[
+            " https://Bloomberg.com/ ",
+            "bloomberg.com",
+            "ft.com/content",
+            "",
+        ]
+    )
+    assert conf.web_search_excluded_domains == ["bloomberg.com", "ft.com/content"]
+    with pytest.raises(ValueError):
+        Settings(web_search_excluded_domains=["bloomberg.com, ft.com"])
+
+
+@pytest.mark.usefixtures("native_models")
+@pytest.mark.parametrize(
+    ("engine", "model", "domains", "applied"),
+    [
+        ("plugin", NATIVE, KEPT_OUT, True),
+        ("native", ANTHROPIC, KEPT_OUT, True),
+        ("native", GROK, KEPT_OUT, True),
+        # xAI takes at most five.
+        ("native", GROK, [f"d{n}.com" for n in range(6)], False),
+        # OpenAI's native search ignores the list, Google's refuses it.
+        ("native", NATIVE, KEPT_OUT, False),
+        ("native", GEMINI, KEPT_OUT, False),
+    ],
+)
+def test_the_exclusion_is_sent_only_where_the_search_honours_it(
+    monkeypatch: pytest.MonkeyPatch,
+    engine: str,
+    model: str,
+    domains: list[str],
+    applied: bool,
+) -> None:
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+    conf = _external(web_search_excluded_domains=domains)
+
+    _answer, usage = chat(
+        "s",
+        "u",
+        model=model,
+        settings=conf,
+        web_search=True,
+        web_search_engine=engine,
+        role="subjects",
+    )
+
+    sent = provider.bodies[0]["tools"][0]["parameters"].get("excluded_domains")
+    assert sent == (sorted(domains) if applied else None)
+    assert usage["web_search_exclusion"] is applied
+
+
+def test_the_exclusion_binds_the_tested_models_and_the_web_check_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+    conf = _external(web_search_excluded_domains=KEPT_OUT)
+
+    for role in ("subjects", "web_check", "judges", "writer"):
+        chat(
+            "s",
+            "u",
+            model=PLUGIN_ONLY,
+            settings=conf,
+            web_search=True,
+            role=role,
+        )
+
+    sent = [
+        b["tools"][0]["parameters"].get("excluded_domains") for b in provider.bodies
+    ]
+    assert sent == [KEPT_OUT, KEPT_OUT, None, None]
+
+
+@pytest.mark.usefixtures("native_models")
+def test_the_exa_retry_applies_the_exclusion_native_search_could_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Answers({"content": "I don't know"}, dict(SEARCHED))
+    monkeypatch.setattr(httpx, "post", provider)
+    conf = _external(web_search_excluded_domains=KEPT_OUT)
+
+    _answer, usage = chat(
+        "s", "u", model=NATIVE, settings=conf, web_search=True, role="subjects"
+    )
+
+    assert "excluded_domains" not in provider.bodies[0]["tools"][0]["parameters"]
+    assert provider.bodies[1]["plugins"][0]["exclude_domains"] == KEPT_OUT
+    assert usage["web_search_exclusion"] is True
+
+
+def test_no_exclusion_leaves_no_trace(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+
+    _answer, usage = chat(
+        "s", "u", model=PLUGIN_ONLY, settings=_external(), web_search=True
+    )
+
+    assert "excluded_domains" not in provider.bodies[0]["tools"][0]["parameters"]
+    assert "web_search_exclusion" not in usage
+
+
+def test_the_audit_and_the_report_say_whether_the_exclusion_applied() -> None:
+    usage = {"web_search": "native", "web_search_exclusion": False}
+    record = audit_record(_asked(usage), Grade(Verdict.CORRECT, "ok"), _external())
+
+    assert record["call"]["web_search_exclusion"] is False
+    assert web_search.search_exclusion_of(record) is False
+    assert web_search.search_exclusion_of({"call": {"web_search": "plugin"}}) is None
+
+
+def test_the_launch_layer_sets_the_domains_and_the_hash_follows() -> None:
+    from syft_benchmark.control.compose import merge
+    from syft_benchmark.control.schemas import Instrument
+    from syft_benchmark.report import job_params
+
+    target = merge(Settings(), Instrument(web_search_excluded_domains=["a.com"]))
+    launch = merge(target, Instrument(web_search_excluded_domains=["Bloomberg.com"]))
+    cleared = merge(target, Instrument(web_search_excluded_domains=[]))
+
+    assert target.web_search_excluded_domains == ["a.com"]
+    assert launch.web_search_excluded_domains == ["bloomberg.com"]
+    assert cleared.web_search_excluded_domains == []
+
+    def fingerprint(conf: Settings) -> dict[str, Any]:
+        return job_params.fingerprint(conf)
+
+    snapshot = fingerprint(launch)[job_params.SETTINGS_SNAPSHOT]
+    assert snapshot["web_search_excluded_domains"] == ["bloomberg.com"]
+    assert launch.measurement_params()["web_search_excluded_domains"] == [
+        "bloomberg.com"
+    ]
+    hashes = {fingerprint(conf)[job_params.SETTINGS_HASH] for conf in (launch, cleared)}
+    assert len(hashes) == 2
+    # An empty list hashes as a snapshot without the field.
+    bare = {
+        k: v
+        for k, v in fingerprint(cleared)[job_params.SETTINGS_SNAPSHOT].items()
+        if k != "web_search_excluded_domains"
+    }
+    assert (
+        job_params.settings_hash(bare) == fingerprint(cleared)[job_params.SETTINGS_HASH]
+    )
+
+
+def test_the_domains_are_part_of_the_cache_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_chat(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any]]:
+        calls.append(",".join(kwargs["settings"].web_search_excluded_domains))
+        return "Paris", {}
+
+    monkeypatch.setattr("syft_benchmark.runs.parallel.chat", fake_chat)
+    subject = Provider(role="subject", url=OPENROUTER, api_key="k", model=NATIVE)
+    cache = RunCache(enabled=True)
+
+    async def go() -> None:
+        pool = Pool(_external())
+        try:
+            for domains in ([], KEPT_OUT, KEPT_OUT):
+                await cache.answer(
+                    subject,
+                    "s",
+                    "q",
+                    pool=pool,
+                    settings=_external(web_search_excluded_domains=domains),
+                    web_search=True,
+                )
+        finally:
+            pool.close()
+
+    asyncio.run(go())
+
+    assert calls == ["", "bloomberg.com"]

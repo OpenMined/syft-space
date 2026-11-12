@@ -162,6 +162,9 @@ class BenchmarkClient:
     async def start_run(self, key: str, request: dict[str, Any]) -> Reply:
         return await self._call("POST", f"/targets/{key}/runs", body=request)
 
+    async def start_reask(self, key: str, request: dict[str, Any]) -> Reply:
+        return await self._call("POST", f"/targets/{key}/reasks", body=request)
+
     async def target(self, key: str) -> Reply:
         """One target as the benchmark holds it, including ``next_run_at``."""
         return await self._call("GET", f"/targets/{key}")

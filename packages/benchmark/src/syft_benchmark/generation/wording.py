@@ -14,7 +14,10 @@ ANCHOR_RULE = (
     'week" or a month without its year); name the writer of a review or a '
     'first-person account as "<Outlet>\'s <Author>" ("WIRED\'s Nena '
     'Farrell"), never "the reviewer" or "the author"; never refer to the '
-    "story by its title."
+    "story by its title. An event the story announces for a date after its "
+    "publish date had not happened when it was written: ask what was "
+    'scheduled or planned ("was scheduled to start", "is planned for"), '
+    'never how it went ("was played", "ended").'
 )
 
 # Fill-ins copy a sentence verbatim, so a relative time cannot be rewritten.

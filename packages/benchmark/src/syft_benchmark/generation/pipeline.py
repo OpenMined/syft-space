@@ -550,7 +550,7 @@ def _drop_wrong_language(
     good: list[Pair] = []
     rejected: list[_Rejected] = []
     for pair in pairs:
-        found = detect_language(written_text(pair))
+        found = detect_language(written_text(pair), prefer=expected)
         if found is not None and found != expected:
             note = f"{WRONG_LANGUAGE}: {found}, the article {expected}"
             rejected.append(

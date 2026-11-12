@@ -89,7 +89,7 @@ erDiagram
 | `runs` | one pass: arm × block × model, with its settings snapshot |
 | `results` | one answer and its verdict; judges and hand verdicts add rows, never rewrite |
 | `targets` | nodes under test: address, endpoint, index location, `instrument` and `probe` overrides, `enabled`, `schedule`, `schedule_at`, `next_run_at`, `combine_periods` and `combine_marks` (per period, the last one combined) |
-| `jobs` | launches: `state`, `phase`, `kind`, `trigger`, progress, `params` (request, launch snapshot, cost and timing), `error` |
+| `jobs` | launches: `state`, `phase`, `kind` (`pipeline`, `filter`, `judge`, `reask`, `combined`), `trigger`, progress, `params` (request, launch snapshot, cost and timing), `error` |
 | `combined_members` | the leaf jobs of a combined job (`kind = combined`), many-to-many, `position` in time order; cascades from either job |
 | `run_aggregates` | cached figures of one job; no row means recompute. Dropping a job's row drops those of the combined jobs holding it |
 | `writer_calls` | a job's writer calls that dropped drafts or failed, one row per call (unique `(job_id, call)`): prompt, reply, the dropped drafts per kind with their reason; no FK, deleted with the job |
@@ -150,7 +150,9 @@ resuming.
   (`settings_snapshot`) and their methodology hash (`settings_hash`), the
   paths a scoped launch did not find (`documents_missing`), then the cost, the
   build per kind, the timing and, once fixed, `primary_judge`. Reports read
-  these, never today's settings. A combined job holds `members`, `origin`
+  these, never today's settings. A re-ask holds `reask` (`{jobs, label,
+  questions, answers_planned, estimated_usd, arms, models, judges}`) and its
+  runs' `settings_hash`. A combined job holds `members`, `origin`
   (`manual`/`auto`), `period`, `period_start`, `title`, `settings_hash`; its
   times span its members'.
 * **`writer_calls.dropped`** — `{kind: [drafts]}`: a masking call writes

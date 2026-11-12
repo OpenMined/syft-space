@@ -69,6 +69,7 @@ from syft_benchmark.report.job_params import (
     iso,
     job_gate,
     job_panel,
+    reask_of,
     window_days_of,
 )
 from syft_benchmark.report.metrics import accuracy_by_temperature, held_by_round
@@ -78,7 +79,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 14
+AGGREGATE_VERSION = 15
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -719,8 +720,9 @@ def compute(session: Session, job: Job, *, configured: Panel = ()) -> dict[str, 
         if window_days and job.created_at
         else None
     )
-    if is_scoped(job):
-        # A document-scoped run's period is its documents' articles.
+    if is_scoped(job) or reask_of(job) is not None:
+        # A document-scoped run's or a re-ask's period is its documents'
+        # articles.
         period = (articles["articles_first"], articles["articles_last"])
     else:
         period = (iso(since), iso(job.created_at) if since else None)

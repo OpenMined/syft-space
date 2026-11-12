@@ -65,6 +65,7 @@ const SETTING_LABEL: Record<string, string> = {
   web_check_model: 'Web check model',
   web_search_closed_book: 'Models search the web on their own',
   web_search_engine: 'Search engine',
+  web_search_excluded_domains: 'Domains left out of search',
   web_search_generator: 'Question writer searches the web',
   web_search_judge: 'Judges search the web',
   web_search_max_calls: 'Searches per answer',

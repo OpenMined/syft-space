@@ -9,6 +9,7 @@ stored without one.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -100,6 +101,39 @@ def test_article_stamp_follows_the_article_date_rule() -> None:
         "article_dated_by": "added",
     }
     assert article_stamp(_doc("a", "")) == {}
+
+
+def test_article_stamp_keeps_the_article_address() -> None:
+    url = "https://example.com/news/a"
+    assert article_stamp(replace(_doc("a", ""), url=url)) == {"article_url": url}
+
+
+@pytest.mark.needs_db
+def test_questions_stored_without_an_address_get_their_article_url(
+    clean: None,
+) -> None:
+    with session_scope() as session:
+        session.add(
+            QaPair(
+                id="dated",
+                space=SPACE,
+                generator="qa",
+                doc_id="a",
+                question="dated?",
+                answer="x",
+                model="gen/model",
+                question_hash="dated",
+                meta={"article_date": "2026-01-01", "article_dated_by": "added"},
+            )
+        )
+    day = datetime(2026, 10, 5, tzinfo=UTC)
+    doc = replace(_doc("a", "", published_at=day), url="https://example.com/news/a")
+    assert backfill(SPACE, [doc], get_settings()) == 1
+    with session_scope() as session:
+        meta = session.get(QaPair, "dated").meta
+    # The date it already had is kept; only the address is added.
+    assert meta["article_date"] == "2026-01-01"
+    assert meta["article_url"] == "https://example.com/news/a"
 
 
 @pytest.mark.needs_db

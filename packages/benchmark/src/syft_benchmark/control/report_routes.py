@@ -101,6 +101,8 @@ def _summary(
         "build_only": build_only,
         "state": job.state,
         "stopped": job_params.stopped_of(job),
+        "kind": job.kind,
+        "reask": job_params.reask_of(job),
     }
     if build is not None:
         summary["build"] = build
@@ -200,6 +202,7 @@ def list_runs(
                 "created_at": _iso(job.created_at),
                 "started_at": _iso(job.started_at),
                 "progress_plan": (job.params or {}).get(PROGRESS_PLAN),
+                "reask": job_params.reask_of(job),
             }
             for job in active
         ]

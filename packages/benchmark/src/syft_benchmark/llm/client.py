@@ -37,6 +37,7 @@ from syft_benchmark.llm.web_search import (
     apply_search,
     citations_of,
     engine_for,
+    excludes_domains,
     refuses_search,
     search_mechanism,
     search_missed,
@@ -122,7 +123,10 @@ def chat(
         searching, web_search_via (tool or plugin), web_search_forced
         ("required", "named" or False), web_search_requests (the provider's
         count, or None) and web_search_retry (why the call was asked again
-        with the Exa plugin: "leaked" or "unused"; absent — it was not)
+        with the Exa plugin: "leaked" or "unused"; absent — it was not) and,
+        when ``web_search_excluded_domains`` applies to the role (the tested
+        models and the web check), web_search_exclusion (whether the search
+        left them out; see ``excludes_domains``)
 
     Raises:
         ExternalCallBlocked: the model's address is outside the perimeter
@@ -167,10 +171,23 @@ def chat(
     results = conf.web_search_max_results
     # The search cap is the tested models': the web check searches unbounded.
     calls = conf.web_search_max_calls if cost.role_of(role) == cost.SUBJECTS else 0
+    # Kept out of the searches of the tested models and of the web check, which
+    # decides what they could have found.
+    excluded = (
+        conf.web_search_excluded_domains
+        if cost.role_of(role) in (cost.SUBJECTS, cost.WEB_CHECK)
+        else []
+    )
+
+    def excluding(engine: str) -> list[str]:
+        """The domains to send: none where the engine cannot leave them out."""
+        honoured = excluded and excludes_domains(engine, chosen, len(excluded), conf)
+        return excluded if honoured else []
+
     if web_search and supports_web_search(base_url):
         searched = engine_for(web_search_engine, chosen, conf)
         steps = search_steps(search_mechanism(chosen, conf), wire, searched)
-        apply_search(body, steps[0], searched, results, calls)
+        apply_search(body, steps[0], searched, results, calls, excluding(searched))
     url = f"{api_root(base_url)}/v1/chat/completions"
 
     last: Exception | None = None
@@ -275,6 +292,8 @@ def chat(
                 )
                 if retry:
                     usage["web_search_retry"] = retry
+                if excluded:
+                    usage["web_search_exclusion"] = bool(excluding(str(searched)))
                 missed = search_missed(usage, choice.get("message") or {})
                 exa = steps[0].mechanism == "plugin" and searched == EXA
                 if missed and not retry and not exa:
@@ -285,7 +304,7 @@ def chat(
                         before = (content, {**usage, "web_search_retry": missed})
                     searched = EXA
                     steps = [PLUGIN_STEP]
-                    apply_search(body, steps[0], EXA, results, calls)
+                    apply_search(body, steps[0], EXA, results, calls, excluding(EXA))
                     continue
 
             if finish == "length" and int(body["max_tokens"]) < ceiling:
@@ -329,7 +348,14 @@ def chat(
                 if steps[0].mechanism == "tool":
                     step_down(wire, str(searched), steps)
                 steps.pop(0)
-                apply_search(body, steps[0], str(searched), results, calls)
+                apply_search(
+                    body,
+                    steps[0],
+                    str(searched),
+                    results,
+                    calls,
+                    excluding(str(searched)),
+                )
                 continue
             # The Exa retry failed: the answer before it, marked as unsearched.
             kept = fallback()

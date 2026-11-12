@@ -415,6 +415,20 @@ describe('web search settings', () => {
     expect(formFromTarget(saved, KEYS).webMaxSearches).toBe(3)
   })
 
+  it('stores the domains left out of search as a list, none by default', () => {
+    const target = makeTarget()
+    const form = formFromTarget(target, KEYS)
+    expect(form.webExcludedDomains).toBe('')
+    expect(buildRequest(target, form, KEYS).instrument!.web_search_excluded_domains).toEqual([])
+    form.webExcludedDomains = 'bloomberg.com, ft.com bloomberg.com'
+    expect(buildRequest(target, form, KEYS).instrument!.web_search_excluded_domains).toEqual([
+      'bloomberg.com',
+      'ft.com',
+    ])
+    const saved = makeTarget({ instrument: { web_search_excluded_domains: ['a.com', 'b.com'] } })
+    expect(formFromTarget(saved, KEYS).webExcludedDomains).toBe('a.com, b.com')
+  })
+
   it('stores the spending cap, 100 USD by default', () => {
     const target = makeTarget()
     const form = formFromTarget(target, KEYS)

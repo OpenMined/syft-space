@@ -41,17 +41,11 @@ def require_enabled(row: Target) -> None:
         )
 
 
-def active_job_conflict(key: str, job_id: str) -> JSONResponse:
-    """409 for a launch with documents on a busy target, naming the active job."""
+def active_job_conflict(key: str, job_id: str, detail: str) -> JSONResponse:
+    """409 for a launch the target's active jobs leave no room for, naming one."""
     return JSONResponse(
         status_code=status.HTTP_409_CONFLICT,
-        content={
-            "detail": (
-                f"target {key} has job {job_id} queued or running; "
-                f"a launch with documents waits until it finishes"
-            ),
-            "active_job_id": job_id,
-        },
+        content={"detail": f"target {key}: {detail}", "active_job_id": job_id},
     )
 
 

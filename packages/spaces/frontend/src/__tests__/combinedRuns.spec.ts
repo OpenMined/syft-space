@@ -357,6 +357,13 @@ describe('Combined run report', () => {
     })
   })
 
+  it('names a re-ask among the runs by its label', () => {
+    const members = [MEMBERS[0]!, { ...MEMBERS[1]!, kind: 'reask', label: '4h' }]
+    const w = mountWith(RunSummaryPage, runContext(runReport({ members }), null))
+    const kinds = w.findAll('[data-testid="member-trigger"]').map((c) => c.text())
+    expect(kinds).toEqual(['Scheduled', 'Re-ask · 4h'])
+  })
+
   it('has no Runs section on a single run', () => {
     const w = mountWith(RunSummaryPage, runContext(runReport(), null))
     expect(w.find('[data-testid="members"]').exists()).toBe(false)

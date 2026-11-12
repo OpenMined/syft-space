@@ -110,7 +110,8 @@ finished, measured leaf jobs created inside it, grouped by `settings_hash`
 (jobs without one are left to combining by hand); a group of two or more
 becomes a combined run (`trigger=auto`, title `24h · 2026-11-04`). A period
 with a job still queued or running waits. A period is dealt with once: a
-deleted combination is not made again.
+deleted combination is not made again. Re-asks are left out: they are
+combined by hand, with their runs.
 
 ## The routes
 
@@ -133,6 +134,7 @@ All routes except `/health` require `BENCH_CONTROL_TOKEN`.
 | `POST /targets/{key}/check` | Are the index, the node and every configured model reachable |
 | `GET /targets/{key}/window?days=` | How many articles the freshness window holds |
 | `POST /targets/{key}/runs` | Queue a measurement (202) |
+| `POST /targets/{key}/reasks` | Queue a re-ask of finished runs (202); a dry run answers its estimate (200) — see [Re-asks](#re-asks) |
 | `POST /targets/{key}/filter` | Queue a filter pass over pending pairs (202) |
 | `POST /targets/{key}/judge` | Queue a judging pass over pending verdicts (202) |
 | `POST /targets/{key}/session` | Mint a session token for the `/console/*` routes — see [The console](#the-console) |
@@ -189,7 +191,7 @@ Run reports, under `/console/report`:
 
 | Route | What it does |
 | --- | --- |
-| `GET /runs` | Active jobs and a page of finished runs (`from`, `to`, `limit`, `offset`). Runs a combined run holds are left out unless `show_combined_members=true`. Items carry `combined` (`{members, origin, period, period_start, title}` on a combined run, else null) and `combined_into` (`[{job_id, title}]`, the combined runs holding it) |
+| `GET /runs` | Active jobs and a page of finished runs (`from`, `to`, `limit`, `offset`). Runs a combined run holds are left out unless `show_combined_members=true`. Items carry `kind`, `reask` (on a re-ask, else null), `combined` (`{members, origin, period, period_start, title}` on a combined run, else null) and `combined_into` (`[{job_id, title}]`, the combined runs holding it) |
 | `GET /runs/{job}` | One run's report, without per-question rows |
 | `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, cached figures, writer calls and its records on the questions. Questions stay. 409 while queued or running. A combined run goes alone; a deleted run leaves every combined run, and one left with fewer than two runs is deleted |
 | `POST /combined/check` | `{job_ids}` → `{ok, members, settings_hash, differences: [{field, values: [{job_id, value}]}], repeated_questions}` |
@@ -215,16 +217,18 @@ jobs without a hash must match on `judge_panel`, `judge_policy`,
 `web_check_model`, `web_check_judge` and every (arm, block, model) →
 `Run.params`. Its report (`report/combined_view.py`) has the single run's
 shape plus `members` (per run: times, trigger, window, `documents`,
-`questions`, `cost_usd`, state) and `repeats`; both are null on a single run.
+`questions`, `cost_usd`, state, `kind`, `label` — a re-ask's) and `repeats`;
+both are null on a single run.
 
 * Every figure is recomputed from the pooled answers, never from per-run
   ratios; each answer is picked with its own run's judges (primary first,
   owner override first).
 * An answer (model × arm × block × question) asked in several runs counts
   once, from the earliest run. `repeats` compares them per model and arm, direct
-  block: `questions`, `observations`, `graded`, `compared`, `agreed`,
-  `agreement`, `right`, `accuracy` (over every answer), `wrong_to_right`,
-  `right_to_wrong` (consecutive runs).
+  block, each run's answer by its counted verdict: `questions`,
+  `observations`, `graded`, `compared`, `agreed`, `agreement`, `right`,
+  `accuracy` (over every answer), `wrong_to_right`, `right_to_wrong`
+  (consecutive runs, in creation order — a re-ask after its runs).
 * Sums over the runs: cost (key spend from the first run's before to the last
   one's after), timing (phases, passes, calls; call `mean_s` weighted, `max_s`
   the maximum, `p90_s` from the answers' latencies for the answer role, null
@@ -254,10 +258,16 @@ Space.
 
 ## Jobs
 
-A launch queues a job and answers `202`; a worker thread runs it. One active
-job per target: launching while one is queued or running returns that job. A
-launch with `documents` answers `409` instead, with
-`{"detail": …, "active_job_id": …}`.
+A launch queues a job and answers `202`. The worker runs two lanes, one job at
+a time in each, each job in a thread of its own: re-asks, and every other
+kind. One active job per target and lane: launching while one is queued or
+running returns that job; a launch with `documents`, or a re-ask, answers
+`409` instead, with `{"detail": …, "active_job_id": …}`. A re-ask therefore
+runs beside the target's measurements, never blocking them.
+
+Each job charges its own cost meter, the pass and screening workers included,
+so `max_job_usd` and `cost.by_role` stay per job beside another job; `cost.usd`
+(the key's spend before and after) counts both while two jobs overlap.
 
 | State | Meaning |
 | --- | --- |
@@ -267,7 +277,8 @@ launch with `documents` answers `409` instead, with
 | `failed` | Did not reach the end |
 | `cancelled` | Stopped; what was measured stays |
 
-`kind` is `pipeline` (`/runs`), `filter` or `judge`. Stopping is a request:
+`kind` is `pipeline` (`/runs`), `filter`, `judge` or `reask` (`/reasks`).
+Stopping is a request:
 the run finishes the current question and exits. A job whose priced calls reach
 `max_job_usd` (instrument layer; default 100, 0 — no cap) is stopped the same
 way and ends `cancelled` with `over_budget: …`.
@@ -286,6 +297,7 @@ Runs started from the CLI have no job.
 | `nothing_graded: …` | Questions were asked, no verdict came out |
 | `over_budget: …` | The spending cap stopped the job |
 | `documents_not_found: …` | None of the launch's `documents` is in the index |
+| `reask_refused: …` | A re-ask's runs can no longer be re-asked (deleted, settings no longer reproducible) |
 | `target_gone` | The target was deleted |
 | `service_restarted` | The process restarted mid-job |
 
@@ -303,6 +315,12 @@ Runs started from the CLI have no job.
 | `documents` | Measure only these documents: 1–500 Space container paths, as the index stores them in `absolute_path` |
 | `document_settings` | Only with `documents` (else 422); each field optional, see below |
 | `instrument`, `probe` | Layers for this launch only |
+
+The domains to keep out of web search go in the launch's instrument layer:
+`"instrument": {"web_search_excluded_domains": ["bloomberg.com"]}` (a list
+replaces the target's; `[]` excludes nothing). A target keeps its default in
+`target.instrument`. It enters `settings_snapshot`, and `settings_hash` while
+not empty. Where it applies: [04-evaluation.md](04-evaluation.md).
 
 `evaluate: false` only refreshes the set: no questions, `total` stays
 `0`. `defer_judging: true` leaves grading to `POST /targets/{key}/judge`.
@@ -338,6 +356,47 @@ Every pipeline, filter and judge job keeps in `params`:
 | `documents_missing` | Those the index did not hold |
 | `settings_snapshot` | The effective settings of the launch, secrets left out |
 | `settings_hash` | sha256 of the snapshot's canonical JSON without the fields in `job_params.HASH_EXCLUDED` (scope, volume, spending caps, schedules, execution and plumbing): one hash, one methodology |
+
+### Re-asks
+
+`POST /targets/{key}/reasks` asks the questions of finished runs again, the
+same way, to see how answers change as the articles age
+(`control/reask.py`).
+
+| Field | Meaning |
+| --- | --- |
+| `jobs` | Finished, measured `pipeline` runs of this target with one `settings_hash`, 1–1000; a combined run stands for its runs |
+| `label` | A name, e.g. `4h` (≤ 64 characters) |
+| `arms` | Only these arms (`closed_book`, `model_with_context`); empty — every one |
+| `models` | Only these tested models; empty — every one |
+| `judges` | `all` (default) or `primary`: the first judge seated per answer, the verdict every figure counts |
+| `dry_run` | `true`: answer `200 {questions, answers_planned, estimated_usd, max_job_usd}`, queue nothing |
+
+* **What is asked:** every (question, model, arm, block) the runs answered,
+  within `arms` and `models` — questions retired since included. Nothing is
+  built, screened, web-checked or resumed; every answer and verdict is fresh
+  (`reuse_answers` only shares calls inside the re-ask).
+* **How:** the runs' `settings_snapshot`, not the target's current settings;
+  fields outside the hash (spending cap, concurrency) are the target's. A
+  setting added since the runs must hold its default. The re-ask keeps the
+  runs' `settings_hash`, so it combines with them.
+* **Cost:** `estimated_usd` is the runs' recorded spend on tested models per
+  answer plus on judges per answer (per verdict with `judges: primary`), times
+  the answers planned; null when a run kept no cost. A launch whose estimate
+  exceeds `max_job_usd` is refused (422); the cap also stops it while it runs
+  (`cancelled`, `over_budget: …`), keeping what it measured. It spends only
+  on `subjects` and `judges`.
+* **Replies:** `202` with the job (`kind: "reask"`, `reask: {jobs, label,
+  questions, answers_planned, estimated_usd, arms, models, judges}`, `jobs`
+  the leaf runs); `409 {detail, active_job_id}` while a re-ask of the target
+  is queued or running; `422 {detail}` — or `{detail, differences}` — when
+  a job is not a finished, measured run of the target, has no snapshot, the
+  runs differ, a setting cannot be reproduced, the scope names an arm or
+  model the runs did not ask, nothing is left to ask, or the estimate is over
+  the cap.
+
+The runs list marks a re-ask with `kind` and `reask`, in progress and
+finished.
 
 ## The target registry
 

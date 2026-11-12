@@ -27,7 +27,9 @@ depend on the settings of the moment.
 * `call` — `finish_reason`, `truncated`, `length_retry`, `length_retries`,
   `attempts`, `reused`, `cost_usd`, and the web search fields `web_search`,
   `web_search_via`, `web_search_forced`, `web_search_requests`,
-  `web_search_retry` (why the call was asked again with the Exa plugin);
+  `web_search_retry` (why the call was asked again with the Exa plugin),
+  `web_search_exclusion` (only with `web_search_excluded_domains`: whether
+  the search left those domains out);
 * with web search, `citations`, `web_search_unused` and
   `web_search_unused_reason`;
 * `judge_system`, `judge_prompt`, `judge_raw` (the reply before parsing),

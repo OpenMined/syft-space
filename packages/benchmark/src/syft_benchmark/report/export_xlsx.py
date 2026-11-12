@@ -34,7 +34,8 @@ from sqlalchemy.orm import Session
 from syft_benchmark.config import PairStatus, StatusReason
 from syft_benchmark.db.models import Job, QaPair, Result, Run, Target, WriterCall
 from syft_benchmark.generation import decisions, entities, recorded
-from syft_benchmark.generation.article_dates import DATE_KEY
+from syft_benchmark.generation.article_dates import DATE_KEY, URL_KEY
+from syft_benchmark.llm.web_search import cites_article, search_exclusion_of
 from syft_benchmark.question_order import answer_order, pair_key, pair_order
 from syft_benchmark.report import (
     combined_view,
@@ -560,6 +561,8 @@ ANSWER_COLS = (
     Col("Web search", 10),
     Col("Searches", 9),
     Col("Citations", 40, long=True),
+    Col("Cites the article", 9),
+    Col("Domains excluded", 9),
     Col("Search unused", 9),
     Col("Finish reason", 10),
     Col("Truncated", 9),
@@ -604,12 +607,14 @@ class _Answer:
     run: Run
     generator: str
     question: str
+    # The question's article address; "" — not known.
+    article_url: str = ""
 
 
 def _job_answers(session: Session, job_id: str) -> list[_Answer]:
     """Every result row of the job, in the question order."""
     stmt = (
-        select(Result, Run, QaPair.generator, QaPair.question)
+        select(Result, Run, QaPair.generator, QaPair.question, QaPair.meta)
         .join(Run, Run.id == Result.run_id)
         .outerjoin(QaPair, QaPair.id == Result.qa_id)
         .where(Run.job_id == job_id)
@@ -626,8 +631,14 @@ def _job_answers(session: Session, job_id: str) -> list[_Answer]:
         )
     )
     return [
-        _Answer(result, run, generator or "", question or "")
-        for result, run, generator, question in session.execute(stmt)
+        _Answer(
+            result,
+            run,
+            generator or "",
+            question or "",
+            str(_dict(meta).get(URL_KEY) or ""),
+        )
+        for result, run, generator, question, meta in session.execute(stmt)
     ]
 
 
@@ -672,6 +683,12 @@ def _answer_rows(rows: Sequence[_Answer], panel: Sequence[str]) -> list[list[Any
         call.get("web_search") if "web_search" in call else None,
         requests if isinstance(requests, int) else None,
         _citations(audit.get("citations")),
+        (
+            cites_article(list(audit.get("citations") or []), lead.article_url)
+            if "citations" in audit
+            else None
+        ),
+        search_exclusion_of(audit),
         audit.get("web_search_unused") if "web_search_unused" in audit else None,
         call.get("finish_reason"),
         call.get("truncated") if "truncated" in call else None,

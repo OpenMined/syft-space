@@ -51,6 +51,8 @@ SETTINGS_HASH = "settings_hash"
 # those the index did not hold.
 DOCUMENTS = "documents"
 DOCUMENTS_MISSING = "documents_missing"
+# A re-ask: {jobs, label, questions} (``control.reask``).
+REASK = "reask"
 SNAPSHOT_KEYS = frozenset(
     {
         JUDGE_PANEL,
@@ -171,10 +173,19 @@ def settings_snapshot(settings: Settings) -> dict[str, Any]:
     return settings.model_dump(mode="json", exclude=set(_SECRETS))
 
 
+# Left out of the hash while empty: an empty value changes nothing, so a launch
+# that does not set it hashes like one whose snapshot lacks the field.
+HASH_EXCLUDED_WHEN_EMPTY: frozenset[str] = frozenset({"web_search_excluded_domains"})
+
+
 def settings_hash(snapshot: dict[str, Any]) -> str:
     """sha256 of the canonical JSON of the snapshot's methodology part: two
     launches with one hash measured the same way."""
-    method = {k: v for k, v in snapshot.items() if k not in HASH_EXCLUDED}
+    method = {
+        k: v
+        for k, v in snapshot.items()
+        if k not in HASH_EXCLUDED and not (k in HASH_EXCLUDED_WHEN_EMPTY and not v)
+    }
     canonical = json.dumps(
         method, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
@@ -196,6 +207,12 @@ def window_days_of(job: Job) -> int | None:
 def is_scoped(job: Job) -> bool:
     """Whether the job was launched with ``documents``."""
     return bool((job.params or {}).get(DOCUMENTS))
+
+
+def reask_of(job: Job) -> dict[str, Any] | None:
+    """A re-ask's ``{jobs, label, questions}``; None for any other job."""
+    found = (job.params or {}).get(REASK)
+    return dict(found) if isinstance(found, dict) else None
 
 
 def job_panel(job: Job) -> list[str]:

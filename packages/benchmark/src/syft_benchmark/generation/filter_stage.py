@@ -66,7 +66,7 @@ from syft_benchmark.generation.web_check import (
     skips_manual,
     web_checked,
 )
-from syft_benchmark.llm import Provider, judge_provider
+from syft_benchmark.llm import Provider, cost, judge_provider
 
 # The control gate's or the archive check's call, carried from the check to
 # the decision record.
@@ -635,7 +635,9 @@ def _run_all(work: Callable[[QaPair], None], rows: list[QaPair], width: int) -> 
     """``work`` over the rows, ``width`` at a time; the first error is raised."""
     if not rows:
         return
-    with ThreadPoolExecutor(max_workers=width, thread_name_prefix="screen") as pool:
+    with ThreadPoolExecutor(
+        max_workers=width, thread_name_prefix="screen", **cost.pool_kwargs()
+    ) as pool:
         for future in [pool.submit(work, row) for row in rows]:
             future.result()
 

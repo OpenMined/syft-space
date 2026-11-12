@@ -77,7 +77,9 @@ measuring* disables the target (`enabled: false`) and keeps settings and runs;
 **Benchmark results** — what the runs found:
 
 - **Runs list** (default): runs in progress with phase and step, finished runs
-  filtered by date.
+  filtered by date. A re-ask carries a *Re-ask* badge with its label; the
+  tooltip says how many questions of how many runs it asks again. A combined
+  run's *Runs* table names a re-ask in its *Trigger* column.
 - A model with failed calls carries a failure badge; an answer that was
   allowed to search the web and did not shows *Searched: no*, with the reason
   in a tooltip.
@@ -94,8 +96,9 @@ measuring* disables the target (`enabled: false`) and keeps settings and runs;
 | --- | --- |
 | `GET`, `PUT` | Target settings |
 | `GET /window?days=` | Articles in the window |
-| `POST /runs` | Start a run (202); `documents` (Space container paths) measures only those documents, with optional `document_settings` (`passages_per_document`, `control_max_share`, `top_up_passages_per_document`; see control-api.md), and is answered with the benchmark's 409 `{"detail", "active_job_id"}` while a job is queued or running |
-| `GET /jobs`, `POST /jobs/{id}/cancel` | Runs, stop one; a run launched with `documents` carries `documents` (count) and `documents_missing` (paths the index did not hold), `null` otherwise |
+| `POST /runs` | Start a run (202); `documents` (Space container paths) measures only those documents, with optional `document_settings` (`passages_per_document`, `control_max_share`, `top_up_passages_per_document`; see control-api.md), and is answered with the benchmark's 409 `{"detail", "active_job_id"}` while a job is queued or running; `web_search_excluded_domains` (any run) replaces the endpoint's list of domains kept out of web search, sent as the launch's instrument layer |
+| `POST /reasks` | Re-ask finished runs (202): `{jobs, label?, arms?, models?, judges?, dry_run?}`; runs beside the endpoint's other jobs. `dry_run` answers 200 `{questions, answers_planned, estimated_usd, max_job_usd}`. The benchmark's 409 `{"detail", "active_job_id"}` (a re-ask is active) and 422 pass through (see control-api.md, "Re-asks") |
+| `GET /jobs`, `POST /jobs/{id}/cancel` | Runs, stop one; a run launched with `documents` carries `documents` (count) and `documents_missing` (paths the index did not hold), `null` otherwise; a re-ask carries `reask` |
 | `PATCH /console/pairs/{id}`, `POST/DELETE /console/results/{id}/verdict` | The benchmark's console, proxied |
 | `GET /report/runs?from=&to=&show_combined_members=` | Runs in progress, and finished runs paged; runs a combined run holds only with `show_combined_members=true` |
 | `GET /report/runs/{job}` and `/questions`, `/generated`, `/filter`, `/writing`, `/pairs?ids=`, `/pairs/{qa}`, `/questions/{qa}`, `/questions/{qa}/fragments` | One run's report, passed through with its query (`filter?generator=`) |

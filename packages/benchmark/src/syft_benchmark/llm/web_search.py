@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import re
 import threading
+from collections.abc import Sequence
 from typing import Any, NamedTuple
+from urllib.parse import urlsplit
 
 from syft_benchmark.config import Settings
 from syft_benchmark.llm import catalog
@@ -26,7 +28,13 @@ SEARCH_KEYS = (
     "web_search_forced",
     "web_search_requests",
     "web_search_retry",
+    "web_search_exclusion",
 )
+
+# The native searches that honour excluded domains, with the most domains each
+# takes (None — no limit of its own). OpenAI's ignores the list and Google's
+# refuses it: https://openrouter.ai/docs/guides/features/server-tools/web-search
+_NATIVE_EXCLUSION: dict[str, int | None] = {"anthropic": None, "x-ai": 5}
 
 
 class SearchStep(NamedTuple):
@@ -72,19 +80,25 @@ def supports_web_search(url: str) -> bool:
     return kind_for_url(url) is ProviderKind.OPENROUTER
 
 
-def web_plugin(engine: str, max_results: int) -> dict[str, Any]:
+def web_plugin(
+    engine: str, max_results: int, excluded: Sequence[str] = ()
+) -> dict[str, Any]:
     """OpenRouter's deprecated ``web`` plugin, for models that take no tools.
 
     ``engine`` "native" is the provider's own search, anything else Exa;
-    ``max_results`` applies to Exa.
+    ``max_results`` applies to Exa; ``excluded`` goes as ``exclude_domains``.
     """
     if engine == "native":
-        return {"id": "web", "engine": "native"}
-    return {"id": "web", "engine": "exa", "max_results": max_results}
+        plugin: dict[str, Any] = {"id": "web", "engine": "native"}
+    else:
+        plugin = {"id": "web", "engine": "exa", "max_results": max_results}
+    if excluded:
+        plugin["exclude_domains"] = list(excluded)
+    return plugin
 
 
 def web_search_tool(
-    engine: str, max_results: int, max_calls: int = 0
+    engine: str, max_results: int, max_calls: int = 0, excluded: Sequence[str] = ()
 ) -> dict[str, Any]:
     """The ``openrouter:web_search`` tool entry for one engine.
 
@@ -92,6 +106,7 @@ def web_search_tool(
     there is none); anything else is Exa. ``max_results`` applies to Exa only.
     ``max_calls`` (zero — none) goes as ``max_uses``, which OpenRouter forwards
     to Anthropic's native search; the request's ``max_tool_calls`` caps the rest.
+    ``excluded`` goes as ``excluded_domains``.
     """
     if engine == "native":
         parameters: dict[str, Any] = {"engine": "native"}
@@ -99,6 +114,8 @@ def web_search_tool(
         parameters = {"engine": "exa", "max_results": max_results}
     if max_calls:
         parameters["max_uses"] = max_calls
+    if excluded:
+        parameters["excluded_domains"] = list(excluded)
     return {"type": WEB_SEARCH_TOOL, "parameters": parameters}
 
 
@@ -120,6 +137,20 @@ def engine_for(asked: str, model: str, conf: Settings) -> str:
     return "native" if catalog.load(conf).web_search_of(model) == "native" else "plugin"
 
 
+def excludes_domains(engine: str, model: str, count: int, conf: Settings) -> bool:
+    """Whether this engine's search leaves out ``count`` excluded domains for
+    the model: Exa always, a native search only where the provider honours the
+    list (``_NATIVE_EXCLUSION``). Where it does not, the list is not sent."""
+    if engine != "native":
+        return True
+    entry = catalog.load(conf).get(model)
+    vendor = entry.vendor if entry is not None else model.partition("/")[0]
+    if vendor not in _NATIVE_EXCLUSION:
+        return False
+    most = _NATIVE_EXCLUSION[vendor]
+    return most is None or count <= most
+
+
 def search_steps(mechanism: str, wire: str, engine: str) -> list[SearchStep]:
     """The steps left to try, the best first."""
     if mechanism == "plugin":
@@ -138,16 +169,22 @@ def step_down(wire: str, engine: str, steps: list[SearchStep]) -> None:
 
 
 def apply_search(
-    body: dict[str, Any], step: SearchStep, engine: str, results: int, calls: int = 0
+    body: dict[str, Any],
+    step: SearchStep,
+    engine: str,
+    results: int,
+    calls: int = 0,
+    excluded: Sequence[str] = (),
 ) -> None:
     """Put one web search step into the request body; ``calls`` caps the
-    searches of the tool (zero — the provider's own limit)."""
+    searches of the tool (zero — the provider's own limit), ``excluded`` are
+    the domains the search leaves out."""
     for key in ("tools", "tool_choice", "plugins", "max_tool_calls"):
         body.pop(key, None)
     if step.mechanism == "plugin":
-        body["plugins"] = [web_plugin(engine, results)]
+        body["plugins"] = [web_plugin(engine, results, excluded)]
         return
-    body["tools"] = [web_search_tool(engine, results, calls)]
+    body["tools"] = [web_search_tool(engine, results, calls, excluded)]
     if calls:
         body["max_tool_calls"] = calls
     if step.forcing == "required":
@@ -248,3 +285,46 @@ def search_trail(usage: dict[str, Any] | None, answer: str = "") -> dict[str, An
     if trail["web_search_unused"]:
         trail["web_search_unused_reason"] = unused_reason(trail, answer)
     return trail
+
+
+def search_engine_of(audit: dict[str, Any]) -> str | None:
+    """Which search an answer was given, from its audit record.
+
+    "exa" — OpenRouter's Exa; "native" — the provider's own search; None —
+    no search was offered, or the record does not say.
+    """
+    call = audit.get("call")
+    engine = call.get("web_search") if isinstance(call, dict) else None
+    if engine == EXA:
+        return "exa"
+    if engine == "native":
+        return "native"
+    return None
+
+
+def search_exclusion_of(audit: dict[str, Any]) -> bool | None:
+    """Whether the answer's search left out the excluded domains; None — none
+    were set, or it did not search."""
+    call = audit.get("call")
+    applied = call.get("web_search_exclusion") if isinstance(call, dict) else None
+    return applied if isinstance(applied, bool) else None
+
+
+def _page(url: str) -> str:
+    """A URL reduced to host and path: no scheme, "www.", query, fragment or
+    trailing slash, so two links to one page compare equal."""
+    parts = urlsplit(url.strip())
+    host = parts.netloc.lower().removeprefix("www.")
+    return f"{host}{parts.path.rstrip('/')}"
+
+
+def cites_article(citations: list[dict[str, str]], article_url: str) -> bool | None:
+    """Whether one of the citations is the article itself.
+
+    None when the article's address is not known: no is not the same as
+    could not tell.
+    """
+    if not article_url or not _page(article_url):
+        return None
+    wanted = _page(article_url)
+    return any(_page(str(c.get("url") or "")) == wanted for c in citations)

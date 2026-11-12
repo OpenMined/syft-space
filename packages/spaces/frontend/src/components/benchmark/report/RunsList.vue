@@ -78,7 +78,20 @@
             data-testid="run-in-progress"
           >
             <td class="px-4 py-3 align-top">
-              <div class="font-semibold tabular-nums">{{ dayTime(utcStamp(run.created_at)) }}</div>
+              <div class="flex items-center gap-2.5">
+                <span class="font-semibold tabular-nums">
+                  {{ dayTime(utcStamp(run.created_at)) }}
+                </span>
+                <Hint v-if="run.reask" :text="reaskTip(run.reask)">
+                  <Badge
+                    variant="outline"
+                    class="border-primary text-primary"
+                    data-testid="run-reask"
+                  >
+                    {{ reaskBadge(run.reask) }}
+                  </Badge>
+                </Hint>
+              </div>
               <div
                 v-if="progressShare(run) !== null"
                 class="mt-2 h-1 w-full max-w-48 overflow-hidden rounded-full bg-muted"
@@ -137,6 +150,15 @@
                 >
                   {{ runName(run) }}
                 </RouterLink>
+                <Hint v-if="run.reask" :text="reaskTip(run.reask)">
+                  <Badge
+                    variant="outline"
+                    class="border-primary text-primary"
+                    data-testid="run-reask"
+                  >
+                    {{ reaskBadge(run.reask) }}
+                  </Badge>
+                </Hint>
                 <Hint v-if="run.combined" :text="combinedTip(run.combined)">
                   <Badge
                     variant="outline"
@@ -327,6 +349,7 @@ import CombineDialog from './CombineDialog.vue'
 import DetailsToggle from './DetailsToggle.vue'
 import { combinedBadge, combinedTip, heldTip, runName } from './combined'
 import { useReport } from './context'
+import { reaskBadge, reaskTip } from './reask'
 import { useShowCombined } from './useShowCombined'
 import { barWidth, count, DASH, dayTime, pointsRange, scheduleText, utcStamp } from './figures'
 import { modelName } from './labels'

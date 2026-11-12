@@ -23,6 +23,7 @@ from syft_space.components.benchmarks.schemas import (
     ProviderKeyState,
     ProviderResponse,
     ProviderUrls,
+    ReaskRequest,
     RunRequest,
     TargetRequest,
     TargetResponse,
@@ -282,6 +283,31 @@ def build_benchmark_routes(handler: BenchmarkHandler) -> APIRouter:
         ``documents`` while a job is queued or running is the benchmark's 409,
         ``{"detail", "active_job_id"}``."""
         return await _or_refusal(handler.start_run(tenant, slug, request))
+
+    @router.post(
+        "/endpoints/{slug}/reasks",
+        response_model=None,
+        status_code=status.HTTP_202_ACCEPTED,
+        responses={
+            200: {"description": "A dry run: what the re-ask would ask and cost"},
+            409: {"description": "A re-ask of this endpoint is queued or running"},
+            422: {"description": "The runs cannot be re-asked"},
+        },
+    )
+    async def start_reask(
+        slug: str,
+        request: ReaskRequest,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: BenchmarkHandler = Depends(get_handler),
+    ) -> JobResponse | JSONResponse:
+        """Re-ask finished runs (202, the job); it runs beside the endpoint's
+        other jobs. ``dry_run`` answers 200 with ``{questions,
+        answers_planned, estimated_usd, max_job_usd}``. The benchmark's 409
+        ``{"detail", "active_job_id"}`` and 422 pass through."""
+        reply = await _or_refusal(handler.start_reask(tenant, slug, request))
+        if isinstance(reply, dict):
+            return JSONResponse(content=reply)
+        return reply
 
     # --- the console, embedded: pairs, results, judging, report ------------
 

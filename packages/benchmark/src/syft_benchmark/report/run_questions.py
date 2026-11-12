@@ -17,7 +17,13 @@ from sqlalchemy.orm import Session
 
 from syft_benchmark.config import EvalBlock
 from syft_benchmark.db.models import Job, QaPair, Result, Run
-from syft_benchmark.llm.web_search import unused_reason
+from syft_benchmark.generation.article_dates import URL_KEY
+from syft_benchmark.llm.web_search import (
+    cites_article,
+    search_engine_of,
+    search_exclusion_of,
+    unused_reason,
+)
 from syft_benchmark.report import combined_view, run_view
 from syft_benchmark.report.counted import (
     OUTCOMES,
@@ -234,7 +240,10 @@ def _repeats(extra: Any) -> dict[str, Any] | None:
 
 
 def _arm(
-    rows: list[tuple[Result, Run]], arm: str, panel: Sequence[str]
+    rows: list[tuple[Result, Run]],
+    arm: str,
+    panel: Sequence[str],
+    article_url: str = "",
 ) -> dict[str, Any] | None:
     by_block: dict[str, list[Result]] = defaultdict(list)
     run_of: dict[str, Run] = {}
@@ -248,6 +257,8 @@ def _arm(
         return None
     base = picked.judged or counted
     override = picked.override
+    audit = counted.audit or {}
+    citations = list(audit.get("citations") or [])
 
     def block_extra(block: str) -> Any:
         chosen = pick(by_block.get(block, []), panel).counted
@@ -280,9 +291,16 @@ def _arm(
         "denial": _denial(block_extra(EvalBlock.DENIAL_LOOP.value)),
         "repeats": _repeats(block_extra(EvalBlock.MONTE_CARLO.value)),
         # Web search evidence of the counted answer; empty where it did not search.
-        "citations": list((counted.audit or {}).get("citations") or []),
-        "web_search_unused": bool((counted.audit or {}).get("web_search_unused")),
-        "web_search_unused_reason": _unused_reason(counted.audit or {}, counted.answer),
+        "citations": citations,
+        # Which search the answer was given: "exa", "native" or None.
+        "search_engine": search_engine_of(audit),
+        # One of the citations is the question's own article; None — the
+        # article's address is not known.
+        "cites_article": cites_article(citations, article_url),
+        # The search left out the run's excluded domains; None — none were set.
+        "search_exclusion": search_exclusion_of(audit),
+        "web_search_unused": bool(audit.get("web_search_unused")),
+        "web_search_unused_reason": _unused_reason(audit, counted.answer),
         # A control answer's outcome; None under an owner override.
         "behavior": None if override is not None else behavior_of(counted.extra),
     }
@@ -367,10 +385,14 @@ def question_detail(
         entry = _entry_of(rows, pair, judges)
     panel = [*judges, ""]
     judge_rows, agreed = _judges(rows, judges)
+    article_url = str((pair.meta or {}).get(URL_KEY) or "")
     detail = {
         "question": _row(entry, model, pair, source),
         "context": pair.context,
-        "arms": {ALONE: _arm(rows, ALONE, panel), WITH: _arm(rows, WITH, panel)},
+        "arms": {
+            ALONE: _arm(rows, ALONE, panel, article_url),
+            WITH: _arm(rows, WITH, panel, article_url),
+        },
         "judges": judge_rows,
         "judges_agreed": agreed,
     }

@@ -184,6 +184,23 @@ describe('RunsList', () => {
     expect(dialog.props('open')).toBe(true)
   })
 
+  it('marks a re-ask, finished or running, with its label and runs', async () => {
+    const reask = { jobs: ['a', 'b'], label: '4h', questions: 12, judges: 'primary' as const }
+    const report = fakeReport(
+      [runSummary('again', { kind: 'reask', reask }), runSummary('plain')],
+      [progress('live', { kind: 'reask', reask: { ...reask, label: null } })],
+    )
+    const wrapper = mountList(report)
+
+    const badges = wrapper.findAll('[data-testid="run-reask"]')
+    expect(badges.map((b) => b.text())).toEqual(['Re-ask', 'Re-ask · 4h'])
+    expect(await hintText(badges[1]!)).toBe(
+      'Asks the 12 questions of 2 runs again, the same way, graded by the first judge only.',
+    )
+    const rows = wrapper.findAll('[data-testid="run-row"]')
+    expect(rows[1]!.find('[data-testid="run-reask"]').exists()).toBe(false)
+  })
+
   it('omits the schedule sentence when nothing runs on a schedule', () => {
     const wrapper = mountList(fakeReport([], [], { schedule: '', next_run_at: null, probe: {} }))
     expect(wrapper.find('[data-testid="schedule"]').exists()).toBe(false)

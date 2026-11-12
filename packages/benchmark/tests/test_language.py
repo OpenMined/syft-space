@@ -128,6 +128,24 @@ def test_detects_an_item_sized_text(lang: str, text: str) -> None:
     assert detect_language(text) == lang
 
 
+# A real Spanish question that scores exactly the same share of Spanish and
+# French function words: every function word in it is on both lists.
+TIED_ES_FR = (
+    "¿Cuántos gerentes y altos ejecutivos de empresas grandes y medianas que "
+    "operan en Uruguay respondieron la encuesta semestral de expectativas de la "
+    "consultora Exante publicada en noviembre de 2026?"
+)
+
+
+def test_a_tie_goes_to_the_preferred_language() -> None:
+    assert detect_language(TIED_ES_FR, prefer="es") == "es"
+    assert detect_language(TIED_ES_FR, prefer="fr") == "fr"
+
+
+def test_a_clear_winner_beats_the_preferred_language() -> None:
+    assert detect_language(PARAGRAPHS["en"][0], prefer="es") == "en"
+
+
 def test_short_text_gives_no_verdict() -> None:
     assert detect_language("Hub stores") is None
 

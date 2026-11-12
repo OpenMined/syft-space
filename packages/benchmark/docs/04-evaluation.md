@@ -262,6 +262,7 @@ through a chat has none of these limits — [05-judging.md](05-judging.md#judgin
 | `web_search_engine` | `auto` | `native`: the model's own search; `plugin`: the Exa engine (OpenRouter's web plugin); `auto`: native when the catalogue says the model has it, else Exa |
 | `web_search_max_results` | `5` | Results per search with the Exa engine (1–20) |
 | `web_search_max_calls` | `0` | Searches one answer of a tested model may make (up to 30); `0` — the provider's own limit |
+| `web_search_excluded_domains` | empty | Domains the tested models' and the web check's searches leave out (up to 20), e.g. the measured publisher's |
 | `consistency_floor` | `0.5` | Below it accuracy is not trusted |
 | `methodology_profile` | `default` | Written into every run |
 | `concurrency` | `16` | Model calls in flight |
@@ -280,6 +281,21 @@ required`, then the named tool if the provider refuses that; a model without
 tools, or one that refuses both, gets the web plugin. An answer that shows no
 search (nothing cited, no searches reported, or a search call written as text)
 is asked once more with the Exa plugin, which always searches. Judging settings — [05-judging.md](05-judging.md).
+
+**Excluded domains.** `web_search_excluded_domains` keeps a source out of
+reach, so a model cannot just read the article a question was written from
+(`bloomberg.com` for a Bloomberg endpoint). It applies to the tested models
+and to the web check (its model, its judge and the control gate): the web
+check decides which questions the web already answers, so it searches the web
+the tested models see. The question writer and the panel judges search
+without it. It is sent as OpenRouter's `excluded_domains` (tool) or
+`exclude_domains` (plugin) where the search honours it: Exa always, the native
+search of Anthropic and of xAI (at most 5 domains). OpenAI's native search
+ignores the list and Google's refuses it, so for those (and any other native
+search) it is not sent and the model searches unfiltered; the engine is not
+switched. Every answer records whether it applied (`call.web_search_exclusion`,
+[07-audit.md](07-audit.md)), the report marks an answer it did not apply to,
+and `web_search_engine: plugin` (Exa for every model) applies it everywhere.
 
 **The similarity threshold is an axis of the measurement.** At `0.0` the
 endpoint returns top-k for any question, including one the corpus cannot

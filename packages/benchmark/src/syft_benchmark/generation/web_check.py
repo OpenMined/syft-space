@@ -40,6 +40,7 @@ WEB_CHECK_SYSTEM = """\
 Answer the question. Search the web and use your own knowledge.
 
 If you cannot find the answer, respond with ONLY: I don't know
+Write these three English words exactly, whatever the language of the question.
 
 Do not guess. An honest "I don't know" is better than a confident answer that \
 might be wrong.
@@ -50,6 +51,7 @@ OWN_KNOWLEDGE_SYSTEM = """\
 Answer the question from your own knowledge.
 
 If you are not sure, respond with ONLY: I don't know
+Write these three English words exactly, whatever the language of the question.
 
 Do not guess. An honest "I don't know" is better than a confident answer that \
 might be wrong.
@@ -297,7 +299,12 @@ def check_pair(
     record.update(cost.spent(usage))
     record["citations"] = citations
     record["web_search"] = usage.get("web_search", searching)
-    for key in ("web_search_via", "web_search_forced", "web_search_requests"):
+    for key in (
+        "web_search_via",
+        "web_search_forced",
+        "web_search_requests",
+        "web_search_exclusion",
+    ):
         if key in usage:
             record[key] = usage[key]
     if searching and search_unused({**usage, "web_search": True}):

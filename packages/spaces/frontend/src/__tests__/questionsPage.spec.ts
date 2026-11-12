@@ -290,6 +290,55 @@ describe('QuestionsPage', () => {
     expect(withData.find('[data-testid="citations"]').exists()).toBe(false)
   })
 
+  it('names the search an answer was given and flags a citation of its own article', async () => {
+    const report = fakeReport()
+    report.loadQuestion.mockImplementation(async (_job: string, qaId: string) => {
+      const base = questionDetail(qaId)
+      return {
+        ...base,
+        arms: {
+          alone: { ...base.arms.alone!, search_engine: 'exa', cites_article: true },
+          with: { ...base.arms.with!, search_engine: 'native', cites_article: false },
+        },
+      }
+    })
+    const { wrapper } = await mountPage(report)
+    await wrapper.get('[data-testid="question-row"] button').trigger('click')
+    await flushPromises()
+
+    const alone = wrapper.get('[data-testid="answer-closed"]')
+    expect(alone.get('[data-testid="search-engine"]').text()).toBe('Exa search')
+    expect(alone.get('[data-testid="cites-article"]').text()).toBe('Cites this article')
+
+    const withData = wrapper.get('[data-testid="answer-ctx"]')
+    expect(withData.get('[data-testid="search-engine"]').text()).toBe('Anthropic search')
+    expect(withData.find('[data-testid="cites-article"]').exists()).toBe(false)
+  })
+
+  it('marks an answer whose search could not leave out the excluded domains', async () => {
+    const report = fakeReport()
+    report.loadQuestion.mockImplementation(async (_job: string, qaId: string) => {
+      const base = questionDetail(qaId)
+      return {
+        ...base,
+        arms: {
+          alone: { ...base.arms.alone!, search_engine: 'native', search_exclusion: false },
+          with: { ...base.arms.with!, search_engine: 'exa', search_exclusion: true },
+        },
+      }
+    })
+    const { wrapper } = await mountPage(report)
+    await wrapper.get('[data-testid="question-row"] button').trigger('click')
+    await flushPromises()
+
+    const alone = wrapper.get('[data-testid="answer-closed"]')
+    expect(alone.get('[data-testid="exclusion-not-applied"]').text()).toBe(
+      'Excluded domains searched',
+    )
+    const withData = wrapper.get('[data-testid="answer-ctx"]')
+    expect(withData.find('[data-testid="exclusion-not-applied"]').exists()).toBe(false)
+  })
+
   it('has no verdict override or removal controls', async () => {
     const { wrapper } = await mountPage()
     await wrapper.get('[data-testid="question-row"] button').trigger('click')

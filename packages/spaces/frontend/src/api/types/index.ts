@@ -771,8 +771,10 @@ export interface BenchmarkJob {
   id: string
   state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   phase: string
-  /** pipeline, filter or judge — which operation this job is, not where it is. */
+  /** pipeline, filter, judge or reask — which operation this job is, not where it is. */
   kind: string
+  /** Set on a re-ask; null on any other job. */
+  reask?: BenchmarkReaskInfo | null
   // The current pass and its progress (questions within the pass).
   block: string
   model: string
@@ -1070,6 +1072,22 @@ export interface BenchmarkRunProgress {
   created_at: string | null
   started_at: string | null
   progress_plan?: BenchmarkProgressPlan | null
+  /** Set on a re-ask; null on any other job. */
+  reask?: BenchmarkReaskInfo | null
+}
+
+/** A re-ask: finished runs' questions asked again, the same way. */
+export interface BenchmarkReaskInfo {
+  /** The runs asked again, oldest first. */
+  jobs: string[]
+  label: string | null
+  questions: number
+  answers_planned?: number
+  estimated_usd?: number | null
+  /** Context modes asked again; null — every one. */
+  arms?: string[] | null
+  models?: string[] | null
+  judges?: 'primary' | 'all'
 }
 
 /** One model's figures in a run. Rates are 0..1; lift is in points, −100..100. */
@@ -1124,6 +1142,9 @@ export interface BenchmarkRunSummary {
   combined?: BenchmarkCombinedInfo | null
   /** The combined runs holding this run; empty on a combined run. */
   combined_into?: BenchmarkCombinedRef[]
+  kind?: string
+  /** Set on a re-ask; null on any other run. */
+  reask?: BenchmarkReaskInfo | null
 }
 
 /** What one job wrote, and its filter decisions by outcome. */
@@ -1397,6 +1418,12 @@ export interface BenchmarkArmDetail {
   web_search_unused?: boolean | null
   /** One sentence on why it shows no search; null where it searched. */
   web_search_unused_reason?: string | null
+  /** The search it was given: OpenRouter's Exa or the provider's own; null — none. */
+  search_engine?: 'exa' | 'native' | null
+  /** A citation is the question's own article; null — the article's address is unknown. */
+  cites_article?: boolean | null
+  /** Its search left out the run's excluded domains; null — none were set. */
+  search_exclusion?: boolean | null
   /** The counted fine outcome; null under an override. */
   behavior?: BenchmarkBehavior | null
 }
@@ -1463,6 +1490,9 @@ export interface BenchmarkCombinedMember {
   cost_usd: number | null
   state: string
   stopped: 'owner' | 'spending_cap' | null
+  kind?: string
+  /** A re-ask's label; null on any other run. */
+  label?: string | null
 }
 
 /** How answers to one question asked in more than one run compare (direct block). */

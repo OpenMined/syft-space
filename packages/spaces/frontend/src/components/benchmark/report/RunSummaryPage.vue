@@ -197,7 +197,9 @@
                   {{ dayTime(utcStamp(m.created_at)) }}
                 </RouterLink>
               </td>
-              <td class="px-3 py-2.5 text-muted-foreground">{{ triggerLabel(m.trigger) }}</td>
+              <td class="px-3 py-2.5 text-muted-foreground" data-testid="member-trigger">
+                {{ m.kind === 'reask' ? reaskName(m.label) : triggerLabel(m.trigger) }}
+              </td>
               <td class="px-3 py-2.5 text-right tabular-nums">{{ count(m.documents) }}</td>
               <td class="px-3 py-2.5 text-right tabular-nums">{{ count(m.questions) }}</td>
               <td class="px-4 py-2.5 text-right tabular-nums">
@@ -295,6 +297,7 @@ import { barWidth, count, DASH, dayTime, points, utcStamp } from './figures'
 import { modelName, vendorName } from './labels'
 import { methodLocation, modelLocation, runLocation } from './routing'
 import { runHeading, triggerLabel } from './combined'
+import { reaskName } from './reask'
 import { saveRunExport } from './useRunReport'
 import {
   otherNotAsked,

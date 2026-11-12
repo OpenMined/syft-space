@@ -137,6 +137,18 @@ function formatNumberList(values: unknown): string {
   return Array.isArray(values) ? values.join(', ') : ''
 }
 
+/** "bloomberg.com, ft.com" -> ["bloomberg.com", "ft.com"]; the benchmark checks each. */
+export function parseDomainList(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .split(/[,;\s]+/)
+        .map((part) => part.trim())
+        .filter(Boolean),
+    ),
+  ]
+}
+
 // --- the page's values ------------------------------------------------------
 
 export interface SetupForm {
@@ -177,6 +189,8 @@ export interface SetupForm {
   webMaxResults: number
   /** 0 means the provider's own limit. */
   webMaxSearches: number
+  /** Comma-separated domains kept out of search. */
+  webExcludedDomains: string
   retrievalTopK: number
   contextDocs: number
   fragmentMaxChars: number
@@ -367,6 +381,7 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
       : BENCH_DEFAULTS.web_search_engine,
     webMaxResults: num(instrument, 'web_search_max_results'),
     webMaxSearches: num(instrument, 'web_search_max_calls'),
+    webExcludedDomains: strings(instrument, 'web_search_excluded_domains').join(', '),
     retrievalTopK: num(probe, 'retrieval_top_k'),
     contextDocs: num(instrument, 'context_docs'),
     fragmentMaxChars: num(instrument, 'fragment_max_chars'),
@@ -563,6 +578,7 @@ export function buildRequest(
       Math.max(0, Math.round(finite(form.webMaxSearches, num(effInstr, 'web_search_max_calls')))),
     ),
   )
+  i('web_search_excluded_domains', parseDomainList(form.webExcludedDomains))
   i('manual_status_priority', form.manualPriority === 'manual' ? 'manual' : 'filter')
   i(
     'concurrency',
