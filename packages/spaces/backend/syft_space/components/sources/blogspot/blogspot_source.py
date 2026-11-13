@@ -54,7 +54,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
-from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
+from syft_space.components.shared.metadata_types import (
+    MetadataField,
+    MetadataFields,
+    MetadataType,
+)
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.article import article_html
@@ -787,15 +791,15 @@ class BlogspotMetadataFields(MetadataFields):
     """Keys ``BlogspotSource.fetch`` writes for every post."""
 
     fields = (
-        MetadataField(name="source"),
-        MetadataField(name="blog_id"),
-        MetadataField(name="post_id"),
-        MetadataField(name="title"),
-        MetadataField(name="url"),
-        MetadataField(name="updated"),
-        MetadataField(name="published"),
-        MetadataField(name="tags"),
-        MetadataField(name="author"),
+        MetadataField(name="source", type=MetadataType.STRING),
+        MetadataField(name="blog_id", type=MetadataType.STRING),
+        MetadataField(name="post_id", type=MetadataType.STRING),
+        MetadataField(name="title", type=MetadataType.STRING),
+        MetadataField(name="url", type=MetadataType.STRING),
+        MetadataField(name="updated", type=MetadataType.DATETIME),
+        MetadataField(name="published", type=MetadataType.DATETIME),
+        MetadataField(name="tags", type=MetadataType.STRING_LIST),
+        MetadataField(name="author", type=MetadataType.STRING),
     )
 
 

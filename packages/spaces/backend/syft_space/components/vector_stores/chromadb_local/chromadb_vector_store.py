@@ -26,8 +26,18 @@ from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
 )
+from syft_space.components.shared.filter_types import (
+    WIRE_OPERATORS,
+    FieldFilterSpec,
+    specs_for,
+)
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
-from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
+from syft_space.components.shared.metadata_types import (
+    DatasetMetadata,
+    MetadataField,
+    MetadataFields,
+    MetadataType,
+)
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
@@ -133,29 +143,29 @@ class ChromaDBMetadataFields(MetadataFields):
     """
 
     fields = (
-        MetadataField(name="doc_id"),
-        MetadataField(name="chunk_index"),
-        MetadataField(name="file_name"),
-        MetadataField(name="file_type", hidden=True),
-        MetadataField(name="file_size", hidden=True),
-        MetadataField(name="page_numbers"),
-        MetadataField(name="headings"),
-        MetadataField(name="image_urls"),
-        MetadataField(name="external_id", hidden=True),
-        MetadataField(name="prev_chunk_id", hidden=True),
-        MetadataField(name="next_chunk_id", hidden=True),
-        MetadataField(name="picture_ids", hidden=True),
-        MetadataField(name="prev_context", hidden=True),
-        MetadataField(name="next_context", hidden=True),
+        MetadataField(name="doc_id", type=MetadataType.STRING),
+        MetadataField(name="chunk_index", type=MetadataType.NUMBER),
+        MetadataField(name="file_name", type=MetadataType.STRING),
+        MetadataField(name="file_type", hidden=True, type=MetadataType.STRING),
+        MetadataField(name="file_size", hidden=True, type=MetadataType.NUMBER),
+        MetadataField(name="page_numbers", type=MetadataType.NUMBER_LIST),
+        MetadataField(name="headings", type=MetadataType.STRING_LIST),
+        MetadataField(name="image_urls", type=MetadataType.STRING_LIST),
+        MetadataField(name="external_id", hidden=True, type=MetadataType.STRING),
+        MetadataField(name="prev_chunk_id", hidden=True, type=MetadataType.STRING),
+        MetadataField(name="next_chunk_id", hidden=True, type=MetadataType.STRING),
+        MetadataField(name="picture_ids", hidden=True, type=MetadataType.STRING_LIST),
+        MetadataField(name="prev_context", hidden=True, type=MetadataType.STRING),
+        MetadataField(name="next_context", hidden=True, type=MetadataType.STRING),
     )
 
     def derived(self, source: MetadataFields) -> tuple[MetadataField, ...]:
-        # _chroma_scalars writes ``{key}_ts`` beside every datetime value;
-        # declaring one per source field over-declares harmlessly.
+        # _chroma_scalars writes an epoch-int ``{key}_ts`` beside every
+        # datetime value.
         return tuple(
-            MetadataField(name=f"{f.name}_ts")
+            MetadataField(name=f"{f.name}_ts", type=MetadataType.NUMBER)
             for f in source.declared()
-            if not f.hidden
+            if not f.hidden and f.type is MetadataType.DATETIME
         )
 
 
@@ -171,6 +181,8 @@ class ChromaDBLocalVectorStore:
     NAME = "chromadb_local"
     PROVISIONER_CLS = _resolve_provisioner_cls()
     METADATA_FIELDS = ChromaDBMetadataFields
+    # Every wire operator has a ``where`` translation on ChromaDB >= 1.5.
+    FILTER_OPERATORS = WIRE_OPERATORS
     CONFIG_MODEL = ChromaDBLocalVectorStoreConfiguration
 
     # One embedding model per process: the ONNX session is costly to build
@@ -545,6 +557,12 @@ class ChromaDBLocalVectorStore:
             status=HealthcheckStatus.UNHEALTHY,
             message="ChromaDB is unhealthy",
         )
+
+    async def filter_schema(
+        self, metadata: DatasetMetadata
+    ) -> dict[str, FieldFilterSpec]:
+        """Every typed public field, with the operators its type allows."""
+        return specs_for(metadata.filter_candidates(), self.FILTER_OPERATORS)
 
     async def delete(self, ctx: IngestContext) -> None:
         """Delete the entire collection and its page images.
