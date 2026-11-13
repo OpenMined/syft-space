@@ -1,11 +1,12 @@
 """Configuration schema for the remote Weaviate vector store."""
 
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
-from syft_space.components.vector_stores.weaviate_remote.filters import WeaviateFilter
+from syft_space.components.shared.filter_types import FilterNode, FilterValueDtype
 
 
 class SearchMode(StrEnum):
@@ -88,9 +89,24 @@ class RemoteWeaviateVectorStoreConfiguration(BaseModel):
         ),
         json_schema_extra=cfg_flags(editable=True),
     )
-    filters: WeaviateFilter | None = Field(
+    filters: FilterNode | None = Field(
         default=None,
         description=(
             "Filter applied when searching. Single condition or group with and/or/not."
         ),
     )
+
+    @field_validator("filters", mode="before")
+    @classmethod
+    def _default_dtype(cls, node: Any) -> Any:
+        """An owner's condition without a dtype is coerced as a string, as
+        the form always did; a query's condition carries none on purpose."""
+        if isinstance(node, dict):
+            if node.get("type", "condition") == "condition":
+                return {"value_dtype": FilterValueDtype.STRING.value, **node}
+            if isinstance(node.get("operands"), list):
+                return {
+                    **node,
+                    "operands": [cls._default_dtype(o) for o in node["operands"]],
+                }
+        return node

@@ -16,7 +16,11 @@ from pydantic import BaseModel, Field, ValidationError
 from syft_space.components.ingestion.utils import rglob_visible
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
-from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
+from syft_space.components.shared.metadata_types import (
+    MetadataField,
+    MetadataFields,
+    MetadataType,
+)
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
@@ -289,9 +293,9 @@ class LocalFileMetadataFields(MetadataFields):
     """Keys ``LocalFileSource.fetch`` writes. The owner's path stays inside."""
 
     fields = (
-        MetadataField(name="source"),
-        MetadataField(name="updated"),
-        MetadataField(name="absolute_path", hidden=True),
+        MetadataField(name="source", type=MetadataType.STRING),
+        MetadataField(name="updated", type=MetadataType.DATETIME),
+        MetadataField(name="absolute_path", hidden=True, type=MetadataType.STRING),
     )
 
 
