@@ -15,10 +15,17 @@ from uuid import uuid4
 import pytest
 
 from syft_space.components.dataset_types.interfaces import BaseDatasetType
+from syft_space.components.shared.filter_types import (
+    WIRE_OPERATORS,
+    FieldFilterSpec,
+    ops_for,
+    specs_for,
+)
 from syft_space.components.shared.metadata_types import (
     DatasetMetadata,
     MetadataField,
     MetadataFields,
+    MetadataType,
 )
 from syft_space.components.sources.blogspot import blogspot_source as bs
 from syft_space.components.sources.local_file.local_file_source import (
@@ -61,6 +68,33 @@ def _public_of(meta: dict[str, Any], contributor: MetadataFields) -> dict[str, A
     return DatasetMetadata(contributor, MetadataFields()).public(meta)
 
 
+_PY_TYPES: dict[MetadataType, Any] = {
+    MetadataType.STRING: str,
+    MetadataType.NUMBER: (int, float),
+    MetadataType.BOOLEAN: bool,
+    MetadataType.DATETIME: datetime,
+}
+
+
+def _assert_typed(meta: dict[str, Any], fields: tuple[MetadataField, ...]) -> None:
+    """Every present, non-None value is what its declaration says."""
+    by_name = {f.name: f for f in fields}
+    for key, value in meta.items():
+        if value is None:
+            continue
+        declared = by_name[key].type
+        assert declared is not None, f"{key} is declared untyped"
+        if declared in (MetadataType.STRING_LIST, MetadataType.NUMBER_LIST):
+            assert isinstance(value, list), f"{key}: {value!r} is not a list"
+            item = str if declared is MetadataType.STRING_LIST else (int, float)
+            assert all(isinstance(v, item) for v in value), f"{key}: {value!r}"
+        else:
+            assert isinstance(value, _PY_TYPES[declared]), f"{key}: {value!r}"
+            assert not (
+                declared is MetadataType.NUMBER and isinstance(value, bool)
+            ), f"{key}: a bool is not a number"
+
+
 # ============== injection ==============
 
 
@@ -93,8 +127,9 @@ def test_rss_entry_metadata_is_fully_declared():
         "tags": [{"term": "ml"}],
         "published": "Mon, 01 Jan 2024 00:00:00 GMT",
     }
-    emitted = set(_entry_metadata(feed, entry))
-    assert emitted <= _names(RssMetadataFields().declared())
+    meta = _entry_metadata(feed, entry)
+    assert set(meta) <= _names(RssMetadataFields().declared())
+    _assert_typed(meta, RssMetadataFields().declared())
 
 
 def test_wordpress_post_metadata_is_fully_declared():
@@ -106,12 +141,11 @@ def test_wordpress_post_metadata_is_fully_declared():
         "status": "publish",
         "_embedded": {"author": [{"name": "Ada"}], "wp:term": [[{"name": "T"}]]},
     }
-    emitted = set(
-        wp._post_metadata(
-            post, post_type="post", post_id=7, title="Hello", slug="hello"
-        )
+    meta = wp._post_metadata(
+        post, post_type="post", post_id=7, title="Hello", slug="hello"
     )
-    assert emitted <= _names(wp.WordPressMetadataFields().declared())
+    assert set(meta) <= _names(wp.WordPressMetadataFields().declared())
+    _assert_typed(meta, wp.WordPressMetadataFields().declared())
 
 
 def test_blogspot_post_metadata_is_fully_declared():
@@ -122,8 +156,9 @@ def test_blogspot_post_metadata_is_fully_declared():
         "labels": ["ml"],
         "author": {"displayName": "Ada"},
     }
-    emitted = set(bs._post_metadata(post, blog_id="1", post_id="10", title="Hello"))
-    assert emitted <= _names(bs.BlogspotMetadataFields().declared())
+    meta = bs._post_metadata(post, blog_id="1", post_id="10", title="Hello")
+    assert set(meta) <= _names(bs.BlogspotMetadataFields().declared())
+    _assert_typed(meta, bs.BlogspotMetadataFields().declared())
 
 
 async def test_local_file_fetch_metadata_is_declared_and_hides_the_path(tmp_path):
@@ -134,6 +169,7 @@ async def test_local_file_fetch_metadata_is_declared_and_hides_the_path(tmp_path
         meta = ingest_file.metadata
     fields = LocalFileMetadataFields()
     assert set(meta) <= _names(fields.declared())
+    _assert_typed(meta, fields.declared())
     assert "absolute_path" not in _public_of(meta, fields)
 
 
@@ -193,6 +229,12 @@ async def test_chroma_ingest_time_keys_are_declared():
     assert emitted <= _names(_chroma_metadata_for(RssMetadataFields()).fields)
 
 
+def test_chroma_chunk_keys_are_typed_as_the_chunker_writes_them():
+    chunk = {k: v for k, v in _chunk(0).items() if k not in ("embedding_text", "text")}
+    chunk["chunk_index"] = 0
+    _assert_typed(chunk, ChromaDBMetadataFields().declared())
+
+
 async def test_chroma_search_time_keys_are_declared():
     store = _chroma()
     results = {
@@ -209,11 +251,41 @@ async def test_chroma_search_time_keys_are_declared():
     dm = _chroma_metadata_for(MetadataFields())
     assert emitted <= _names(dm.fields)
     assert set(dm.public(docs[0].metadata)) == {"doc_id", "image_urls"}
+    _assert_typed(dm.public(docs[0].metadata), dm.fields)
 
 
-def test_chroma_derives_a_timestamp_twin_per_public_source_field():
-    derived = _names(ChromaDBMetadataFields().derived(LocalFileMetadataFields()))
-    assert derived == {"source_ts", "updated_ts"}  # not absolute_path_ts
+def test_chroma_derives_a_timestamp_twin_per_public_datetime_source_field():
+    derived = ChromaDBMetadataFields().derived(LocalFileMetadataFields())
+    assert derived == (MetadataField(name="updated_ts", type=MetadataType.NUMBER),)
+    # not source_ts (a string), not absolute_path_ts (hidden)
+
+
+async def test_chroma_filter_schema_is_every_typed_public_field():
+    dm = _chroma_metadata_for(RssMetadataFields())
+    schema = await _chroma().filter_schema(dm)
+    assert set(schema) == {
+        "source",
+        "feed_url",
+        "feed_title",
+        "title",
+        "url",
+        "comments_url",
+        "author",
+        "tags",
+        "published",
+        "doc_id",
+        "chunk_index",
+        "file_name",
+        "page_numbers",
+        "headings",
+        "image_urls",
+    }
+    assert schema["published"] == FieldFilterSpec(
+        type=MetadataType.DATETIME, ops=ops_for(MetadataType.DATETIME)
+    )
+    assert schema["tags"].ops == ops_for(MetadataType.STRING_LIST)
+    assert "published_ts" not in schema  # a storage twin, never a target
+    assert ChromaDBLocalVectorStore.FILTER_OPERATORS == WIRE_OPERATORS
 
 
 # ============== Weaviate: declared from the owner's config ==============
@@ -357,6 +429,22 @@ def test_binding_composes_both_declarations_once():
     assert binding.public_metadata(meta) == {"title": "t", "doc_id": "d", "title_ts": 1}
 
 
+def test_filter_candidates_are_public_declared_fields_once_without_twins():
+    class _Twice(MetadataFields):
+        fields = (
+            MetadataField(name="title"),
+            MetadataField(name="title", type=MetadataType.NUMBER),
+            MetadataField(name="secret", hidden=True),
+        )
+
+    dm = DatasetMetadata(_Twice(), _StoreFields())
+    assert {f.name for f in dm.derived} == {"title_ts"}
+    assert dm.filter_candidates() == (
+        MetadataField(name="title"),  # first declaration wins
+        MetadataField(name="doc_id"),
+    )
+
+
 def test_metadata_for_needs_no_collaborators():
     class _ExplodingProvider(_Provider):
         @classmethod
@@ -371,3 +459,10 @@ def test_metadata_for_needs_no_collaborators():
         "doc_id",
         "title_ts",
     ]
+
+
+def test_an_undeclared_type_is_untyped_and_never_filterable():
+    """Filterability is opt-in: a writer must state the type."""
+    field = MetadataField(name="payload")
+    assert field.type is None
+    assert specs_for((field,), WIRE_OPERATORS) == {}

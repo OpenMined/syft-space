@@ -20,6 +20,8 @@ from pydantic import BaseModel
 
 _clients: dict[tuple, tuple[Any, Callable[[Any], Awaitable[None]] | None]] = {}
 _locks: dict[tuple, asyncio.Lock] = {}
+# Values that live and die with a client: (client key, name) -> value.
+_attached: dict[tuple[tuple, str], Any] = {}
 
 
 async def get_client(
@@ -44,14 +46,33 @@ async def get_client(
         return _clients[full_key][0]
 
 
+async def attached(
+    namespace: str, key: tuple, name: str, load: Callable[[], Awaitable[Any]]
+) -> Any:
+    """A value memoised under a client's key and ``name``, loaded once.
+
+    Dropped by the ``evict`` of that client, so anything derived from a
+    connection (a remote collection's schema) needs no eviction of its own.
+    """
+    full_key = (namespace, *key)
+    if (full_key, name) in _attached:
+        return _attached[(full_key, name)]
+    async with _locks.setdefault(full_key, asyncio.Lock()):
+        if (full_key, name) not in _attached:
+            _attached[(full_key, name)] = await load()
+        return _attached[(full_key, name)]
+
+
 async def evict(namespace: str, key: tuple) -> None:
-    """Close and drop one client so the next ``get_client`` reconnects."""
+    """Close and drop one client, and what is attached to it, so the next
+    ``get_client`` reconnects."""
     await _evict((namespace, *key))
 
 
 async def close_all() -> None:
     for full_key in list(_clients):
         await _evict(full_key)
+    _attached.clear()
 
 
 def key_from(config: BaseModel, fields: list[str]) -> tuple:
@@ -68,6 +89,8 @@ def key_from(config: BaseModel, fields: list[str]) -> tuple:
 async def _evict(full_key: tuple) -> None:
     entry = _clients.pop(full_key, None)
     _locks.pop(full_key, None)
+    for k in [k for k in _attached if k[0] == full_key]:
+        del _attached[k]
     if entry is None:
         return
     client, close = entry

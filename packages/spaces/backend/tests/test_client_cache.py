@@ -113,3 +113,66 @@ async def test_close_all_closes_every_client_and_survives_a_bad_close():
         await client_cache.get_client("ns", ("y",), lambda: connect_value("new"))
         == "new"
     )
+
+
+# ============== attached values ==============
+
+
+async def test_attached_value_loads_once_and_goes_with_the_client():
+    c = Counter()
+    loads = 0
+
+    async def load():
+        nonlocal loads
+        loads += 1
+        return {"n": loads}
+
+    await client_cache.get_client("ns", ("a",), c.connect, close=c.close)
+    first = await client_cache.attached("ns", ("a",), "schema", load)
+    again = await client_cache.attached("ns", ("a",), "schema", load)
+    assert first is again and loads == 1
+
+    await client_cache.evict("ns", ("a",))
+
+    assert await client_cache.attached("ns", ("a",), "schema", load) == {"n": 2}
+
+
+async def test_attached_values_are_separate_per_name_and_key():
+    async def load_a():
+        return "a"
+
+    async def load_b():
+        return "b"
+
+    assert await client_cache.attached("ns", ("k",), "one", load_a) == "a"
+    assert await client_cache.attached("ns", ("k",), "two", load_b) == "b"
+    assert await client_cache.attached("ns", ("other",), "one", load_b) == "b"
+
+
+async def test_evicting_one_client_keeps_another_clients_attachment():
+    async def load():
+        return "v"
+
+    await client_cache.attached("ns", ("a",), "s", load)
+    await client_cache.attached("ns", ("b",), "s", load)
+    await client_cache.evict("ns", ("a",))
+
+    async def must_not_load():
+        raise AssertionError("b's attachment was dropped")
+
+    assert await client_cache.attached("ns", ("b",), "s", must_not_load) == "v"
+
+
+async def test_concurrent_first_loaders_load_once():
+    loads = 0
+
+    async def load():
+        nonlocal loads
+        loads += 1
+        await asyncio.sleep(0)
+        return loads
+
+    values = await asyncio.gather(
+        *[client_cache.attached("ns", ("a",), "s", load) for _ in range(10)]
+    )
+    assert set(values) == {1}

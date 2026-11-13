@@ -53,7 +53,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from syft_space.components.shared.config_flags import cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
-from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
+from syft_space.components.shared.metadata_types import (
+    MetadataField,
+    MetadataFields,
+    MetadataType,
+)
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.article import UNTITLED, article_html, html_to_text
@@ -819,15 +823,15 @@ class RssMetadataFields(MetadataFields):
     """Keys ``_entry_metadata`` writes for every item."""
 
     fields = (
-        MetadataField(name="source"),
-        MetadataField(name="feed_url"),
-        MetadataField(name="feed_title"),
-        MetadataField(name="title"),
-        MetadataField(name="url"),
-        MetadataField(name="comments_url"),
-        MetadataField(name="author"),
-        MetadataField(name="tags"),
-        MetadataField(name="published"),
+        MetadataField(name="source", type=MetadataType.STRING),
+        MetadataField(name="feed_url", type=MetadataType.STRING),
+        MetadataField(name="feed_title", type=MetadataType.STRING),
+        MetadataField(name="title", type=MetadataType.STRING),
+        MetadataField(name="url", type=MetadataType.STRING),
+        MetadataField(name="comments_url", type=MetadataType.STRING),
+        MetadataField(name="author", type=MetadataType.STRING),
+        MetadataField(name="tags", type=MetadataType.STRING_LIST),
+        MetadataField(name="published", type=MetadataType.DATETIME),
     )
 
 
