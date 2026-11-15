@@ -2,8 +2,9 @@
 
 Article producers prefix each ``.md`` file with a ``---`` delimited header
 (title, source, author, url, dates, ...). It describes the document rather
-than being part of it, so it is split off before conversion and its fields
-travel as ``doc_*`` chunk metadata instead of being embedded as text.
+than being part of it, so ``LocalFileSource.fetch`` splits it off, passes its
+fields on as ``doc_*`` metadata (plus the article keys the other sources use)
+and hands the chunker only the body, headed by the title.
 """
 
 import re
@@ -11,6 +12,8 @@ from collections.abc import Iterator
 from typing import Any
 
 import yaml
+
+from syft_space.components.shared.timestamps import parse_datetime
 
 # A header must close within these limits; otherwise the leading ``---`` is
 # treated as ordinary content (e.g. a horizontal rule) and nothing is split.
@@ -28,6 +31,7 @@ _BOM = chr(0xFEFF)
 _LINE_RE = re.compile(r"[^\r\n]*(?:\r\n|\n|\r|$)")
 _FLAT_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]+(.*?))?[ \t]*$")
 _KEY_SANITIZE_RE = re.compile(r"[^a-z0-9_]")
+_H1_RE = re.compile(r"^#[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 
 
 class _NoTimestampLoader(yaml.SafeLoader):
@@ -152,3 +156,36 @@ def front_matter_metadata(fields: dict[str, Any]) -> dict[str, Any]:
             continue
         metadata[f"{METADATA_PREFIX}{name}"] = scalar
     return metadata
+
+
+def article_metadata(fields: dict[str, Any]) -> dict[str, Any]:
+    """The header under the article keys of the API sources: ``title``,
+    ``url``, ``author`` and ``published`` (a ``datetime``); absent ones are
+    left out. Keys match case-insensitively, as in ``front_matter_metadata``."""
+    text = {
+        str(key).strip().lower(): str(scalar).strip()
+        for key, value in fields.items()
+        if (scalar := _scalar(value)) is not None and not isinstance(scalar, bool)
+    }
+    metadata: dict[str, Any] = {
+        key: text[key] for key in ("title", "url", "author") if text.get(key)
+    }
+    if published := parse_datetime(text.get("published_date")):
+        metadata["published"] = published
+    return metadata
+
+
+def with_title_heading(title: str, body: str) -> str:
+    """Prefix ``body`` with a ``# title`` heading.
+
+    The body is returned unchanged when the title is blank or the body's
+    first non-blank line is already that heading.
+    """
+    title = " ".join(title.split())
+    if not title:
+        return body
+    first = next((line for line in body.splitlines() if line.strip()), "")
+    match = _H1_RE.match(first.strip())
+    if match and " ".join(match.group(1).split()) == title:
+        return body
+    return f"# {title}\n\n" + body.lstrip("\r\n")

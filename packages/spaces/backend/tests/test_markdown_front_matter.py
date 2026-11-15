@@ -1,30 +1,15 @@
-"""Markdown front matter is metadata, not content.
-
-The header is split off before conversion, so no chunk embeds it, and its
-fields land on every chunk of the document as ``doc_*`` metadata.
-"""
+"""Parsing a Markdown front matter header and heading the body with its title."""
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import Any
+from datetime import datetime, timezone
 
-import pytest
-
-from syft_space.components.chunking import chunker as chunker_module
-from syft_space.components.chunking.chunker import DocumentChunker
-from syft_space.components.chunking.front_matter import (
+from syft_space.components.sources.local_file.markdown_front_matter import (
     MAX_HEADER_LINES,
+    article_metadata,
     front_matter_metadata,
     split_front_matter,
-)
-from syft_space.components.shared.ingest_types import (
-    IngestContext,
-    IngestFile,
-    IngestRequest,
-)
-from syft_space.components.vector_stores.chromadb_local import (
-    chromadb_vector_store as chroma_module,
+    with_title_heading,
 )
 
 BOM = chr(0xFEFF)
@@ -215,139 +200,61 @@ def test_metadata_scalars_only():
     assert out == {"doc_tags": "ml, nlp, 3", "doc_score": 1.5}
 
 
-# ============== Ingestion ==============
+# ============== article_metadata ==============
 
 
-class _BodyEchoBackend:
-    """Returns one chunk per paragraph of whatever file it is handed."""
-
-    def __init__(self):
-        self.paths = []
-
-    def convert_to_chunks(self, file, images_dir, doc_id, get_chunker):
-        self.paths.append(file.path)
-        text = file.path.read_text(encoding="utf-8")
-        return [
-            {
-                "text": part.strip(),
-                "embedding_text": part.strip(),
-                "doc_id": doc_id,
-                "page_numbers": [],
-                "headings": [],
-                "picture_ids": [],
-                "file_name": file.filename,
-                "file_type": ".md",
-                "file_size": file.file_size or 0,
-            }
-            for part in text.split("\n\n")
-            if part.strip()
-        ]
+def test_article_keys_follow_the_api_sources():
+    fields, _ = split_front_matter(ARTICLE)
+    assert article_metadata(fields) == {
+        "title": "Ramp Hits $60 Billion Valuation",
+        "url": "https://www.bloomberg.com/news/articles/x",
+        "author": "Rebecca Torrence",
+        "published": datetime(2026, 10, 9, 20, 36, 10, tzinfo=timezone.utc),
+    }
 
 
-class _FakeCollection:
-    def __init__(self):
-        self.documents: list[str] = []
-        self.metadatas: list[dict[str, Any]] = []
-
-    async def delete(self, where):
-        pass
-
-    async def add(self, ids, documents, embeddings, metadatas):
-        self.documents.extend(documents)
-        self.metadatas.extend(metadatas)
+def test_bare_publication_date_is_midnight_utc():
+    out = article_metadata({"published_date": "2026-10-09"})
+    assert out == {"published": datetime(2026, 10, 9, tzinfo=timezone.utc)}
 
 
-class _FakeClient:
-    def __init__(self, collection):
-        self._collection = collection
-
-    async def get_or_create_collection(self, name, metadata):
-        return self._collection
+def test_keys_match_case_insensitively_and_scalars_become_text():
+    out = article_metadata({"Title": 1984, "AUTHOR": ["A", "B"]})
+    assert out == {"title": "1984", "author": "A, B"}
 
 
-@pytest.fixture
-def _backend(monkeypatch, tmp_path):
-    backend = _BodyEchoBackend()
-    monkeypatch.setattr(DocumentChunker, "_backend", backend)
-    monkeypatch.setattr(chunker_module, "PAGE_IMAGES_BASE_DIR", tmp_path / "images")
-    monkeypatch.setattr(chroma_module, "_chromadb_available", lambda: True)
-    return backend
-
-
-async def _ingest(path, metadata: dict[str, Any]) -> _FakeCollection:
-    collection = _FakeCollection()
-    store = chroma_module.ChromaDBLocalVectorStore.__new__(
-        chroma_module.ChromaDBLocalVectorStore
+def test_blank_unparseable_and_nested_values_are_left_out():
+    out = article_metadata(
+        {"title": "  ", "url": {"a": 1}, "author": None, "published_date": "soon"}
     )
-    store.config = SimpleNamespace(collection_name="col")
-    store._document_chunker = DocumentChunker()
-    store._generate_embeddings = lambda texts: [[0.0] for _ in texts]
-
-    async def get_client():
-        return _FakeClient(collection)
-
-    store.get_client = get_client
-    file = IngestFile(
-        external_id=str(path),
-        path=path,
-        filename=path.name,
-        file_size=path.stat().st_size,
-        metadata=metadata,
-    )
-    ctx = IngestContext(
-        sender="system@openmined.org",
-        dataset_id="00000000-0000-0000-0000-000000000001",
-    )
-    await store.ingest(ctx, IngestRequest(files=[file]))
-    return collection
+    assert out == {}
 
 
-async def test_ingested_chunks_carry_no_header_and_doc_metadata(tmp_path, _backend):
-    source = tmp_path / "article.md"
-    source.write_bytes(ARTICLE.encode("utf-8"))
-    original = source.read_bytes()
-
-    collection = await _ingest(source, {"source": "local_file", "file_name": "x"})
-
-    assert collection.documents == [
-        "# Ramp Hits $60 Billion Valuation",
-        "Body text.",
-    ]
-    for meta in collection.metadatas:
-        assert meta["doc_title"] == "Ramp Hits $60 Billion Valuation"
-        assert meta["doc_source"] == "Bloomberg"
-        assert meta["doc_author"] == "Rebecca Torrence"
-        assert meta["doc_url"] == "https://www.bloomberg.com/news/articles/x"
-        assert meta["doc_published_date"] == "2026-10-09T20:36:10Z"
-        assert meta["doc_ingested_at"] == "2026-10-10T08:11:29Z"
-        assert meta["doc_method"] == "extension"
-        # Existing keys are untouched by the header.
-        assert meta["source"] == "local_file"
-        assert meta["file_name"] == "article.md"
-    # The user's file is never rewritten; the body went through a temp file.
-    assert source.read_bytes() == original
-    assert _backend.paths[0] != source
-    assert not _backend.paths[0].exists()
+# ============== with_title_heading ==============
 
 
-async def test_markdown_without_header_is_passed_through(tmp_path, _backend):
-    source = tmp_path / "notes.md"
-    source.write_bytes(b"---\nNote: text\n---\n\nkey: value\n")
-
-    collection = await _ingest(source, {"source": "local_file"})
-
-    assert _backend.paths == [source]
-    assert "---\nNote: text\n---" in collection.documents
-    for meta in collection.metadatas:
-        assert [k for k in meta if k.startswith("doc_")] == ["doc_id"]
+def test_title_heading_is_prepended():
+    assert with_title_heading("T", "\nBody\n") == "# T\n\nBody\n"
 
 
-async def test_header_id_does_not_replace_doc_id(tmp_path, _backend):
-    source = tmp_path / "a.md"
-    source.write_bytes(b"---\ntitle: T\nid: header-id\n---\nBody\n")
+def test_title_heading_is_not_doubled():
+    body = "\n# Ramp Hits $60 Billion Valuation\n\nBody text.\n"
+    assert with_title_heading("Ramp Hits $60 Billion Valuation", body) == body
 
-    collection = await _ingest(source, {})
 
-    assert collection.metadatas[0]["doc_id"] == chunker_module.derive_doc_id(
-        str(source)
-    )
+def test_matching_h1_with_closing_hashes_and_spacing_is_not_doubled():
+    body = "#  Ramp  Hits ##\nBody"
+    assert with_title_heading("Ramp Hits", body) == body
+
+
+def test_different_first_heading_gets_the_title_above_it():
+    assert with_title_heading("T", "# Other\nBody") == "# T\n\n# Other\nBody"
+    assert with_title_heading("T", "## T\nBody") == "# T\n\n## T\nBody"
+
+
+def test_blank_title_leaves_body_unchanged():
+    assert with_title_heading("  ", "Body") == "Body"
+
+
+def test_title_whitespace_is_collapsed():
+    assert with_title_heading(" A \t B ", "") == "# A B\n\n"
