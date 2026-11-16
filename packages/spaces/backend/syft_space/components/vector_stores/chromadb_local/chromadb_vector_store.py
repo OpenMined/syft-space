@@ -48,6 +48,10 @@ from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.vector_stores.chromadb_local.external_provisioner import (
     ExternalChromaDBProvisioner,
 )
+from syft_space.components.vector_stores.chromadb_local.filters import build_where
+from syft_space.components.vector_stores.chromadb_local.list_migration import (
+    migrate_collection,
+)
 from syft_space.components.vector_stores.chromadb_local.provisioner import (
     LocalChromaDBProvisioner,
 )
@@ -111,12 +115,12 @@ def _resolve_provisioner_cls() -> type[BaseVectorStoreProvisioner]:
 
 
 def _chroma_scalars(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Coerce source metadata into the scalar types ChromaDB accepts.
+    """Coerce source metadata into the values ChromaDB accepts.
 
-    ChromaDB stores only str/int/float/bool, so lists are joined and None is
-    dropped. A datetime becomes both an ISO string and a ``{key}_ts`` epoch
-    int — metadata filtering compares numbers, so the int is what makes a
-    date range queryable.
+    ChromaDB stores str/int/float/bool and non-empty lists of them; None
+    and empty lists are dropped. A datetime becomes both an ISO string and
+    a ``{key}_ts`` epoch int — metadata filtering compares numbers, so the
+    int is what makes a date range queryable.
     """
     scalars: dict[str, Any] = {}
     for key, value in metadata.items():
@@ -129,10 +133,21 @@ def _chroma_scalars(metadata: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(value, str | int | float | bool):
             scalars[key] = value
         elif isinstance(value, list | tuple | set):
-            scalars[key] = ",".join(str(v) for v in value if v is not None)
+            items = _chroma_list(value)
+            if items:
+                scalars[key] = items
         else:
             scalars[key] = str(value)
     return scalars
+
+
+def _chroma_list(value: list | tuple | set) -> list[str | int | float]:
+    """A list ChromaDB accepts: None dropped, anything exotic stringified."""
+    return [
+        v if isinstance(v, str | int | float) and not isinstance(v, bool) else str(v)
+        for v in value
+        if v is not None
+    ]
 
 
 class ChromaDBMetadataFields(MetadataFields):
@@ -358,6 +373,7 @@ class ChromaDBLocalVectorStore:
         )
 
         # Source metadata first: the structural keys below must win a clash.
+        # List keys go through _chroma_scalars too: arrays, empty ones dropped.
         extra = _chroma_scalars(source_metadata or {})
         metadatas = [
             {
@@ -369,9 +385,13 @@ class ChromaDBLocalVectorStore:
                 "file_name": chunk["file_name"],
                 "file_type": chunk["file_type"] or "",
                 "file_size": chunk["file_size"],
-                "page_numbers": ",".join(map(str, chunk["page_numbers"])),
-                "headings": " > ".join(chunk["headings"]),
-                "picture_ids": ",".join(chunk["picture_ids"]),
+                **_chroma_scalars(
+                    {
+                        "page_numbers": chunk["page_numbers"],
+                        "headings": chunk["headings"],
+                        "picture_ids": chunk["picture_ids"],
+                    }
+                ),
             }
             for i, chunk in enumerate(chunks)
         ]
@@ -429,7 +449,7 @@ class ChromaDBLocalVectorStore:
             metadata["image_urls"] = build_image_urls(
                 dataset_id,
                 metadata.get("doc_id", ""),
-                metadata.get("picture_ids", ""),
+                metadata.get("picture_ids") or [],
             )
 
             documents.append(
@@ -508,6 +528,7 @@ class ChromaDBLocalVectorStore:
             results = await collection.query(
                 query_embeddings=query_embedding,
                 n_results=params.limit,
+                where=build_where(params.filters) if params.filters else None,
                 include=["documents", "metadatas", "distances"],
             )
 
@@ -563,6 +584,26 @@ class ChromaDBLocalVectorStore:
     ) -> dict[str, FieldFilterSpec]:
         """Every typed public field, with the operators its type allows."""
         return specs_for(metadata.filter_candidates(), self.FILTER_OPERATORS)
+
+    async def migrate_list_fields(self, metadata: DatasetMetadata) -> int:
+        """Rewrite comma-joined list fields of older chunks as arrays, once.
+
+        Returns the number of chunks changed; 0 when the collection is
+        missing or already migrated.
+        """
+        if not _chromadb_available():
+            return 0
+        client = await self.get_client()
+        try:
+            collection = await client.get_collection(name=self.collection_name)
+        except Exception:
+            return 0
+        list_fields = {
+            f.name: f.type
+            for f in metadata.declared
+            if f.type in (MetadataType.STRING_LIST, MetadataType.NUMBER_LIST)
+        }
+        return await migrate_collection(collection, list_fields)
 
     async def delete(self, ctx: IngestContext) -> None:
         """Delete the entire collection and its page images.

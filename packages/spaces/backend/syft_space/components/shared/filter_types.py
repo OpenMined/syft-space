@@ -27,6 +27,7 @@ __all__ = [
     "WIRE_OPERATORS",
     "FieldFilterSpec",
     "FilterCondition",
+    "FilterValidationError",
     "FilterGroup",
     "FilterNode",
     "FilterOperator",
@@ -37,6 +38,7 @@ __all__ = [
     "dtype_for",
     "ops_for",
     "specs_for",
+    "validate_filters",
 ]
 
 MAX_DEPTH = 5
@@ -334,3 +336,68 @@ def condition_count(node: FilterCondition | FilterGroup) -> int:
     if isinstance(node, FilterCondition):
         return 1
     return sum(condition_count(o) for o in node.operands)
+
+
+class FilterValidationError(ValueError):
+    """A query filter the dataset cannot run: which field, and why."""
+
+    def __init__(self, field: str, reason: str) -> None:
+        super().__init__(f"{field}: {reason}")
+        self.field = field
+        self.reason = reason
+
+
+def validate_filters(
+    node: FilterCondition | FilterGroup, specs: dict[str, FieldFilterSpec]
+) -> FilterCondition | FilterGroup:
+    """Check a query tree against the dataset's spec and coerce its values.
+
+    Every field must be in ``specs`` with the operator among its ops; a
+    list operator needs a list and a scalar one a scalar. The result
+    carries ``value_dtype`` so a store translator can route by type.
+    Nothing is dropped silently: the first problem raises.
+    """
+    if isinstance(node, FilterGroup):
+        if node.op not in WIRE_LOGIC:
+            raise FilterValidationError(
+                "<group>", f"operator '{node.op.value}' is not allowed in a query"
+            )
+        return node.model_copy(
+            update={"operands": [validate_filters(o, specs) for o in node.operands]}
+        )
+
+    spec = specs.get(node.field)
+    if spec is None:
+        raise FilterValidationError(node.field, "not a filterable field")
+    if node.op not in spec.ops:
+        raise FilterValidationError(
+            node.field,
+            f"operator '{node.op.value}' is not allowed for a {spec.type.value} "
+            f"field; allowed: {[o.value for o in spec.ops]}",
+        )
+    if (node.op in LIST_OPERATORS) != isinstance(node.value, list):
+        raise FilterValidationError(
+            node.field,
+            f"operator '{node.op.value}' takes "
+            + ("a list of values" if node.op in LIST_OPERATORS else "a single value"),
+        )
+    try:
+        return FilterCondition(
+            field=node.field,
+            op=node.op,
+            value_dtype=dtype_for(spec.type),
+            value=node.value,
+        )
+    except ValueError as e:
+        raise FilterValidationError(node.field, _first_error_message(e)) from e
+
+
+def _first_error_message(e: Exception) -> str:
+    """The coercion message without pydantic's location framing."""
+    errors = getattr(e, "errors", None)
+    if callable(errors):
+        details = errors()
+        if details:
+            msg = str(details[0].get("msg", e))
+            return msg.removeprefix("Value error, ")
+    return str(e)

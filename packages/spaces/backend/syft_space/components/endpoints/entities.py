@@ -94,6 +94,14 @@ class Endpoint(SQLModel, table=True):
         sa_column=Column(JSON),
         description="List of marketplace IDs this endpoint is published to",
     )
+    filterable_fields: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description=(
+            "Metadata fields a query may filter on. None means every field the "
+            "dataset can filter; an empty list means none."
+        ),
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

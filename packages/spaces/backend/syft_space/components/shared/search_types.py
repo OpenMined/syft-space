@@ -11,6 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from syft_space.components.shared.domain_types import Context
+from syft_space.components.shared.filter_types import FilterNode
 
 
 class SearchContext(Context):
@@ -36,6 +37,13 @@ class SearchParameters(BaseModel):
     )
     include_metadata: bool = Field(
         default=True, description="Whether to include metadata in response"
+    )
+    filters: FilterNode | None = Field(
+        default=None,
+        description=(
+            "Metadata filter, already validated and coerced by the binding; "
+            "the store translates it to its own query language."
+        ),
     )
     extra_options: dict[str, Any] = Field(
         default_factory=dict, description="Extra options for the search"
