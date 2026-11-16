@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from syft_benchmark.sources import is_useful, load_documents, strip_header
-from syft_benchmark.sources.chroma import Chunk, _added_at, _doc_meta
+from syft_benchmark.sources.chroma import Chunk, _doc_meta, _indexed_at
 
 
 def test_header_is_separated_from_body() -> None:
@@ -102,7 +102,7 @@ class _Client:
                 file_name=f"{doc_id}.md",
                 headings="",
                 published=str(meta.get("published") or ""),
-                added_at=_added_at(meta),
+                indexed_at=_indexed_at(meta),
                 doc_meta=_doc_meta(meta),
             )
 
