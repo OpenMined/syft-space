@@ -270,7 +270,10 @@ async def test_chroma_search_time_keys_are_declared():
 
 def test_chroma_derives_a_timestamp_twin_per_public_datetime_source_field():
     derived = ChromaDBMetadataFields().derived(LocalFileMetadataFields())
-    assert derived == (MetadataField(name="updated_ts", type=MetadataType.NUMBER),)
+    assert derived == (
+        MetadataField(name="published_ts", type=MetadataType.NUMBER),
+        MetadataField(name="updated_ts", type=MetadataType.NUMBER),
+    )
     # not source_ts (a string), not absolute_path_ts (hidden)
 
 
