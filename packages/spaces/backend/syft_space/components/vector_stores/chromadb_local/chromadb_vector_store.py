@@ -332,7 +332,9 @@ class ChromaDBLocalVectorStore:
         client = await self.get_client()
         collection = await client.get_or_create_collection(
             name=self.collection_name,
-            metadata={"hnsw:space": "cosine"},
+            # Distance metric lives in the collection configuration; existing
+            # collections created with `hnsw:space` metadata keep cosine as is.
+            configuration={"hnsw": {"space": "cosine"}},
         )
 
         for file in request.files:
