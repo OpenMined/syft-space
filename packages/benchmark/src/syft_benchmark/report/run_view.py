@@ -79,7 +79,7 @@ from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 15
+AGGREGATE_VERSION = 16
 
 TRICK_GENERATOR = "unanswerable_property"
 

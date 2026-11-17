@@ -324,11 +324,14 @@ def chat(
                 continue
 
             if not content:
-                # Empty with a normal finish_reason — a retry will change
-                # nothing; empty with length — the budget has climbed to the
-                # ceiling and the model printed nothing before reaching it. The
-                # budget is named, because that is the number to raise.
-                raise (LLMTruncatedError if finish == "length" else LLMFatalError)(
+                # Empty with a normal finish_reason is a passing glitch, not a
+                # refusal: Gemini returns one now and then and answers the same
+                # call on a retry. It is retried and, still empty, fails this
+                # call only, so a judge is not stood down over it. Empty with
+                # length — the budget has climbed to the ceiling and the model
+                # printed nothing before reaching it. The budget is named,
+                # because that is the number to raise.
+                raise (LLMTruncatedError if finish == "length" else LLMError)(
                     f"{named} returned an empty answer "
                     f"(finish_reason={finish}, max_tokens={body['max_tokens']})"
                 )

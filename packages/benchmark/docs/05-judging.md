@@ -185,8 +185,9 @@ uv run syft-benchmark settings set judge_models '["anthropic/claude-sonnet-4","o
   its own run.
 * `denial_loop` and `monte_carlo` are graded by the first judge only.
 * **The counted verdict** of an answer is the owner override, else the
-  primary judge's freshest verdict, else the next judge's in panel order. The
-  primary is the launch's first panel judge that graded it (outside a launch,
+  primary judge's freshest verdict, else the next judge's in panel order. A
+  technical verdict (the judge call failed) gives way to the next judge that
+  graded; it counts only when no judge graded the answer. The primary is the launch's first panel judge that graded it (outside a launch,
   the first configured one). Every figure and the Excel export's *Counted*
   column count it; the export's *Answers* sheet shows the counted row's
   answer (after a re-ask, the fresh reply, not the failed one). An answer is

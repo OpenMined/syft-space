@@ -239,14 +239,30 @@ def test_a_transient_refusal_is_retried(monkeypatch: pytest.MonkeyPatch) -> None
     assert provider.calls == 2
 
 
-def test_an_empty_reply_at_a_normal_finish_is_not_retried(
+def test_an_empty_reply_at_a_normal_finish_is_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Empty with a normal finish_reason — a retry will change nothing."""
+    """Empty with a normal finish_reason is a passing glitch: the retry answers."""
+    provider = _Provider((200, _reply("")), (200, _reply("an answer")))
+    monkeypatch.setattr(httpx, "post", provider)
+    monkeypatch.setattr("syft_benchmark.llm.client.time.sleep", lambda _s: None)
+
+    answer, _usage = chat("s", "u", retries=2, settings=_local())
+
+    assert answer == "an answer"
+    assert provider.calls == 2
+
+
+def test_an_empty_reply_that_stays_empty_is_not_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Still empty after the retries, the call fails without standing anyone down."""
     provider = _Provider((200, _reply("")))
     monkeypatch.setattr(httpx, "post", provider)
+    monkeypatch.setattr("syft_benchmark.llm.client.time.sleep", lambda _s: None)
 
-    with pytest.raises(LLMFatalError):
+    with pytest.raises(LLMError) as raised:
         chat("s", "u", retries=2, settings=_local())
 
-    assert provider.calls == 1
+    assert not isinstance(raised.value, LLMFatalError)
+    assert provider.calls == 3

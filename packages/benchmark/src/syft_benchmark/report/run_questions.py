@@ -180,6 +180,7 @@ def counted_ids(
         select(
             Result.id,
             Result.judge_model,
+            Result.verdict,
             Result.qa_id,
             Run.model,
             Run.context_mode,

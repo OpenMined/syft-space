@@ -25,6 +25,7 @@ from syft_benchmark.config import (
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.db.models import Job
 from syft_benchmark.report import metrics as metrics_mod
+from syft_benchmark.report.counted import pick
 from syft_benchmark.report.metrics import judges_seen, summarize
 from syft_benchmark.report.slices import judge_agreement
 from syft_benchmark.runs import judge as run_judge
@@ -572,3 +573,40 @@ def test_a_copied_result_keeps_every_answer_field() -> None:
         "new-judge",
         "",
     )
+
+
+def _verdict(judge: str, verdict: Verdict) -> SimpleNamespace:
+    return SimpleNamespace(judge_model=judge, verdict=verdict.value)
+
+
+def test_a_failed_primary_call_gives_way_to_the_second_judge() -> None:
+    """The primary's call failed, the second judge graded: the grade counts."""
+    failed = _verdict(PRIMARY, Verdict.TECHNICAL)
+    graded = _verdict(SECOND, Verdict.CORRECT)
+
+    picked = pick([failed, graded], [PRIMARY, SECOND])
+
+    assert picked.counted is graded and picked.judged is graded
+
+
+def test_a_technical_verdict_counts_only_when_no_judge_graded() -> None:
+    first = _verdict(PRIMARY, Verdict.TECHNICAL)
+    second = _verdict(SECOND, Verdict.TECHNICAL)
+
+    assert pick([second, first], [PRIMARY, SECOND]).counted is first
+
+
+def test_the_primary_grade_still_outranks_the_second() -> None:
+    primary = _verdict(PRIMARY, Verdict.ABSTAIN)
+    second = _verdict(SECOND, Verdict.CORRECT)
+
+    assert pick([primary, second], [PRIMARY, SECOND]).counted is primary
+
+
+def test_an_override_outranks_a_grade_behind_a_failed_call() -> None:
+    override = _verdict(OWNER_OVERRIDE, Verdict.HALLUCINATE)
+    rows = [_verdict(PRIMARY, Verdict.TECHNICAL), _verdict(SECOND, Verdict.CORRECT)]
+
+    picked = pick([*rows, override], [PRIMARY, SECOND])
+
+    assert picked.counted is override and picked.judged is rows[1]

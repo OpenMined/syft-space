@@ -1,8 +1,10 @@
 """Which verdict of an answer counts, and who the primary judge is.
 
 The counted verdict is the latest owner override, else the freshest verdict of
-the primary judge, else that of the next judge in panel order. Every figure is
-counted this way; the other judges' verdicts only feed agreement.
+the primary judge, else that of the next judge in panel order. A technical
+verdict (the judge call failed) gives way to the next judge's grade; it counts
+only when no judge graded the answer. Every figure is counted this way; the
+other judges' verdicts only feed agreement.
 """
 
 from __future__ import annotations
@@ -80,6 +82,7 @@ def group_answers(
 
 class _Judged(Protocol):
     judge_model: str
+    verdict: str
 
 
 T = TypeVar("T", bound=_Judged)
@@ -98,7 +101,9 @@ def pick(rows: Sequence[T], panel: Sequence[str]) -> Picked[T]:
     """The counted verdict among one answer's rows, oldest first.
 
     ``panel`` is the judges in precedence order, primary first; a judge not in
-    it ranks after it, by first appearance.
+    it ranks after it, by first appearance. A judge whose freshest verdict is
+    technical (its call failed) is passed over for the next one that graded;
+    the technical verdict counts only when no judge graded the answer.
     """
     freshest: dict[str, T] = {}
     override: T | None = None
@@ -107,14 +112,12 @@ def pick(rows: Sequence[T], panel: Sequence[str]) -> Picked[T]:
             override = row
         else:
             freshest[row.judge_model] = row
-    judged: T | None = None
-    for judge in panel:
-        if judge in freshest:
-            judged = freshest[judge]
-            break
-    else:
-        if freshest:
-            judged = next(iter(freshest.values()))
+    ranked = [freshest[judge] for judge in dict.fromkeys(panel) if judge in freshest]
+    ranked += [row for judge, row in freshest.items() if judge not in panel]
+    judged = next(
+        (row for row in ranked if row.verdict != Verdict.TECHNICAL.value),
+        ranked[0] if ranked else None,
+    )
     return Picked(counted=override or judged, judged=judged, override=override)
 
 
