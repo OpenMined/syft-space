@@ -30,7 +30,7 @@ from syft_space.components.datasets.events import (
 from syft_space.components.datasets.provisioner_state_repository import (
     ProvisionerStateRepository,
 )
-from syft_space.components.datasets.repository import DatasetRepository
+from syft_space.components.datasets.repository import UNSET, DatasetRepository
 from syft_space.components.datasets.schemas import (
     AddSelectionRequest,
     CreateDatasetRequest,
@@ -537,6 +537,7 @@ class DatasetHandler:
             configuration=final_config,
             summary=request.summary,
             tags=request.tags,
+            filterable_fields=request.filterable_fields,
             tenant_id=tenant.id,
             provisioner_state_id=provisioner_state.id if provisioner_state else None,
         )
@@ -659,6 +660,11 @@ class DatasetHandler:
                 summary=request.summary,
                 tags=request.tags,
                 configuration=new_configuration,
+                filterable_fields=(
+                    request.filterable_fields
+                    if "filterable_fields" in request.model_fields_set
+                    else UNSET
+                ),
             )
         except ValueError as e:
             # Name conflict or constraint violation

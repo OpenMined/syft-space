@@ -11,13 +11,6 @@ from syft_space.components.endpoints.entities import Endpoint
 from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
-class UnsetType:
-    """Marks an update argument that was not given, so ``None`` can be a value."""
-
-
-UNSET = UnsetType()
-
-
 class EndpointRepository(AsyncBaseRepository[Endpoint]):
     """Repository for Endpoint CRUD operations."""
 
@@ -121,7 +114,6 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
         summary: str | None = None,
         description: str | None = None,
         system_prompt: str | None = None,
-        filterable_fields: list[str] | None | UnsetType = UNSET,
     ) -> Endpoint | None:
         """Update an endpoint by slug within a tenant.
 
@@ -133,9 +125,6 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
             description: Updated markdown description
             system_prompt: Updated custom system prompt. An empty string
                 clears the override (falls back to model default); ``None``
-                leaves the existing value untouched.
-            filterable_fields: Fields a query may filter on. ``None`` allows
-                every filterable field, a list restricts to it; ``UNSET``
                 leaves the existing value untouched.
 
         Returns:
@@ -167,8 +156,6 @@ class EndpointRepository(AsyncBaseRepository[Endpoint]):
             if system_prompt is not None:
                 # Empty string clears the override; any non-empty value sets it
                 endpoint.system_prompt = system_prompt or None
-            if not isinstance(filterable_fields, UnsetType):
-                endpoint.filterable_fields = filterable_fields
 
             endpoint.updated_at = datetime.now(timezone.utc)
             session.add(endpoint)

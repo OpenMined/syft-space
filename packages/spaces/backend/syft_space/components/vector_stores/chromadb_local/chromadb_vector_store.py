@@ -165,7 +165,10 @@ class ChromaDBMetadataFields(MetadataFields):
         MetadataField(name="file_size", hidden=True, type=MetadataType.NUMBER),
         MetadataField(name="page_numbers", type=MetadataType.NUMBER_LIST),
         MetadataField(name="headings", type=MetadataType.STRING_LIST),
-        MetadataField(name="image_urls", type=MetadataType.STRING_LIST),
+        # Links and labels: returned with results, never offered as filters.
+        MetadataField(
+            name="image_urls", type=MetadataType.STRING_LIST, filterable=False
+        ),
         MetadataField(name="external_id", hidden=True, type=MetadataType.STRING),
         MetadataField(name="prev_chunk_id", hidden=True, type=MetadataType.STRING),
         MetadataField(name="next_chunk_id", hidden=True, type=MetadataType.STRING),

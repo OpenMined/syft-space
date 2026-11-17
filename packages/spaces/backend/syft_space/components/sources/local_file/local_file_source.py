@@ -353,7 +353,8 @@ class LocalFileMetadataFields(MetadataFields):
 
     fields = (
         MetadataField(name="title", type=MetadataType.STRING),
-        MetadataField(name="url", type=MetadataType.STRING),
+        # Links and labels: returned with results, never offered as filters.
+        MetadataField(name="url", type=MetadataType.STRING, filterable=False),
         MetadataField(name="author", type=MetadataType.STRING),
         MetadataField(name="published", type=MetadataType.DATETIME),
         MetadataField(name="source", type=MetadataType.STRING),

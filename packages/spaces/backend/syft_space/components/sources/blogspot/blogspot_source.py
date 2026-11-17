@@ -795,7 +795,8 @@ class BlogspotMetadataFields(MetadataFields):
         MetadataField(name="blog_id", type=MetadataType.STRING),
         MetadataField(name="post_id", type=MetadataType.STRING),
         MetadataField(name="title", type=MetadataType.STRING),
-        MetadataField(name="url", type=MetadataType.STRING),
+        # Links and labels: returned with results, never offered as filters.
+        MetadataField(name="url", type=MetadataType.STRING, filterable=False),
         MetadataField(name="updated", type=MetadataType.DATETIME),
         MetadataField(name="published", type=MetadataType.DATETIME),
         MetadataField(name="tags", type=MetadataType.STRING_LIST),

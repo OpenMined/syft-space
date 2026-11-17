@@ -76,13 +76,6 @@ class CreateEndpointRequest(BaseModel):
             "default system prompt on every query to this endpoint."
         ),
     )
-    filterable_fields: list[str] | None = Field(
-        default=None,
-        description=(
-            "Metadata fields a query may filter on. Null means every field the "
-            "dataset can filter; an empty list means none."
-        ),
-    )
 
     @field_validator("slug", mode="before")
     @classmethod
@@ -162,13 +155,6 @@ class UpdateEndpointRequest(BaseModel):
             "override and fall back to the model's default system prompt."
         ),
     )
-    filterable_fields: list[str] | None = Field(
-        None,
-        description=(
-            "Metadata fields a query may filter on. Send null to allow every "
-            "filterable field, an empty list to allow none; omit to leave as is."
-        ),
-    )
 
     @model_validator(mode="after")
     def validate_at_least_one_field(self) -> "UpdateEndpointRequest":
@@ -178,11 +164,10 @@ class UpdateEndpointRequest(BaseModel):
             and self.summary is None
             and self.description is None
             and self.system_prompt is None
-            and "filterable_fields" not in self.model_fields_set
         ):
             raise ValueError(
-                "At least one field (name, summary, description, system_prompt "
-                "or filterable_fields) must be provided"
+                "At least one field (name, summary, description, or "
+                "system_prompt) must be provided"
             )
         return self
 
@@ -262,10 +247,6 @@ class EndpointResponse(BaseModel):
         default=None,
         description="Custom system prompt override (null if using model default)",
     )
-    filterable_fields: list[str] | None = Field(
-        default=None,
-        description="Fields a query may filter on; null means every filterable field",
-    )
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
@@ -323,9 +304,6 @@ class EndpointListItem(BaseModel):
     tags: str = Field(..., description="Comma-separated tags")
     system_prompt: str | None = Field(
         default=None, description="Custom system prompt override"
-    )
-    filterable_fields: list[str] | None = Field(
-        default=None, description="Fields a query may filter on; null means all"
     )
     created_at: datetime = Field(..., description="Creation timestamp")
 

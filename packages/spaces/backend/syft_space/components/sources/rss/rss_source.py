@@ -825,10 +825,11 @@ class RssMetadataFields(MetadataFields):
     fields = (
         MetadataField(name="source", type=MetadataType.STRING),
         MetadataField(name="feed_url", type=MetadataType.STRING),
-        MetadataField(name="feed_title", type=MetadataType.STRING),
         MetadataField(name="title", type=MetadataType.STRING),
-        MetadataField(name="url", type=MetadataType.STRING),
-        MetadataField(name="comments_url", type=MetadataType.STRING),
+        # Links and labels: returned with results, never offered as filters.
+        MetadataField(name="feed_title", type=MetadataType.STRING, filterable=False),
+        MetadataField(name="url", type=MetadataType.STRING, filterable=False),
+        MetadataField(name="comments_url", type=MetadataType.STRING, filterable=False),
         MetadataField(name="author", type=MetadataType.STRING),
         MetadataField(name="tags", type=MetadataType.STRING_LIST),
         MetadataField(name="published", type=MetadataType.DATETIME),

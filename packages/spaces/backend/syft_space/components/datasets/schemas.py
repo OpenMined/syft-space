@@ -71,6 +71,13 @@ class CreateDatasetRequest(BaseModel):
     tags: str = Field(
         default="", description="Comma-separated tags (e.g., 'legal,documents')"
     )
+    filterable_fields: list[str] | None = Field(
+        default=None,
+        description=(
+            "Metadata fields a query may filter on. Null means every field the "
+            "type declares filterable; an empty list means none."
+        ),
+    )
 
     class Config:
         """Pydantic config."""
@@ -109,6 +116,13 @@ class UpdateDatasetRequest(BaseModel):
     configuration: dict[str, Any] | None = Field(
         None, description="Editable configuration keys to change"
     )
+    filterable_fields: list[str] | None = Field(
+        None,
+        description=(
+            "Metadata fields a query may filter on. Send null to allow every "
+            "filterable field, an empty list to allow none; omit to leave as is."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_at_least_one_field(self) -> "UpdateDatasetRequest":
@@ -118,10 +132,11 @@ class UpdateDatasetRequest(BaseModel):
             and self.summary is None
             and self.tags is None
             and self.configuration is None
+            and "filterable_fields" not in self.model_fields_set
         ):
             raise ValueError(
-                "At least one field (name, summary, tags, or configuration) "
-                "must be provided"
+                "At least one field (name, summary, tags, configuration or "
+                "filterable_fields) must be provided"
             )
         return self
 
@@ -277,6 +292,10 @@ class DatasetResponse(BaseModel):
     configuration: dict[str, Any] = Field(..., description="Configuration")
     summary: str = Field(..., description="Dataset summary")
     tags: str = Field(..., description="Comma-separated tags")
+    filterable_fields: list[str] | None = Field(
+        default=None,
+        description="Fields a query may filter on; null means every filterable field",
+    )
     provisioner_state: ProvisionerStateResponse | None = Field(
         None, description="Provisioner state"
     )
@@ -322,6 +341,7 @@ class DatasetResponse(BaseModel):
             configuration=redact_config(dataset.configuration, dataset.dtype),
             summary=dataset.summary,
             tags=dataset.tags,
+            filterable_fields=dataset.filterable_fields,
             provisioner_state=provisioner_state_response,
             created_at=dataset.created_at,
             updated_at=dataset.updated_at,
@@ -337,6 +357,9 @@ class DatasetListItem(BaseModel):
     dtype: str = Field(..., description="Dataset type name")
     summary: str = Field(..., description="Dataset summary")
     tags: str = Field(..., description="Comma-separated tags")
+    filterable_fields: list[str] | None = Field(
+        default=None, description="Fields a query may filter on; null means all"
+    )
     created_at: datetime = Field(..., description="Creation timestamp")
     connected_endpoints: list[EndpointListItem] = Field(
         ..., description="Connected endpoints"
@@ -385,6 +408,7 @@ class DatasetListItem(BaseModel):
             dtype=dataset.dtype,
             summary=dataset.summary,
             tags=dataset.tags,
+            filterable_fields=dataset.filterable_fields,
             created_at=dataset.created_at,
             connected_endpoints=dataset.endpoints,
             provisioner_status=provisioner_status_response,

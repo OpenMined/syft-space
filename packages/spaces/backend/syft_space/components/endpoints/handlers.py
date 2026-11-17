@@ -10,7 +10,7 @@ from syft_space.components.datasets.selection_repository import (
 )
 from syft_space.components.endpoints.entities import Endpoint
 from syft_space.components.endpoints.interfaces import DeletionCheck
-from syft_space.components.endpoints.repository import UNSET, EndpointRepository
+from syft_space.components.endpoints.repository import EndpointRepository
 from syft_space.components.endpoints.schemas import (
     CreateEndpointRequest,
     EndpointCreateResponse,
@@ -96,7 +96,6 @@ class EndpointHandler:
             published=request.published,
             tags=request.tags,
             system_prompt=request.system_prompt,
-            filterable_fields=request.filterable_fields,
             tenant_id=tenant.id,
         )
 
@@ -135,11 +134,6 @@ class EndpointHandler:
             summary=request.summary,
             description=request.description,
             system_prompt=request.system_prompt,
-            filterable_fields=(
-                request.filterable_fields
-                if "filterable_fields" in request.model_fields_set
-                else UNSET
-            ),
         )
         if not updated_endpoint:
             raise HTTPException(status_code=404, detail=f"Endpoint '{slug}' not found")

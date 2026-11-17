@@ -12,6 +12,13 @@ from syft_space.components.datasets.entities import Dataset
 from syft_space.components.shared.database import AsyncBaseRepository, AsyncDatabase
 
 
+class UnsetType:
+    """Marks an update argument that was not given, so ``None`` can be a value."""
+
+
+UNSET = UnsetType()
+
+
 class DatasetRepository(AsyncBaseRepository[Dataset]):
     """Repository for Dataset CRUD operations."""
 
@@ -174,6 +181,7 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
         summary: str | None = None,
         tags: str | None = None,
         configuration: dict[str, Any] | None = None,
+        filterable_fields: list[str] | None | UnsetType = UNSET,
     ) -> Dataset | None:
         """Update a dataset by name within a tenant.
 
@@ -188,6 +196,9 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
             summary: Updated summary
             tags: Updated tags
             configuration: The full new configuration (replaces the stored one)
+            filterable_fields: Fields a query may filter on. ``None`` allows
+                every filterable field, a list restricts to it; ``UNSET``
+                leaves the existing value untouched.
 
         Returns:
             Updated dataset if found, None otherwise
@@ -243,6 +254,8 @@ class DatasetRepository(AsyncBaseRepository[Dataset]):
                 dataset.tags = tags
             if configuration is not None:
                 dataset.configuration = configuration
+            if not isinstance(filterable_fields, UnsetType):
+                dataset.filterable_fields = filterable_fields
 
             # Update timestamp
             dataset.updated_at = datetime.now(timezone.utc)
