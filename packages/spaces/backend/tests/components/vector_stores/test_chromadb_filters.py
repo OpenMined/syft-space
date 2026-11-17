@@ -301,6 +301,14 @@ async def test_migration_rewrites_only_changed_keys_of_changed_chunks_and_flags_
     assert collection.metadata == {MIGRATED_FLAG: True}
 
 
+async def test_the_flag_write_leaves_hnsw_keys_out_but_keeps_the_rest():
+    collection = _LegacyCollection(
+        {"1": {"tags": "a"}}, metadata={"hnsw:space": "cosine", "owner": "me"}
+    )
+    await migrate_collection(collection, LIST_FIELDS)
+    assert collection.metadata == {"owner": "me", MIGRATED_FLAG: True}
+
+
 async def test_a_flagged_collection_is_not_read_again():
     collection = _LegacyCollection(
         {"1": {"tags": "a,b"}}, metadata={MIGRATED_FLAG: True}

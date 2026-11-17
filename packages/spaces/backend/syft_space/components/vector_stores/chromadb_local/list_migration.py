@@ -87,9 +87,14 @@ async def migrate_collection(
             changed += len(update_ids)
         offset += len(ids)
 
-    await collection.modify(
-        metadata={**(collection.metadata or {}), MIGRATED_FLAG: True}
-    )
+    # modify replaces the metadata and refuses `hnsw:*` keys; the distance
+    # function lives in the collection configuration, so dropping them is safe.
+    kept = {
+        k: v
+        for k, v in (collection.metadata or {}).items()
+        if not k.startswith("hnsw:")
+    }
+    await collection.modify(metadata={**kept, MIGRATED_FLAG: True})
     if changed:
         logger.info(f"Rewrote list metadata of {changed} chunks in {collection.name}")
     return changed
