@@ -137,6 +137,20 @@ async def test_local_file_fetch_metadata_is_declared_and_hides_the_path(tmp_path
     assert "absolute_path" not in _public_of(meta, fields)
 
 
+async def test_local_file_article_keys_are_public_and_doc_keys_stay_inside(tmp_path):
+    file = tmp_path / "article.md"
+    file.write_text(
+        "---\ntitle: T\nurl: https://x\nauthor: A\n"
+        "published_date: 2026-10-09\nsource: Bloomberg\n---\nBody\n"
+    )
+    source = LocalFileSource.__new__(LocalFileSource)
+    async with source.fetch(str(file)) as ingest_file:
+        meta = ingest_file.metadata
+    public = _public_of(meta, LocalFileMetadataFields())
+    assert set(public) == {"source", "updated", "title", "url", "author", "published"}
+    assert public["source"] == "local_file"
+
+
 # ============== ChromaDB: ingest-time and search-time keys ==============
 
 
@@ -213,7 +227,14 @@ async def test_chroma_search_time_keys_are_declared():
 
 def test_chroma_derives_a_timestamp_twin_per_public_source_field():
     derived = _names(ChromaDBMetadataFields().derived(LocalFileMetadataFields()))
-    assert derived == {"source_ts", "updated_ts"}  # not absolute_path_ts
+    assert derived == {
+        "source_ts",
+        "updated_ts",
+        "title_ts",
+        "url_ts",
+        "author_ts",
+        "published_ts",
+    }  # not absolute_path_ts
 
 
 # ============== Weaviate: declared from the owner's config ==============

@@ -3,9 +3,9 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.4
     hooks:
-      # Run the linter on all Python (each backend resolves its own
+      # Run the linter on all Python (each package resolves its own
       # [tool.ruff] config per-file: packages/spaces/backend/,
-      # packages/station/backend/, scripts).
+      # packages/station/backend/, packages/benchmark/, scripts).
       - id: ruff
         args: [--fix]
       # Run the formatter on all Python.

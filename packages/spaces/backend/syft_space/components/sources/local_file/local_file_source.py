@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from pathlib import Path as SyncPath
 from typing import Any
 
 from anyio import Path as AsyncPath
+from anyio import to_thread
 from pydantic import BaseModel, Field, ValidationError
 
 from syft_space.components.ingestion.utils import rglob_visible
@@ -25,6 +27,12 @@ from syft_space.components.sources.interfaces import (
 )
 from syft_space.components.sources.local_file.local_file_watcher import (
     get_local_file_watcher,
+)
+from syft_space.components.sources.local_file.markdown_front_matter import (
+    article_metadata,
+    front_matter_metadata,
+    split_front_matter,
+    with_title_heading,
 )
 
 DEFAULT_ALLOWED_EXTENSIONS = [
@@ -208,20 +216,57 @@ class LocalFileSource:
 
     @asynccontextmanager
     async def fetch(self, external_id: str) -> AsyncIterator[IngestFile]:
-        """Yield an ``IngestFile`` pointing at the on-disk path."""
+        """Yield an ``IngestFile`` for the file.
+
+        A Markdown file with a front matter header yields a temp file holding
+        the body under a ``# title`` heading, removed on exit; the header
+        fields join the metadata as ``doc_*`` keys and the article keys,
+        below the source's own. Any other file yields its on-disk path.
+        """
         path = SyncPath(external_id)
         stat = path.stat()
-        yield IngestFile(
+        metadata: dict[str, Any] = {
+            "source": LocalFileProvider.NAME,
+            "updated": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+            "absolute_path": str(path),
+        }
+        file = IngestFile(
             external_id=external_id,
             path=path,
             filename=path.name,
             file_size=stat.st_size,
-            metadata={
-                "source": LocalFileProvider.NAME,
-                "updated": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
-                "absolute_path": str(path),
-            },
+            metadata=metadata,
         )
+        split = (
+            await to_thread.run_sync(_split_markdown, path)
+            if path.suffix.lower() == ".md"
+            else None
+        )
+        if split is None:
+            yield file
+            return
+
+        fields, body = split
+        article = article_metadata(fields)
+        body = with_title_heading(article.get("title", ""), body)
+        # The source folder may be read-only, so the body goes to a temp file.
+        fd, tmp_name = tempfile.mkstemp(suffix=".md")
+        tmp_path = SyncPath(tmp_name)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(body.encode("utf-8"))
+            yield file.model_copy(
+                update={
+                    "path": tmp_path,
+                    "metadata": {
+                        **front_matter_metadata(fields),
+                        **article,
+                        **metadata,
+                    },
+                }
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def fingerprint(self, external_id: str) -> str:
         """Return a ``{size, mtime_ns}`` token used for change detection.
@@ -285,12 +330,30 @@ class LocalFileSource:
         )
 
 
+def _split_markdown(path: SyncPath) -> tuple[dict[str, Any], str] | None:
+    """Header fields and body of a Markdown file; None when it is not
+    UTF-8 or has no header."""
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    fields, body = split_front_matter(text)
+    if fields is None:
+        return None
+    return fields, body
+
+
 class LocalFileMetadataFields(MetadataFields):
-    """Keys ``LocalFileSource.fetch`` writes. The owner's path stays inside."""
+    """Keys ``LocalFileSource.fetch`` writes. The owner's path stays inside,
+    as do the undeclared ``doc_*`` header keys."""
 
     fields = (
         MetadataField(name="source"),
         MetadataField(name="updated"),
+        MetadataField(name="title"),
+        MetadataField(name="url"),
+        MetadataField(name="author"),
+        MetadataField(name="published"),
         MetadataField(name="absolute_path", hidden=True),
     )
 

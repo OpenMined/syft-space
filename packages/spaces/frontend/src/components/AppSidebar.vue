@@ -39,7 +39,7 @@ const routeMapping: Record<string, string[]> = {
   chat: ['chat'],
   endpoints: ['endpoints', 'endpoint-detail'],
   analytics: ['analytics'],
-  settings: ['settings'],
+  settings: ['settings', 'model-access'],
 }
 
 const isActive = (navId: string) => {

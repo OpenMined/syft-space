@@ -68,6 +68,15 @@ flowchart TB
 The subscription opens *before* the initial walk on purpose: a file saved
 mid-scan is buffered rather than missed.
 
+A `.md` file that opens with a `---` front matter header of flat `key: value`
+lines (naming at least one of `title`, `url`, `source`, `author`,
+`published_date`) is indexed without the header; its fields are stored on
+every chunk as `doc_<key>` metadata (`doc_title`, `doc_url`, ...), kept
+inside the Space. `title`, `url`, `author` and `published_date` are also
+stored as the public `title`, `url`, `author` and `published` keys the API
+sources use. The title heads the body as a `# Title` heading, so every
+chunk's headings carry it.
+
 ## Change detection
 
 The fingerprint is the file's **size plus modification time**. Edit and save,

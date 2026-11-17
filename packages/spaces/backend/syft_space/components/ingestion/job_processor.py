@@ -13,6 +13,7 @@ in via ``bind()`` at startup.
 """
 
 import asyncio
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -201,6 +202,10 @@ class JobProcessor:
                     ctx = IngestContext(
                         sender="system@openmined.org", dataset_id=dataset.id
                     )
+                    # When the Space indexed this version of the file. The
+                    # benchmark's time window reads it for articles without a
+                    # publication date.
+                    ingest_file.metadata["syft_indexed_at"] = datetime.now(timezone.utc)
                     try:
                         await dataset_type.ingest(  # type: ignore[attr-defined]
                             ctx, IngestRequest(files=[ingest_file])

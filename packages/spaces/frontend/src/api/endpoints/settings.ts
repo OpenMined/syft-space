@@ -3,6 +3,7 @@ import type {
   PublicUrlResponse,
   UpdatePublicUrlRequest,
   ManagedResponse,
+  FeaturesResponse,
   ProxyStatusResponse,
   DiagnosticsResponse,
   UpdateDiagnosticsRequest,
@@ -18,6 +19,12 @@ export const settingsApi = {
   // Whether a station manages this space (plus its assigned public URL)
   getManaged: async (): Promise<ManagedResponse> => {
     const response = await apiClient.get('/settings/managed')
+    return response.data
+  },
+
+  // Feature flags set on the backend
+  getFeatures: async (): Promise<FeaturesResponse> => {
+    const response = await apiClient.get('/settings/features')
     return response.data
   },
 

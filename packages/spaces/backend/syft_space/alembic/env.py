@@ -9,6 +9,10 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
+from syft_space.components.benchmarks.entities import (  # noqa: F401
+    BenchmarkConnection,
+    BenchmarkTarget,
+)
 from syft_space.components.datasets.entities import (  # noqa: F401
     Dataset,
     DatasetSelection,

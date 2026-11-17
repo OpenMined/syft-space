@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -31,6 +32,12 @@ from syft_space.components.analytics.text_processing import extract_user_query
 from syft_space.components.auth.dependencies import bearer_scheme
 from syft_space.components.auth.middleware import AdminKeyMiddleware
 from syft_space.components.auth.public import discover_public_routes, public_route
+from syft_space.components.benchmarks.handlers import BenchmarkHandler
+from syft_space.components.benchmarks.repository import (
+    BenchmarkConnectionRepository,
+    BenchmarkTargetRepository,
+)
+from syft_space.components.benchmarks.routes import build_benchmark_routes
 
 # Import explicit registration functions
 from syft_space.components.dataset_types import (
@@ -471,6 +478,8 @@ ingestion_job_repository = IngestionJobRepository(database)
 dataset_selection_repository = DatasetSelectionRepository(database)
 marketplace_repository = MarketplaceRepository(database)
 wallet_repository = WalletRepository(database)
+benchmark_connection_repository = BenchmarkConnectionRepository(database)
+benchmark_target_repository = BenchmarkTargetRepository(database)
 
 # Explicit type registration - no import side effects
 logger.info("Registering sources ...")
@@ -697,6 +706,16 @@ settings_handler = SettingsHandler(
 )
 feedback_handler = FeedbackHandler(marketplace_repository)
 
+# With no benchmark connection, these routes report that nothing is connected.
+benchmark_handler = BenchmarkHandler(
+    connection_repository=benchmark_connection_repository,
+    target_repository=benchmark_target_repository,
+    endpoint_repository=endpoint_repository,
+    dataset_repository=dataset_repository,
+    dataset_registry=DATASET_TYPE_REGISTRY,
+    settings_repository=settings_repository,
+)
+
 # Initialize ingestion handler
 ingestion_handler = IngestionHandler(
     ingestion_manager=ingestion_manager,
@@ -739,6 +758,8 @@ router.include_router(build_tenant_routes(tenant_handler))
 router.include_router(build_ingestion_routes(ingestion_handler))
 router.include_router(build_marketplace_routes(marketplace_handler))
 router.include_router(build_settings_routes(settings_handler))
+if app_settings.benchmark_enabled:
+    router.include_router(build_benchmark_routes(benchmark_handler))
 router.include_router(build_feedback_routes(feedback_handler))
 router.include_router(build_wallet_routes(wallet_handler))
 router.include_router(
@@ -784,6 +805,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Gzip responses, including the static frontend. Added last so it is outermost.
+# Level 6: higher levels cost much more CPU on the event loop for little gain.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 # Mount static files (if frontend exists)
 # Frontend is a sibling directory to backend

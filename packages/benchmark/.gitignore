@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+config/spaces.json
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+reports/

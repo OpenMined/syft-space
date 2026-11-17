@@ -1,0 +1,71 @@
+[project]
+name = "syft-benchmark"
+version = "0.1.0"
+description = "An honesty benchmark for Syft Space endpoints"
+readme = "README.md"
+authors = [
+    { name = "Alexander Kozlov", email = "alexander.kozlov@openmined.org" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.19.2",
+    # AES-GCM for the sealed credentials (db/crypto.py).
+    "cryptography>=46.0.4",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "matplotlib>=3.11.2",
+    "openpyxl>=3.1.5",
+    "psycopg[binary]>=3.3.5",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "python-docx>=1.2.0",
+    "sqlalchemy>=2.0.52",
+    "typer>=0.27.2",
+    "uvicorn[standard]>=0.53.0",
+]
+
+[project.scripts]
+syft-benchmark = "syft_benchmark.cli:main"
+
+[project.optional-dependencies]
+# BERTScore drags in torch; BLEU and ROUGE need no extra package.
+metrics = [
+    "bert-score>=0.3.13",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.9,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    # Same minor as the pre-commit hook (ruff-pre-commit v0.8.4): raise both together.
+    "ruff>=0.8,<0.9",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+# The test helpers, imported by bare name from tests/.
+known-local-folder = ["support", "fakes"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+
+# These packages ship no types; strict stays on for our own code.
+[[tool.mypy.overrides]]
+module = ["docx.*", "bert_score.*", "openpyxl.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

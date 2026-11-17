@@ -1,0 +1,975 @@
+"""The control API's contract: request and response models, and the two
+settings layers a caller may set.
+
+* **Instrument** — what is measured with: arms, blocks, judges, models under
+  test, thresholds. One per target: two targets are comparable exactly when
+  their instruments match.
+* **Probe** — what a node is asked and how: the set's mode, the freshness
+  window, generators, retrieval and answer parameters. It differs per node.
+
+Addresses, keys and the database never travel through this API.
+
+Every layer field is optional, and ``None`` means "take it from the layer
+above" (probe → instrument → installation default), never zero.
+"""
+
+from __future__ import annotations
+
+import string
+from datetime import datetime
+from typing import Annotated, Any, Literal
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+
+from syft_benchmark.config import (
+    ContextMode,
+    ContextSource,
+    DatasetMode,
+    EvalBlock,
+    JudgePolicy,
+    JudgeReasoningEffort,
+    ManualStatusPriority,
+    PairStatus,
+    TextMetric,
+    Verdict,
+    WebSearchEngine,
+)
+from syft_benchmark.llm.catalog import ModelEntry
+
+
+def csv_param(value: str | None) -> tuple[str, ...]:
+    """A comma-separated query parameter, as a tuple of its non-empty parts."""
+    return tuple(part.strip() for part in (value or "").split(",") if part.strip())
+
+
+class Layer(BaseModel):
+    """What both settings layers share: strictness and the merge rule."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    def overrides(self) -> dict[str, object]:
+        """Only what is actually set on this layer.
+
+        Merging goes by the fields that were set, not by the non-empty ones: an
+        empty list of generators is a meaningful "do not disable any", and
+        losing it during the overlay would bring back a setting the owner
+        removed.
+        """
+        return self.model_dump(exclude_unset=True, exclude_none=True, mode="json")
+
+
+# The wrappers a copied list leaves behind: the quotes of a JSON string, the
+# brackets of an array. They are trimmed off the ends rather than refused: a
+# stored target is read back through this same model, and refusing it there
+# would leave its owner unable to open the very form that fixes it.
+_WRAPPERS = "\"'`[]{}" + string.whitespace
+
+# What no repair can turn into a name, because it is not a leftover: a space or
+# a quote in the MIDDLE means the value is several names in one — a list that
+# was split on the wrong character, or not split at all.
+_NOT_IN_A_MODEL_NAME = "\"'`[]{}<>(),"
+
+
+def _model_name(value: str) -> str:
+    """One model name as the provider will see it, or a refusal naming why not.
+
+    A list of models travels between a config file, documentation and a form,
+    and on the way it keeps the punctuation of wherever it came from:
+    ``"a/b", "c/d"`` out of JSON, ``["a/b", "c/d"]`` out of an array. A form
+    that splits on the comma without taking the quotes off leaves them inside
+    the name, the name reaches the provider verbatim, and every call of the run
+    is refused with 400 — after the whole pass has been paid for.
+
+    The check lives here rather than in the form because the form is someone
+    else's and there is more than one of them: the next one will parse a list
+    its own way, and this will still be here.
+    """
+    name = value.strip(_WRAPPERS)
+    if not name:
+        raise ValueError("a model name cannot be empty")
+    found = sorted(
+        {char for char in name if char in _NOT_IN_A_MODEL_NAME or char.isspace()}
+    )
+    if found:
+        listed = ", ".join(repr(char) for char in found)
+        raise ValueError(
+            f"{value!r} is not a model name: it holds {listed}. "
+            "Give one name per entry, without quotes or brackets"
+        )
+    return name
+
+
+class Instrument(Layer):
+    """What we measure with. One per space, not overridden on a single node."""
+
+    # --- What we run
+    arms: list[ContextMode] | None = Field(
+        default=None,
+        description=(
+            "The arms of the measurement: closed_book (the model alone, with web "
+            "search) and model_with_context (the model with the node's excerpts)"
+        ),
+    )
+    blocks: list[EvalBlock] | None = Field(
+        default=None, description="Ways of checking: direct, denial_loop, monte_carlo"
+    )
+    denial_rounds: int | None = Field(default=None, ge=1, le=12)
+    monte_carlo_temperatures: list[float] | None = None
+    monte_carlo_trials: int | None = Field(default=None, ge=1, le=20)
+
+    context_source: ContextSource | None = Field(
+        default=None, description="What to mix into the question in arm C"
+    )
+    context_docs: int | None = Field(default=None, ge=1, le=20)
+    fragment_max_chars: int | None = Field(
+        default=None,
+        ge=200,
+        le=20000,
+        description=(
+            "The ceiling on one chunk's text, applied before the arm C prompt is "
+            "assembled: it decides what the model is shown"
+        ),
+    )
+    answer_max_tokens: int | None = Field(
+        default=None,
+        ge=64,
+        description=(
+            "The ceiling on any model answer — the model under test, the judge, "
+            "the grounding check. A cut-off call is retried with a doubled budget "
+            "up to this"
+        ),
+    )
+
+    # --- Who takes part
+    generator_model: str | None = None
+    subject_models: list[str] | None = Field(
+        default=None,
+        description="The models under test. Empty — the generator model alone",
+    )
+    judge_model: str | None = None
+    judge_models: list[str] | None = Field(
+        default=None,
+        description="The panel of judges. Empty — a single judge_model grades",
+    )
+    judge_policy: JudgePolicy | None = None
+    filter_model: str | None = Field(
+        default=None,
+        description="The web check model. Empty — no web check",
+    )
+    filter_judge_model: str | None = Field(
+        default=None,
+        description="The web check's judge. Empty — the first judge",
+    )
+    manual_status_priority: ManualStatusPriority | None = Field(
+        default=None,
+        description=(
+            "A question returned by hand: filter (the web check may reject it "
+            "again) or manual (the user's choice wins)"
+        ),
+    )
+
+    # --- Web search, per role
+    web_search_engine: WebSearchEngine | None = Field(
+        default=None,
+        description=(
+            "auto (native when the model has it, else Exa), native, plugin (Exa)"
+        ),
+    )
+    web_search_closed_book: bool | None = None
+    web_search_with_context: bool | None = None
+    web_search_generator: bool | None = None
+    web_search_judge: bool | None = None
+    web_search_max_results: int | None = Field(
+        default=None,
+        ge=1,
+        le=20,
+        description="Results per search, for the Exa engine",
+    )
+    web_search_max_calls: int | None = Field(
+        default=None,
+        ge=0,
+        le=30,
+        description=(
+            "Searches one answer of a tested model may make. Zero — the "
+            "provider's own limit"
+        ),
+    )
+
+    # --- How every judge is called
+    judge_temperature: (
+        Annotated[float, Field(ge=0.0, le=2.0)] | Literal["default"] | None
+    ) = Field(
+        default=None,
+        description=(
+            'Where the model takes one. "default" — the model default; null — inherit'
+        ),
+    )
+    judge_reasoning_effort: JudgeReasoningEffort | None = Field(
+        default=None,
+        description="none, minimal, low, medium, high, or default (the model's own)",
+    )
+
+    # --- Judging thresholds
+    key_facts_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    answer_coverage_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    entity_check: bool | None = Field(
+        default=None,
+        description="Reject questions whose subject the question does not identify",
+    )
+    consistency_floor: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    # --- Everything else about the instrument
+    text_metrics: list[TextMetric] | None = Field(
+        default=None,
+        description=(
+            "Mechanical similarity measures. They do not enter the report's shares"
+        ),
+    )
+    methodology_profile: str | None = Field(
+        default=None,
+        description=(
+            "The profile's name. It is written into every run: "
+            "change the thresholds but not the name and the report will silently "
+            "mix incomparable runs"
+        ),
+    )
+    max_consecutive_failures: int | None = Field(default=None, ge=0)
+    concurrency: int | None = Field(
+        default=None,
+        ge=1,
+        le=64,
+        description="How many model calls to keep in flight at once",
+    )
+    max_job_usd: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="USD at which a job is stopped. Zero — no cap",
+    )
+    reuse_answers: bool | None = None
+    audit_log: bool | None = None
+
+    # The models are the one group of settings whose values nobody can check
+    # against a list: they are the provider's. So they are checked against what
+    # a name cannot contain — see _model_name.
+    @field_validator(
+        "generator_model", "judge_model", "filter_model", "filter_judge_model"
+    )
+    @classmethod
+    def _one_model_name(cls, value: str | None) -> str | None:
+        return None if value is None else _model_name(value)
+
+    @field_validator("subject_models", "judge_models")
+    @classmethod
+    def _every_model_name(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else [_model_name(name) for name in value]
+
+
+class Probe(Layer):
+    """What we ask a node and how. Set per space and refined per endpoint."""
+
+    # --- The item set
+    dataset_mode: DatasetMode | None = Field(
+        default=None, description="incremental, rolling or rebuild"
+    )
+    document_window_days: int | None = Field(
+        default=None,
+        ge=0,
+        description="The documents' freshness window. Zero — the whole corpus",
+    )
+    dataset_max_pairs: int | None = Field(
+        default=None, ge=0, description="Cap on active items. Zero — no cap"
+    )
+    top_up_max_usd: float | None = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "USD a build may spend writing more of the kinds the checks left "
+            "short. Zero — no top-up"
+        ),
+    )
+    disabled_generators: list[str] | None = Field(
+        default=None, description="Generators not to run on this node"
+    )
+    chunks_per_run: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "The question budget: each kind writes at most chunks_per_run x "
+            "pairs_per_chunk questions per run, walking every passage in the window"
+        ),
+    )
+    pairs_per_chunk: int | None = Field(default=None, ge=1)
+    min_chunk_chars: int | None = Field(default=None, ge=0)
+    generate_in_cycle: bool | None = Field(
+        default=None, description="Build the dataset at the start of the cycle"
+    )
+
+    # --- How we ask the node itself
+    retrieval_top_k: int | None = Field(default=None, ge=1, le=50)
+    similarity_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "The similarity threshold. Zero means the node will return top-k for "
+            "any question, including one the corpus holds no answer to"
+        ),
+    )
+    endpoint_max_tokens: int | None = Field(default=None, ge=1)
+    endpoint_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    endpoint_concurrency: int | None = Field(
+        default=None,
+        ge=1,
+        le=32,
+        description="How many requests to keep in flight to the node. Its capacity",
+    )
+
+
+class TargetSpec(BaseModel):
+    """A node under test, as its owner enters it.
+
+    The ChromaDB address sits next to the Space's address and is not derived
+    from it: the benchmark goes to the index directly, past the Space's API, and
+    gets there over the internal network or through ``docker exec``. The Space
+    has no "hand me pieces of the corpus" route and is not meant to have one —
+    questions and reference answers quote the documents almost verbatim, and the
+    only way not to let them out is to have no code that can hand them over.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(..., min_length=1, max_length=64)
+    title: str = ""
+    url: str = Field(..., description="The base address of the Space's API")
+    endpoint: str = Field(default="", description="The slug of the endpoint under test")
+    token: str | None = Field(
+        default=None,
+        description=(
+            "An access token for the Space's API, sent when asking the endpoint; "
+            "reading the corpus goes past the Space"
+        ),
+    )
+    container: str = ""
+    chroma_host: str = "localhost"
+    chroma_port: int = Field(default=0, ge=0, le=65535)
+    collection: str = Field(
+        default="",
+        description=(
+            "The collection's name in the index. Empty — the target's key is "
+            "taken, and it only matches when it was picked to fit the index by "
+            "hand: checking the target will show what the index actually holds"
+        ),
+    )
+
+    instrument: Instrument = Field(default_factory=Instrument)
+    probe: Probe = Field(default_factory=Probe)
+
+    enabled: bool = True
+    # The schedule applies: the service watches it itself, and a target with an
+    # interval set is measured without anybody pressing anything. An empty
+    # interval means it is not — a disabled target is not measured either, and
+    # keeps its schedule for when it is switched back on.
+    schedule: str = Field(
+        default="",
+        description="An interval such as 24h or 90m. Empty — measure on request only",
+    )
+    schedule_at: str = Field(
+        default="",
+        description=(
+            "The hour of the launch, HH:MM, IN UTC. It applies to a daily "
+            "interval; on a shorter one the step is counted from the previous "
+            "launch. UTC rather than the owner's time zone because the service "
+            "has no way of knowing what the owner's night is"
+        ),
+    )
+
+
+class TargetView(TargetSpec):
+    """A target as its owner sees it. The token is not returned outwards."""
+
+    token: str | None = Field(default=None, exclude=True)
+    has_token: bool = False
+    last_job: JobView | None = None
+    # When the schedule will next fire, in UTC. Handed out rather than left to
+    # the UI to work out: the service is the one that decides, and two
+    # computations of one moment diverge on exactly the questions the owner asks
+    # this one for — "why has it not run yet" and "did my change take".
+    next_run_at: datetime | None = None
+
+
+class SettingsChanges(BaseModel):
+    """A partial update of the installation's overrides (JSON Merge Patch).
+
+    The layer under the instrument. A form that owns only some fields names
+    those; what it does not name is left as it is.
+
+    What may not be in it: a provider key, which is a secret and is stored
+    sealed, and anything the process reads before it can read this row — the
+    database, the control key, the perimeter. The refusal names the field and
+    says which of the two it is.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    values: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Fields to override; null removes a field's override so its "
+        "default applies; fields not named are unchanged",
+    )
+
+
+class SecretValue(BaseModel):
+    """A secret on its way in. It only ever travels in this direction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: str = Field(min_length=1, description="The secret itself")
+
+
+class SecretView(BaseModel):
+    """A secret as it may be spoken of: that it exists, and since when."""
+
+    name: str
+    updated_at: datetime
+
+
+class RunRequest(BaseModel):
+    """A request to measure now.
+
+    The layers may be sent right here — then they lie on top of the ones saved
+    on the target without touching them. This is not decoration: a trial run
+    with a different similarity threshold must not change the setting the
+    ordinary nightly measurement will go by.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument: Instrument | None = None
+    probe: Probe | None = None
+    generate: bool | None = Field(
+        default=None,
+        description=(
+            "Build the dataset before measuring. None — as configured on the "
+            "target. It is turned off when the corpus has not changed but a "
+            "re-measurement is needed"
+        ),
+    )
+    filter: bool | None = Field(
+        default=None,
+        description=(
+            "Screen the pending pairs generation just built. None — follow "
+            "`generate`, so a launch that built a dataset also decides what "
+            "of it is fit. A launch that only wants to see the raw "
+            "candidates passes this `false` explicitly"
+        ),
+    )
+    evaluate: bool | None = Field(
+        default=None,
+        description=(
+            "Ask and grade after the dataset is built. None — yes. Turned off "
+            "for a launch that only wants the question set refreshed: building "
+            "it is cheap, asking a model about every item in it is not"
+        ),
+    )
+    defer_judging: bool = Field(
+        default=False,
+        description=(
+            "Collect the answers without calling a judge, leaving every "
+            "verdict `pending` for the judge phase to grade afterwards"
+        ),
+    )
+    limit: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "How many items to take PER GENERATOR. It exists for a trial run: "
+            "a configuration has to be checkable without paying for hours. It is "
+            "not an overall cap — a generator is a separate skill, and at a small "
+            "value an overall cap would simply throw some skills out of the "
+            "measurement"
+        ),
+    )
+
+
+class FilterRequest(BaseModel):
+    """A request to screen this target's pending pairs now, on their own.
+
+    Unlike a `RunRequest` with `filter=true`, this never touches generation
+    — it screens whatever is already `pending`, however it got there.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    generator: str | None = Field(
+        default=None, description="Screen only this generator's pairs; empty — all"
+    )
+    cohort: str | None = Field(
+        default=None, description="Screen only this cohort; empty — all"
+    )
+    limit: int | None = Field(
+        default=None, ge=1, description="How many pending pairs to screen; empty — all"
+    )
+
+
+class JudgeRequest(BaseModel):
+    """A request to grade this target's pending verdicts now, on their own."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int | None = Field(
+        default=None, ge=1, description="How many pending answers to grade; empty — all"
+    )
+
+
+class SessionView(BaseModel):
+    """A freshly minted console session: one target, until it expires."""
+
+    token: str
+    expires_at: datetime
+
+
+class WindowView(BaseModel):
+    """How many articles the time window holds, by the rule generation uses."""
+
+    count: int = Field(..., description="Articles in the window, undated included")
+    undated: int = Field(..., description="Articles with no date, kept by generation")
+    total: int = Field(..., description="Articles in the index")
+    window_days: int = Field(..., description="The window; 0 means no window")
+
+
+class PairResponse(BaseModel):
+    """One generated pair, as the console's Generation/Filtering review shows it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    generator: str
+    task_type: str
+    cohort: str
+    status: str
+    status_note: str
+    status_reason: str | None = Field(
+        default=None,
+        description="Why the pair is not active, as a code; null while it is",
+    )
+    question: str
+    answer: str
+    context: str
+    expected_behavior: str
+    document_title: str
+    file_name: str
+    meta: dict[str, Any]
+    created_at: datetime
+    has_results: bool = Field(
+        description="Whether any Result points at this pair — deletable only if not"
+    )
+
+
+class RecordedCall(BaseModel):
+    """A model call behind a generated pair, as it was made."""
+
+    call: str
+    model: str = ""
+    system: str = ""
+    user: str = Field(default="", description="The prompt as sent, passage in place")
+    reply: str = ""
+    passage: str = Field(
+        default="",
+        description="The passage a writer prompt was built from; empty on a check call",
+    )
+    cost_usd: float | None = None
+    latency_s: float | None = None
+
+
+class RunPairResponse(PairResponse):
+    """A pair read from a run's report, with the calls that wrote and checked it.
+
+    A call's texts sit on one of the pairs it wrote; here every pair of the
+    call carries them.
+    """
+
+    writer_call: RecordedCall | None = Field(
+        default=None,
+        description="The writer call; empty texts when none are kept, null "
+        "when the pair records no call",
+    )
+    entity_call: RecordedCall | None = Field(
+        default=None, description="The entity check call; null when none is kept"
+    )
+
+
+class PairPage(BaseModel):
+    """A page of pairs, and how many the filters match in total."""
+
+    items: list[PairResponse]
+    total: int
+
+
+class PairStatusUpdate(BaseModel):
+    """A manual override of one pair's status, by hand, whatever it is now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: PairStatus
+    note: str = Field(default="", description="Why, for the record")
+
+
+class DenialRound(BaseModel):
+    """One objection and the answer it drew."""
+
+    round: int
+    objection: str
+    answer: str
+
+
+class RepeatTrial(BaseModel):
+    """One repeat: how hot it was asked, and what came back."""
+
+    trial: int
+    temperature: float
+    answer: str
+    correct: bool
+
+
+class ResultDenial(BaseModel):
+    """How the pressure on one answer ended."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    rounds: int = Field(description="Objections actually put")
+    flipped: bool = Field(description="The answer was given up")
+    flip_round: int | None = Field(default=None, description="At which one")
+    note: str = ""
+    limit: int = Field(
+        default=0, description="Objections this run was configured to put"
+    )
+    log: list[DenialRound] = Field(
+        default_factory=list,
+        description="Round by round; empty when the run kept no log",
+    )
+
+
+class ResultRepeats(BaseModel):
+    """How far one answer repeated when the question was asked again."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    trials: int
+    accuracy: float
+    consistency: float = Field(
+        description="The share of the repeats that gave the most frequent "
+        "answer — not the share that were right"
+    )
+    by_temperature: dict[str, float] = Field(default_factory=dict)
+    note: str = ""
+    log: list[RepeatTrial] = Field(
+        default_factory=list,
+        description="Every repeat; empty when the run kept no log",
+    )
+
+
+class ResultFragment(BaseModel):
+    """One chunk the endpoint's retrieval returned."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    file_name: str = ""
+    score: float = 0.0
+    content: str = ""
+    chars: int | None = Field(
+        default=None, description="The chunk's length before the ceiling"
+    )
+
+
+class ResultCall(BaseModel):
+    """How the call that produced an answer ended."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    truncated: bool = Field(
+        default=False,
+        description="The model reached `answer_max_tokens` and did not finish",
+    )
+    finish_reason: str = ""
+    max_tokens: int | None = Field(
+        default=None, description="The budget the call ended on, after any doubling"
+    )
+    length_retries: int = Field(
+        default=0, description="How many times the budget had to be doubled"
+    )
+
+
+class ResultPrompts(BaseModel):
+    """What was actually sent — for the answer, and for the verdict on it.
+
+    SENSITIVE: in arm C the answerer's prompt carries the text of the chunks
+    that were found. Returned only when the caller asks for it by name.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    responder_system: str = ""
+    responder_prompt: str = ""
+    context: str = Field(
+        default="", description="The material mixed into the arm C prompt, on its own"
+    )
+    judge_system: str = ""
+    judge_prompt: str = ""
+    judge_raw: str = Field(
+        default="", description="The judge's answer before it was parsed"
+    )
+    judged_without_model: bool = Field(
+        default=False,
+        description="The verdict cost no call — an empty judge prompt here "
+        "means nothing was asked, not that nothing was kept",
+    )
+
+
+class ResultResponse(BaseModel):
+    """One verdict, as the console's Judging review shows it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    qa_id: str
+    question: str
+    answer: str
+    generator: str
+    verdict: str
+    reasoning: str
+    judge_model: str
+    context_mode: str
+    block: str
+    model: str
+    created_at: datetime
+    is_latest: bool = Field(
+        description="Whether this is the row every other reader treats as "
+        "the current verdict for its question"
+    )
+    counted: bool | None = Field(
+        default=None,
+        description="Whether every figure of the job counts this row for its "
+        "answer (the owner's override, else the first judge in panel order); "
+        "null without the `job` filter",
+    )
+    # An abstention cannot be read without them: on a miss it is correct
+    # behaviour, on a hit it is blindness.
+    retrieval_hit: bool | None = Field(
+        default=None, description="Whether the chunk the question grew from was found"
+    )
+    retrieval_rank: int | None = Field(
+        default=None, description="At which position, if it was"
+    )
+    # Null with `audit_log` off, which is not "the answer was not cut".
+    call: ResultCall | None = None
+    # The run's two ceilings, from its methodology snapshot. Null where the run
+    # does not carry them.
+    context_docs: int | None = Field(
+        default=None, description="How many of the chunks found went into the prompt"
+    )
+    fragment_max_chars: int | None = Field(
+        default=None, description="The ceiling one chunk's text was cut at"
+    )
+    # A block row stores the answer the block started from, so these carry
+    # the only thing that tells it from the direct row it repeats.
+    denial: ResultDenial | None = None
+    repeats: ResultRepeats | None = None
+    citations: list[dict[str, str]] = Field(
+        default_factory=list, description="The answer's web citations: url, title"
+    )
+    web_search_unused: bool = Field(
+        default=False, description="Search was offered and nothing was cited"
+    )
+    behavior: str | None = Field(
+        default=None,
+        description="A control question's outcome: declined, corrected, "
+        "web_sourced or made_up; null on an answerable question and on a row "
+        "the judge did not grade",
+    )
+    text_metrics: dict[str, float] | None = Field(
+        default=None,
+        description="BLEU / ROUGE / BERTScore against the gold answer, 0..1; "
+        "null where not computed",
+    )
+
+    # Only with `prompts=true`; null everywhere else, and with `audit_log` off.
+    prompts: ResultPrompts | None = None
+    fragments: list[ResultFragment] | None = Field(
+        default=None,
+        description="The chunks retrieval returned; null where nothing was "
+        "retrieved at all, which is not the same as none being found",
+    )
+
+
+class ResultPage(BaseModel):
+    """A page of results, and how many the filters match in total."""
+
+    items: list[ResultResponse]
+    total: int
+
+
+class VerdictOverride(BaseModel):
+    """A manual verdict for one result, recorded as a new row, never a rewrite."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: Verdict
+    reasoning: str = Field(default="", description="Why, for the record")
+
+    @field_validator("verdict")
+    @classmethod
+    def _an_outcome_not_a_state(cls, value: Verdict) -> Verdict:
+        """Only the three outcomes can be issued by hand.
+
+        ``pending`` and ``technical`` are states of the machinery, not opinions
+        about an answer; ``technical`` would also take the row out of the
+        shares, which is a way to make a verdict disappear rather than disagree.
+        """
+        if value in (Verdict.PENDING, Verdict.TECHNICAL):
+            raise ValueError(
+                f"{value.value} is a state of the measurement, not a verdict on "
+                "an answer: it cannot be recorded by hand"
+            )
+        return value
+
+
+class JobView(BaseModel):
+    """The state of a launch — what the owner watches while a measurement runs."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    target: str
+    state: str
+    phase: str
+    # What operation this job is, as opposed to `phase` (where it is): one of
+    # `JobKind` — `pipeline` (a whole launch), `filter` or `judge` on its own.
+    kind: str = "pipeline"
+    # Runs: how many are finished out of how many. The full extent is not known
+    # at once, and a zero in total means "still counting", not "nothing to do".
+    done: int
+    total: int
+    # What is going on right now and how far it has got within itself. Two
+    # counts rather than one: runs and questions inside a run are different
+    # units, and merged into one bar they both lie.
+    arm: str = ""
+    block: str = ""
+    model: str = ""
+    step_done: int = 0
+    step_total: int = 0
+    message: str
+    trigger: str
+    error: str
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    # The evaluation plan behind step_total (report API, "Progress plan"):
+    # from the job's params, null until evaluation starts.
+    progress_plan: dict[str, Any] | None = Field(
+        default=None, validation_alias=AliasChoices("progress_plan", "params")
+    )
+
+    @field_validator("progress_plan", mode="before")
+    @classmethod
+    def _plan_of(cls, value: Any) -> Any:
+        # A Job hands in its whole params; the plan is one key of them.
+        if isinstance(value, dict) and "steps" not in value:
+            return value.get("progress_plan")
+        return value
+
+
+class RoleProvider(BaseModel):
+    """Where one role goes. There is no key here and there cannot be — only a flag.
+
+    The roles are listed by name because each has its own address/key pair, and
+    a blanket "the provider is such-and-such" is sometimes wrong: the generator
+    normally has to stay inside the perimeter, while the models under test are
+    almost always external.
+    """
+
+    role: str = Field(description="generator, subject, judge or filter")
+    url: str = Field(description="The address this role actually uses")
+    key_set: bool
+    own: bool = Field(
+        description="The role is pointed at its own provider rather than the shared one"
+    )
+    local: bool = Field(
+        description="Calls to ``url`` stay inside the perimeter (``host_is_inside``)"
+    )
+
+
+class ProviderInfo(BaseModel):
+    """Who does the computing: this installation's model provider.
+
+    For display only. The key lives in the service's environment and does not
+    leave it — neither by value nor into any storage. What travels outwards is
+    exactly what the owner needs in order to understand what they are being
+    measured with and at whose expense: the address, the signature in someone
+    else's call console and the "a key is set" flag.
+    """
+
+    url: str
+    local: bool = Field(
+        description="Calls to ``url`` stay inside the perimeter (``host_is_inside``)"
+    )
+    app_name: str = Field(
+        description="How the service introduces itself to the provider"
+    )
+    key_set: bool
+    external_hosts: list[str] = Field(
+        default_factory=list,
+        description="Hosts allowed to answer when the way out is open",
+    )
+    roles: list[RoleProvider] = Field(default_factory=list)
+
+
+class Capabilities(BaseModel):
+    """What this installation can do — so the UI does not offer the impossible.
+
+    The list comes from the benchmark rather than being hard-wired into the
+    space. Otherwise the settings form would offer a generator this installation
+    does not have, a model nobody gave it a key for, and an arm that does not
+    run on this node — and that would come to light an hour into a run, in the
+    log.
+    """
+
+    version: str
+    profile: str = Field(description="This installation's methodology profile")
+    arms: list[str]
+    blocks: list[str]
+    generators: list[str]
+    subject_models: list[str]
+    judge_models: list[str]
+    text_metrics: list[str]
+    external_models: bool = Field(
+        description="Whether calls to models outside the perimeter are allowed"
+    )
+    provider: ProviderInfo
+
+
+class ModelCatalogView(BaseModel):
+    """The models a form may offer, and how current the list is.
+
+    The entries come from ``llm.catalog`` unchanged; what this adds is what the
+    picker needs around them. ``pins`` matters most: handing the map out lets a
+    form offer the convenient ``~vendor/thing-latest`` name and store the model
+    it means today, which is the only one a run can be repeated under.
+    """
+
+    models: list[ModelEntry]
+    vendors: list[str] = Field(description="Every vendor present, for the filter")
+    pins: dict[str, str] = Field(
+        default_factory=dict,
+        description="Moving names, and what each one resolves to right now",
+    )
+    fetched: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Source -> when it was last refreshed. A catalogue whose age is "
+            "invisible is one nobody thinks to refresh"
+        ),
+    )
+    total: int = Field(description="How many models matched before any limit")
+
+
+TargetView.model_rebuild()

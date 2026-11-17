@@ -418,7 +418,12 @@ def _raise_for_status(response: httpx.Response) -> None:
 def _handle_response(response: httpx.Response, model: type[T]) -> T:
     """Handle API response: parse success or raise appropriate exception."""
     if response.is_success:
-        return model.model_validate(response.json())
+        try:
+            return model.model_validate(response.json())
+        except ValueError as exc:
+            # A 2xx with a body this client cannot read - a proxy error page,
+            # a truncated response - is a hub failure, not a success.
+            raise ServerError(f"Unreadable response from SyftHub: {exc}") from exc
 
     _raise_for_status(response)
     # This line is never reached but helps type checker
@@ -428,7 +433,10 @@ def _handle_response(response: httpx.Response, model: type[T]) -> T:
 def _handle_response_raw(response: httpx.Response) -> dict[str, Any]:
     """Handle API response returning raw dict (for dynamic responses)."""
     if response.is_success:
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise ServerError(f"Unreadable response from SyftHub: {exc}") from exc
 
     _raise_for_status(response)
     # This line is never reached but helps type checker

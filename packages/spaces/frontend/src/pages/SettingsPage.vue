@@ -692,6 +692,25 @@
         </DialogContent>
       </Dialog>
 
+      <!-- Model Access Section -->
+      <RouterLink
+        v-if="features.benchmark"
+        :to="{ name: 'model-access' }"
+        class="group flex items-center gap-3 bg-card border border-border rounded-xl p-6 hover:border-primary/40"
+        data-testid="model-access-link"
+      >
+        <div class="p-2 bg-primary/10 rounded-md">
+          <KeyRound class="h-5 w-5 text-primary" />
+        </div>
+        <div class="flex-1">
+          <h3 class="text-lg font-medium text-foreground">Model access</h3>
+          <p class="text-sm text-muted-foreground">
+            Benchmark connection, model providers and keys, and what leaves this machine
+          </p>
+        </div>
+        <ChevronRight class="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
+      </RouterLink>
+
       <!-- Diagnostics Section -->
       <div class="bg-card border border-border rounded-xl p-6">
         <div class="flex items-start space-x-3">
@@ -714,6 +733,7 @@
 </template>
 
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import {
   Settings,
@@ -729,6 +749,8 @@ import {
   Copy,
   Plus,
   ArrowLeft,
+  ChevronRight,
+  KeyRound,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -740,6 +762,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useUserStore } from '@/stores/user'
 import { settingsApi } from '@/api/endpoints/settings'
 import { walletsApi } from '@/api/endpoints/wallets'
+import { features } from '@/config/features'
 import { setDiagnosticsEnabled } from '@/lib/sentry'
 import { setPosthogDiagnosticsEnabled } from '@/lib/posthog'
 import {

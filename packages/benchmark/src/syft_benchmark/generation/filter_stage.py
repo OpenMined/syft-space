@@ -1,0 +1,809 @@
+"""Stage 2: deciding which generated pairs are fit to measure with.
+
+Screens the ``pending`` pairs only, as its own pass over the stored rows: an
+``active`` or ``rejected`` verdict stands until ``override_status`` overturns
+it. Four checks: grounding (``validate.py``), the archive check
+(``control.gate_answerable``), the control gate (``control.py``) and the web
+check (``web_check.py``). The corpus is never read (invariant 1): retrieval
+goes through an injected ``retrieve`` callable.
+"""
+
+from __future__ import annotations
+
+import re
+import threading
+from collections.abc import Callable, Collection
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager, nullcontext
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any, cast
+
+from loguru import logger
+from sqlalchemy import CursorResult, select, update
+from sqlalchemy import cast as sa_cast
+from sqlalchemy.dialects.postgresql import JSONB
+
+from syft_benchmark.config import (
+    DatasetMode,
+    ExpectedBehavior,
+    PairStatus,
+    Settings,
+    SpaceConfig,
+    StatusReason,
+    get_settings,
+)
+from syft_benchmark.db import QaPair, session_scope
+from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
+from syft_benchmark.generation import cohort as cohorts
+from syft_benchmark.generation import decisions
+from syft_benchmark.generation.control import (
+    Gate,
+    Retriever,
+    gate_answerable,
+    gate_unanswerable,
+)
+from syft_benchmark.generation.generators import GENERATORS, Generator
+from syft_benchmark.generation.rotation import OVER_CAP_NOTE, RotationReport
+from syft_benchmark.generation.slots import (
+    Latch,
+    ModelSlots,
+    endpoint_limit,
+    limited,
+    model_slots,
+)
+from syft_benchmark.generation.validate import review_answer, review_claims
+from syft_benchmark.generation.web_check import (
+    CONTROL_NOTE,
+    PUBLIC_KNOWLEDGE,
+    WEB_ANSWERABLE,
+    WebChecker,
+    WebCheckSummary,
+    WebVerdict,
+    checks_public,
+    exclusion,
+    lean,
+    skips_manual,
+    web_checked,
+)
+from syft_benchmark.llm import Provider, judge_provider
+
+# The control gate's or the archive check's call, carried from the check to
+# the decision record.
+GATE_CALL = "_gate_call"
+
+# The note on an ordinary pair whose answer live retrieval does not find.
+NOT_ANSWERABLE_NOTE = "not answerable from the archive"
+# ``meta.gate`` on an ordinary pair screened without a retriever.
+ARCHIVE_UNCHECKED = "archive check skipped: retrieval is unavailable"
+# The status note of a pair whose archive check failed; the gate's note follows.
+ARCHIVE_RETRY = "archive check failed, will retry"
+
+# The generator whose gold answer is the lie, not a fact the archive states.
+_LIE = "two_truths_one_lie"
+_OPTION_LETTER = re.compile(r"^[A-Z]\)\s*")
+
+# Statuses that carry no status_reason.
+_IN_PLAY = frozenset({PairStatus.PENDING, PairStatus.ACTIVE})
+
+
+@dataclass(slots=True)
+class FilterSummary:
+    """What came out of one filtering pass.
+
+    ``rotation`` is left for the caller to fill in: deciding it needs the
+    document dates, which means reading the corpus, which this module never
+    does (see the module docstring). ``pipeline.filter_and_rotate`` is what
+    sets it.
+    """
+
+    space: str
+    checked: int = 0
+    active: int = 0
+    rejected: int = 0
+    # Of the rejected: answered correctly by the web check model.
+    web_answerable: int = 0
+    # Of the rejected: trick questions the web check model answered from its
+    # search.
+    public_knowledge: int = 0
+    # Left pending: the archive check failed (retrieval or its judge).
+    archive_failed: int = 0
+    notes: list[str] = field(default_factory=list)
+    rotation: RotationReport | None = None
+    # None — the web check is off or had nothing to check.
+    web: WebCheckSummary | None = None
+
+    def absorb(self, other: FilterSummary) -> None:
+        """Add another pass's counts and notes to this one."""
+        self.checked += other.checked
+        self.active += other.active
+        self.rejected += other.rejected
+        self.web_answerable += other.web_answerable
+        self.public_knowledge += other.public_knowledge
+        self.archive_failed += other.archive_failed
+        self.notes += [note for note in other.notes if note not in self.notes]
+        if other.web is None:
+            return
+        if self.web is None:
+            self.web = other.web
+            return
+        for name in ("checked", "removed", "kept", "failed", "rechecked"):
+            setattr(self.web, name, getattr(self.web, name) + getattr(other.web, name))
+        self.web.own_training_only |= other.web.own_training_only
+        self.web.notes += [n for n in other.web.notes if n not in self.web.notes]
+
+    def line(self) -> str:
+        line = (
+            f"checked {self.checked} — {self.active} active, "
+            f"{self.rejected} rejected"
+        )
+        if self.archive_failed:
+            line += f", archive check failed for {self.archive_failed} (left pending)"
+        if self.web is not None:
+            line += f"; {self.web.line()}"
+        return line
+
+
+def _screen_pair(
+    row: QaPair,
+    generator: Generator,
+    gate: Retriever | None,
+    conf: Settings,
+    judge: Provider,
+) -> tuple[PairStatus, StatusReason | None, str, dict[str, Any]]:
+    """The verdict on one pending pair, why, and what to fold into its ``meta``.
+
+    Reads the persisted ``context``/``meta`` rather than a fresh candidate's
+    fragment and claims — see the module docstring for why. ``PENDING`` means
+    the archive check failed and the pair waits for the next pass.
+    """
+    if not generator.is_control:
+        claims = row.meta.get("claims")
+        verdict = (
+            review_claims([str(c) for c in claims], row.context, conf)
+            if claims
+            else review_answer(row.answer, row.context, conf)
+        )
+        if not verdict.grounded:
+            return PairStatus.REJECTED, StatusReason.GROUNDING, verdict.note, {}
+        if gate is None:
+            # Without retrieval there is nothing to search; grounding and the
+            # web check still screen the pair.
+            return PairStatus.ACTIVE, None, verdict.note, {"gate": ARCHIVE_UNCHECKED}
+        outcome = _archive_check(row, gate, conf, judge)
+        meta = _gate_meta(outcome)
+        if not outcome.checked:
+            return PairStatus.PENDING, None, f"{ARCHIVE_RETRY}: {outcome.note}", meta
+        if outcome.clear:
+            return PairStatus.ACTIVE, None, verdict.note, meta
+        return (
+            PairStatus.REJECTED,
+            StatusReason.NOT_ANSWERABLE,
+            NOT_ANSWERABLE_NOTE,
+            meta,
+        )
+
+    if gate is None:
+        # An unchecked negative could accuse a model of fabrication: rejected
+        # rather than left pending forever.
+        return (
+            PairStatus.REJECTED,
+            StatusReason.RETRIEVAL_GATE,
+            "control question not checked: retrieval is unavailable",
+            {"gate": "not checked"},
+        )
+
+    if generator.expected is ExpectedBehavior.CORRECT_PREMISE:
+        # Refuting the premise needs the archive to state the true fact.
+        claims = row.meta.get("claims") or []
+        outcome = gate_answerable(
+            row.question,
+            row.answer,
+            gate,
+            facts=[str(c) for c in claims],
+            premise=str(row.meta.get("premise") or "(not recorded)"),
+            settings=conf,
+            judge=judge,
+        )
+    else:
+        outcome = gate_unanswerable(row.question, gate, settings=conf, judge=judge)
+    return (
+        PairStatus.ACTIVE if outcome.clear else PairStatus.REJECTED,
+        None if outcome.clear else StatusReason.RETRIEVAL_GATE,
+        outcome.note,
+        _gate_meta(outcome),
+    )
+
+
+def _archive_check(
+    row: QaPair, gate: Retriever, conf: Settings, judge: Provider
+) -> Gate:
+    """Whether live retrieval finds the answer to an ordinary pair.
+
+    The facts are ``meta.claims`` (``meta.hop_facts`` where there are none).
+    For two truths and one lie the gold answer is the lie, which the archive
+    must contradict: it goes in as the false premise. A multiple-choice answer
+    goes in without its option letter.
+    """
+    facts = row.meta.get("claims") or row.meta.get("hop_facts") or []
+    if row.generator == _LIE:
+        return gate_answerable(
+            row.question,
+            str(row.meta.get("source_detail") or "(not recorded)"),
+            gate,
+            facts=[str(f) for f in facts],
+            premise=_OPTION_LETTER.sub("", row.answer),
+            settings=conf,
+            judge=judge,
+        )
+    return gate_answerable(
+        row.question,
+        _OPTION_LETTER.sub("", row.answer),
+        gate,
+        facts=[str(f) for f in facts],
+        settings=conf,
+        judge=judge,
+    )
+
+
+def _gate_meta(outcome: Gate) -> dict[str, Any]:
+    """What a retrieval check folds into the pair's ``meta``."""
+    meta: dict[str, Any] = {
+        "gate": outcome.note,
+        "gate_checked": outcome.checked,
+        "gate_fragments": outcome.fragments,
+    }
+    if outcome.call:
+        # Taken off before the pair's meta is written: the job's decision keeps it.
+        meta[GATE_CALL] = outcome.call
+    return meta
+
+
+class Screening:
+    """Screens pairs one at a time, from any number of threads.
+
+    The unit of work for both the filter pass and the streaming checks during
+    a build: ``screen`` takes one pending pair from grounding and the archive
+    check (or the control gate) through the web check to its verdict;
+    ``recheck`` puts one pair already in the set to the web check. Model
+    calls take a slot from ``slots`` (urgent: checks go before waiting
+    generator calls); retrieval is limited by ``endpoint_concurrency``.
+
+    A pair stays pending when the owner stops the pass before it is checked,
+    when its archive check or web check fails, or when the web check has
+    stopped: the next pass checks it.
+    """
+
+    def __init__(
+        self,
+        space: str,
+        conf: Settings,
+        *,
+        retrieve: Retriever | None = None,
+        should_stop: Callable[[], bool] | None = None,
+        slots: ModelSlots | None = None,
+        on_verdict: Callable[[], None] | None = None,
+        job_id: str = "",
+    ) -> None:
+        self.conf = conf
+        # Every decision is stamped with this job (meta.screening); empty — none.
+        self.job_id = job_id
+        self.on_verdict = on_verdict
+        self.report = FilterSummary(space=space)
+        # The archive check's and the control gate's judge (Judge 1). The web
+        # check picks its own.
+        self.judge = judge_provider(conf)
+        self.retrieve = limited(retrieve, endpoint_limit(conf))
+        self.slots = slots or model_slots(conf)
+        self.should_stop = Latch(should_stop)
+        self.web_on = bool(conf.filter_model)
+        self.web = WebChecker(conf) if self.web_on else None
+        # Whether any pair reached the web check (the summary is reported then).
+        self.web_used = False
+        self.rechecked = 0
+        self._lock = threading.Lock()
+
+    def _decision(
+        self,
+        row: QaPair,
+        stage: str,
+        outcome: str,
+        note: str,
+        reason: StatusReason | None = None,
+        web: Any = None,
+        gate: Any = None,
+    ) -> dict[str, Any]:
+        """The ``meta.screening`` update for one decision; empty without a job."""
+        if not self.job_id:
+            return {}
+        return decisions.stamped(
+            row.meta,
+            decisions.record(
+                job_id=self.job_id,
+                stage=stage,
+                outcome=outcome,
+                note=note,
+                reason=reason.value if reason else None,
+                web=web if isinstance(web, dict) else None,
+                gate=gate if isinstance(gate, dict) else None,
+            ),
+        )
+
+    def _web_record(self, verdict: WebVerdict) -> dict[str, Any] | None:
+        """The verdict's full web check record, stamped with the job."""
+        web = verdict.meta.get("web_check")
+        if not isinstance(web, dict):
+            return None
+        return {**web, "job_id": self.job_id} if self.job_id else dict(web)
+
+    def _web_meta(self, verdict: WebVerdict) -> dict[str, Any]:
+        """The verdict's meta; its ``web_check`` without the full texts, which
+        only the job's decision record keeps."""
+        web = self._web_record(verdict)
+        if web is None:
+            return dict(verdict.meta)
+        return {**verdict.meta, "web_check": lean(web)}
+
+    def _write(
+        self,
+        row: QaPair,
+        status: PairStatus,
+        reason: StatusReason | None,
+        note: str,
+        meta: dict[str, Any],
+        stage: str = decisions.GROUNDING,
+        web: dict[str, Any] | None = None,
+    ) -> None:
+        outcome = decisions.KEPT if status is PairStatus.ACTIVE else decisions.REMOVED
+        if web is None and stage == decisions.WEB_CHECK:
+            web = meta.get("web_check")
+        gate = meta.pop(GATE_CALL, None)
+        meta = {
+            **meta,
+            **self._decision(row, stage, outcome, note, reason, web, gate),
+        }
+        with session_scope(self.conf) as session:
+            session.execute(
+                update(QaPair)
+                .where(QaPair.id == row.id)
+                .values(
+                    status=status.value,
+                    status_note=note,
+                    status_reason=reason.value if reason else None,
+                    meta={**row.meta, **meta},
+                )
+            )
+            invalidate_runs_with_pairs(session, [row.id])
+        with self._lock:
+            self.report.checked += 1
+            if status is PairStatus.ACTIVE:
+                self.report.active += 1
+            else:
+                self.report.rejected += 1
+            if reason is StatusReason.WEB_ANSWERABLE:
+                self.report.web_answerable += 1
+            elif reason is StatusReason.PUBLIC_KNOWLEDGE:
+                self.report.public_knowledge += 1
+        if self.on_verdict is not None:
+            self.on_verdict()
+
+    def _web_note(
+        self,
+        row: QaPair,
+        verdict: WebVerdict,
+        outcome: str,
+        screened: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """The pair's meta with the web check record and its stamp;
+        ``screened`` — what the earlier checks folded in, its gate call kept
+        on the decision."""
+        screened = dict(screened or {})
+        gate = screened.pop(GATE_CALL, None)
+        stamp = self._decision(
+            row,
+            decisions.WEB_CHECK,
+            outcome,
+            verdict.note,
+            web=self._web_record(verdict),
+            gate=gate,
+        )
+        return {**row.meta, **screened, **self._web_meta(verdict), **stamp}
+
+    def _note_pending(
+        self, row: QaPair, verdict: WebVerdict, screened: dict[str, Any]
+    ) -> None:
+        meta = self._web_note(row, verdict, decisions.FAILED, screened)
+        self._keep_pending(row, verdict.note, meta)
+
+    def _note_archive_failed(
+        self, row: QaPair, note: str, screened: dict[str, Any]
+    ) -> None:
+        """The archive check failed: the pair stays pending for the next pass."""
+        screened = dict(screened)
+        gate = screened.pop(GATE_CALL, None)
+        stamp = self._decision(
+            row, decisions.CONTROL, decisions.FAILED, note, gate=gate
+        )
+        self._keep_pending(row, note, {**row.meta, **screened, **stamp})
+        with self._lock:
+            self.report.archive_failed += 1
+
+    def _keep_pending(self, row: QaPair, note: str, meta: dict[str, Any]) -> None:
+        with session_scope(self.conf) as session:
+            session.execute(
+                update(QaPair)
+                .where(QaPair.id == row.id, QaPair.status == PairStatus.PENDING.value)
+                .values(status_note=note, meta=meta)
+            )
+
+    def _note_in_set(self, row: QaPair, verdict: WebVerdict) -> None:
+        # Status and note stay; the set cap reads the verdict from meta.
+        outcome = decisions.FAILED if verdict.answerable is None else decisions.KEPT
+        meta = self._web_note(row, verdict, outcome)
+        with session_scope(self.conf) as session:
+            session.execute(
+                update(QaPair)
+                .where(QaPair.id == row.id, QaPair.status == row.status)
+                .values(meta=meta)
+            )
+
+    def stopped(self) -> bool:
+        """Whether the owner has called the pass off. Said once, in the notes."""
+        if not self.should_stop():
+            return False
+        with self._lock:
+            note = "filtering was stopped at the owner's request"
+            if note not in self.report.notes:
+                self.report.notes.append(note)
+        return True
+
+    def _web_verdict(self, row: QaPair) -> WebVerdict | None:
+        assert self.web is not None
+        with self._lock:
+            self.web_used = True
+        if self.stopped():
+            return None
+        with self.slots.hold(urgent=True):
+            return self.web.check(row)
+
+    def screen(self, row: QaPair) -> None:
+        """One pending pair, from grounding to its verdict."""
+        if self.stopped():
+            return
+        spec = GENERATORS.get(row.generator)
+        if spec is None:
+            # An unknown generator: nothing to check the pair against.
+            self._write(
+                row,
+                PairStatus.REJECTED,
+                StatusReason.OTHER,
+                f"generator {row.generator!r} is not known",
+                {},
+            )
+            return
+
+        if spec.is_control:
+            with self.slots.hold(urgent=True):
+                status, reason, note, meta = _screen_pair(
+                    row, spec, self.retrieve, self.conf, self.judge
+                )
+            public = self.web_on and checks_public(row)
+            if public and status is PairStatus.ACTIVE:
+                if skips_manual(row, self.conf):
+                    self._write(row, status, None, note, meta, decisions.CONTROL)
+                else:
+                    self._web_decide(row, note, meta)
+                return
+            if self.web_on and not public:
+                meta = {**meta, "web_check": {"skipped": CONTROL_NOTE}}
+            self._write(row, status, reason, note, meta, decisions.CONTROL)
+            return
+
+        # Grounding, then the archive check (a judge call: it takes a slot);
+        # only a pair that passes both reaches the web check.
+        held: AbstractContextManager[Any] = (
+            self.slots.hold(urgent=True) if self.retrieve else nullcontext()
+        )
+        with held:
+            status, reason, note, meta = _screen_pair(
+                row, spec, self.retrieve, self.conf, self.judge
+            )
+        if status is PairStatus.PENDING:
+            self._note_archive_failed(row, note, meta)
+            return
+        # A pair the archive check ran on is decided at the search stage.
+        stage = decisions.CONTROL if "gate_checked" in meta else decisions.GROUNDING
+        if not self.web_on or status is not PairStatus.ACTIVE:
+            self._write(row, status, reason, note, meta, stage)
+            return
+        excluded = exclusion(row)
+        if excluded:
+            # The run could not grade it either.
+            self._write(
+                row,
+                PairStatus.REJECTED,
+                StatusReason.OTHER,
+                excluded,
+                {**meta, "web_check": {"skipped": excluded}},
+                decisions.WEB_CHECK,
+            )
+            return
+        if skips_manual(row, self.conf):
+            self._write(row, PairStatus.ACTIVE, None, note, meta, stage)
+            return
+        self._web_decide(row, note, meta)
+
+    def _web_decide(self, row: QaPair, note: str, meta: dict[str, Any]) -> None:
+        """The web check's verdict on a pair the earlier checks kept: rejected
+        when the web model answers it (a trick question: from its search),
+        active when not, pending when the check failed."""
+        verdict = self._web_verdict(row)
+        if verdict is None:
+            return
+        if verdict.answerable is None:
+            self._note_pending(row, verdict, meta)
+        elif verdict.answerable:
+            public = checks_public(row)
+            self._write(
+                row,
+                PairStatus.REJECTED,
+                StatusReason.PUBLIC_KNOWLEDGE
+                if public
+                else StatusReason.WEB_ANSWERABLE,
+                PUBLIC_KNOWLEDGE if public else WEB_ANSWERABLE,
+                {**meta, **self._web_meta(verdict)},
+                decisions.WEB_CHECK,
+                self._web_record(verdict),
+            )
+        else:
+            self._write(
+                row,
+                PairStatus.ACTIVE,
+                None,
+                note,
+                {**meta, **self._web_meta(verdict)},
+                decisions.WEB_CHECK,
+                self._web_record(verdict),
+            )
+
+    def recheck(self, row: QaPair) -> None:
+        """One pair already in the set, put to the web check."""
+        if self.web is None or skips_manual(row, self.conf):
+            return
+        verdict = self._web_verdict(row)
+        if verdict is None:
+            return
+        with self._lock:
+            self.rechecked += 1
+        if verdict.answerable:
+            self._write(
+                row,
+                PairStatus.REJECTED,
+                StatusReason.WEB_ANSWERABLE,
+                WEB_ANSWERABLE,
+                self._web_meta(verdict),
+                decisions.WEB_CHECK,
+                self._web_record(verdict),
+            )
+        else:
+            self._note_in_set(row, verdict)
+
+    def summary(self) -> FilterSummary:
+        """The report, with the web check's summary when it ran."""
+        if self.web is not None and self.web_used:
+            self.web.summary.rechecked = self.rechecked
+            self.report.web = self.web.summary
+            for note in self.web.summary.notes:
+                if note not in self.report.notes:
+                    self.report.notes.append(note)
+        return self.report
+
+
+def _pending_rows(
+    space: str,
+    conf: Settings,
+    generator: str | None,
+    cohort: str | None,
+    limit: int | None,
+) -> list[QaPair]:
+    with session_scope(conf) as session:
+        query = select(QaPair).where(
+            QaPair.space == space,
+            QaPair.status == PairStatus.PENDING.value,
+        )
+        if generator:
+            query = query.where(QaPair.generator == generator)
+        if cohort:
+            query = query.where(QaPair.cohort == cohort)
+        if limit:
+            query = query.limit(limit)
+        rows = list(session.execute(query).scalars())
+        for row in rows:
+            session.expunge(row)
+    return rows
+
+
+def _run_all(work: Callable[[QaPair], None], rows: list[QaPair], width: int) -> None:
+    """``work`` over the rows, ``width`` at a time; the first error is raised."""
+    if not rows:
+        return
+    with ThreadPoolExecutor(max_workers=width, thread_name_prefix="screen") as pool:
+        for future in [pool.submit(work, row) for row in rows]:
+            future.result()
+
+
+def filter_pending(
+    space: SpaceConfig,
+    *,
+    generator: str | None = None,
+    cohort: str | None = None,
+    limit: int | None = None,
+    settings: Settings | None = None,
+    retrieve: Retriever | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    recheck_cohort: str | None = None,
+    recheck_docs: Collection[str] | None = None,
+    job_id: str = "",
+) -> FilterSummary:
+    """Screen this node's pending pairs, deciding active or rejected.
+
+    Args:
+        space: The node under test
+        generator: Screen only this generator's pairs; None — every generator
+        cohort: Screen only this cohort; None — every cohort
+        limit: How many pending pairs to screen; None — all of them
+        settings: The process settings
+        retrieve: What to search the archive with; None — the control set is
+            rejected outright, same as at generation time without one, and
+            ordinary pairs skip the archive check
+        should_stop: Asked before every pair whether the owner has called the
+            pass off
+        recheck_cohort: With the web check on, also check this cohort's pairs
+            already in the set (active, or held back by the cap) that have no
+            verdict from the current ``filter_model``; None — none of them
+        recheck_docs: Limit those to pairs from these documents (the window);
+            None — no limit
+        job_id: The job every decision is stamped with; empty — none
+
+    Returns:
+        A summary of what was screened and how it came out
+
+    Pairs are screened ``concurrency`` at a time. A grounded non-control pair
+    goes through the archive check, then through the web check
+    (``web_check.py``) before it is made active, when ``filter_model`` is set.
+    A pair whose archive check or web check failed stays pending with a note;
+    one not reached stays pending as it was. Both are checked on the next
+    pass. A pair already in the set that the web model answers is
+    rejected the same way; one it does not keeps its status, and the set cap
+    decides.
+    """
+    conf = settings or get_settings()
+    screening = Screening(
+        space.key, conf, retrieve=retrieve, should_stop=should_stop, job_id=job_id
+    )
+    width = max(1, conf.concurrency)
+    rows = _pending_rows(space.key, conf, generator, cohort, limit)
+    if conf.dataset_mode is DatasetMode.REBUILD and cohort is None:
+        # A rebuild measures only the current cohort: an older cohort's pending
+        # leftover screened active would be retired at once, its checks paid
+        # for nothing. It stays pending.
+        current = cohorts.current(space.key, conf)
+        left = sum(1 for row in rows if (row.cohort or "") != current)
+        if left:
+            rows = [row for row in rows if (row.cohort or "") == current]
+            screening.report.notes.append(
+                f"{left} pending from older cohorts not screened"
+            )
+    _run_all(screening.screen, rows, width)
+
+    if screening.web_on and recheck_cohort is not None and not screening.stopped():
+        recheck = _unchecked_in_set(
+            space.key, conf, recheck_cohort, generator, recheck_docs
+        )
+        _run_all(screening.recheck, recheck, width)
+
+    report = screening.summary()
+    logger.info(f"{space.key}: filtering — {report.line()}")
+    return report
+
+
+def _unchecked_in_set(
+    space: str,
+    conf: Settings,
+    cohort: str,
+    generator: str | None,
+    docs: Collection[str] | None,
+) -> list[QaPair]:
+    """This cohort's pairs in the set, or held back by the cap, not yet checked
+    by the current web check model. Active ones first, the newest first."""
+    model = conf.filter_model or ""
+    with session_scope(conf) as session:
+        query = select(QaPair).where(
+            QaPair.space == space,
+            QaPair.cohort == cohort,
+            (QaPair.status == PairStatus.ACTIVE.value)
+            | (
+                (QaPair.status == PairStatus.RETIRED.value)
+                & (QaPair.status_note == OVER_CAP_NOTE)
+            ),
+        )
+        if generator:
+            query = query.where(QaPair.generator == generator)
+        rows = list(session.execute(query).scalars())
+        for row in rows:
+            session.expunge(row)
+    rows = [
+        row
+        for row in rows
+        if row.generator in GENERATORS
+        and not exclusion(row)
+        and not web_checked(row, model)
+        and not skips_manual(row, conf)
+        and (docs is None or row.doc_id in docs)
+    ]
+    rows.sort(
+        key=lambda row: (
+            row.status != PairStatus.ACTIVE.value,
+            -row.created_at.timestamp(),
+            row.id,
+        )
+    )
+    return rows
+
+
+def override_status(
+    pair_id: str,
+    status: PairStatus,
+    *,
+    note: str = "",
+    target_key: str | None = None,
+    settings: Settings | None = None,
+) -> bool:
+    """Set one pair's status by hand, whatever it is now.
+
+    Automatic filtering only touches ``pending`` pairs; this is the one place
+    that overturns a verdict already made.
+
+    A non-active status is recorded with the reason ``owner``. Every change
+    stamps ``meta.manual_override`` = {status, at}: under
+    ``manual_status_priority`` "manual" the web check leaves such a pair alone.
+
+    Args:
+        pair_id: The pair to change
+        status: The status to set
+        note: Why, for the record
+        target_key: If given, a pair belonging to a different target is left
+            untouched and this returns False — a session token minted for
+            one target must not change another's by guessing an id
+        settings: The process settings
+
+    Returns:
+        Whether a row was actually changed
+    """
+    conf = settings or get_settings()
+    stamp = {
+        "status": status.value,
+        "at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    with session_scope(conf) as session:
+        query = update(QaPair).where(QaPair.id == pair_id)
+        if target_key is not None:
+            query = query.where(QaPair.space == target_key)
+        reason = None if status in _IN_PLAY else StatusReason.OWNER.value
+        result = cast(
+            "CursorResult[Any]",
+            session.execute(
+                query.values(
+                    status=status.value,
+                    status_note=note,
+                    status_reason=reason,
+                    meta=QaPair.meta.op("||")(
+                        sa_cast({"manual_override": stamp}, JSONB)
+                    ),
+                )
+            ),
+        )
+        if result.rowcount == 0:
+            return False
+        invalidate_runs_with_pairs(session, [pair_id])
+        return True

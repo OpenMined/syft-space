@@ -158,14 +158,23 @@ curl -X POST http://localhost:8080/api/v1/endpoints/my-docs/query \
 ```
 syft-space/
 └── packages/
-    └── spaces/              # the Syft Space package
-        ├── backend/         # Python FastAPI server
-        │   └── syft_space/  # Main application code
-        ├── frontend/        # Vue 3 web interface
-        ├── docs/            # Documentation
-        ├── Dockerfile       # Container build
+    ├── spaces/              # the Syft Space package
+    │   ├── backend/         # Python FastAPI server
+    │   │   └── syft_space/  # Main application code
+    │   ├── frontend/        # Vue 3 web interface
+    │   ├── docs/            # Documentation
+    │   ├── Dockerfile       # Container build
+    │   └── docker-compose.yml
+    ├── station/             # the Syft Station package
+    └── benchmark/           # the benchmark service
+        ├── src/             # syft_benchmark: CLI and control API
+        ├── alembic/         # its own database schema
+        ├── docs/            # pipeline docs
         └── docker-compose.yml
 ```
+
+The benchmark runs as a separate service: it measures an endpoint and the Space
+shows the results. The two packages share no code and talk over HTTP.
 
 ## 📚 Documentation
 
