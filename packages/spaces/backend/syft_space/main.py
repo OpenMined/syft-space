@@ -156,6 +156,9 @@ from syft_space.components.tenants.middleware import TenantMiddleware
 from syft_space.components.tenants.repository import TenantRepository
 from syft_space.components.tenants.routes import build_tenant_routes
 from syft_space.components.vector_stores import register_builtin_vector_stores
+from syft_space.components.vector_stores.chromadb_local.list_migration import (
+    migrate_datasets,
+)
 from syft_space.components.vector_stores.config_change import ClientCacheEvictor
 
 # Import wallet components
@@ -266,6 +269,19 @@ async def _startup_marketplace_sync(
     await _sync_public_url_safe(settings_handler, tenant, proxy_service)
     await _register_satellites_safe(settings_handler, tenant)
     await _sync_endpoints_safe(publish_handler, tenant)
+
+
+async def _migrate_list_metadata(
+    repository: DatasetRepository, tenant: Tenant | None
+) -> None:
+    """Rewrite pre-array list metadata in ChromaDB collections, once each."""
+    if tenant is None:
+        return
+    try:
+        datasets = await repository.get_all(tenant.id)
+        await migrate_datasets(datasets, DATASET_TYPE_REGISTRY.get_dataset_type)
+    except Exception as e:
+        logger.warning(f"List metadata rewrite failed: {e}")
 
 
 async def _warmup_dataset_types(handler: DatasetHandler) -> None:
@@ -414,6 +430,16 @@ async def lifespan(app: FastAPI):
     # 7. Fire-and-forget: Warm dataset type imports (no proxy dependency)
     logger.info("Starting dataset type warm-up in background")
     asyncio.create_task(_warmup_dataset_types(dataset_handler))
+
+    # 7.1. Fire-and-forget: array-ify older list metadata once ChromaDB is up
+    asyncio.create_task(
+        run_after_event(
+            provisioner_ready_event,
+            _migrate_list_metadata,
+            dataset_repository,
+            default_tenant,
+        )
+    )
 
     yield  # Application runs here
 

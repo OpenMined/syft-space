@@ -65,9 +65,14 @@ class TestChromaScalars:
         assert out["published"] == "2024-01-15T10:30:00+00:00"
         assert out["published_ts"] == 1705314600
 
-    def test_lists_are_joined(self):
-        # ChromaDB rejects list values outright.
-        assert _chroma_scalars({"labels": ["ml", "nlp"]})["labels"] == "ml,nlp"
+    def test_lists_stay_lists(self):
+        # ChromaDB >= 1.5 stores arrays; ``$contains`` filters need them.
+        assert _chroma_scalars({"labels": ["ml", "nlp"]})["labels"] == ["ml", "nlp"]
+
+    def test_an_empty_list_is_dropped(self):
+        # ChromaDB rejects an empty list; absence reads the same.
+        assert "labels" not in _chroma_scalars({"labels": []})
+        assert "labels" not in _chroma_scalars({"labels": [None]})
 
     def test_none_is_dropped(self):
         assert "author" not in _chroma_scalars({"author": None})
@@ -126,7 +131,7 @@ class TestSourcesEmitDatetimes:
 
         stored = _chroma_scalars(meta)
         assert stored["published_ts"] == 1517989560
-        assert stored["tags"] == "ml"
+        assert stored["tags"] == ["ml"]
 
 
 class TestDocumentIdentity:
@@ -247,7 +252,7 @@ class TestCanonicalFields:
 
         stored = _chroma_scalars(meta)
         assert stored["published_ts"] == 1704877200
-        assert stored["tags"] == "Community,Events,WCUS"
+        assert stored["tags"] == ["Community", "Events", "WCUS"]
 
     async def test_missing_embed_degrades_quietly(self):
         from syft_space.components.sources.wordpress import wordpress_source as wp
@@ -285,7 +290,7 @@ class TestStoredChunkMetadata:
         assert merged["source"] == "wordpress"
         assert merged["link"] == "https://example.com/p/1"
         assert merged["modified_gmt_ts"] == 1705314600
-        assert merged["tags"] == "4,7"
+        assert merged["tags"] == [4, 7]
         assert "author" not in merged
 
     def test_structural_keys_win_a_clash(self):

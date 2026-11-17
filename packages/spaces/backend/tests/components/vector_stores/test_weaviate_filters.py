@@ -312,3 +312,49 @@ def test_remote_store_can_run_every_wire_operator(store_cls):
     from syft_space.components.shared.filter_types import WIRE_OPERATORS
 
     assert store_cls.FILTER_OPERATORS == WIRE_OPERATORS
+
+
+# ============== the owner's fence around a query filter ==============
+
+
+def _store_with_filters(monkeypatch, owner: dict | None) -> WeaviateVectorStore:
+    monkeypatch.setattr(
+        "syft_space.components.vector_stores.weaviate_remote.weaviate_vector_store.Filter",
+        _Filter,
+        raising=False,
+    )
+    return WeaviateVectorStore(
+        _config(filters=owner).model_dump(by_alias=True)
+        if owner
+        else _config().model_dump(by_alias=True)
+    )
+
+
+def test_a_query_filter_is_anded_inside_the_owners_filter(monkeypatch):
+    from syft_space.components.shared.search_types import SearchParameters
+
+    owner = {"type": "condition", "property": "status", "op": "eq", "value": "pub"}
+    store = _store_with_filters(monkeypatch, owner)
+    query = NODE.validate_python(
+        {"type": "condition", "field": "year", "op": "gte", "value": 2020}
+    )
+    built = store._combined_filters(SearchParameters(filters=query))
+    assert built == (
+        "all_of",
+        [("status", "equal", "pub"), ("year", "greater_or_equal", 2020)],
+    )
+
+
+def test_without_an_owner_filter_the_query_filter_stands_alone(monkeypatch):
+    from syft_space.components.shared.search_types import SearchParameters
+
+    store = _store_with_filters(monkeypatch, None)
+    query = NODE.validate_python(
+        {"type": "condition", "field": "year", "op": "gte", "value": 2020}
+    )
+    assert store._combined_filters(SearchParameters(filters=query)) == (
+        "year",
+        "greater_or_equal",
+        2020,
+    )
+    assert store._combined_filters(SearchParameters()) is None

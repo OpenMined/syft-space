@@ -194,6 +194,15 @@ class WeaviateVectorStore:
         """Get the name of the collection."""
         return self.config.collection_name
 
+    def _combined_filters(self, params: SearchParameters) -> Any:
+        """The owner's locked filter AND the query's, so a query can only
+        narrow what the owner exposed; either alone when the other is unset."""
+        owner = self._build_weaviate_filters()
+        if params.filters is None:
+            return owner
+        query = build_filter_node(params.filters, Filter)
+        return Filter.all_of([owner, query]) if owner is not None else query
+
     def _build_weaviate_filters(self) -> Any:
         """Build Weaviate Filter objects from configured filter conditions."""
         if not self.config.filters:
@@ -214,7 +223,7 @@ class WeaviateVectorStore:
 
         client = await self.get_client()
         collection = client.collections.get(self.collection_name)
-        weaviate_filters = self._build_weaviate_filters()
+        weaviate_filters = self._combined_filters(params)
 
         try:
             results = await self._query(collection, query, params, weaviate_filters)
