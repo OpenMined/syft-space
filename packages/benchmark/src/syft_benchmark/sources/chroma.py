@@ -63,7 +63,7 @@ class Chunk:
     headings: str
     # Dates the Space wrote into the chunk metadata (ISO strings, "" when absent).
     published: str = ""
-    added_at: str = ""
+    indexed_at: str = ""
     # The document header the Space lifted into the chunk metadata: its
     # `doc_<key>` entries, keyed without the prefix. Empty for collections
     # indexed with the header left in the text of chunk 0.
@@ -84,8 +84,8 @@ class Document:
     # source's "published". A date without a time names its whole day.
     published_at: datetime | None = None
     published_whole_day: bool = False
-    # When the file was added to the Space (see load_documents for the source).
-    added_at: datetime | None = None
+    # When the Space indexed the file (see load_documents for the source).
+    indexed_at: datetime | None = None
     # The ETL header's ingested_at: when the scraper fetched the page.
     ingested_at: datetime | None = None
     # The ETL header's author ("" when absent).
@@ -101,7 +101,7 @@ def article_date(doc: Document) -> datetime | None:
     """The single rule for "is this article in the time window".
 
     The article's date is its publication date; without one, the time its file
-    was added to the Space; the ETL scrape time only when neither is known.
+    was indexed by the Space; the ETL scrape time only when neither is known.
     A publication date without a time stands for the whole day (UTC), so the
     day's last moment is returned: the article is in the window when any
     moment of that day is.
@@ -110,7 +110,7 @@ def article_date(doc: Document) -> datetime | None:
         if doc.published_whole_day:
             return doc.published_at + timedelta(days=1) - timedelta(microseconds=1)
         return doc.published_at
-    return doc.added_at or doc.ingested_at
+    return doc.indexed_at or doc.ingested_at
 
 
 class ChromaClient:
@@ -243,7 +243,7 @@ class ChromaClient:
                     file_name=str(meta.get("file_name") or ""),
                     headings=str(meta.get("headings") or ""),
                     published=str(meta.get("published") or ""),
-                    added_at=_added_at(meta),
+                    indexed_at=_indexed_at(meta),
                     doc_meta=_doc_meta(meta),
                 )
             if len(ids) < _PAGE:
@@ -383,14 +383,14 @@ def parse_date(raw: str) -> datetime | None:
     return found[0] if found else None
 
 
-def _added_at(meta: dict[str, Any]) -> str:
-    """When the Space added the file: its "added_at" stamp.
+def _indexed_at(meta: dict[str, Any]) -> str:
+    """When the Space indexed the file: its "syft_indexed_at" stamp.
 
     Without the stamp, a local file falls back to its modification time, which
     that source stores as "updated". For other sources "updated" is the post's
-    edit date, not an add time.
+    edit date, not an index time.
     """
-    stamped = meta.get("added_at")
+    stamped = meta.get("syft_indexed_at")
     if stamped:
         return str(stamped)
     if meta.get("source") == "local_file" and meta.get("updated"):
@@ -491,7 +491,7 @@ def load_documents(
                 chunks=useful,
                 published_at=published[0] if published else None,
                 published_whole_day=published[1] if published else False,
-                added_at=parse_date(chunks[0].added_at),
+                indexed_at=parse_date(chunks[0].indexed_at),
                 ingested_at=parse_date(header.get("ingested_at", "")),
                 author=header.get("author", ""),
             )

@@ -1,7 +1,7 @@
 """The article date and address kept on each question.
 
 The date is for the run report's article range. It follows
-``sources.article_date``: publication, else added to the Space, else scraped.
+``sources.article_date``: publication, else indexed by the Space, else scraped.
 Stored as the UTC day ("YYYY-MM-DD") in ``meta.article_date`` and its source
 in ``meta.article_dated_by``.
 
@@ -36,7 +36,7 @@ class Dated(Protocol):
     @property
     def published_at(self) -> datetime | None: ...
     @property
-    def added_at(self) -> datetime | None: ...
+    def indexed_at(self) -> datetime | None: ...
     @property
     def ingested_at(self) -> datetime | None: ...
 
@@ -47,7 +47,7 @@ def article_stamp(doc: Dated) -> dict[str, str]:
     stamp: dict[str, str] = {}
     for source, at in (
         ("published", doc.published_at),
-        ("added", doc.added_at),
+        ("added", doc.indexed_at),
         ("scraped", doc.ingested_at),
     ):
         if at is not None:

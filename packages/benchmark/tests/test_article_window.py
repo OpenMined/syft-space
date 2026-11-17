@@ -1,7 +1,7 @@
 """Which articles are in the time window: one rule for generation and the page.
 
-An article's date is its publication date; without one, the time its file was
-added to the Space. A date without a time counts as its whole day.
+An article's date is its publication date; without one, the time the Space
+indexed its file. A date without a time counts as its whole day.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def _in_window(doc: Document) -> bool:
 def test_publication_date_wins_over_the_add_time() -> None:
     doc = _doc(
         published_at=datetime(2026, 9, 1, 8, tzinfo=UTC),
-        added_at=datetime(2026, 10, 6, 9, tzinfo=UTC),
+        indexed_at=datetime(2026, 10, 6, 9, tzinfo=UTC),
     )
     assert article_date(doc) == datetime(2026, 9, 1, 8, tzinfo=UTC)
     assert not _in_window(doc)
@@ -60,7 +60,7 @@ def test_publication_date_wins_over_the_add_time() -> None:
 
 def test_without_a_publication_date_the_add_time_counts() -> None:
     doc = _doc(
-        added_at=datetime(2026, 10, 6, 9, tzinfo=UTC),
+        indexed_at=datetime(2026, 10, 6, 9, tzinfo=UTC),
         ingested_at=datetime(2026, 4, 1, tzinfo=UTC),
     )
     assert article_date(doc) == datetime(2026, 10, 6, 9, tzinfo=UTC)
@@ -109,7 +109,7 @@ class _Client:
         self.rows = rows
 
     def iter_chunks(self, collection_id: str) -> Any:
-        from syft_benchmark.sources.chroma import _added_at
+        from syft_benchmark.sources.chroma import _indexed_at
 
         for doc_id, text, meta in self.rows:
             yield Chunk(
@@ -120,7 +120,7 @@ class _Client:
                 file_name=f"{doc_id}.md",
                 headings="",
                 published=str(meta.get("published") or ""),
-                added_at=_added_at(meta),
+                indexed_at=_indexed_at(meta),
             )
 
 
@@ -135,9 +135,10 @@ def test_dates_are_read_from_the_header_and_the_space_metadata() -> None:
     )
     docs = _load(
         [
-            ("etl", header, {"added_at": "2026-10-06T09:00:00+00:00"}),
+            ("etl", header, {"syft_indexed_at": "2026-10-06T09:00:00+00:00"}),
             ("feed", "Body", {"published": "2026-10-06T07:00:00+00:00"}),
-            ("stamped", "Body", {"added_at": "2026-10-06T09:00:00+00:00"}),
+            ("stamped", "Body", {"syft_indexed_at": "2026-10-06T09:00:00+00:00"}),
+            ("own", "Body", {"added_at": "2026-10-06T09:00:00+00:00"}),
             ("file", "Body", {"source": "local_file", "updated": "2026-09-15T10:53"}),
             ("post", "Body", {"source": "wordpress", "updated": "2026-10-06T10:00"}),
         ]
@@ -146,7 +147,9 @@ def test_dates_are_read_from_the_header_and_the_space_metadata() -> None:
     assert docs["etl"].dated_at == datetime(2026, 10, 5, 23, 59, 59, 999999, tzinfo=UTC)
     assert docs["feed"].dated_at == datetime(2026, 10, 6, 7, tzinfo=UTC)
     assert docs["stamped"].dated_at == datetime(2026, 10, 6, 9, tzinfo=UTC)
-    # Indexed before the Space stamped added_at: the file's modification time.
+    # A source's own "added_at" is not the Space's index time.
+    assert docs["own"].dated_at is None
+    # Indexed before the Space stamped syft_indexed_at: the file's modification time.
     assert docs["file"].dated_at == datetime(2026, 9, 15, 10, 53, tzinfo=UTC)
     # A post's edit date is not an add time.
     assert docs["post"].dated_at is None
@@ -180,8 +183,8 @@ def test_the_route_counts_by_the_same_rule(monkeypatch: pytest.MonkeyPatch) -> N
 
     now = datetime.now(UTC)
     docs = [
-        _doc("fresh", added_at=now),
-        _doc("stale", added_at=datetime(2026, 1, 1, tzinfo=UTC)),
+        _doc("fresh", indexed_at=now),
+        _doc("stale", indexed_at=datetime(2026, 1, 1, tzinfo=UTC)),
         _doc("undated"),
     ]
     monkeypatch.setattr(control_check, "ChromaClient", _Chroma)

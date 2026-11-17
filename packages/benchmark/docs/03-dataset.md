@@ -76,8 +76,9 @@ pairs in the set), the set is recomputed:
   deleted: results reference them with a cascading foreign key. `rejected` is
   not touched by recomputing.
 - A document's date is the ETL header `published_date` (a bare date counts
-  as its whole day, UTC), else when it was added to the Space, else
-  `ingested_at`. The header is read from the chunks' `doc_*` metadata, or,
+  as its whole day, UTC), else when the Space indexed it (`syft_indexed_at`;
+  for a local file without it, its modification time), else `ingested_at`.
+  The header is read from the chunks' `doc_*` metadata, or,
   when they carry none, cut off the start of chunk 0.
   Undated documents are not cut by the window; their count is printed.
 - If no documents were read (empty collection, index rebuilding), the set is

@@ -92,11 +92,11 @@ def test_relative_dates_are_not_blanked() -> None:
 def test_article_stamp_follows_the_article_date_rule() -> None:
     day = datetime(2026, 10, 5, tzinfo=UTC)
     later = datetime(2026, 10, 8, 12, tzinfo=UTC)
-    assert article_stamp(_doc("a", "", published_at=day, added_at=later)) == {
+    assert article_stamp(_doc("a", "", published_at=day, indexed_at=later)) == {
         "article_date": "2026-10-05",
         "article_dated_by": "published",
     }
-    assert article_stamp(_doc("a", "", added_at=later)) == {
+    assert article_stamp(_doc("a", "", indexed_at=later)) == {
         "article_date": "2026-10-08",
         "article_dated_by": "added",
     }
@@ -192,7 +192,7 @@ def _llm_reply(system: str, user: str, **_: Any) -> tuple[str, dict[str, Any]]:
 def test_the_llm_writes_every_masking_kind(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    documents = [_doc("de", GERMAN, added_at=datetime(2026, 10, 7, 9, tzinfo=UTC))]
+    documents = [_doc("de", GERMAN, indexed_at=datetime(2026, 10, 7, 9, tzinfo=UTC))]
 
     monkeypatch.setattr(pipeline, "ChromaClient", ChromaStub)
     monkeypatch.setattr(pipeline, "load_documents", lambda *_: documents)

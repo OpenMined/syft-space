@@ -202,19 +202,13 @@ class JobProcessor:
                     ctx = IngestContext(
                         sender="system@openmined.org", dataset_id=dataset.id
                     )
-                    # When the file entered this Space: the benchmark's time
-                    # window reads it for articles without a publication date.
-                    stamped = ingest_file.model_copy(
-                        update={
-                            "metadata": {
-                                **ingest_file.metadata,
-                                "added_at": datetime.now(timezone.utc),
-                            }
-                        }
-                    )
+                    # When the Space indexed this version of the file. The
+                    # benchmark's time window reads it for articles without a
+                    # publication date.
+                    ingest_file.metadata["syft_indexed_at"] = datetime.now(timezone.utc)
                     try:
                         await dataset_type.ingest(  # type: ignore[attr-defined]
-                            ctx, IngestRequest(files=[stamped])
+                            ctx, IngestRequest(files=[ingest_file])
                         )
                     except Exception as ingest_err:
                         raise RuntimeError(
