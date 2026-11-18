@@ -159,13 +159,14 @@ class ChromaDBMetadataFields(MetadataFields):
 
     fields = (
         MetadataField(name="doc_id", type=MetadataType.STRING),
-        MetadataField(name="chunk_index", type=MetadataType.NUMBER),
         MetadataField(name="file_name", type=MetadataType.STRING),
         MetadataField(name="file_type", hidden=True, type=MetadataType.STRING),
         MetadataField(name="file_size", hidden=True, type=MetadataType.NUMBER),
         MetadataField(name="page_numbers", type=MetadataType.NUMBER_LIST),
-        MetadataField(name="headings", type=MetadataType.STRING_LIST),
-        # Links and labels: returned with results, never offered as filters.
+        # Chunk position, heading text and links: returned with results,
+        # never offered as filters.
+        MetadataField(name="chunk_index", type=MetadataType.NUMBER, filterable=False),
+        MetadataField(name="headings", type=MetadataType.STRING_LIST, filterable=False),
         MetadataField(
             name="image_urls", type=MetadataType.STRING_LIST, filterable=False
         ),

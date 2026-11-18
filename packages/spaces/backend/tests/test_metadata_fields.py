@@ -288,13 +288,12 @@ async def test_chroma_filter_schema_is_every_typed_filterable_public_field():
         "tags",
         "published",
         "doc_id",
-        "chunk_index",
         "file_name",
         "page_numbers",
-        "headings",
     }
     # typed, returned, but withheld from filters
-    assert "url" not in schema and "image_urls" not in schema
+    for withheld in ("url", "image_urls", "chunk_index", "headings"):
+        assert withheld not in schema
     assert schema["published"] == FieldFilterSpec(
         type=MetadataType.DATETIME, ops=ops_for(MetadataType.DATETIME)
     )
