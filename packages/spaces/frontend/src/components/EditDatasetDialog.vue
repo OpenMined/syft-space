@@ -79,6 +79,21 @@
           </Alert>
         </template>
 
+        <!-- Filters: which fields a query may filter on. -->
+        <template v-if="filterSchema && Object.keys(filterSchema.fields).length > 0">
+          <Separator />
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-medium">Filters</h3>
+            <span class="text-xs text-muted-foreground">
+              {{ summarizeAllowlist(filterSchema, allowlist) }}
+            </span>
+          </div>
+          <FilterableFieldsPicker v-model="allowlist" :schema="filterSchema" />
+        </template>
+        <p v-else-if="filterSchemaError" class="text-xs text-muted-foreground">
+          Filterable fields unavailable: {{ filterSchemaError }}
+        </p>
+
         <Alert v-if="editor.serverError.value" variant="destructive">
           <AlertCircle class="h-4 w-4" />
           <AlertDescription>{{ editor.serverError.value }}</AlertDescription>
@@ -115,9 +130,11 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import TagsInput from '@/components/TagsInput.vue'
 import DatasetConfigFields from '@/components/DatasetConfigFields.vue'
+import FilterableFieldsPicker from '@/components/FilterableFieldsPicker.vue'
+import { allowlistChanged, summarizeAllowlist, type Allowlist } from '@/lib/filterableFields'
 import { useDatasetConfigEditor } from '@/composables/useDatasetConfigEditor'
 import { datasetsApi } from '@/api/endpoints/datasets'
-import type { DatasetResponse, UpdateDatasetRequest } from '@/api/types'
+import type { DatasetResponse, FilterSchema, UpdateDatasetRequest } from '@/api/types'
 import { sourcePresentation } from '@/config/sources'
 import { apiErrorMessage } from '@/lib/apiError'
 import { toast } from 'vue-sonner'
@@ -128,6 +145,7 @@ export interface EditableDataset {
   summary: string
   tags: string[]
   configuration: Record<string, unknown>
+  filterable_fields: Allowlist
 }
 
 const props = defineProps<{
@@ -137,8 +155,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
-  // `configurationChanged` tells the owner page a republish may be due.
-  'dataset-updated': [dataset: DatasetResponse, configurationChanged: boolean]
+  // `republishDue`: the configuration or the filter allowlist changed, so
+  // what the Hub holds for the published endpoints is stale.
+  'dataset-updated': [dataset: DatasetResponse, republishDue: boolean]
 }>()
 
 const isOpen = computed({
@@ -151,6 +170,9 @@ const summary = ref('')
 const tags = ref<string[]>([])
 const isSaving = ref(false)
 const editor = useDatasetConfigEditor()
+const allowlist = ref<Allowlist>(null)
+const filterSchema = ref<FilterSchema | null>(null)
+const filterSchemaError = ref<string | null>(null)
 
 const typeLabel = computed(() =>
   props.dataset ? sourcePresentation(props.dataset.dtype).label : '',
@@ -184,10 +206,12 @@ const handleSave = async () => {
     }
     const configurationChanged = editor.hasChanges.value
     if (configurationChanged) request.configuration = editor.patch.value
+    const filtersChanged = allowlistChanged(allowlist.value, props.dataset.filterable_fields)
+    if (filtersChanged) request.filterable_fields = allowlist.value
 
     const updated = await datasetsApi.update(props.dataset.name, request)
     toast.success(`"${updated.name}" updated`)
-    emit('dataset-updated', updated, configurationChanged)
+    emit('dataset-updated', updated, configurationChanged || filtersChanged)
     isOpen.value = false
   } catch (err) {
     editor.serverError.value = apiErrorMessage(err, 'Failed to save data source')
@@ -206,7 +230,16 @@ watch(
     name.value = dataset.name
     summary.value = dataset.summary ?? ''
     tags.value = [...dataset.tags]
-    await editor.load(dataset.dtype, dataset.configuration)
+    allowlist.value = dataset.filterable_fields
+    filterSchema.value = null
+    filterSchemaError.value = null
+    await Promise.all([
+      editor.load(dataset.dtype, dataset.configuration),
+      datasetsApi
+        .getFilterSchema(dataset.name)
+        .then((schema) => (filterSchema.value = schema))
+        .catch((err) => (filterSchemaError.value = apiErrorMessage(err, 'store unreachable'))),
+    ])
   },
   { immediate: true },
 )

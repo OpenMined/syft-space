@@ -53,11 +53,13 @@ async def attached(
 
     Dropped by the ``evict`` of that client, so anything derived from a
     connection (a remote collection's schema) needs no eviction of its own.
+    ``load`` may call ``get_client`` for the same key: the value has its
+    own lock, so it never waits on the client's.
     """
     full_key = (namespace, *key)
     if (full_key, name) in _attached:
         return _attached[(full_key, name)]
-    async with _locks.setdefault(full_key, asyncio.Lock()):
+    async with _locks.setdefault((full_key, name), asyncio.Lock()):
         if (full_key, name) not in _attached:
             _attached[(full_key, name)] = await load()
         return _attached[(full_key, name)]
@@ -91,6 +93,7 @@ async def _evict(full_key: tuple) -> None:
     _locks.pop(full_key, None)
     for k in [k for k in _attached if k[0] == full_key]:
         del _attached[k]
+        _locks.pop(k, None)
     if entry is None:
         return
     client, close = entry

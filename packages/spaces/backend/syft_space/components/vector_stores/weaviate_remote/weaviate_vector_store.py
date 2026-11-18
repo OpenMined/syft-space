@@ -367,7 +367,11 @@ class WeaviateVectorStore:
                 timeout=Timeout(init=self.CONNECT_TIMEOUT)
             ),
         )
-        await client.connect()
+        try:
+            await client.connect()
+        except Exception:
+            await client.close()  # else the half-built client leaks (Con004)
+            raise
         return client
 
     def _ready_url(self) -> str:

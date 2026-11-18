@@ -378,6 +378,7 @@ const handleEditDataset = async (dataset: DataSource) => {
               .filter(Boolean)
           : [],
         configuration: fullDataset.configuration,
+        filterable_fields: fullDataset.filterable_fields,
       }
       showEditDialog.value = true
     } else {
@@ -396,10 +397,10 @@ const clearRepublish = () => {
   changedDatasetNames.value = []
 }
 
-const handleDatasetUpdated = async (updated: DatasetResponse, configurationChanged: boolean) => {
+const handleDatasetUpdated = async (updated: DatasetResponse, republishDue: boolean) => {
   editingDataset.value = null
   await refreshDatasets()
-  if (!configurationChanged) return
+  if (!republishDue) return
   // One banner for every edit this session: endpoints belong to one
   // dataset each, so the pending set has no overlap.
   const published = updated.connected_endpoints.filter((e) => e.published)
