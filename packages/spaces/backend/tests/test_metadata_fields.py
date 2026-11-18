@@ -281,7 +281,6 @@ async def test_chroma_filter_schema_is_every_typed_filterable_public_field():
     dm = _chroma_metadata_for(RssMetadataFields())
     schema = await _chroma().filter_schema(dm)
     assert set(schema) == {
-        "source",
         "feed_url",
         "title",
         "author",
@@ -292,7 +291,7 @@ async def test_chroma_filter_schema_is_every_typed_filterable_public_field():
         "page_numbers",
     }
     # typed, returned, but withheld from filters
-    for withheld in ("url", "image_urls", "chunk_index", "headings"):
+    for withheld in ("source", "url", "image_urls", "chunk_index", "headings"):
         assert withheld not in schema
     assert schema["published"] == FieldFilterSpec(
         type=MetadataType.DATETIME, ops=ops_for(MetadataType.DATETIME)

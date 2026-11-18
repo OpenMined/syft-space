@@ -791,7 +791,8 @@ class BlogspotMetadataFields(MetadataFields):
     """Keys ``BlogspotSource.fetch`` writes for every post."""
 
     fields = (
-        MetadataField(name="source", type=MetadataType.STRING),
+        # One value per dataset (the provider name): returned, never a filter.
+        MetadataField(name="source", type=MetadataType.STRING, filterable=False),
         MetadataField(name="blog_id", type=MetadataType.STRING),
         MetadataField(name="post_id", type=MetadataType.STRING),
         MetadataField(name="title", type=MetadataType.STRING),

@@ -601,7 +601,8 @@ class WordPressMetadataFields(MetadataFields):
     """Keys ``WordPressSource.fetch`` writes for every post."""
 
     fields = (
-        MetadataField(name="source", type=MetadataType.STRING),
+        # One value per dataset (the provider name): returned, never a filter.
+        MetadataField(name="source", type=MetadataType.STRING, filterable=False),
         MetadataField(name="title", type=MetadataType.STRING),
         # Links and labels: returned with results, never offered as filters.
         MetadataField(name="url", type=MetadataType.STRING, filterable=False),

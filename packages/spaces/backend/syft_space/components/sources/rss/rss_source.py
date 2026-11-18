@@ -823,7 +823,8 @@ class RssMetadataFields(MetadataFields):
     """Keys ``_entry_metadata`` writes for every item."""
 
     fields = (
-        MetadataField(name="source", type=MetadataType.STRING),
+        # One value per dataset (the provider name): returned, never a filter.
+        MetadataField(name="source", type=MetadataType.STRING, filterable=False),
         MetadataField(name="feed_url", type=MetadataType.STRING),
         MetadataField(name="title", type=MetadataType.STRING),
         # Links and labels: returned with results, never offered as filters.
