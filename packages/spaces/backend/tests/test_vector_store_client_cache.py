@@ -148,6 +148,21 @@ async def test_weaviate_instances_with_same_connection_share_one_client(
     assert a.connected
 
 
+async def test_weaviate_failed_connect_closes_the_client_and_caches_nothing(
+    fake_weaviate, monkeypatch
+):
+    async def refuse(self):
+        raise ConnectionError("server down")
+
+    monkeypatch.setattr(FakeWeaviateClient, "connect", refuse)
+    with pytest.raises(ConnectionError):
+        await WeaviateVectorStore(WEAVIATE_CONFIG).get_client()
+
+    (client,) = fake_weaviate.instances
+    assert client.closed
+    assert not client_cache._clients
+
+
 async def test_weaviate_connect_uses_a_longer_init_timeout(fake_weaviate):
     client = await WeaviateVectorStore(WEAVIATE_CONFIG).get_client()
 
