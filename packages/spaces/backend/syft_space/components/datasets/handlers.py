@@ -652,6 +652,8 @@ class DatasetHandler:
             )
             await self._validate_configuration(dataset, new_configuration)
 
+        # Only keys in the payload; null is a value for the allowlist.
+        sent = request.model_dump(exclude_unset=True)
         try:
             updated_dataset = await self.repository.update_by_name(
                 name,
@@ -660,11 +662,7 @@ class DatasetHandler:
                 summary=request.summary,
                 tags=request.tags,
                 configuration=new_configuration,
-                filterable_fields=(
-                    request.filterable_fields
-                    if "filterable_fields" in request.model_fields_set
-                    else UNSET
-                ),
+                filterable_fields=sent.get("filterable_fields", UNSET),
             )
         except ValueError as e:
             # Name conflict or constraint violation
