@@ -13,10 +13,15 @@ export UV_HTTP_TIMEOUT=${UV_HTTP_TIMEOUT:-600}
 # ranges against PyPI, drifting the local env to newer releases. uv sync also
 # prunes what the lockfile does not name, so the venv needs no wipe first.
 export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
+echo "Installing dependencies..."
 uv sync --project backend --extra dev
+echo "Dependencies installed successfully !!"
 
 # Set default port if not provided
 SYFT_PORT=${SYFT_PORT:-8080}
 
-# Run uvicorn with new module path
-uv run --project backend uvicorn syft_space.main:app --reload --host 0.0.0.0 --port $SYFT_PORT
+# --no-sync: the sync above already ran. Without it, uv run revalidates the
+# en-core-web-sm wheel URL against GitHub first, which stalls on a slow
+# or blocked link with no output.
+echo "Starting server..."
+uv run --no-sync --project backend uvicorn syft_space.main:app --reload --host 0.0.0.0 --port $SYFT_PORT
