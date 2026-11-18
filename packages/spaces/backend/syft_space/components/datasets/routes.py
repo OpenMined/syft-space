@@ -29,6 +29,7 @@ from syft_space.components.datasets.schemas import (
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse as ConnectionHealth,
 )
+from syft_space.components.shared.filter_types import FilterSchema
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
 
@@ -386,6 +387,22 @@ def build_dataset_routes(
             await ingestion_manager.restart_dataset_ingestion(dataset.id, tenant.id)
 
         return response
+
+    @router.get("/{name}/filter-schema", response_model=FilterSchema)
+    async def get_filter_schema(
+        name: str,
+        tenant: Tenant = Depends(get_tenant_dependency),
+        handler: DatasetHandler = Depends(get_handler),
+    ) -> FilterSchema:
+        """Every field a query could filter on, with its type and operators,
+        before the dataset's ``filterable_fields`` cuts it.
+
+        Raises:
+            404 Not Found: If dataset not found
+            503 Service Unavailable: If the vector store cannot describe
+                its fields
+        """
+        return await handler.get_filter_schema(name, tenant)
 
     @public_route
     @router.get("/{name}/health", response_model=HealthcheckResponse)

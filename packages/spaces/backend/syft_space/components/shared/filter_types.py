@@ -31,6 +31,7 @@ __all__ = [
     "FilterGroup",
     "FilterNode",
     "FilterOperator",
+    "FilterSchema",
     "FilterValueDtype",
     "LogicalOperator",
     "condition_count",
@@ -152,6 +153,18 @@ class FieldFilterSpec(BaseModel, frozen=True):
 
     type: MetadataType
     ops: tuple[FilterOperator, ...]
+
+
+class FilterSchema(BaseModel):
+    """What a query may send: the filterable fields with their operators, the
+    group logic and the size caps. Published as ``query_schema.filters`` and
+    served by the dataset's filter-schema route, so every reader sees one shape."""
+
+    fields: dict[str, FieldFilterSpec]
+    logic: tuple[LogicalOperator, ...] = WIRE_LOGIC
+    max_depth: int = MAX_DEPTH
+    max_conditions: int = MAX_CONDITIONS
+    max_list_values: int = MAX_LIST_VALUES
 
 
 def specs_for(

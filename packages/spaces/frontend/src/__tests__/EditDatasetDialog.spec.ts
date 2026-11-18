@@ -5,6 +5,7 @@ import type { ConfigSchema } from '@/api/types'
 
 const api = vi.hoisted(() => ({
   getType: vi.fn(),
+  getFilterSchema: vi.fn(),
   update: vi.fn(),
   healthcheckWith: vi.fn(),
 }))
@@ -33,7 +34,18 @@ const stored = {
   headers: { 'X-Org': null },
 }
 
-const mountDialog = async () => {
+const filterSchema = {
+  fields: {
+    year: { type: 'number', ops: ['eq', 'gt'] },
+    title: { type: 'string', ops: ['eq'] },
+  },
+  logic: ['and', 'or'],
+  max_depth: 5,
+  max_conditions: 50,
+  max_list_values: 100,
+}
+
+const mountDialog = async (filterable_fields: string[] | null = null) => {
   const wrapper = mount(EditDatasetDialog, {
     attachTo: document.body,
     props: {
@@ -44,6 +56,7 @@ const mountDialog = async () => {
         summary: 'A store',
         tags: ['a'],
         configuration: stored,
+        filterable_fields,
       },
     },
   })
@@ -60,6 +73,7 @@ describe('EditDatasetDialog', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     api.getType.mockReset().mockResolvedValue({ name: 'remote_weaviate', config_schema: weaviate })
+    api.getFilterSchema.mockReset().mockResolvedValue(filterSchema)
     api.update.mockReset()
     api.healthcheckWith.mockReset()
   })
@@ -118,6 +132,43 @@ describe('EditDatasetDialog', () => {
 
     expect(api.update).toHaveBeenCalledWith('wv', { name: 'wv2', summary: 'A store', tags: 'a' })
     expect(wrapper.emitted('dataset-updated')?.[0]?.[1]).toBe(false)
+  })
+
+  it('saves the allowlist only when it changed and reports a republish', async () => {
+    api.update.mockResolvedValue({ name: 'wv', connected_endpoints: [] })
+    const wrapper = await mountDialog(['year'])
+    expect(api.getFilterSchema).toHaveBeenCalledWith('wv')
+    expect(bodyText()).toContain('Filters')
+    expect(bodyText()).toContain('1 of 2 fields')
+
+    buttonNamed('Save Changes').click()
+    await flushPromises()
+    expect(api.update).toHaveBeenLastCalledWith('wv', { name: 'wv', summary: 'A store', tags: 'a' })
+    expect(wrapper.emitted('dataset-updated')?.[0]?.[1]).toBe(false)
+
+    document.body.querySelector<HTMLButtonElement>('#filter-title')!.click()
+    await flushPromises()
+    buttonNamed('Save Changes').click()
+    await flushPromises()
+    expect(api.update).toHaveBeenLastCalledWith('wv', {
+      name: 'wv',
+      summary: 'A store',
+      tags: 'a',
+      filterable_fields: null,
+    })
+    expect(wrapper.emitted('dataset-updated')?.[1]?.[1]).toBe(true)
+  })
+
+  it('leaves the allowlist alone when the store cannot describe its fields', async () => {
+    api.getFilterSchema.mockRejectedValue({ response: { status: 503, data: { detail: 'down' } } })
+    api.update.mockResolvedValue({ name: 'wv', connected_endpoints: [] })
+    await mountDialog(['year'])
+    expect(bodyText()).toContain('Filterable fields unavailable')
+    expect(bodyText()).not.toContain('Allow filtering')
+
+    buttonNamed('Save Changes').click()
+    await flushPromises()
+    expect(api.update).toHaveBeenCalledWith('wv', { name: 'wv', summary: 'A store', tags: 'a' })
   })
 
   it('shows the backend reason when the save is refused', async () => {

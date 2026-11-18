@@ -19,6 +19,7 @@ from syft_space.components.shared.filter_types import (
     FilterGroup,
     FilterNode,
     FilterOperator,
+    FilterSchema,
     FilterValueDtype,
     LogicalOperator,
     condition_count,
@@ -198,4 +199,21 @@ def test_a_spec_serialises_to_type_and_ops():
     assert spec.model_dump(mode="json") == {
         "type": "datetime",
         "ops": ["eq", "ne", "gt", "gte", "lt", "lte"],
+    }
+
+
+def test_the_filter_schema_carries_fields_logic_and_caps():
+    schema = FilterSchema(
+        fields={
+            "n": FieldFilterSpec(
+                type=MetadataType.NUMBER, ops=(FilterOperator.GREATER_THAN,)
+            )
+        }
+    )
+    assert schema.model_dump(mode="json") == {
+        "fields": {"n": {"type": "number", "ops": ["gt"]}},
+        "logic": ["and", "or"],
+        "max_depth": MAX_DEPTH,
+        "max_conditions": MAX_CONDITIONS,
+        "max_list_values": MAX_LIST_VALUES,
     }
