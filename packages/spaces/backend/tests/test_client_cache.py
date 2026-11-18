@@ -176,3 +176,35 @@ async def test_concurrent_first_loaders_load_once():
         *[client_cache.attached("ns", ("a",), "s", load) for _ in range(10)]
     )
     assert set(values) == {1}
+
+
+async def test_a_loader_may_connect_the_same_client():
+    """A collection schema is loaded through the client it belongs to, so
+    the loader calls ``get_client`` for the same key. Neither waits on the
+    other, and a refused connection reaches the caller."""
+
+    async def connect():
+        raise ConnectionError("server down")
+
+    async def load():
+        await client_cache.get_client("ns", ("a",), connect)
+        return "never"
+
+    with pytest.raises(ConnectionError):
+        await asyncio.wait_for(
+            client_cache.attached("ns", ("a",), "schema", load), timeout=1
+        )
+
+    async def connect_ok():
+        return object()
+
+    async def load_ok():
+        await client_cache.get_client("ns", ("a",), connect_ok)
+        return "schema"
+
+    assert (
+        await asyncio.wait_for(
+            client_cache.attached("ns", ("a",), "schema", load_ok), timeout=1
+        )
+        == "schema"
+    )
