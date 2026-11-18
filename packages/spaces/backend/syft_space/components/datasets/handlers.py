@@ -30,7 +30,7 @@ from syft_space.components.datasets.events import (
 from syft_space.components.datasets.provisioner_state_repository import (
     ProvisionerStateRepository,
 )
-from syft_space.components.datasets.repository import DatasetRepository
+from syft_space.components.datasets.repository import UNSET, DatasetRepository
 from syft_space.components.datasets.schemas import (
     AddSelectionRequest,
     CreateDatasetRequest,
@@ -537,6 +537,7 @@ class DatasetHandler:
             configuration=final_config,
             summary=request.summary,
             tags=request.tags,
+            filterable_fields=request.filterable_fields,
             tenant_id=tenant.id,
             provisioner_state_id=provisioner_state.id if provisioner_state else None,
         )
@@ -651,6 +652,8 @@ class DatasetHandler:
             )
             await self._validate_configuration(dataset, new_configuration)
 
+        # Only keys in the payload; null is a value for the allowlist.
+        sent = request.model_dump(exclude_unset=True)
         try:
             updated_dataset = await self.repository.update_by_name(
                 name,
@@ -659,6 +662,7 @@ class DatasetHandler:
                 summary=request.summary,
                 tags=request.tags,
                 configuration=new_configuration,
+                filterable_fields=sent.get("filterable_fields", UNSET),
             )
         except ValueError as e:
             # Name conflict or constraint violation

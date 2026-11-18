@@ -277,26 +277,22 @@ def test_chroma_derives_a_timestamp_twin_per_public_datetime_source_field():
     # not source_ts (a string), not absolute_path_ts (hidden)
 
 
-async def test_chroma_filter_schema_is_every_typed_public_field():
+async def test_chroma_filter_schema_is_every_typed_filterable_public_field():
     dm = _chroma_metadata_for(RssMetadataFields())
     schema = await _chroma().filter_schema(dm)
     assert set(schema) == {
-        "source",
         "feed_url",
-        "feed_title",
         "title",
-        "url",
-        "comments_url",
         "author",
         "tags",
         "published",
         "doc_id",
-        "chunk_index",
         "file_name",
         "page_numbers",
-        "headings",
-        "image_urls",
     }
+    # typed, returned, but withheld from filters
+    for withheld in ("source", "url", "image_urls", "chunk_index", "headings"):
+        assert withheld not in schema
     assert schema["published"] == FieldFilterSpec(
         type=MetadataType.DATETIME, ops=ops_for(MetadataType.DATETIME)
     )
@@ -452,14 +448,16 @@ def test_filter_candidates_are_public_declared_fields_once_without_twins():
             MetadataField(name="title"),
             MetadataField(name="title", type=MetadataType.NUMBER),
             MetadataField(name="secret", hidden=True),
+            MetadataField(name="body", type=MetadataType.STRING, filterable=False),
         )
 
     dm = DatasetMetadata(_Twice(), _StoreFields())
-    assert {f.name for f in dm.derived} == {"title_ts"}
+    assert {f.name for f in dm.derived} == {"title_ts", "body_ts"}
     assert dm.filter_candidates() == (
         MetadataField(name="title"),  # first declaration wins
         MetadataField(name="doc_id"),
     )
+    assert "body" in dm.public_names()  # withheld from filters, still returned
 
 
 def test_metadata_for_needs_no_collaborators():

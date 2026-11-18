@@ -35,12 +35,15 @@ class MetadataField(BaseModel, frozen=True):
 
     ``type`` is what the writer puts under the key. It is ``None`` until the
     writer states it, or when the store resolves it at runtime (a remote
-    collection's own schema). An untyped field is never filterable.
+    collection's own schema). An untyped field is never filterable;
+    ``filterable=False`` withholds a typed one (free text, say) from filters
+    while it is still returned.
     """
 
     name: str
     hidden: bool = False
     type: MetadataType | None = None
+    filterable: bool = True
 
 
 class MetadataFields:
@@ -89,7 +92,12 @@ class DatasetMetadata:
         derived = {f.name for f in self.derived}
         seen: dict[str, MetadataField] = {}
         for f in self.declared:
-            if f.name in hidden or f.name in derived or f.name in seen:
+            if (
+                not f.filterable
+                or f.name in hidden
+                or f.name in derived
+                or f.name in seen
+            ):
                 continue
             seen[f.name] = f
         return tuple(seen.values())

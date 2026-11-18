@@ -444,7 +444,7 @@ class QueryEndpointHandler:
         if request.filters is not None:
             try:
                 filters = await dataset_instance.validate_filters(
-                    request.filters, endpoint.filterable_fields
+                    request.filters, dataset.filterable_fields
                 )
             except FilterValidationError as e:
                 raise HTTPException(
