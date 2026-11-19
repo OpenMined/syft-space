@@ -38,7 +38,9 @@ _TABULAR_EXTS = {".csv", ".xls", ".xlsx"}
 
 # Docling's default prose tokenizer. max_tokens is all-MiniLM-L6-v2's
 # max_seq_length, passed explicitly so docling does not fetch the config to
-# read it.
+# read it. It only sizes chunks: the embedder (multilingual-e5-large, see the
+# ChromaDB store) has a 512-token window, and this WordPiece tokenizer splits
+# non-English text into more tokens than E5's, so a 256-token chunk always fits.
 _PROSE_TOKENIZER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 _PROSE_TOKENIZER_MAX_TOKENS = 256
 
@@ -46,7 +48,7 @@ _PROSE_TOKENIZER_MAX_TOKENS = 256
 def _heuristic_count_tokens(text: str) -> int:
     """Approximate token count (~4 chars/token) — no model, no network.
 
-    Good enough to size chunks to the embedder's window; the ONNX embedder
+    Good enough to size chunks to the embedder's window; the embedder
     does the real, truncating embedding downstream. Defined at module scope so
     it is a stable, hashable callable (docling's prose splitter memoises on it).
     """
@@ -190,7 +192,7 @@ def _build_hybrid_chunker(heuristic: bool):
       keeps it fast. Tabular text runs well above 4 chars/token, so the count
       over-estimates and never under-splits into truncated chunks.
 
-    (Embeddings run on ChromaDB's local ONNX model, so they never touch HF.)
+    (Embeddings load their own model in the ChromaDB store, see EMBEDDING_MODEL.)
     """
     from docling_core.transforms.chunker import HybridChunker
 

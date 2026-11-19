@@ -62,13 +62,62 @@ def _import_chromadb() -> ModuleType:
         raise ImportError("chromadb required") from e
 
 
+class _E5Embedder:
+    """Mean-pooled, L2-normalised embeddings from a multilingual E5 model.
+
+    Runs the Hugging Face checkpoint on CPU torch (already installed with
+    docling). Callers add the E5 ``query: `` / ``passage: `` prefixes.
+    """
+
+    def __init__(self) -> None:
+        import torch
+        from transformers import AutoModel, AutoTokenizer
+
+        self._torch = torch
+        self._tokenizer = _load_hf(AutoTokenizer, EMBEDDING_MODEL)
+        self._model = _load_hf(AutoModel, EMBEDDING_MODEL).eval()
+
+    def __call__(self, texts: list[str]) -> list[list[float]]:
+        torch = self._torch
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), _EMBED_BATCH_SIZE):
+            batch = self._tokenizer(
+                texts[start : start + _EMBED_BATCH_SIZE],
+                max_length=_EMBED_MAX_TOKENS,
+                padding=True,
+                truncation=True,
+                return_tensors="pt",
+            )
+            with torch.inference_mode():
+                hidden = self._model(**batch).last_hidden_state
+            mask = batch["attention_mask"].unsqueeze(-1).to(hidden.dtype)
+            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+            pooled = torch.nn.functional.normalize(pooled, p=2, dim=1)
+            vectors.extend(pooled.tolist())
+        return vectors
+
+
+def _load_hf(loader: Any, model_name: str) -> Any:
+    """Load from the local HF cache, else download; never sends a token.
+
+    The repo is public: an expired token would only turn a cache hit into a
+    401 (see the chunker's prose tokenizer).
+    """
+    try:
+        return loader.from_pretrained(model_name, token=False, local_files_only=True)
+    except Exception:
+        logger.info(f"{model_name} not in the local HF cache; downloading it.")
+    return loader.from_pretrained(model_name, token=False)
+
+
 def _import_embedding_fn():
     try:
-        from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+        import torch  # noqa: F401
+        import transformers  # noqa: F401
 
-        return ONNXMiniLM_L6_V2
+        return _E5Embedder
     except ImportError as e:
-        raise ImportError("chromadb required for embeddings") from e
+        raise ImportError("torch and transformers required for embeddings") from e
 
 
 @lru_cache
@@ -80,8 +129,14 @@ def _chromadb_available() -> bool:
         return False
 
 
-# Embedding model — same as Weaviate (all-MiniLM-L6-v2).
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+# Embedding model: multilingual, 1024-dim. Changing it changes the vector
+# size, so every ChromaDB collection must be dropped and re-ingested.
+EMBEDDING_MODEL = "intfloat/multilingual-e5-large"
+# E5 is trained with these prefixes; omitting them degrades retrieval.
+_QUERY_PREFIX = "query: "
+_PASSAGE_PREFIX = "passage: "
+_EMBED_MAX_TOKENS = 512
+_EMBED_BATCH_SIZE = 16
 
 # ChromaDB rejects a single add() larger than its max batch size (~5461).
 # A large file (e.g. a CSV chunked per row) easily exceeds it, so writes are
@@ -173,8 +228,8 @@ class ChromaDBLocalVectorStore:
     METADATA_FIELDS = ChromaDBMetadataFields
     CONFIG_MODEL = ChromaDBLocalVectorStoreConfiguration
 
-    # One embedding model per process: the ONNX session is costly to build
-    # and store instances are short-lived.
+    # One embedding model per process: the model is costly to load and
+    # store instances are short-lived.
     _embedding_fn: Any = None
     _embedding_fn_lock = threading.Lock()
 
@@ -282,13 +337,13 @@ class ChromaDBLocalVectorStore:
         Thread-safe lazy initialization keeps model loading off the
         event loop.
         """
-        ONNXMiniLM_L6_V2 = _import_embedding_fn()
+        embedder_cls = _import_embedding_fn()
 
         cls = type(self)
         if cls._embedding_fn is None:
             with cls._embedding_fn_lock:
                 if cls._embedding_fn is None:
-                    cls._embedding_fn = ONNXMiniLM_L6_V2()
+                    cls._embedding_fn = embedder_cls()
         return cls._embedding_fn(texts)
 
     async def ingest(self, ctx: IngestContext, request: IngestRequest) -> None:
@@ -342,7 +397,8 @@ class ChromaDBLocalVectorStore:
 
         # Embed all chunks in one call.
         embeddings = await asyncio.to_thread(
-            self._generate_embeddings, [chunk["embedding_text"] for chunk in chunks]
+            self._generate_embeddings,
+            [_PASSAGE_PREFIX + chunk["embedding_text"] for chunk in chunks],
         )
 
         # Source metadata first: the structural keys below must win a clash.
@@ -490,7 +546,7 @@ class ChromaDBLocalVectorStore:
                 )
 
             query_embedding = await asyncio.to_thread(
-                self._generate_embeddings, [query]
+                self._generate_embeddings, [_QUERY_PREFIX + query]
             )
 
             results = await collection.query(
