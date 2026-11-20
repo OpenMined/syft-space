@@ -25,6 +25,7 @@ from syft_space.components.model_types.redaction import (
     redact_config as redact_model_config,
 )
 from syft_space.components.policy_types.interfaces import PolicyMetadataEntry
+from syft_space.components.shared.filter_types import FilterNode
 
 
 class PolicyMetadata(BaseModel):
@@ -351,6 +352,13 @@ class QueryEndpointRequest(BaseModel):
     )
     include_metadata: bool = Field(
         default=True, description="Whether to include metadata in response"
+    )
+    filters: FilterNode | None = Field(
+        default=None,
+        description=(
+            "Metadata filter: a condition or a nested and/or group. Fields and "
+            "operators must be in the endpoint's published filter schema."
+        ),
     )
     max_tokens: int = Field(default=100, ge=1, description="Maximum tokens to generate")
     temperature: float = Field(

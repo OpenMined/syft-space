@@ -32,7 +32,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
-from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
+from syft_space.components.shared.metadata_types import (
+    MetadataField,
+    MetadataFields,
+    MetadataType,
+)
 from syft_space.components.shared.timestamps import parse_datetime
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.article import article_html, html_to_text
@@ -597,18 +601,20 @@ class WordPressMetadataFields(MetadataFields):
     """Keys ``WordPressSource.fetch`` writes for every post."""
 
     fields = (
-        MetadataField(name="source"),
-        MetadataField(name="title"),
-        MetadataField(name="url"),
-        MetadataField(name="author"),
-        MetadataField(name="published"),
-        MetadataField(name="updated"),
-        MetadataField(name="tags"),
-        MetadataField(name="post_type"),
-        MetadataField(name="post_id"),
-        MetadataField(name="slug"),
-        MetadataField(name="status", hidden=True),
-        MetadataField(name="author_id"),
+        # One value per dataset (the provider name): returned, never a filter.
+        MetadataField(name="source", type=MetadataType.STRING, filterable=False),
+        MetadataField(name="title", type=MetadataType.STRING),
+        # Links and labels: returned with results, never offered as filters.
+        MetadataField(name="url", type=MetadataType.STRING, filterable=False),
+        MetadataField(name="author", type=MetadataType.STRING),
+        MetadataField(name="published", type=MetadataType.DATETIME),
+        MetadataField(name="updated", type=MetadataType.DATETIME),
+        MetadataField(name="tags", type=MetadataType.STRING_LIST),
+        MetadataField(name="post_type", type=MetadataType.STRING),
+        MetadataField(name="post_id", type=MetadataType.NUMBER),
+        MetadataField(name="slug", type=MetadataType.STRING, filterable=False),
+        MetadataField(name="status", hidden=True, type=MetadataType.STRING),
+        MetadataField(name="author_id", type=MetadataType.NUMBER),
     )
 
 

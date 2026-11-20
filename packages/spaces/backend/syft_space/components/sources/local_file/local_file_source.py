@@ -18,7 +18,11 @@ from pydantic import BaseModel, Field, ValidationError
 from syft_space.components.ingestion.utils import rglob_visible
 from syft_space.components.shared.config_flags import Visibility, cfg_flags
 from syft_space.components.shared.ingest_types import IngestFile
-from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
+from syft_space.components.shared.metadata_types import (
+    MetadataField,
+    MetadataFields,
+    MetadataType,
+)
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.sources.interfaces import (
     SourceChangeEvent,
@@ -348,13 +352,15 @@ class LocalFileMetadataFields(MetadataFields):
     as do the undeclared ``doc_*`` header keys."""
 
     fields = (
-        MetadataField(name="source"),
-        MetadataField(name="updated"),
-        MetadataField(name="title"),
-        MetadataField(name="url"),
-        MetadataField(name="author"),
-        MetadataField(name="published"),
-        MetadataField(name="absolute_path", hidden=True),
+        MetadataField(name="title", type=MetadataType.STRING),
+        # Links and labels: returned with results, never offered as filters.
+        MetadataField(name="url", type=MetadataType.STRING, filterable=False),
+        MetadataField(name="author", type=MetadataType.STRING),
+        MetadataField(name="published", type=MetadataType.DATETIME),
+        # One value per dataset (the provider name): returned, never a filter.
+        MetadataField(name="source", type=MetadataType.STRING, filterable=False),
+        MetadataField(name="updated", type=MetadataType.DATETIME),
+        MetadataField(name="absolute_path", type=MetadataType.STRING, hidden=True),
     )
 
 

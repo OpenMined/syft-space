@@ -45,6 +45,7 @@ from syft_space.components.policy_types.interfaces import (
     Recipient,
 )
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
+from syft_space.components.shared.filter_types import FilterValidationError
 from syft_space.components.shared.search_types import SearchContext, SearchParameters
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
@@ -439,11 +440,24 @@ class QueryEndpointHandler:
 
         dataset_instance = dataset_type_cls(dataset.configuration)
 
+        filters = None
+        if request.filters is not None:
+            try:
+                filters = await dataset_instance.validate_filters(
+                    request.filters, dataset.filterable_fields
+                )
+            except FilterValidationError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"field": e.field, "reason": e.reason},
+                ) from e
+
         ctx = SearchContext(sender=request.sender_email, dataset_id=dataset.id)
         search_params = SearchParameters(
             similarity_threshold=request.similarity_threshold,
             limit=request.limit,
             include_metadata=request.include_metadata,
+            filters=filters,
         )
 
         try:

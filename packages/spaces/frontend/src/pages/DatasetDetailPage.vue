@@ -374,6 +374,39 @@
             </div>
           </div>
 
+          <!-- Filterable fields: what a query on this data source may filter on -->
+          <div class="lg:col-span-3 bg-card border border-border rounded-xl p-6">
+            <h2 class="heading-3 mb-2 flex items-center gap-2">
+              <Filter class="h-5 w-5 text-foreground/70" />
+              Filterable fields
+              <span class="body-sm font-normal text-muted-foreground ml-1">
+                {{ describeAllowlist(dataset.filterable_fields) }}
+              </span>
+            </h2>
+            <p
+              v-if="dataset.filterable_fields !== null && dataset.filterable_fields.length === 0"
+              class="body-sm text-muted-foreground"
+            >
+              Queries cannot filter this data source.
+            </p>
+            <div v-else-if="filterableRows.length > 0" class="flex flex-wrap gap-2 mt-3">
+              <Badge
+                v-for="row in filterableRows"
+                :key="row.name"
+                variant="outline"
+                :class="[
+                  'font-mono font-normal',
+                  row.spec === null && 'line-through text-muted-foreground',
+                ]"
+              >
+                {{ row.name }}
+              </Badge>
+            </div>
+            <p v-else class="body-sm text-muted-foreground">
+              The vector store could not describe its fields right now.
+            </p>
+          </div>
+
           <!-- Connected APIs (full width on row 2) -->
           <div class="lg:col-span-3 bg-card border border-border rounded-xl p-6">
             <h2 class="heading-3 mb-5 flex items-center gap-2">
@@ -593,6 +626,7 @@ import {
   ChevronRight as ChevronRightIcon,
   MoreVertical,
   Settings,
+  Filter,
 } from 'lucide-vue-next'
 import DeleteConfirmationDialog from '@/components/DeleteConfirmationDialog.vue'
 import {
@@ -613,12 +647,14 @@ import AddSourceDialog from '@/components/AddSourceDialog.vue'
 import UtcStampHint from '@/components/UtcStampHint.vue'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { displayedConfiguration } from '@/lib/datasetConfig'
+import { describeAllowlist, filterRows } from '@/lib/filterableFields'
 import { ingestionApi } from '@/api/endpoints/ingestion'
 import type {
   DatasetResponse,
   IngestionStatusResponse,
   IngestionJobListResponse,
   DatasetTypeInfoResponse,
+  FilterSchema,
   SelectedItemResponse,
 } from '@/api/types'
 
@@ -637,6 +673,8 @@ const loading = ref(true)
 const dataset = ref<ParsedDataset | null>(null)
 const healthStatus = ref<{ status: string; message: string } | null>(null)
 const datasetTypeInfo = ref<DatasetTypeInfoResponse | null>(null)
+// null while the store cannot describe its fields; the saved allowlist still shows.
+const filterSchema = ref<FilterSchema | null>(null)
 const showEditDialog = ref(false)
 const editingDataset = ref<EditableDataset | null>(null)
 const republishPending = ref<RepublishTarget[]>([])
@@ -670,6 +708,17 @@ const connectedEndpoints = computed(() => {
 
 const publishedEndpoints = computed(() => connectedEndpoints.value.filter((e) => e.published))
 
+// Only the effective set: with the allowlist null every declared field, else
+// the saved names (stale ones kept, struck through).
+const filterableRows = computed(() => {
+  if (!dataset.value) return []
+  const allowlist = dataset.value.filterable_fields
+  if (!filterSchema.value) {
+    return (allowlist ?? []).map((name) => ({ name, spec: null }))
+  }
+  return filterRows(filterSchema.value, allowlist).filter((row) => row.checked || !row.spec)
+})
+
 const getIngestedFiles = () => {
   if (getDatasetManagement() === 'Self-managed') {
     return ingestionStatus.value?.completed?.toLocaleString() || '0'
@@ -692,12 +741,25 @@ const editDataset = async () => {
     summary: dataset.value.summary,
     tags: dataset.value.tags || [],
     configuration: dataset.value.configuration,
+    filterable_fields: dataset.value.filterable_fields,
   }
   showEditDialog.value = true
 }
 
 const deleteDataset = () => {
   showDeleteDialog.value = true
+}
+
+// Not awaited by the page: a store that answers slowly, or not at all,
+// must not hold up everything else. A late answer for another dataset is dropped.
+const loadFilterSchema = (name: string) => {
+  filterSchema.value = null
+  datasetsApi
+    .getFilterSchema(name)
+    .then((schema) => {
+      if (dataset.value?.name === name) filterSchema.value = schema
+    })
+    .catch(() => {})
 }
 
 const loadDataset = async (name: string) => {
@@ -740,6 +802,7 @@ const loadDataset = async (name: string) => {
       selectionPromise,
     ])
     datasetTypeInfo.value = typeInfoResponse
+    loadFilterSchema(name)
   } catch (err) {
     console.error('Failed to load dataset:', err)
     error.value = true
@@ -769,14 +832,14 @@ const loadIngestionData = async (datasetId: string) => {
   }
 }
 
-const handleDatasetUpdated = async (updated: DatasetResponse, configurationChanged: boolean) => {
+const handleDatasetUpdated = async (updated: DatasetResponse, republishDue: boolean) => {
   showEditDialog.value = false
   // The route carries the name, so a rename moves the page with it.
   if (updated.name !== route.params.slug) {
     await router.replace({ name: 'dataset-detail', params: { slug: updated.name } })
   }
   await loadDataset(updated.name)
-  if (configurationChanged) republishPending.value = publishedEndpoints.value
+  if (republishDue) republishPending.value = publishedEndpoints.value
 }
 
 const handleDialogClose = () => {

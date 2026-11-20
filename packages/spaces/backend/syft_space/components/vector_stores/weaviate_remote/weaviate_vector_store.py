@@ -18,7 +18,17 @@ from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
 )
-from syft_space.components.shared.metadata_types import MetadataField, MetadataFields
+from syft_space.components.shared.filter_types import (
+    WIRE_OPERATORS,
+    FieldFilterSpec,
+    specs_for,
+)
+from syft_space.components.shared.metadata_types import (
+    DatasetMetadata,
+    MetadataField,
+    MetadataFields,
+    MetadataType,
+)
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchedDocument,
@@ -65,17 +75,33 @@ def _document_metadata(
     }
 
 
+# Weaviate property data types that map onto a metadata type. Anything
+# else (uuid, object, geo, blob, phone) is returned but not filterable.
+_METADATA_TYPES: dict[str, MetadataType] = {
+    "text": MetadataType.STRING,
+    "int": MetadataType.NUMBER,
+    "number": MetadataType.NUMBER,
+    "boolean": MetadataType.BOOLEAN,
+    "date": MetadataType.DATETIME,
+    "text[]": MetadataType.STRING_LIST,
+    "int[]": MetadataType.NUMBER_LIST,
+    "number[]": MetadataType.NUMBER_LIST,
+}
+
+
 class WeaviateMetadataFields(MetadataFields):
     """Keys the owner allowlisted in ``metadata_properties``, plus the
     store's own ``creation_time``. ``distance`` and the content property are
     internal. With no allowlist nothing else is declared, so nothing else
-    leaves.
+    leaves. An allowlisted property's type is the collection's to say, so
+    it is declared untyped and resolved in ``filter_schema``.
     """
 
     def declared(self) -> tuple[MetadataField, ...]:
         public = tuple(
-            MetadataField(name=n) for n in self.config.get("metadata_properties") or ()
-        ) + (MetadataField(name="creation_time"),)
+            MetadataField(name=n, type=None)
+            for n in self.config.get("metadata_properties") or ()
+        ) + (MetadataField(name="creation_time", type=MetadataType.DATETIME),)
         hidden = [MetadataField(name="distance", hidden=True)]
         if content := self.config.get("content_property"):
             hidden.append(MetadataField(name=content, hidden=True))
@@ -94,6 +120,7 @@ class WeaviateVectorStore:
     PROVISIONER_CLS = None
     METADATA_FIELDS = WeaviateMetadataFields
     CONFIG_MODEL = RemoteWeaviateVectorStoreConfiguration
+    FILTER_OPERATORS = WIRE_OPERATORS
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Weaviate remote vector store.
@@ -167,6 +194,15 @@ class WeaviateVectorStore:
         """Get the name of the collection."""
         return self.config.collection_name
 
+    def _combined_filters(self, params: SearchParameters) -> Any:
+        """The owner's locked filter AND the query's, so a query can only
+        narrow what the owner exposed; either alone when the other is unset."""
+        owner = self._build_weaviate_filters()
+        if params.filters is None:
+            return owner
+        query = build_filter_node(params.filters, Filter)
+        return Filter.all_of([owner, query]) if owner is not None else query
+
     def _build_weaviate_filters(self) -> Any:
         """Build Weaviate Filter objects from configured filter conditions."""
         if not self.config.filters:
@@ -187,7 +223,7 @@ class WeaviateVectorStore:
 
         client = await self.get_client()
         collection = client.collections.get(self.collection_name)
-        weaviate_filters = self._build_weaviate_filters()
+        weaviate_filters = self._combined_filters(params)
 
         try:
             results = await self._query(collection, query, params, weaviate_filters)
@@ -281,6 +317,42 @@ class WeaviateVectorStore:
             close=lambda client: client.close(),
         )
 
+    async def filter_schema(
+        self, metadata: DatasetMetadata
+    ) -> dict[str, FieldFilterSpec]:
+        """The binding's candidates, allowlisted properties typed from the
+        collection's schema. A property of a type with no metadata type,
+        or absent from the collection, is not filterable."""
+        candidates = metadata.filter_candidates()
+        if any(f.type is None for f in candidates):
+            types = await self._property_types()
+            candidates = tuple(
+                f
+                if f.type is not None
+                else f.model_copy(update={"type": types.get(f.name)})
+                for f in candidates
+            )
+        return specs_for(candidates, self.FILTER_OPERATORS)
+
+    async def _property_types(self) -> dict[str, MetadataType]:
+        """Metadata type per property of the collection, read once per
+        client and collection; gone with the client on eviction."""
+        return await client_cache.attached(
+            self.NAME,
+            self.client_key(),
+            f"property_types:{self.collection_name}",
+            self._load_property_types,
+        )
+
+    async def _load_property_types(self) -> dict[str, MetadataType]:
+        client = await self.get_client()
+        config = await client.collections.get(self.collection_name).config.get()
+        types: dict[str, MetadataType] = {}
+        for prop in config.properties:
+            if (t := _METADATA_TYPES.get(str(prop.data_type.value))) is not None:
+                types[prop.name] = t
+        return types
+
     async def _connect(self) -> Any:
         client = weaviate.use_async_with_custom(
             http_host=self.config.http_url.host,
@@ -295,7 +367,11 @@ class WeaviateVectorStore:
                 timeout=Timeout(init=self.CONNECT_TIMEOUT)
             ),
         )
-        await client.connect()
+        try:
+            await client.connect()
+        except Exception:
+            await client.close()  # else the half-built client leaks (Con004)
+            raise
         return client
 
     def _ready_url(self) -> str:

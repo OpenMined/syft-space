@@ -23,6 +23,7 @@ from syft_space.components.ingestion.entities import IngestionJob, IngestionJobS
 from syft_space.components.ingestion.factory import DatasetTypeFactory
 from syft_space.components.ingestion.repository import IngestionJobRepository
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.sources.errors import SourceError
 from syft_space.components.sources.interfaces import BaseSource
 
 if TYPE_CHECKING:
@@ -232,15 +233,23 @@ class JobProcessor:
             )
             logger.info(f"Successfully ingested: {external_id}")
 
+        except SourceError as src_err:
+            # The source could not hand the item over (an RSS item that left
+            # the feed, a refused fetch): expected, so one line and no stack.
+            logger.warning(f"Failed to ingest {external_id}: {src_err}")
+            await self._fail(job, str(src_err), claimed)
         except Exception as e:
             logger.exception(f"Failed to ingest {external_id}: {e}")
-            # Same guard as COMPLETED, but only once claimed: a failed ingest of
-            # the old content must not overwrite a row re-queued or tombstoned
-            # mid-flight. Before claiming, the row is still PENDING — fail it
-            # outright so it doesn't retry forever.
-            await self._ingestion_repository.update_status(
-                job.id,
-                IngestionJobStatus.FAILED,
-                str(e),
-                expected_status=(IngestionJobStatus.IN_PROGRESS if claimed else None),
-            )
+            await self._fail(job, str(e), claimed)
+
+    async def _fail(self, job: IngestionJob, reason: str, claimed: bool) -> None:
+        # Same guard as COMPLETED, but only once claimed: a failed ingest of
+        # the old content must not overwrite a row re-queued or tombstoned
+        # mid-flight. Before claiming, the row is still PENDING — fail it
+        # outright so it doesn't retry forever.
+        await self._ingestion_repository.update_status(
+            job.id,
+            IngestionJobStatus.FAILED,
+            reason,
+            expected_status=(IngestionJobStatus.IN_PROGRESS if claimed else None),
+        )
