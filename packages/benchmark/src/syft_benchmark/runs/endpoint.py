@@ -26,8 +26,9 @@ RETRIEVAL_ONLY_TOKENS = 1
 
 
 class EndpointFailed(RuntimeError):
-    """The endpoint call failed (HTTP error, timeout, transport): not an empty
-    retrieval, so a gate must treat the question as not checked."""
+    """The endpoint call failed (HTTP error, timeout, transport, a search error
+    the Space reported): not an empty retrieval, so a gate must treat the
+    question as not checked."""
 
 
 def ask_endpoint(
@@ -75,6 +76,19 @@ def ask_endpoint(
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         return {
             "answer": f"{ERROR_PREFIX} {type(exc).__name__}: {exc}",
+            "documents": [],
+            "latency": time.time() - started,
+            "failed": True,
+        }
+
+    # The Space answers 200 on a failed dataset search (a chat must not break)
+    # and says why in ``search_error``: no documents then is a broken search,
+    # not a miss. In ``both`` mode the prose was written without the context.
+    search_error = data.get("search_error")
+    if search_error:
+        logger.warning(f"{space.key}: the endpoint search failed: {search_error}")
+        return {
+            "answer": f"{ERROR_PREFIX} the endpoint search failed: {search_error}",
             "documents": [],
             "latency": time.time() - started,
             "failed": True,

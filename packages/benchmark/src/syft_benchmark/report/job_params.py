@@ -53,8 +53,12 @@ DOCUMENTS = "documents"
 DOCUMENTS_MISSING = "documents_missing"
 # A re-ask: {jobs, label, questions} (``control.reask``).
 REASK = "reask"
+# The passes that failed, stopped early or were not asked: [{model, arm,
+# block, reason, expected, recorded}] (``control.jobs``); set when the job ends.
+PASS_PROBLEMS = "pass_problems"
 SNAPSHOT_KEYS = frozenset(
     {
+        PASS_PROBLEMS,
         JUDGE_PANEL,
         JUDGE_POLICY,
         PRIMARY_JUDGE,
@@ -278,6 +282,12 @@ def stopped_of(job: Job) -> str | None:
     if job.state != JobState.CANCELLED.value:
         return None
     return "spending_cap" if (job.error or "").startswith(OVER_BUDGET) else "owner"
+
+
+def pass_problems_of(job: Job) -> list[dict[str, Any]]:
+    """The job's failed passes (``PASS_PROBLEMS``); empty — none recorded."""
+    found = (job.params or {}).get(PASS_PROBLEMS)
+    return [dict(p) for p in found if isinstance(p, dict)] if found else []
 
 
 def job_times(job: Job) -> dict[str, Any]:

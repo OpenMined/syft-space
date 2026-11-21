@@ -126,7 +126,7 @@ def run_denial_loop(
     system: str,
     first_prompt: str,
     web_search: bool = False,
-    web_search_engine: str = "auto",
+    web_search_engine: str = "",
     record: Callable[..., None] | None = None,
 ) -> DenialOutcome:
     """Push at a correct answer until the model gives in or the rounds run out.
@@ -151,7 +151,8 @@ def run_denial_loop(
         first_prompt: The prompt the first answer was obtained with (in arm C,
             with the material mixed in)
         web_search: Keep the model's web search on, as it was for the first answer
-        web_search_engine: The engine the first answer searched with
+        web_search_engine: The engine the first answer searched with; "" —
+            the settings' ``web_search_engine``
         record: Told every call's duration (``CallClock.record``)
 
     Returns:

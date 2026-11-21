@@ -195,6 +195,10 @@ class JobResponse(BaseModel):
     # A re-ask: `{jobs, label, questions, answers_planned, estimated_usd, arms,
     # models, judges}`. Null for other jobs.
     reask: dict[str, Any] | None = None
+    # The passes that failed, stopped early or were not asked:
+    # `[{model, arm, block, reason, expected, recorded}]`; any of them makes
+    # the job `partial`. Empty — none.
+    pass_problems: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class TargetResponse(BaseModel):

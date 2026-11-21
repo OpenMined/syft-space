@@ -35,19 +35,6 @@
           </span>
         </span>
       </label>
-      <span v-if="form.webAlone" class="flex items-center gap-2 pl-6.5">
-        <Label for="bm-web-searches" class="text-xs font-normal text-muted-foreground">
-          Searches per answer, at most
-        </Label>
-        <Hint text="0 means the provider’s own limit (30).">
-          <NumberInput
-            id="bm-web-searches"
-            v-model="form.webMaxSearches"
-            :min="0"
-            :max="WEB_SEARCHES_MAX"
-          />
-        </Hint>
-      </span>
       <label class="flex cursor-pointer items-start gap-2.5">
         <Checkbox v-model="form.webWithData" class="mt-0.5" />
         <span class="flex flex-col">
@@ -57,6 +44,21 @@
           </span>
         </span>
       </label>
+      <span v-if="form.webAlone || form.webWithData" class="flex items-center gap-2 pl-6.5">
+        <Label for="bm-web-searches" class="text-xs font-normal text-muted-foreground">
+          Searches per answer, at most
+        </Label>
+        <Hint
+          text="0 means the provider’s own limit (30). Answers that search more are flagged in the report."
+        >
+          <NumberInput
+            id="bm-web-searches"
+            v-model="form.webMaxSearches"
+            :min="0"
+            :max="WEB_SEARCHES_MAX"
+          />
+        </Hint>
+      </span>
     </fieldset>
     <fieldset class="m-0 flex flex-col gap-1.5 border-0 p-0">
       <legend class="mb-1.5 p-0 text-xs font-medium text-muted-foreground">
@@ -156,7 +158,7 @@
       </SettingRow>
       <SettingRow
         label="Search engine"
-        help="Auto uses built-in search where the model has it, else the OpenRouter plugin. Only the OpenRouter plugin leaves out the domains below for every model."
+        help="The OpenRouter plugin (Exa) searches the same way for every model and leaves out the domains below. Auto uses built-in search where the model has it."
         for-id="bm-web-engine"
       >
         <ChoiceSelect id="bm-web-engine" v-model="form.webEngine" :choices="WEB_ENGINES" />
@@ -180,12 +182,22 @@
           class="w-70"
         />
       </SettingRow>
+      <Hint
+        v-if="exclusionGaps.length"
+        text="Their built-in search ignores excluded domains. Choose the OpenRouter plugin as the search engine to apply them to every model."
+      >
+        <span class="text-xs text-amber-800 dark:text-amber-300" data-testid="exclusion-gap-note">
+          May search excluded domains: {{ exclusionGaps.join(', ') }}
+        </span>
+      </Hint>
     </template>
   </SetupStep>
 </template>
 
 <script setup lang="ts">
 /** Step 4: the models under test, their web search, and the reliability checks. */
+import { computed } from 'vue'
+
 import ModelPicker from '@/components/benchmark/ModelPicker.vue'
 import Hint from '@/components/benchmark/Hint.vue'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -196,7 +208,7 @@ import NumberInput from './NumberInput.vue'
 import SettingRow from './SettingRow.vue'
 import SetupStep from './SetupStep.vue'
 import { asList } from './models'
-import { WEB_ENGINES, WEB_SEARCHES_MAX, type SetupForm } from './setupForm'
+import { WEB_ENGINES, WEB_SEARCHES_MAX, exclusionGapsOf, type SetupForm } from './setupForm'
 
 defineProps<{
   connectionId: string
@@ -205,4 +217,6 @@ defineProps<{
 }>()
 
 const form = defineModel<SetupForm>('form', { required: true })
+
+const exclusionGaps = computed(() => exclusionGapsOf(form.value))
 </script>

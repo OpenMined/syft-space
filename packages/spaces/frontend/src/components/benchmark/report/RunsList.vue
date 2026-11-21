@@ -213,6 +213,13 @@
             </td>
             <td class="space-x-1.5 whitespace-nowrap px-3 py-3">
               <AlertBadge
+                v-if="partialLabel(run)"
+                :tip="partialTip(run, modelName)"
+                data-testid="run-partial"
+              >
+                {{ partialLabel(run) }}
+              </AlertBadge>
+              <AlertBadge
                 v-if="!run.build_only && stoppedLabel(run)"
                 :tip="stoppedTip(run)"
                 data-testid="run-stopped"
@@ -356,7 +363,15 @@ import { modelName } from './labels'
 import { runLocation } from './routing'
 import { planText } from '../setup/progress'
 import { buildText } from '../filter'
-import { progressShare, progressText, runStateLabel, stoppedLabel, stoppedTip } from './selectors'
+import {
+  partialLabel,
+  partialTip,
+  progressShare,
+  progressText,
+  runStateLabel,
+  stoppedLabel,
+  stoppedTip,
+} from './selectors'
 import { RUNS_PAGE } from './useRunReport'
 
 const BUILD_ONLY_TIP = 'Questions were written and filtered; no model was asked.'

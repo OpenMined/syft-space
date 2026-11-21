@@ -829,7 +829,7 @@ def test_a_launch_keeps_the_judging_it_ran_with(
     monkeypatch.setattr(
         jobs,
         "judge_pending",
-        lambda *a, **k: SimpleNamespace(line=lambda: "", notes=[]),
+        lambda *a, **k: SimpleNamespace(line=lambda: "", notes=[], checked=0, failed=0),
     )
 
     request = RunRequest(evaluate=False, instrument=Instrument(judge_models=[J2, J1]))

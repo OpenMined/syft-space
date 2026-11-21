@@ -166,8 +166,8 @@ def test_the_rag_is_asked_once_even_when_everyone_starts_together(
     assert len(node.calls) == 1
 
 
-def test_closed_book_searches_the_web_and_context_does_not(monkeypatch: Any) -> None:
-    """Arm A is the model with its web search on; arm C is the model with excerpts.
+def test_both_arms_search_the_web_as_separate_calls(monkeypatch: Any) -> None:
+    """Both arms search the web by default; arm C also has the excerpts.
 
     The same prompt in the two modes is not the same call, so the cache keeps them
     apart.
@@ -209,7 +209,7 @@ def test_closed_book_searches_the_web_and_context_does_not(monkeypatch: Any) -> 
         )
 
     _run(both_arms, conf)
-    assert [call.get("web_search") for call in calls] == [True, False]
+    assert [call.get("web_search") for call in calls] == [True, True]
     assert len(node.calls) == 1, "only arm C goes to the endpoint"
 
 

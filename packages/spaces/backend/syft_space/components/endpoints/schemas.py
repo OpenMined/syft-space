@@ -509,6 +509,12 @@ class QueryEndpointResponse(BaseModel):
         default=None,
         description="Reference documents and search results (if dataset enabled)",
     )
+    search_error: str | None = Field(
+        default=None,
+        description="Why the dataset search failed. Set only on a failed search, "
+        "in every response type: no documents with this set means the search "
+        "broke, not that nothing matched",
+    )
     cost: float | None = Field(
         default=None, description="Total cost of this query across all policies"
     )

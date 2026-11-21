@@ -35,7 +35,11 @@ from syft_benchmark.config import PairStatus, StatusReason
 from syft_benchmark.db.models import Job, QaPair, Result, Run, Target, WriterCall
 from syft_benchmark.generation import decisions, entities, recorded
 from syft_benchmark.generation.article_dates import DATE_KEY, URL_KEY
-from syft_benchmark.llm.web_search import cites_article, search_exclusion_of
+from syft_benchmark.llm.web_search import (
+    cites_article,
+    search_exclusion_of,
+    search_over_cap_of,
+)
 from syft_benchmark.question_order import answer_order, pair_key, pair_order
 from syft_benchmark.report import (
     combined_view,
@@ -560,6 +564,7 @@ ANSWER_COLS = (
     Col("Answer", 60, long=True),
     Col("Web search", 10),
     Col("Searches", 9),
+    Col("Over search cap", 9),
     Col("Citations", 40, long=True),
     Col("Cites the article", 9),
     Col("Domains excluded", 9),
@@ -682,6 +687,7 @@ def _answer_rows(rows: Sequence[_Answer], panel: Sequence[str]) -> list[list[Any
         result.answer,
         call.get("web_search") if "web_search" in call else None,
         requests if isinstance(requests, int) else None,
+        search_over_cap_of(audit),
         _citations(audit.get("citations")),
         (
             cites_article(list(audit.get("citations") or []), lead.article_url)

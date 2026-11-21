@@ -399,7 +399,7 @@ def test_a_job_records_what_it_spent(
         cost.charge(0.2, cost.JUDGES)
         # Untagged (an access check): in usd_calls, not in total_usd.
         cost.charge(0.1)
-        return SimpleNamespace(line=lambda: "", notes=[])
+        return SimpleNamespace(line=lambda: "", notes=[], checked=0, failed=0)
 
     monkeypatch.setattr(jobs, "judge_pending", judging)
     add_rows(Job(id=WRITER, target=KEY, kind="judge", state="queued", params={}))
@@ -434,7 +434,7 @@ def test_a_failed_spend_read_leaves_usd_empty(
     monkeypatch.setattr(
         jobs,
         "judge_pending",
-        lambda *a, **k: SimpleNamespace(line=lambda: "", notes=[]),
+        lambda *a, **k: SimpleNamespace(line=lambda: "", notes=[], checked=0, failed=0),
     )
     add_rows(Job(id=WRITER, target=KEY, kind="judge", state="queued", params={}))
 

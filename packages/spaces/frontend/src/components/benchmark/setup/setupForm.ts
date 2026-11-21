@@ -12,6 +12,7 @@ import type {
   BenchmarkTargetRequest,
 } from '@/api/types'
 import { plural } from '../labels'
+import { companyOf } from './models'
 
 // --- copy -------------------------------------------------------------------
 
@@ -253,13 +254,13 @@ const MODEL_DEFAULT = 'default'
 /** The benchmark's own defaults, shown when no layer sets a field. */
 const BENCH_DEFAULTS = {
   web_search_closed_book: true,
-  web_search_with_context: false,
+  web_search_with_context: true,
   web_search_generator: false,
   entity_check: true,
   web_search_judge: false,
-  web_search_engine: 'auto',
+  web_search_engine: 'plugin',
   web_search_max_results: 5,
-  web_search_max_calls: 0,
+  web_search_max_calls: 1,
   manual_status_priority: 'filter',
   concurrency: 16,
   judge_temperature: 0,
@@ -446,6 +447,19 @@ export function problemsOf(form: SetupForm, kinds: string[]): string[] {
   }
   if (!(form.writeAtMost >= 1)) problems.push('Write at most needs a number of 1 or more.')
   return problems
+}
+
+/** Companies whose built-in search leaves out excluded domains, and how many it takes. */
+const EXCLUDING_SEARCH: Record<string, number> = { anthropic: Infinity, xai: 5 }
+
+/** Tested models whose built-in search may ignore the domains left out of search. */
+export function exclusionGapsOf(
+  form: Pick<SetupForm, 'webAlone' | 'webWithData' | 'webEngine' | 'webExcludedDomains' | 'models'>,
+): string[] {
+  const count = parseDomainList(form.webExcludedDomains).length
+  const searches = form.webAlone || form.webWithData
+  if (!searches || form.webEngine === 'plugin' || !count) return []
+  return form.models.filter((model) => !(count <= (EXCLUDING_SEARCH[companyOf(model)] ?? 0)))
 }
 
 /** Why the page can be saved but not run; empty when it can run. */

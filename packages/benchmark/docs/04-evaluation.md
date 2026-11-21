@@ -60,6 +60,15 @@ supply is refused before the run — by `doctor` and at the start of `evaluate`
 — with no run created. An empty context (nothing retrieved) is recorded as a
 failed call, not as an answer.
 
+A failed endpoint call — an HTTP error, a dropped connection, or a search error
+the Space reports in `search_error` (e.g. a dimension mismatch after an
+embedding-model change) — is not an empty retrieval. The model is not asked;
+the item is recorded as `technical` with the endpoint's error as its answer,
+neither a retrieval hit nor a miss (`retrieval_hit` null, out of
+`retrieval_rate`), and it counts toward the failure streak. The job's `error`
+gets one line per pass with the count and the first error. In the archive
+check and the control-question gate the question stays unchecked.
+
 ---
 
 ## The test blocks
@@ -258,10 +267,10 @@ through a chat has none of these limits — [05-judging.md](05-judging.md#judgin
 | `answer_max_tokens` | `8192` | Ceiling on any model answer |
 | `subject_models` | empty | Models under test; empty — the generator model |
 | `web_search_closed_book` | `true` | The model under test may search the web in arm A |
-| `web_search_with_context` | `false` | The same in arm C |
-| `web_search_engine` | `auto` | `native`: the model's own search; `plugin`: the Exa engine (OpenRouter's web plugin); `auto`: native when the catalogue says the model has it, else Exa |
+| `web_search_with_context` | `true` | The same in arm C |
+| `web_search_engine` | `plugin` | `plugin`: the Exa engine (OpenRouter's web plugin); `native`: the model's own search; `auto`: native when the catalogue says the model has it, else Exa |
 | `web_search_max_results` | `5` | Results per search with the Exa engine (1–20) |
-| `web_search_max_calls` | `0` | Searches one answer of a tested model may make (up to 30); `0` — the provider's own limit |
+| `web_search_max_calls` | `1` | Searches one answer of a tested model may make (up to 30); `0` — no cap of ours, the provider's own limit (up to 30 on OpenRouter) |
 | `web_search_excluded_domains` | empty | Domains the tested models' and the web check's searches leave out (up to 20), e.g. the measured publisher's |
 | `consistency_floor` | `0.5` | Below it accuracy is not trusted |
 | `methodology_profile` | `default` | Written into every run |
@@ -282,6 +291,23 @@ tools, or one that refuses both, gets the web plugin. An answer that shows no
 search (nothing cited, no searches reported, or a search call written as text)
 is asked once more with the Exa plugin, which always searches. Judging settings — [05-judging.md](05-judging.md).
 
+**Search in both arms.** Each arm has its own switch
+(`web_search_closed_book`, `web_search_with_context`); both are on by default,
+with the same engine and excluded domains, so the arms differ by the
+endpoint's data alone. A launch that searches in only one of them gets a note
+in the job's `message`.
+
+**Engine and cap.** The default engine is Exa (`plugin`) for every role: the
+same search for every model, and the only one that leaves out the excluded
+domains for all of them. `native` and `auto` stay selectable. A tested model's
+answer may search at most `web_search_max_calls` times (default 1; `0` — no
+cap of ours, only the provider's own, up to ~30 per answer). The cap
+goes as `max_tool_calls` (and `max_uses` for Anthropic's native search), which
+a provider may not keep: an answer whose reported searches
+(`web_search_requests`) are more than the cap is flagged
+(`call.web_search_over_cap`), counted per model in the job's `message`, and
+marked in the report and the export.
+
 **Excluded domains.** `web_search_excluded_domains` keeps a source out of
 reach, so a model cannot just read the article a question was written from
 (`bloomberg.com` for a Bloomberg endpoint). It applies to the tested models
@@ -296,6 +322,9 @@ search) it is not sent and the model searches unfiltered; the engine is not
 switched. Every answer records whether it applied (`call.web_search_exclusion`,
 [07-audit.md](07-audit.md)), the report marks an answer it did not apply to,
 and `web_search_engine: plugin` (Exa for every model) applies it everywhere.
+The job's `message` counts the answers it was not applied to, per model, and
+the Space's settings form warns before a run when the engine is `native` or
+`auto` and a tested model's own search may ignore the list.
 
 **The similarity threshold is an axis of the measurement.** At `0.0` the
 endpoint returns top-k for any question, including one the corpus cannot

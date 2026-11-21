@@ -73,6 +73,12 @@ is in progress. A judge from the same company as a model under test is flagged,
 or blocks saving and running, depending on the *Same-company rule*. *Stop
 measuring* disables the target (`enabled: false`) and keeps settings and runs;
 *Resume measuring* enables it again.
+*Ask the models* has a web-search switch for each condition, *On its own* and
+*With your data* (both on by default, so the conditions differ by the data
+alone), and a cap on searches per answer (default 1; 0 — the provider's own
+limit). With domains left out of search
+and a search engine other than the OpenRouter plugin, the step names the tested
+models whose built-in search may ignore them.
 
 **Benchmark results** — what the runs found:
 
@@ -80,9 +86,13 @@ measuring* disables the target (`enabled: false`) and keeps settings and runs;
   filtered by date. A re-ask carries a *Re-ask* badge with its label; the
   tooltip says how many questions of how many runs it asks again. A combined
   run's *Runs* table names a re-ask in its *Trigger* column.
+- A run that ended `partial` (finished, but a pass failed or something was
+  not measured) carries a *With errors* badge, in the runs list and on the
+  run; the run lists each failed pass: model, condition, answers recorded of
+  planned, the reason in a tooltip.
 - A model with failed calls carries a failure badge; an answer that was
   allowed to search the web and did not shows *Searched: no*, with the reason
-  in a tooltip.
+  in a tooltip; one that searched more than the cap shows *Over search limit*.
 - Tooltips open on hover, keyboard focus or a tap.
 - **A run** (`?job=`): summary with *Download summary*
   (`.docx`); *How this run was tested* (`&screen=method`); per model under
@@ -98,7 +108,7 @@ measuring* disables the target (`enabled: false`) and keeps settings and runs;
 | `GET /window?days=` | Articles in the window |
 | `POST /runs` | Start a run (202); `documents` (Space container paths) measures only those documents, with optional `document_settings` (`passages_per_document`, `control_max_share`, `top_up_passages_per_document`; see control-api.md), and is answered with the benchmark's 409 `{"detail", "active_job_id"}` while a job is queued or running; `web_search_excluded_domains` (any run) replaces the endpoint's list of domains kept out of web search, sent as the launch's instrument layer |
 | `POST /reasks` | Re-ask finished runs (202): `{jobs, label?, arms?, models?, judges?, dry_run?}`; runs beside the endpoint's other jobs. `dry_run` answers 200 `{questions, answers_planned, estimated_usd, max_job_usd}`. The benchmark's 409 `{"detail", "active_job_id"}` (a re-ask is active) and 422 pass through (see control-api.md, "Re-asks") |
-| `GET /jobs`, `POST /jobs/{id}/cancel` | Runs, stop one; a run launched with `documents` carries `documents` (count) and `documents_missing` (paths the index did not hold), `null` otherwise; a re-ask carries `reask` |
+| `GET /jobs`, `POST /jobs/{id}/cancel` | Runs, stop one; a run launched with `documents` carries `documents` (count) and `documents_missing` (paths the index did not hold), `null` otherwise; a re-ask carries `reask`; `pass_problems` lists the failed passes of a `partial` job |
 | `PATCH /console/pairs/{id}`, `POST/DELETE /console/results/{id}/verdict` | The benchmark's console, proxied |
 | `GET /report/runs?from=&to=&show_combined_members=` | Runs in progress, and finished runs paged; runs a combined run holds only with `show_combined_members=true` |
 | `GET /report/runs/{job}` and `/questions`, `/generated`, `/filter`, `/writing`, `/pairs?ids=`, `/pairs/{qa}`, `/questions/{qa}`, `/questions/{qa}/fragments` | One run's report, passed through with its query (`filter?generator=`) |

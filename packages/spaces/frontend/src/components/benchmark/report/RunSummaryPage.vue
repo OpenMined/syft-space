@@ -11,10 +11,27 @@
           >
             {{ stoppedLabel(data.run) }}
           </AlertBadge>
+          <AlertBadge
+            v-if="partialLabel(data.run)"
+            :tip="partialTip({ state: data.run.state })"
+            data-testid="run-partial"
+          >
+            {{ partialLabel(data.run) }}
+          </AlertBadge>
         </div>
         <p v-if="header" class="text-sm text-muted-foreground" data-testid="run-articles">
           {{ header }}
         </p>
+        <ul v-if="passProblems.length" class="space-y-0.5 text-sm" data-testid="run-pass-problems">
+          <li v-for="(p, i) in passProblems" :key="i">
+            <Hint :text="p.reason">
+              <span class="cursor-help">
+                <span class="text-amber-700 dark:text-amber-400">Failed:</span>
+                {{ modelName(p.model) }} · {{ passProblemText(p) }}
+              </span>
+            </Hint>
+          </li>
+        </ul>
       </div>
       <div v-if="!buildOnly || details" class="flex flex-wrap gap-2">
         <Button
@@ -301,6 +318,9 @@ import { reaskName } from './reask'
 import { saveRunExport } from './useRunReport'
 import {
   otherNotAsked,
+  partialLabel,
+  partialTip,
+  passProblemText,
   runHeaderText,
   stoppedLabel,
   stoppedTip,
@@ -326,6 +346,7 @@ const details = useDetails()
 /** No model was asked: the page shows what the job wrote and filtered. */
 const buildOnly = computed(() => data.value?.run.build_only ?? false)
 const header = computed(() => (data.value ? runHeaderText(data.value) : null))
+const passProblems = computed(() => data.value?.run.pass_problems ?? [])
 const took = computed(() => (data.value ? runDuration(data.value.run) : null))
 const startFinish = computed(() => (data.value ? startFinishText(data.value.run) : null))
 const cost = computed(() => (data.value ? customerCost(data.value.method) : null))

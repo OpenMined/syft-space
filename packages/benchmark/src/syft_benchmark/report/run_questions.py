@@ -20,8 +20,10 @@ from syft_benchmark.db.models import Job, QaPair, Result, Run
 from syft_benchmark.generation.article_dates import URL_KEY
 from syft_benchmark.llm.web_search import (
     cites_article,
+    search_count_of,
     search_engine_of,
     search_exclusion_of,
+    search_over_cap_of,
     unused_reason,
 )
 from syft_benchmark.report import combined_view, run_view
@@ -300,6 +302,10 @@ def _arm(
         "cites_article": cites_article(citations, article_url),
         # The search left out the run's excluded domains; None — none were set.
         "search_exclusion": search_exclusion_of(audit),
+        # The searches the provider reports, and whether they passed
+        # web_search_max_calls; None — not reported, or no cap was set.
+        "searches": search_count_of(audit),
+        "search_over_cap": search_over_cap_of(audit),
         "web_search_unused": bool(audit.get("web_search_unused")),
         "web_search_unused_reason": _unused_reason(audit, counted.answer),
         # A control answer's outcome; None under an owner override.

@@ -302,18 +302,24 @@ class JobState(StrEnum):
     ``CANCELLED`` means stopped by the owner, and that is not an error: half a
     measurement is data too, and its runs and verdicts are already written and stay
     in the database.
+
+    ``PARTIAL`` — succeeded with errors: the job reached the end, was not
+    stopped, and recorded a failure (its ``error``, or a pass that failed or
+    stopped early). What it measured is as usable as a ``SUCCEEDED`` job's,
+    but something is missing from it.
     """
 
     QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
     @property
     def final(self) -> bool:
         """The job has finished counting and will not move again."""
-        return self in {JobState.SUCCEEDED, JobState.FAILED, JobState.CANCELLED}
+        return self not in {JobState.QUEUED, JobState.RUNNING}
 
 
 class JobPhase(StrEnum):
@@ -555,18 +561,21 @@ class Settings(BaseSettings):
 
     # --- Web search, per role. Only OpenRouter models search; elsewhere the
     # toggle has no effect. The web check model always searches.
+    # Exa by default: the same search for every model, and it honours the
+    # excluded domains, which most native searches do not.
     web_search_engine: WebSearchEngine = Field(
-        default=WebSearchEngine.AUTO,
+        default=WebSearchEngine.PLUGIN,
         description=(
-            "auto: the model's own search when it has one, else Exa; native; "
-            "plugin: Exa search"
+            "plugin: Exa search (OpenRouter); auto: the model's own search when "
+            "it has one, else Exa; native"
         ),
     )
     web_search_closed_book: bool = Field(
         default=True, description="The tested model searches the web on its own"
     )
+    # On in both arms, so they differ by the endpoint's data alone.
     web_search_with_context: bool = Field(
-        default=False,
+        default=True,
         description="The tested model searches the web when given the endpoint's data",
     )
     web_search_generator: bool = Field(
@@ -582,12 +591,13 @@ class Settings(BaseSettings):
         description="Results per search, for the Exa engine",
     )
     web_search_max_calls: int = Field(
-        default=0,
+        default=1,
         ge=0,
         le=30,
         description=(
-            "Searches one answer of a tested model may make. Zero — the "
-            "provider's own limit (30 on OpenRouter)"
+            "Searches one answer of a tested model may make; an answer the "
+            "provider let make more is flagged (``web_search_over_cap``). Zero "
+            "— the provider's own limit (30 on OpenRouter)"
         ),
     )
     web_search_excluded_domains: list[str] = Field(

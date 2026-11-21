@@ -1,6 +1,7 @@
 /** Pure helpers that turn the server's report shapes into words. */
 import type {
   BenchmarkArmDetail,
+  BenchmarkPassProblem,
   BenchmarkRunProgress,
   BenchmarkRunReport,
   BenchmarkRunSummary,
@@ -10,6 +11,7 @@ import { customerCost, runDuration, tookText } from './timeCost'
 import { plural } from '../labels'
 import { modelName, REMOVED_REASON_LABEL, type Behavior } from './labels'
 import { KIND_ORDER, sortKinds } from '../questionOrder'
+import { ARM_TITLE, BLOCK_TITLE } from './details/questionAudit'
 import { TRICK_GENERATOR, type Held, type SettingRow } from './types'
 
 export function isTrick(generator: string | null | undefined): boolean {
@@ -172,6 +174,31 @@ export function stoppedLabel(run: Pick<BenchmarkRunSummary, 'stopped'>): string 
 
 export function stoppedTip(run: Pick<BenchmarkRunSummary, 'stopped'>): string | undefined {
   return run.stopped ? STOPPED[run.stopped].tip : undefined
+}
+
+/** Chip of a run that finished with errors; null otherwise. */
+export function partialLabel(run: Pick<BenchmarkRunSummary, 'state'>): string | null {
+  return run.state === 'partial' ? 'With errors' : null
+}
+
+/** `With your data · Asked once · 58 of 92 answers` — one failed pass, without its model. */
+export function passProblemText(p: BenchmarkPassProblem): string {
+  const answers =
+    p.expected === null || p.expected === undefined
+      ? plural(p.recorded, 'answer')
+      : `${p.recorded} of ${plural(p.expected, 'answer')}`
+  return [ARM_TITLE[p.arm] ?? p.arm, BLOCK_TITLE[p.block] ?? p.block, answers].join(' · ')
+}
+
+/** The tooltip of a run that finished with errors: which models' passes failed. */
+export function partialTip(
+  run: Pick<BenchmarkRunSummary, 'state' | 'pass_problems'>,
+  nameOf: (id: string) => string = (id) => id,
+): string | undefined {
+  if (run.state !== 'partial') return undefined
+  const head = 'Finished, but something failed and is missing from the figures.'
+  const passes = (run.pass_problems ?? []).map((p) => `${nameOf(p.model)}: ${passProblemText(p)}`)
+  return passes.length ? `${head} ${passes.join('; ')}.` : head
 }
 
 /** `$1.23`; `<$0.01` for a spend below a cent. */

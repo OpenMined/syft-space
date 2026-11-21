@@ -377,7 +377,7 @@ def _ask_judge(
         judging=True,
         role=cost.JUDGES,
         web_search=searching,
-        web_search_engine=engine or "auto",
+        web_search_engine=engine,
     )
 
 

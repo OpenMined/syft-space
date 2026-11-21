@@ -29,6 +29,8 @@ SEARCH_KEYS = (
     "web_search_requests",
     "web_search_retry",
     "web_search_exclusion",
+    "web_search_max_calls",
+    "web_search_over_cap",
 )
 
 # The native searches that honour excluded domains, with the most domains each
@@ -233,6 +235,14 @@ def search_requests(usage: dict[str, Any]) -> int | None:
     return None
 
 
+def over_cap(usage: dict[str, Any], cap: int) -> bool:
+    """The provider reports more searches than ``cap`` (zero — no cap) let
+    the answer make: ``max_tool_calls`` is a request, and not every provider
+    keeps to it."""
+    requests = usage.get("web_search_requests")
+    return bool(cap) and isinstance(requests, int) and requests > cap
+
+
 def search_unused(usage: dict[str, Any]) -> bool:
     """Search was offered, and the answer shows no search and cites nothing."""
     return (
@@ -300,6 +310,22 @@ def search_engine_of(audit: dict[str, Any]) -> str | None:
     if engine == "native":
         return "native"
     return None
+
+
+def search_count_of(audit: dict[str, Any]) -> int | None:
+    """How many searches the provider reports for the answer; None — not
+    reported, or it did not search."""
+    call = audit.get("call")
+    found = call.get("web_search_requests") if isinstance(call, dict) else None
+    return found if isinstance(found, int) and not isinstance(found, bool) else None
+
+
+def search_over_cap_of(audit: dict[str, Any]) -> bool | None:
+    """Whether the answer searched more than ``web_search_max_calls`` let it;
+    None — no cap was set, or it did not search."""
+    call = audit.get("call")
+    over = call.get("web_search_over_cap") if isinstance(call, dict) else None
+    return over if isinstance(over, bool) else None
 
 
 def search_exclusion_of(audit: dict[str, Any]) -> bool | None:

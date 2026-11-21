@@ -66,8 +66,9 @@ def test_an_arm_that_does_not_exist_is_refused() -> None:
         RunRequest.model_validate({"instrument": {"arms": ["open_book"]}})
 
 
-def test_closed_book_asks_with_web_search(monkeypatch: Any) -> None:
-    """Both roads of arm A: the direct call and the repeats of monte_carlo."""
+def test_both_arms_ask_with_web_search(monkeypatch: Any) -> None:
+    """Both roads of arm A (the direct call and the repeats of monte_carlo), and
+    arm C: web search is on in both arms by default."""
     import syft_benchmark.runs.execute as execute
     import syft_benchmark.runs.parallel as parallel
     from syft_benchmark.config import SpaceConfig
@@ -106,7 +107,7 @@ def test_closed_book_asks_with_web_search(monkeypatch: Any) -> None:
     execute._ask_model_with_context(
         "Which port?", 0.9, provider=subject, settings=Settings(), context="x"
     )
-    assert [call.get("web_search", False) for call in seen] == [True, True, False]
+    assert [call.get("web_search", False) for call in seen] == [True, True, True]
 
 
 # --- the same-company rule ----------------------------------------------------

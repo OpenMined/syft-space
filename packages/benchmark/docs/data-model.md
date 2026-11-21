@@ -89,7 +89,7 @@ erDiagram
 | `runs` | one pass: arm × block × model, with its settings snapshot |
 | `results` | one answer and its verdict; judges and hand verdicts add rows, never rewrite |
 | `targets` | nodes under test: address, endpoint, index location, `instrument` and `probe` overrides, `enabled`, `schedule`, `schedule_at`, `next_run_at`, `combine_periods` and `combine_marks` (per period, the last one combined) |
-| `jobs` | launches: `state`, `phase`, `kind` (`pipeline`, `filter`, `judge`, `reask`, `combined`), `trigger`, progress, `params` (request, launch snapshot, cost and timing), `error` |
+| `jobs` | launches: `state`, `phase`, `kind` (`pipeline`, `filter`, `judge`, `reask`, `combined`), `trigger`, progress, `params` (request, launch snapshot, cost, timing and `pass_problems`), `error` |
 | `combined_members` | the leaf jobs of a combined job (`kind = combined`), many-to-many, `position` in time order; cascades from either job |
 | `run_aggregates` | cached figures of one job; no row means recompute. Dropping a job's row drops those of the combined jobs holding it |
 | `writer_calls` | a job's writer calls that dropped drafts or failed, one row per call (unique `(job_id, call)`): prompt, reply, the dropped drafts per kind with their reason; no FK, deleted with the job |

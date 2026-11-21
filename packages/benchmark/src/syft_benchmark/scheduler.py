@@ -49,7 +49,8 @@ from syft_benchmark.runs import (
 )
 from syft_benchmark.runs.blocks import monte_carlo_skip_note, skips_monte_carlo
 from syft_benchmark.runs.execute import _active_pairs
-from syft_benchmark.runs.parallel import Launch, Pool
+from syft_benchmark.runs.judge import ERROR_PREFIX
+from syft_benchmark.runs.parallel import OWNER_STOP, Launch, Pool
 from syft_benchmark.runs.timing import CallClock, PassTime
 
 REPORTS_DIR = Path("reports")
@@ -109,6 +110,13 @@ class Measured:
     refused: set[str] = field(default_factory=set)
     # Where the evaluation's time went: per pass, and per model call.
     pass_times: list[PassTime] = field(default_factory=list)
+    # The passes that failed, stopped early or were not asked; not the ones
+    # the owner or the cap stopped.
+    pass_problems: list[PassProblem] = field(default_factory=list)
+    # Per tested model: answers that searched past ``web_search_max_calls``,
+    # and answers whose search did not leave out the excluded domains.
+    over_search_cap: dict[str, int] = field(default_factory=dict)
+    unexcluded: dict[str, int] = field(default_factory=dict)
     clock: CallClock = field(default_factory=CallClock)
 
     @property
@@ -138,6 +146,32 @@ class PassSpec:
     subject: Provider
     qa_ids: frozenset[str] | None = None
     primary_only: bool = False
+
+
+@dataclass(slots=True)
+class PassProblem:
+    """A pass that failed, stopped early or was never asked — the per-model
+    flag behind a job that ends ``partial`` (``control.jobs``).
+
+    ``expected`` is the questions the pass was to ask, when known here (a
+    re-ask's); None — the job fills it from its plan.
+    """
+
+    arm: str
+    block: str
+    model: str
+    reason: str
+    expected: int | None = None
+
+    @classmethod
+    def of(cls, spec: PassSpec, reason: str) -> PassProblem:
+        return cls(
+            arm=spec.mode.value,
+            block=spec.block.value,
+            model=spec.subject.model,
+            reason=" ".join(reason.split())[:200],
+            expected=len(spec.qa_ids) if spec.qa_ids is not None else None,
+        )
 
 
 class Observer(Protocol):
@@ -478,6 +512,9 @@ def _evaluate(
     """
     if not specs:
         return
+    mismatch = search_arms_note(conf, {spec.mode for spec in specs})
+    if mismatch and mismatch not in out.notes:
+        out.notes.append(mismatch)
 
     async def evaluate_all() -> None:
         pool = Pool(conf, clock=out.clock)
@@ -511,6 +548,39 @@ def _evaluate(
             pool.close()
 
     asyncio.run(evaluate_all())
+    out.notes.extend(search_notes(out, conf))
+
+
+def search_arms_note(conf: Settings, modes: set[ContextMode]) -> str:
+    """A note when only one of the two measured arms searches the web: the
+    difference between them is then the search as well as the data."""
+    if {ContextMode.CLOSED_BOOK, ContextMode.MODEL_WITH_CONTEXT} - modes:
+        return ""
+    if conf.web_search_closed_book == conf.web_search_with_context:
+        return ""
+    on = "without" if conf.web_search_closed_book else "with"
+    return (
+        f"web search: on only for answers {on} the endpoint's data, so the "
+        f"difference between the arms includes the search"
+    )
+
+
+def search_notes(out: Measured, conf: Settings) -> list[str]:
+    """The job's warnings about the tested models' web search, per model."""
+    notes = [
+        f"web search: {model} searched more than the limit of "
+        f"{conf.web_search_max_calls} per answer in {count} answers "
+        f"(web_search_max_calls)"
+        for model, count in sorted(out.over_search_cap.items())
+        if count
+    ]
+    notes += [
+        f"web search: the excluded domains were not applied to {model}'s "
+        f"search in {count} answers (its native search ignores them)"
+        for model, count in sorted(out.unexcluded.items())
+        if count
+    ]
+    return notes
 
 
 async def _one_pass(
@@ -537,6 +607,11 @@ async def _one_pass(
     # pass changes any of those — but each pass asked in that name costs a
     # whole set of questions and the time to ask them.
     if subject.model in launch.refused:
+        out.pass_problems.append(
+            PassProblem.of(
+                spec, f"not asked: the provider refused {subject.model} outright"
+            )
+        )
         return None
     # A judge the provider refused is stood down the same way. The panel is
     # shared by every pass, so one refused judge must not end the measurement
@@ -549,6 +624,9 @@ async def _one_pass(
         )
         if failure not in out.failures:
             out.failures.append(failure)
+        out.pass_problems.append(
+            PassProblem.of(spec, "not asked: the provider refused every judge")
+        )
         return None
 
     # Asked before the pass exists at all, a cancellation costs nothing
@@ -590,11 +668,19 @@ async def _one_pass(
         logger.warning(f"{label} failed: {exc}")
         timed.seconds = time.monotonic() - started
         timed.stopped = str(exc)[:200]
+        out.pass_problems.append(PassProblem.of(spec, str(exc)))
         if observer is not None:
             observer.pass_done(index, label)
         return timed
     timed.seconds = time.monotonic() - started
 
+    # Every judge of the pass saw the same answers: counted once per pass.
+    for counts, found in (
+        (out.over_search_cap, max((o.over_search_cap for o in outcomes), default=0)),
+        (out.unexcluded, max((o.unexcluded for o in outcomes), default=0)),
+    ):
+        if found:
+            counts[subject.model] = counts.get(subject.model, 0) + found
     for outcome in outcomes:
         timed.questions = max(timed.questions, outcome.asked)
         if outcome.stopped and not timed.stopped:
@@ -605,6 +691,15 @@ async def _one_pass(
         out.resumed += outcome.resumed
         if not out.failure_sample and outcome.failure_sample:
             out.failure_sample = outcome.failure_sample
+        if outcome.endpoint_failures:
+            # Every judge of the pass saw the same answers: one line per pass.
+            line = (
+                f"{label}: the endpoint failed on {outcome.endpoint_failures} "
+                f"questions (technical failures, not retrieval misses): "
+                f"{outcome.endpoint_failure_sample.removeprefix(ERROR_PREFIX).strip()}"
+            )
+            if line not in out.failures:
+                out.failures.append(line)
         if outcome.refused and outcome.refused not in out.refused:
             out.refused.add(outcome.refused)
             launch.refused.add(outcome.refused)
@@ -631,6 +726,10 @@ async def _one_pass(
         metrics = summarize(space.key, mode, block, subject.model, outcome.judge)
         if metrics is not None:
             out.metrics.append(metrics)
+    # Stopped by the owner or the cap is the job's cancellation, not a
+    # failure of this pass.
+    if timed.stopped and timed.stopped != OWNER_STOP:
+        out.pass_problems.append(PassProblem.of(spec, timed.stopped))
     if observer is not None:
         observer.pass_done(index, label)
     return timed

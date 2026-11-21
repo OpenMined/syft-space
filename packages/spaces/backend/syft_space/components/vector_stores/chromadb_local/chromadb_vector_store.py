@@ -539,7 +539,11 @@ class ChromaDBLocalVectorStore:
 
             try:
                 collection = await client.get_collection(name=self.collection_name)
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"ChromaDB search: collection {self.collection_name} not found "
+                    f"(dataset {ctx.dataset_id}): {e}"
+                )
                 return SearchResult(
                     documents=[],
                     metadata={"count": 0, "error": "Collection not found"},
@@ -567,9 +571,15 @@ class ChromaDBLocalVectorStore:
             return SearchResult(documents=documents, metadata={"count": len(documents)})
 
         except Exception as e:
+            # E.g. a dimension mismatch after an embedding-model change; the
+            # query handler returns the error as ``search_error``.
+            logger.opt(exception=e).error(
+                f"ChromaDB search failed on collection {self.collection_name} "
+                f"(dataset {ctx.dataset_id}): {type(e).__name__}: {e}"
+            )
             return SearchResult(
                 documents=[],
-                metadata={"count": 0, "error": str(e)},
+                metadata={"count": 0, "error": f"{type(e).__name__}: {e}"},
             )
 
     async def healthcheck(self) -> HealthcheckResponse:

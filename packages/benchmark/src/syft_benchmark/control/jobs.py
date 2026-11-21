@@ -46,9 +46,9 @@ from syft_benchmark.generation import decisions, filter_and_rotate
 from syft_benchmark.llm.cost import CostMeter, cost_meter, meter_for, openrouter_spend
 from syft_benchmark.report import job_params, run_view
 from syft_benchmark.runs import endpoint_retriever, judge_pending
-from syft_benchmark.runs.parallel import Progress
+from syft_benchmark.runs.parallel import OWNER_STOP, Progress
 from syft_benchmark.runs.timing import CallClock, JobClock, PassTime
-from syft_benchmark.scheduler import Measured, measure
+from syft_benchmark.scheduler import Measured, PassProblem, measure
 from syft_benchmark.scheduler import reask as reask_passes
 
 # How often the worker thread looks into the queue. A second is the delay
@@ -70,6 +70,7 @@ BEAT_SECONDS = 2.0
 TARGET_GONE = "target_gone"
 SERVICE_RESTARTED = "service_restarted"
 NOTHING_GRADED = "nothing_graded"
+NOTHING_SCREENED = "nothing_screened"
 NO_QUESTIONS = "no_questions"
 NOTHING_GENERATED = "nothing_generated"
 OVER_BUDGET = job_params.OVER_BUDGET
@@ -180,13 +181,18 @@ class Reporter:
         self._sum_steps()
         self._write(force=True)
 
+    @property
+    def per_pass(self) -> int | None:
+        """Questions each pass is to ask, from the plan; None — no plan."""
+        return self._per_pass
+
     def watcher(self, label: str) -> Callable[[Progress], None]:
         def tick(progress: Progress) -> None:
             self._steps[label] = (progress.done, progress.total)
             self._sum_steps()
             self._write()
             if self.cancelled:
-                progress.stop("stopped by the owner")
+                progress.stop(OWNER_STOP)
 
         return tick
 
@@ -613,14 +619,65 @@ def _conclude(
             # the provider sent back.
             failures.append(_with_sample(NOTHING_GRADED, done.failure_sample))
 
-    state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
+    problems = _pass_problems(
+        job_id, done.pass_problems, reporter.per_pass, reporter.settings
+    )
     _finish(
         job_id,
-        state,
+        _end_state(reporter, failed=bool(failures or problems)),
         error="; ".join(failures),
         message="; ".join(done.notes),
         settings=reporter.settings,
     )
+
+
+def _end_state(reporter: Reporter, *, failed: bool) -> JobState:
+    """How a job that reached the end closes: ``CANCELLED`` when it was
+    stopped, ``PARTIAL`` when it recorded a failure, else ``SUCCEEDED``."""
+    if reporter.cancelled:
+        return JobState.CANCELLED
+    return JobState.PARTIAL if failed else JobState.SUCCEEDED
+
+
+def _pass_problems(
+    job_id: str,
+    found: list[PassProblem],
+    per_pass: int | None,
+    settings: Settings,
+) -> list[dict[str, Any]]:
+    """Keep the failed passes in the job's params (``job_params.PASS_PROBLEMS``),
+    each with ``expected`` (questions planned) and ``recorded`` (answers this
+    job wrote for the pass); empty — none failed."""
+    if not found:
+        return []
+    with session_scope(settings) as session:
+        rows = session.execute(
+            select(
+                Run.context_mode,
+                Run.block,
+                Run.model,
+                func.count(func.distinct(Result.qa_id)),
+            )
+            .join(Result, Result.run_id == Run.id)
+            .where(Run.job_id == job_id)
+            .group_by(Run.context_mode, Run.block, Run.model)
+        ).all()
+        recorded = {(arm, block, model): n for arm, block, model, n in rows}
+        problems = [
+            {
+                "model": p.model,
+                "arm": p.arm,
+                "block": p.block,
+                "reason": p.reason,
+                "expected": p.expected if p.expected is not None else per_pass,
+                "recorded": recorded.get((p.arm, p.block, p.model), 0),
+            }
+            for p in found
+        ]
+        job = session.get(Job, job_id)
+        if job is not None:
+            job.params = {**(job.params or {}), job_params.PASS_PROBLEMS: problems}
+    return problems
 
 
 def _execute_reask(
@@ -700,14 +757,22 @@ def _execute_filter(
         job_id=job_id,
     )
     reporter.phase(JobPhase.FILTER, outcome.line())
-    state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
-    summary = [f"filter: {outcome.line()}"]
+    summary = [f"filter: {outcome.line()}", *outcome.notes]
     if outcome.rotation is not None:
         summary.append(f"set: {outcome.rotation.line()}")
+    failures = reporter.budget_problem()
+    # Every check failed, so no question was decided. A few failed checks
+    # beside decisions are only in the summary: the next pass retries them.
+    unchecked = outcome.archive_failed + (outcome.web.failed if outcome.web else 0)
+    if unchecked and not outcome.checked:
+        failures.append(
+            f"{NOTHING_SCREENED}: every check failed, "
+            f"{unchecked} questions left pending"
+        )
     _finish(
         job_id,
-        state,
-        error="; ".join([*reporter.budget_problem(), *outcome.notes]),
+        _end_state(reporter, failed=bool(failures)),
+        error="; ".join(failures),
         message="; ".join(summary),
         settings=base_settings,
     )
@@ -741,11 +806,15 @@ def _execute_judge(
         watch=reporter.watcher(f"{space.key}/judging"),
     )
     reporter.phase(JobPhase.JUDGE, outcome.line())
-    state = JobState.CANCELLED if reporter.cancelled else JobState.SUCCEEDED
+    failures = reporter.budget_problem()
+    if outcome.checked and outcome.failed == outcome.checked:
+        # Every verdict failed: the answers stay ungraded.
+        failures.append(NOTHING_GRADED)
     _finish(
         job_id,
-        state,
-        error="; ".join([*reporter.budget_problem(), *outcome.notes]),
+        _end_state(reporter, failed=bool(failures)),
+        error="; ".join(failures),
+        message="; ".join([outcome.line(), *outcome.notes]),
         settings=base_settings,
     )
 
@@ -837,7 +906,8 @@ def _finish(
 
     Failed runs do not make a job a failure: the node may have rebooted in the
     middle of one arm while the others went through and gave numbers. A failure
-    is when the job did not reach the end at all.
+    is when the job did not reach the end at all; a job that reached it with
+    failures recorded is ``PARTIAL`` (``_end_state``).
     """
     with session_scope(settings) as session:
         job = session.get(Job, job_id)
@@ -850,10 +920,6 @@ def _finish(
             job.message = message
         job.finished_at = datetime.now(UTC)
         invalidate_run(session, job_id)
-        # There is no separate "passed, but not whole" message here: it is
-        # visible from the pair "state + a non-empty reason" itself, and a
-        # phrase invented for it would be a third place where the same thing is
-        # said differently.
     run_view.warm(job_id, settings)
 
 

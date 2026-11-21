@@ -339,6 +339,28 @@ describe('QuestionsPage', () => {
     expect(withData.find('[data-testid="exclusion-not-applied"]').exists()).toBe(false)
   })
 
+  it('marks an answer that searched more than the run allows', async () => {
+    const report = fakeReport()
+    report.loadQuestion.mockImplementation(async (_job: string, qaId: string) => {
+      const base = questionDetail(qaId)
+      return {
+        ...base,
+        arms: {
+          alone: { ...base.arms.alone!, search_engine: 'exa', searches: 9, search_over_cap: true },
+          with: { ...base.arms.with!, search_engine: 'exa', searches: 2, search_over_cap: false },
+        },
+      }
+    })
+    const { wrapper } = await mountPage(report)
+    await wrapper.get('[data-testid="question-row"] button').trigger('click')
+    await flushPromises()
+
+    const alone = wrapper.get('[data-testid="answer-closed"]')
+    expect(alone.get('[data-testid="over-search-cap"]').text()).toBe('Over search limit')
+    const withData = wrapper.get('[data-testid="answer-ctx"]')
+    expect(withData.find('[data-testid="over-search-cap"]').exists()).toBe(false)
+  })
+
   it('has no verdict override or removal controls', async () => {
     const { wrapper } = await mountPage()
     await wrapper.get('[data-testid="question-row"] button').trigger('click')

@@ -101,6 +101,7 @@ def _summary(
         "build_only": build_only,
         "state": job.state,
         "stopped": job_params.stopped_of(job),
+        "pass_problems": job_params.pass_problems_of(job),
         "kind": job.kind,
         "reask": job_params.reask_of(job),
     }

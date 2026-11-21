@@ -264,6 +264,7 @@ class QueryEndpointHandler:
             # Execute query based on response_type
             references: ReferencesResponse | None = None
             summary: SummaryResponse | None = None
+            search_error: str | None = None
 
             response_type = ResponseType(endpoint.response_type)
 
@@ -287,7 +288,9 @@ class QueryEndpointHandler:
                         ),
                         "",
                     )
-                references = await self._search_dataset(endpoint, request, search_query)
+                references, search_error = await self._search_dataset(
+                    endpoint, request, search_query
+                )
 
             # Chat with model if needed
             if (
@@ -303,7 +306,7 @@ class QueryEndpointHandler:
 
             # Create response
             query_response = QueryEndpointResponse(
-                summary=summary, references=references
+                summary=summary, references=references, search_error=search_error
             )
 
             # Update policy context with response
@@ -422,8 +425,13 @@ class QueryEndpointHandler:
         endpoint: Endpoint,
         request: AuthenticatedQueryRequest,
         query: str,
-    ) -> ReferencesResponse:
-        """Search the dataset linked to this endpoint."""
+    ) -> tuple[ReferencesResponse, str | None]:
+        """Search the dataset linked to this endpoint.
+
+        Returns the references and the store's ``metadata["error"]``, if any,
+        so the response tells a failed search from an empty one. A store that
+        raises still turns into HTTP 500.
+        """
         dataset = await self.dataset_repository.get_by_id(
             endpoint.dataset_id, endpoint.tenant_id
         )
@@ -449,10 +457,23 @@ class QueryEndpointHandler:
         try:
             search_result = await dataset_instance.search(ctx, query, search_params)
         except Exception as e:
-            logger.exception(f"Dataset search failed: {e}")
+            logger.exception(
+                f"Dataset search failed (endpoint {endpoint.slug}, dataset "
+                f"{dataset.id}, type {dataset.dtype}): {e}"
+            )
             raise HTTPException(
                 status_code=500, detail=f"Dataset search failed: {str(e)}"
             ) from e
+
+        search_error = search_result.metadata.get("error")
+        if search_error:
+            search_error = str(search_error)
+            logger.error(
+                f"Dataset search returned an error (endpoint {endpoint.slug}, "
+                f"dataset {dataset.id}, type {dataset.dtype}): {search_error}"
+            )
+        else:
+            search_error = None
 
         documents = [
             DocumentResponse(
@@ -468,13 +489,14 @@ class QueryEndpointHandler:
             for doc in search_result.documents
         ]
 
-        return ReferencesResponse(
+        references = ReferencesResponse(
             documents=documents,
             provider_info=ProviderInfo(
                 search_engine=dataset.dtype,
                 metadata_fields=dataset_instance.metadata.public_names(),
             ),
         )
+        return references, search_error
 
     async def _chat_with_model(
         self,

@@ -39,6 +39,10 @@ from syft_benchmark.runs.timing import ANSWER, CallClock
 # looks like a hung one.
 _PROGRESS_EVERY = 10
 
+# Why a pass ended early when the owner, or the job's spending cap, stopped
+# it: not a failure of the pass, and told apart from one by this text.
+OWNER_STOP = "stopped by the owner"
+
 # How many database writes to keep in flight, off the event loop.
 _STORAGE_LANE = 4
 
@@ -139,7 +143,9 @@ class RunCache:
         self.savings = Savings()
         self._endpoint: dict[tuple[str, str], _Cached] = {}
         self._answers: dict[
-            tuple[str, str, str, str, tuple[str, str, int, tuple[str, ...]] | None],
+            tuple[
+                str, str, str, str, tuple[str, str, int, int, tuple[str, ...]] | None
+            ],
             tuple[str, dict[str, Any]],
         ] = {}
         self._running: dict[Any, asyncio.Task[Any]] = {}
@@ -205,7 +211,7 @@ class RunCache:
         pool: Pool,
         settings: Settings,
         web_search: bool = False,
-        web_search_engine: str = "auto",
+        web_search_engine: str = "",
     ) -> tuple[str, dict[str, Any]]:
         """A model answer to a prompt at zero temperature, asked once.
 
@@ -219,6 +225,7 @@ class RunCache:
                 web_search_engine,
                 search_mechanism(provider.model, settings),
                 settings.web_search_max_results,
+                settings.web_search_max_calls,
                 tuple(settings.web_search_excluded_domains),
             )
             if web_search

@@ -194,7 +194,8 @@
                   v-if="
                     armOf(detail, arm)?.search_engine ||
                     armOf(detail, arm)?.cites_article ||
-                    armOf(detail, arm)?.search_exclusion === false
+                    armOf(detail, arm)?.search_exclusion === false ||
+                    armOf(detail, arm)?.search_over_cap
                   "
                   class="flex flex-wrap gap-1"
                 >
@@ -225,6 +226,16 @@
                       class="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
                       data-testid="exclusion-not-applied"
                       ><SearchX class="size-3" aria-hidden="true" />Excluded domains searched</span
+                    >
+                  </Hint>
+                  <Hint
+                    v-if="armOf(detail, arm)?.search_over_cap"
+                    :text="overSearchCapTip(armOf(detail, arm)?.searches)"
+                  >
+                    <span
+                      class="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
+                      data-testid="over-search-cap"
+                      ><Search class="size-3" aria-hidden="true" />Over search limit</span
                     >
                   </Hint>
                 </span>
@@ -449,6 +460,7 @@ import {
   SEARCH_UNUSED_TIP,
   judgesText,
   modelName,
+  overSearchCapTip,
   searchEngineLabel,
   searchEngineTip,
 } from './labels'

@@ -767,10 +767,34 @@ export interface BenchmarkConnectionRequest {
   container?: string
 }
 
+/** partial: finished with errors — a pass failed or something was not measured. */
+export type BenchmarkJobState =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'partial'
+  | 'failed'
+  | 'cancelled'
+
+/** A pass that failed, stopped early or was not asked. */
+export interface BenchmarkPassProblem {
+  model: string
+  /** The condition (arm). */
+  arm: string
+  block: string
+  reason: string
+  /** Questions the pass was to ask; null — unknown. */
+  expected: number | null
+  /** Questions this job recorded an answer to in the pass. */
+  recorded: number
+}
+
 export interface BenchmarkJob {
   id: string
-  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  state: BenchmarkJobState
   phase: string
+  /** Empty — no pass failed. */
+  pass_problems?: BenchmarkPassProblem[]
   /** pipeline, filter, judge or reask — which operation this job is, not where it is. */
   kind: string
   /** Set on a re-ask; null on any other job. */
@@ -1134,7 +1158,9 @@ export interface BenchmarkRunSummary {
   lift_hi: number | null
   /** True: the job wrote or filtered questions but asked no model. */
   build_only?: boolean
-  state?: 'succeeded' | 'failed' | 'cancelled'
+  state?: 'succeeded' | 'partial' | 'failed' | 'cancelled'
+  /** The job's failed passes; empty — none. */
+  pass_problems?: BenchmarkPassProblem[]
   /** Who stopped the job; null — it was not stopped. */
   stopped?: 'owner' | 'spending_cap' | null
   build?: BenchmarkBuildCounts | null
@@ -1424,6 +1450,10 @@ export interface BenchmarkArmDetail {
   cites_article?: boolean | null
   /** Its search left out the run's excluded domains; null — none were set. */
   search_exclusion?: boolean | null
+  /** Searches the provider reports for it; null — not reported. */
+  searches?: number | null
+  /** It searched more than the run's cap; null — no cap was set. */
+  search_over_cap?: boolean | null
   /** The counted fine outcome; null under an override. */
   behavior?: BenchmarkBehavior | null
 }

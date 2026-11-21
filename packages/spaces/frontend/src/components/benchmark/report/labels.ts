@@ -70,6 +70,12 @@ export const CITES_ARTICLE_TIP =
 export const EXCLUSION_NOT_APPLIED_TIP =
   'The run keeps some domains out of search, but this model’s own search can’t leave them out, so it searched them too.'
 
+/** Why an answer is marked for searching past the run's cap. */
+export function overSearchCapTip(searches: number | null | undefined): string {
+  const made = typeof searches === 'number' ? ` It searched ${searches} times.` : ''
+  return `The provider let the model search more often than the run’s limit per answer.${made}`
+}
+
 /** Control questions: graded on how the model behaves, not on a right answer. */
 const CONTROL_KINDS = new Set(['unanswerable_property', 'false_premise'])
 

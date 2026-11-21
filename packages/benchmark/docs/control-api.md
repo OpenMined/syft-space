@@ -273,9 +273,26 @@ so `max_job_usd` and `cost.by_role` stay per job beside another job; `cost.usd`
 | --- | --- |
 | `queued` | Waiting |
 | `running` | In progress; `phase` (`generate`, `filter`, `evaluate`, `judge`) says where |
-| `succeeded` | Finished; a non-empty `error` means partly |
+| `succeeded` | Finished, nothing failed |
+| `partial` | Finished with errors: a non-empty `error`, or a failed pass in `pass_problems`; what was measured is usable |
 | `failed` | Did not reach the end |
 | `cancelled` | Stopped; what was measured stays |
+
+Every state but `queued` and `running` is final: `partial` runs are listed,
+reported, combined and re-asked like `succeeded` ones. A job ends `partial`
+when it was not stopped and recorded a failure: any `error` code below but
+`over_budget`, a pass that raised, a pass stopped early (failure streak, a
+refused name or judge panel), or a pass not asked because its model or every
+judge was refused. A pass the owner or the cap stopped ends the job
+`cancelled` instead. A failed model call on a single question does not by
+itself: it is a `technical` verdict in the report. Notes (`message`) never
+do. A filter job ends `partial` on `nothing_screened`, a
+judge job on `nothing_graded`.
+
+`pass_problems` (the job and every run summary; empty — none) lists the
+failed passes: `{model, arm, block, reason, expected, recorded}` — `expected`
+the questions the pass was to ask (null when unknown), `recorded` the
+questions this job recorded an answer to in that pass.
 
 `kind` is `pipeline` (`/runs`), `filter`, `judge` or `reask` (`/reasks`).
 Stopping is a request:
@@ -290,16 +307,27 @@ earlier launch. Verdicts added after a launch (a judging pass, judging through
 a chat, an override) are recorded under the launch whose answers they grade.
 Runs started from the CLI have no job.
 
+A measuring job's `message` carries its notes, web search warnings among
+them: a tested model that searched more than `web_search_max_calls` times, or
+whose search did not leave out the excluded domains (counts per model), and a
+launch that searched in only one of the two arms
+([04-evaluation.md](04-evaluation.md#run-settings)).
+
 | Error code | When |
 | --- | --- |
 | `nothing_generated: …` | The set was to be built and every generator call failed |
 | `no_questions` | There was nothing to ask |
-| `nothing_graded: …` | Questions were asked, no verdict came out |
+| `nothing_graded: …` | Questions were asked, no verdict came out (a judge job: every verdict failed) |
+| `nothing_screened: …` | A filter job: every check failed, the questions stay pending |
 | `over_budget: …` | The spending cap stopped the job |
 | `documents_not_found: …` | None of the launch's `documents` is in the index |
 | `reask_refused: …` | A re-ask's runs can no longer be re-asked (deleted, settings no longer reproducible) |
 | `target_gone` | The target was deleted |
 | `service_restarted` | The process restarted mid-job |
+
+`error` also carries, per pass, `<pass>: the endpoint failed on N questions
+(technical failures, not retrieval misses): <first error>` when the endpoint
+call or its search failed in arm C ([04-evaluation.md](04-evaluation.md)).
 
 ### What a launch does
 

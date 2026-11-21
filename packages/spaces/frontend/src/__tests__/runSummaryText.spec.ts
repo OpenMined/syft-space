@@ -3,6 +3,9 @@ import { daySpan } from '@/components/benchmark/report/figures'
 import {
   articlesText,
   otherNotAsked,
+  partialLabel,
+  partialTip,
+  passProblemText,
   runHeaderText,
   runStateLabel,
   stoppedLabel,
@@ -105,5 +108,38 @@ describe('the funnel', () => {
       },
     })
     expect(otherNotAsked(report)).toBeNull()
+  })
+})
+
+describe('a run that finished with errors', () => {
+  const failed = {
+    model: 'anthropic/claude-opus-4',
+    arm: 'model_with_context',
+    block: 'direct',
+    reason: 'UntranslatableCharacter',
+    expected: 92,
+    recorded: 58,
+  }
+
+  it('gets its own chip, only when partial', () => {
+    expect(partialLabel({ state: 'partial' })).toBe('With errors')
+    expect(partialLabel({ state: 'succeeded' })).toBeNull()
+    expect(partialLabel({ state: 'cancelled' })).toBeNull()
+  })
+
+  it('names each failed pass with its answers recorded of planned', () => {
+    expect(passProblemText(failed)).toBe('With your data · Asked once · 58 of 92 answers')
+    expect(passProblemText({ ...failed, expected: null, recorded: 1 })).toBe(
+      'With your data · Asked once · 1 answer',
+    )
+  })
+
+  it('lists the failed models in the tooltip', () => {
+    const tip = partialTip({ state: 'partial', pass_problems: [failed] }, () => 'Opus')
+    expect(tip).toContain('Opus: With your data · Asked once · 58 of 92 answers')
+    expect(partialTip({ state: 'partial' })).toBe(
+      'Finished, but something failed and is missing from the figures.',
+    )
+    expect(partialTip({ state: 'succeeded', pass_problems: [failed] })).toBeUndefined()
   })
 })

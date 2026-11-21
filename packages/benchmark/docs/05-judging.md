@@ -33,7 +33,7 @@ a new `Run`), and readers take the counted verdict per answer (below).
 Two more states are not outcomes and never enter a share:
 
 * `technical` — nothing was measured: the call failed (`ERROR:` answer), the
-  context was empty, the judge did not answer or returned nothing readable.
+  endpoint call or its search failed, the context was empty, the judge did not answer or returned nothing readable.
   Any row with an `ERROR:` answer counts as `technical` whatever its verdict;
 * `pending` — answer recorded, not yet judged.
 

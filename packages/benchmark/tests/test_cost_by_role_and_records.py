@@ -589,7 +589,7 @@ def test_a_job_keeps_its_cost_by_role_and_its_times(
         cost.charge(0.2, cost.JUDGES)
         cost.charge(0.05, cost.WEB_CHECK)
         cost.charge(0.01)
-        return SimpleNamespace(line=lambda: "", notes=[])
+        return SimpleNamespace(line=lambda: "", notes=[], checked=0, failed=0)
 
     monkeypatch.setattr(jobs, "judge_pending", judging)
     add_rows(Job(id=JOB, target=KEY, kind="judge", state="queued", params={}))

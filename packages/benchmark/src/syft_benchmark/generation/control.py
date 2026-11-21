@@ -111,7 +111,7 @@ def _ask(
         settings=conf,
         judging=True,
         web_search=searching,
-        web_search_engine=engine or "auto",
+        web_search_engine=engine,
         role=cost.WEB_CHECK,
     )
     call = {

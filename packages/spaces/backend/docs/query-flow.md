@@ -101,6 +101,13 @@ Branches on `endpoint.response_type`:
 - **Search** uses the dataset type (its bound vector store) to return scored
   documents `{ document_id, content, metadata, score }` for the last user
   message, honoring `similarity_threshold` and `limit`.
+- **A failed search** is not an empty one. A store that fails softly (ChromaDB:
+  e.g. a dimension mismatch after an embedding-model change, a missing
+  collection) is logged at error level and the query still answers `200`, with
+  no documents and the reason in `search_error`; in `both`/`summary` the model
+  answers without context. A store that raises (Weaviate) is logged with the
+  traceback and the query answers `500`. A `200` keeps chat clients working; a
+  client that needs to know (the benchmark) checks `search_error`.
 - **Chat** uses the model type (OpenAI-compatible). For `both`, the top hits are
   prepended as a system/context message so the answer is grounded in them.
 
@@ -127,6 +134,7 @@ is drained on shutdown.
 {
   "summary":    { /* LLM answer, usage, cost */ } /* present for summary|both */,
   "references": { /* documents[], provider_info */ } /* present for raw|both */,
+  "search_error": null /* the reason when the dataset search failed, any response type */,
   "policy_metadata": { /* see below */ }
 }
 ```

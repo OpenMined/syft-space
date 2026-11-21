@@ -16,6 +16,7 @@ import {
   budgetFromChunks,
   buildRequest,
   chunksForBudget,
+  exclusionGapsOf,
   formFromTarget,
   fromPercent,
   parseNumberList,
@@ -349,10 +350,10 @@ describe('web search settings', () => {
   it('reads the benchmark defaults when no layer sets them', () => {
     const form = formFromTarget(makeTarget(), KEYS)
     expect(form.webAlone).toBe(true)
-    expect(form.webWithData).toBe(false)
+    expect(form.webWithData).toBe(true)
     expect(form.webWriter).toBe(false)
     expect(form.webJudges).toBe(false)
-    expect(form.webEngine).toBe('auto')
+    expect(form.webEngine).toBe('plugin')
     expect(form.webMaxResults).toBe(5)
     expect(form.webCheckJudge).toBe('')
   })
@@ -360,9 +361,9 @@ describe('web search settings', () => {
   it('a page left alone stores the shown web fields', () => {
     const bare = makeTarget()
     expect(buildRequest(bare, formFromTarget(bare, KEYS), KEYS).instrument).toMatchObject({
-      web_search_engine: 'auto',
+      web_search_engine: 'plugin',
       web_search_closed_book: true,
-      web_search_with_context: false,
+      web_search_with_context: true,
       web_search_generator: false,
       web_search_judge: false,
       web_search_max_results: 5,
@@ -379,7 +380,7 @@ describe('web search settings', () => {
     form.webWithData = true
     form.webWriter = true
     form.webJudges = true
-    form.webEngine = 'plugin'
+    form.webEngine = 'native'
     form.webMaxResults = 8
     form.webCheckJudge = 'openai/gpt-5.1'
     expect(buildRequest(target, form, KEYS).instrument).toMatchObject({
@@ -387,7 +388,7 @@ describe('web search settings', () => {
       web_search_with_context: true,
       web_search_generator: true,
       web_search_judge: true,
-      web_search_engine: 'plugin',
+      web_search_engine: 'native',
       web_search_max_results: 8,
       filter_judge_model: 'openai/gpt-5.1',
     })
@@ -396,19 +397,19 @@ describe('web search settings', () => {
   it('clamps results per search to 1..20 and drops an unknown engine', () => {
     const target = makeTarget({ instrument: { web_search_engine: 'exa' } })
     const form = formFromTarget(target, KEYS)
-    expect(form.webEngine).toBe('auto')
+    expect(form.webEngine).toBe('plugin')
     form.webMaxResults = 50
     expect(buildRequest(target, form, KEYS).instrument!.web_search_max_results).toBe(20)
     form.webMaxResults = 0
     expect(buildRequest(target, form, KEYS).instrument!.web_search_max_results).toBe(1)
   })
 
-  it('caps searches per answer at 0..30, 0 by default', () => {
+  it('caps searches per answer at 0..30, 1 by default', () => {
     const target = makeTarget()
     const form = formFromTarget(target, KEYS)
-    expect(form.webMaxSearches).toBe(0)
-    form.webMaxSearches = 5
-    expect(buildRequest(target, form, KEYS).instrument!.web_search_max_calls).toBe(5)
+    expect(form.webMaxSearches).toBe(1)
+    form.webMaxSearches = 0
+    expect(buildRequest(target, form, KEYS).instrument!.web_search_max_calls).toBe(0)
     form.webMaxSearches = 99
     expect(buildRequest(target, form, KEYS).instrument!.web_search_max_calls).toBe(30)
     const saved = makeTarget({ instrument: { web_search_max_calls: 3 } })
@@ -427,6 +428,38 @@ describe('web search settings', () => {
     ])
     const saved = makeTarget({ instrument: { web_search_excluded_domains: ['a.com', 'b.com'] } })
     expect(formFromTarget(saved, KEYS).webExcludedDomains).toBe('a.com, b.com')
+  })
+
+  it('keeps a separate search switch for each condition', () => {
+    const split = makeTarget({
+      instrument: { web_search_closed_book: true, web_search_with_context: false },
+    })
+    const form = formFromTarget(split, KEYS)
+    expect(form.webAlone).toBe(true)
+    expect(form.webWithData).toBe(false)
+    expect(buildRequest(split, form, KEYS).instrument).toMatchObject({
+      web_search_closed_book: true,
+      web_search_with_context: false,
+    })
+  })
+
+  it('names the models whose built-in search may ignore the excluded domains', () => {
+    const form = formFromTarget(makeTarget(), KEYS)
+    form.models = ['openai/gpt-5.1', 'anthropic/claude-opus-5', 'x-ai/grok-4', 'google/gemini-3']
+    form.webExcludedDomains = 'bloomberg.com'
+    expect(exclusionGapsOf(form)).toEqual([])
+    form.webEngine = 'native'
+    expect(exclusionGapsOf(form)).toEqual(['openai/gpt-5.1', 'google/gemini-3'])
+    form.webEngine = 'auto'
+    form.webExcludedDomains = 'a.com b.com c.com d.com e.com f.com'
+    expect(exclusionGapsOf(form)).toEqual(['openai/gpt-5.1', 'x-ai/grok-4', 'google/gemini-3'])
+    form.webExcludedDomains = ''
+    expect(exclusionGapsOf(form)).toEqual([])
+    form.webExcludedDomains = 'bloomberg.com'
+    form.webAlone = false
+    expect(exclusionGapsOf(form)).toEqual(['openai/gpt-5.1', 'google/gemini-3'])
+    form.webWithData = false
+    expect(exclusionGapsOf(form)).toEqual([])
   })
 
   it('stores the spending cap, 100 USD by default', () => {

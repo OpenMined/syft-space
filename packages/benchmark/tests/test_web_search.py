@@ -102,6 +102,9 @@ def _external(**overrides: Any) -> Settings:
         "llm_api_key": "sk-or-test",
         "allow_external_models": True,
         "external_hosts": ["openrouter.ai"],
+        # Most tests here walk the native search paths, which "auto" takes for
+        # a model the catalogue lists with native search.
+        "web_search_engine": WebSearchEngine.AUTO,
     }
     body.update(overrides)
     return Settings(**body)
@@ -537,13 +540,68 @@ def test_the_search_cap_binds_the_tested_models_only(
     assert free["tools"][0]["parameters"] == {"engine": "native"}
 
 
-def test_no_search_cap_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_one_search_per_answer_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     provider = _Recorder()
     monkeypatch.setattr(httpx, "post", provider)
 
     chat("s", "u", model=NATIVE, settings=_external(), web_search=True, role="subjects")
 
+    assert provider.bodies[0]["max_tool_calls"] == 1
+
+
+def test_no_search_cap_at_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+    conf = _external(web_search_max_calls=0)
+
+    _answer, usage = chat(
+        "s", "u", model=NATIVE, settings=conf, web_search=True, role="subjects"
+    )
+
     assert "max_tool_calls" not in provider.bodies[0]
+    assert "web_search_over_cap" not in usage
+
+
+def _searching(requests: int) -> Any:
+    """A provider that reports ``requests`` searches for the answer."""
+
+    def reply(url: str, **kwargs: Any) -> httpx.Response:
+        payload = {
+            "choices": [{"message": dict(SEARCHED), "finish_reason": "stop"}],
+            "usage": {"server_tool_use": {"web_search_requests": requests}},
+        }
+        return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+
+    return reply
+
+
+@pytest.mark.parametrize(("requests", "over"), [(0, False), (1, False), (3, True)])
+def test_an_answer_past_the_search_cap_is_flagged(
+    monkeypatch: pytest.MonkeyPatch, requests: int, over: bool
+) -> None:
+    monkeypatch.setattr(httpx, "post", _searching(requests))
+
+    _answer, usage = chat(
+        "s", "u", model=NATIVE, settings=_external(), web_search=True, role="subjects"
+    )
+
+    assert usage["web_search_requests"] == requests
+    assert usage["web_search_max_calls"] == 1
+    assert usage["web_search_over_cap"] is over
+
+
+def test_the_web_check_is_never_flagged_past_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", _searching(30))
+
+    _answer, usage = chat(
+        "s", "u", model=NATIVE, settings=_external(), web_search=True, role="web_check"
+    )
+
+    assert "web_search_over_cap" not in usage
 
 
 def test_no_search_no_tool(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -691,11 +749,14 @@ def test_unused_search_means_no_search_and_no_citation() -> None:
 # --- the role's toggle -----------------------------------------------------
 
 
-def test_defaults_search_only_on_their_own() -> None:
-    conf = _external()
+def test_defaults_search_in_both_arms_with_exa() -> None:
+    conf = Settings()
 
-    assert web_search_for(conf, "closed_book", NATIVE) == (True, "native")
-    assert web_search_for(conf, "with_context", NATIVE) == (False, "")
+    assert conf.web_search_engine is WebSearchEngine.PLUGIN
+    assert conf.web_search_max_calls == 1
+    # Both arms search, with the same engine: they differ by the data alone.
+    assert web_search_for(conf, "closed_book", NATIVE) == (True, "plugin")
+    assert web_search_for(conf, "with_context", NATIVE) == (True, "plugin")
     assert web_search_for(conf, "generator", NATIVE) == (False, "")
     assert web_search_for(conf, "judge", NATIVE) == (False, "")
     # The web check always searches.
@@ -1185,9 +1246,10 @@ def test_defaults_hand_out_the_web_search_fields() -> None:
     instrument = effective_defaults(Settings()).get("instrument")
     shown = instrument.model_dump(mode="json")  # type: ignore[union-attr]
 
-    assert shown["web_search_engine"] == "auto"
+    assert shown["web_search_engine"] == "plugin"
     assert shown["web_search_closed_book"] is True
-    assert shown["web_search_with_context"] is False
+    assert shown["web_search_with_context"] is True
+    assert shown["web_search_max_calls"] == 1
     assert shown["web_search_generator"] is False
     assert shown["web_search_judge"] is False
     assert shown["web_search_max_results"] == 5
@@ -1467,3 +1529,105 @@ def test_the_domains_are_part_of_the_cache_key(
     asyncio.run(go())
 
     assert calls == ["", "bloomberg.com"]
+
+
+# --- both arms, the search cap and the job's warnings -------------------------
+
+
+def test_both_arms_search_and_leave_out_the_excluded_domains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from syft_benchmark.runs import execute
+
+    provider = _Recorder()
+    monkeypatch.setattr(httpx, "post", provider)
+    # The shipped engine and cap, not the helper's "auto".
+    conf = _external(
+        web_search_engine=Settings().web_search_engine,
+        web_search_excluded_domains=KEPT_OUT,
+    )
+    subject = Provider(role="subject", url=OPENROUTER, api_key="k", model=NATIVE)
+
+    execute._ask_model("q", 0.0, provider=subject, settings=conf)
+    execute._ask_model_with_context(
+        "q", 0.0, provider=subject, settings=conf, context="material"
+    )
+
+    for body in provider.bodies:
+        assert body["tools"][0]["parameters"] == {
+            "engine": "exa",
+            "max_results": 5,
+            "max_uses": 1,
+            "excluded_domains": KEPT_OUT,
+        }
+        assert body["max_tool_calls"] == 1
+    assert len(provider.bodies) == 2
+
+
+def test_the_audit_and_the_report_say_an_answer_passed_the_search_cap() -> None:
+    usage = {
+        "web_search": "plugin",
+        "web_search_requests": 9,
+        "web_search_max_calls": 5,
+        "web_search_over_cap": True,
+    }
+    record = audit_record(_asked(usage), Grade(Verdict.CORRECT, "ok"), _external())
+
+    assert record["call"]["web_search_max_calls"] == 5
+    assert record["call"]["web_search_over_cap"] is True
+    assert web_search.search_over_cap_of(record) is True
+    assert web_search.search_count_of(record) == 9
+    assert web_search.search_over_cap_of({"call": {"web_search": "plugin"}}) is None
+    assert web_search.over_cap({"web_search_requests": 9}, 0) is False
+    assert web_search.over_cap({"web_search_requests": None}, 5) is False
+
+
+def test_the_job_notes_count_search_warnings_per_model() -> None:
+    from syft_benchmark.scheduler import Measured, search_notes
+
+    out = Measured(over_search_cap={NATIVE: 3, GROK: 0}, unexcluded={GEMINI: 2})
+
+    assert search_notes(out, Settings()) == [
+        f"web search: {NATIVE} searched more than the limit of 1 per answer "
+        f"in 3 answers (web_search_max_calls)",
+        f"web search: the excluded domains were not applied to {GEMINI}'s search "
+        f"in 2 answers (its native search ignores them)",
+    ]
+    assert search_notes(Measured(), Settings()) == []
+
+
+def test_a_launch_searching_in_one_arm_only_gets_a_note() -> None:
+    from syft_benchmark.scheduler import search_arms_note
+
+    both = {ContextMode.CLOSED_BOOK, ContextMode.MODEL_WITH_CONTEXT}
+    split = Settings(web_search_with_context=False)
+
+    assert search_arms_note(Settings(), both) == ""
+    assert "includes the search" in search_arms_note(split, both)
+    assert search_arms_note(split, {ContextMode.CLOSED_BOOK}) == ""
+    assert (
+        search_arms_note(
+            Settings(web_search_closed_book=False, web_search_with_context=False), both
+        )
+        == ""
+    )
+
+
+def test_a_pass_counts_answers_past_the_cap_and_the_exclusion() -> None:
+    from syft_benchmark.runs import execute
+
+    first = execute.RunReport(run_id="a", context_mode=ContextMode.CLOSED_BOOK)
+    second = execute.RunReport(run_id="b", context_mode=ContextMode.CLOSED_BOOK)
+    ctx = SimpleNamespace(
+        per_judge={"j1": (None, "a", first), "j2": (None, "b", second)}
+    )
+
+    for usage in (
+        {"web_search_over_cap": True, "web_search_exclusion": False},
+        {"web_search_over_cap": False, "web_search_exclusion": True},
+        {},
+    ):
+        execute._count_search(_asked(usage), ctx)  # type: ignore[arg-type]
+
+    assert (first.over_search_cap, first.unexcluded) == (1, 1)
+    assert (second.over_search_cap, second.unexcluded) == (1, 1)

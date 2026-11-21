@@ -67,7 +67,7 @@ from syft_benchmark.runs.judge import (
     is_error,
     judge_trail,
 )
-from syft_benchmark.runs.parallel import Launch, Pool, Progress, RunCache
+from syft_benchmark.runs.parallel import OWNER_STOP, Launch, Pool, Progress, RunCache
 from syft_benchmark.runs.questionset import apply as apply_slice
 from syft_benchmark.runs.questionset import load as load_slice
 from syft_benchmark.runs.resume import done_units, window_start
@@ -143,9 +143,18 @@ class RunReport(VerdictCounts):
     # network and a node that is down all end with zero verdicts; this line is
     # what tells them apart.
     failure_sample: str = ""
+    # Endpoint calls that failed (HTTP, transport, a search error the Space
+    # reported): technical failures, not retrieval misses; the sample is the
+    # first error.
+    endpoint_failures: int = 0
+    endpoint_failure_sample: str = ""
     notes: list[str] = field(default_factory=list)
     # Why the pass ended before its last question; empty — it did not.
     stopped: str = ""
+    # Answers that searched more than ``web_search_max_calls``, and answers
+    # whose search did not leave out ``web_search_excluded_domains``.
+    over_search_cap: int = 0
+    unexcluded: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +182,8 @@ class Asked:
     # The answerer's name when the provider refused it outright (name, key,
     # money): asking the rest of the set buys the same refusal per item.
     refused: str = ""
+    # The endpoint call failed, so there was no retrieval to answer from.
+    endpoint_failed: bool = False
 
 
 def _empty_retrieval() -> dict[str, Any]:
@@ -370,7 +381,7 @@ def _ask_model(
         max_tokens=settings.answer_max_tokens,
         settings=settings,
         web_search=searching,
-        web_search_engine=engine or "auto",
+        web_search_engine=engine,
         role=cost.SUBJECTS,
     )
 
@@ -399,7 +410,7 @@ def _ask_model_with_context(
         max_tokens=settings.answer_max_tokens,
         settings=settings,
         web_search=searching,
-        web_search_engine=engine or "auto",
+        web_search_engine=engine,
         role=cost.SUBJECTS,
     )
 
@@ -522,6 +533,25 @@ def _material_for(
     return retrieval, context
 
 
+def _endpoint_failed_asked(
+    pair: QaPair, outcome: dict[str, Any], source: ContextSource, started: float
+) -> Asked:
+    """A failed endpoint call as a technical failure, the error as its answer.
+
+    Neither a hit nor a miss, so it stays out of the retrieval ranks.
+    """
+    return Asked(
+        answer=str(outcome["answer"]),
+        latency=time.time() - started,
+        system=_WITH_CONTEXT_SYSTEM,
+        user=pair.question,
+        retrieval=_empty_retrieval(),
+        context_source=source,
+        call_failed=True,
+        endpoint_failed=True,
+    )
+
+
 def _no_material_asked(
     pair: QaPair, retrieval: dict[str, Any], source: ContextSource, started: float
 ) -> Asked:
@@ -598,7 +628,7 @@ async def aask_once(
                 pool=pool,
                 settings=settings,
                 web_search=searching,
-                web_search_engine=engine or "auto",
+                web_search_engine=engine,
             )
         except LLMError as exc:
             answer = f"{ERROR_PREFIX} {exc}"
@@ -614,6 +644,8 @@ async def aask_once(
             pool=pool,
             settings=settings,
         )
+        if fetched.get("failed"):
+            return _endpoint_failed_asked(pair, fetched, source, started)
     retrieval, context = _material_for(pair, fetched, source=source, settings=settings)
     if not context:
         return _no_material_asked(pair, retrieval, source, started)
@@ -627,7 +659,7 @@ async def aask_once(
             pool=pool,
             settings=settings,
             web_search=searching,
-            web_search_engine=engine or "auto",
+            web_search_engine=engine,
         )
     except LLMError as exc:
         answer = f"{ERROR_PREFIX} {exc}"
@@ -668,6 +700,9 @@ _AUDITED_CALL_FIELDS = (
     "web_search_retry",
     # Whether the search left out web_search_excluded_domains.
     "web_search_exclusion",
+    # The search cap of the call, and whether the provider reports more.
+    "web_search_max_calls",
+    "web_search_over_cap",
     # USD of the call (None: not priced).
     "cost_usd",
 )
@@ -785,7 +820,7 @@ async def _under_pressure(
         system=asked.system,
         first_prompt=asked.user,
         web_search=searching,
-        web_search_engine=engine or "auto",
+        web_search_engine=engine,
         record=ctx.pool.clock.record,
     )
 
@@ -944,6 +979,9 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
     # Only a failed call: a failed grade also covers an item with no key facts.
     if verdict.failed and not entry.failure_sample and is_error(asked.answer):
         entry.failure_sample = asked.answer
+    if asked.endpoint_failed:
+        entry.endpoint_failures += 1
+        entry.endpoint_failure_sample = entry.endpoint_failure_sample or asked.answer
 
 
 def _save_result(
@@ -1011,7 +1049,7 @@ def _halted(ctx: _Pass) -> bool:
     if ctx.progress.stopped:
         return True
     if ctx.launch.halted():
-        ctx.progress.stop("stopped by the owner")
+        ctx.progress.stop(OWNER_STOP)
         return True
     if ctx.subject.model in ctx.launch.refused:
         # Refused in another pass of the launch.
@@ -1021,6 +1059,15 @@ def _halted(ctx: _Pass) -> bool:
         ctx.progress.stop("the provider refused every judge of this pass")
         return True
     return False
+
+
+def _count_search(asked: Asked, ctx: _Pass) -> None:
+    """Count an answer that searched past its cap or past the excluded domains."""
+    over = bool(asked.usage.get("web_search_over_cap"))
+    unexcluded = asked.usage.get("web_search_exclusion") is False
+    for _seat, _run_id, entry in ctx.per_judge.values():
+        entry.over_search_cap += over
+        entry.unexcluded += unexcluded
 
 
 async def _ask_and_judge(pair: QaPair, ctx: _Pass) -> None:
@@ -1044,6 +1091,7 @@ async def _ask_and_judge(pair: QaPair, ctx: _Pass) -> None:
             cache=ctx.cache,
         )
 
+        _count_search(asked, ctx)
         await asyncio.gather(
             *(_judge_one(pair, asked, key, ctx) for key in ctx.per_judge)
         )

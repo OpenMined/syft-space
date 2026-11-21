@@ -266,7 +266,7 @@ def check_pair(
         "judge": judge.model,
         "judge_temperature": conf.judge_temperature,
         "judge_reasoning_effort": conf.judge_reasoning_effort.value,
-        "search": (engine or "auto") if searching else "none",
+        "search": (engine or str(conf.web_search_engine)) if searching else "none",
         "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "attempts": _attempts(row),
     }
@@ -283,7 +283,7 @@ def check_pair(
             max_tokens=conf.answer_max_tokens,
             settings=conf,
             web_search=searching,
-            web_search_engine=engine or "auto",
+            web_search_engine=engine,
             role=cost.WEB_CHECK,
         )
     except LLMError as exc:

@@ -705,7 +705,7 @@ def _extractive_for_chunk(
                 max_tokens=90 * conf.pairs_per_chunk * len(categories) + 200,
                 settings=conf,
                 web_search=searching,
-                web_search_engine=engine or "auto",
+                web_search_engine=engine,
                 role=cost.WRITER,
             )
     except LLMError as exc:
@@ -775,7 +775,7 @@ def _run_llm_generator(
             max_tokens=budget,
             settings=conf,
             web_search=searching,
-            web_search_engine=engine or "auto",
+            web_search_engine=engine,
             role=cost.WRITER,
         )
     except LLMError as exc:

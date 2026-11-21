@@ -1059,6 +1059,21 @@ class JobView(BaseModel):
     reask: dict[str, Any] | None = Field(
         default=None, validation_alias=AliasChoices("reask", "params")
     )
+    # The passes that failed, stopped early or were not asked, set when the
+    # job ends: [{model, arm, block, reason, expected, recorded}]; any of them
+    # makes the job `partial`. Empty — none.
+    pass_problems: list[dict[str, Any]] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("pass_problems", "params"),
+    )
+
+    @field_validator("pass_problems", mode="before")
+    @classmethod
+    def _problems_of(cls, value: Any) -> Any:
+        # A Job hands in its whole params; the problems are one key of them.
+        if isinstance(value, dict):
+            value = value.get("pass_problems")
+        return value or []
 
     @field_validator("progress_plan", mode="before")
     @classmethod

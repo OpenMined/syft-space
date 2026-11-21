@@ -536,6 +536,37 @@ async def test_a_job_carries_its_documents() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_partial_job_carries_its_failed_passes() -> None:
+    """A job that finished with errors says which model's pass failed."""
+    row = _connection()
+    target = BenchmarkTarget(
+        tenant_id=TENANT.id, endpoint_id=ENDPOINT_ID, connection_id=row.id
+    )
+    handler, client = _handler(connections=[row], target=target)
+    problem = {
+        "model": "vendor/m",
+        "arm": "model_with_context",
+        "block": "direct",
+        "reason": "UntranslatableCharacter",
+        "expected": 92,
+        "recorded": 58,
+    }
+    client.known_jobs = [
+        {
+            "id": "partial",
+            "state": "partial",
+            "phase": "done",
+            "pass_problems": [problem],
+        },
+        {"id": "plain", "state": "succeeded", "phase": "done"},
+    ]
+    partial, plain = await handler.list_jobs(TENANT, "support-kb")
+    assert partial.state == "partial"
+    assert partial.model_dump(mode="json")["pass_problems"] == [problem]
+    assert plain.pass_problems == []
+
+
+@pytest.mark.asyncio
 async def test_a_run_the_benchmark_has_forgotten_leaves_the_page_too() -> None:
     """An empty job list clears the remembered job."""
     row = _connection()

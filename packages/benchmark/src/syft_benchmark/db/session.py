@@ -10,10 +10,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from syft_benchmark.config import Settings, env_settings
+from syft_benchmark.db import nul_guard
 
 # The settings are read from this database, so the first settings lookup of a
 # process is a connection. With libpq's default of "no timeout", a host that
@@ -27,12 +28,15 @@ CONNECT_TIMEOUT_SECONDS = 5
 def get_engine(database_url: str | None = None) -> Engine:
     """The engine for the benchmark's database."""
     url = database_url or env_settings().database_url
-    return create_engine(
+    engine = create_engine(
         url,
         pool_pre_ping=True,
         future=True,
         connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
     )
+    # Provider and web text may carry U+0000, which Postgres cannot store.
+    event.listen(engine, "connect", nul_guard.install)
+    return engine
 
 
 @contextmanager
