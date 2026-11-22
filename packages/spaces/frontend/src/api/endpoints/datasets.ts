@@ -13,6 +13,7 @@ import type {
   HealthcheckResponse,
   ConnectionHealth,
   DatasetTypeInfoResponse,
+  FilterSchema,
 } from '../types'
 
 export const datasetsApi = {
@@ -91,6 +92,13 @@ export const datasetsApi = {
     const response = await apiClient.post<SelectionResponse>(`/datasets/${name}/selection`, {
       items,
     })
+    return response.data
+  },
+
+  // Every field a query could filter on, before the dataset's allowlist cuts
+  // it. 503 when the vector store cannot describe its fields.
+  getFilterSchema: async (name: string): Promise<FilterSchema> => {
+    const response = await apiClient.get<FilterSchema>(`/datasets/${name}/filter-schema`)
     return response.data
   },
 

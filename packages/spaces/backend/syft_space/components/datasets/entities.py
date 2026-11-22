@@ -56,6 +56,14 @@ class Dataset(SQLModel, table=True):
     )
     summary: str = Field(default="", description="Brief summary of the dataset")
     tags: str = Field(default="", description="Comma-separated tags")
+    filterable_fields: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description=(
+            "Metadata fields a query may filter on. None means every field the "
+            "type declares filterable; an empty list means none."
+        ),
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

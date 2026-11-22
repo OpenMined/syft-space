@@ -106,8 +106,10 @@ each chunk something naming what it is about. The byline puts the author, date,
 and tags into the first chunk's text, so a query that names one of them can
 match on it. Parts the feed does not carry are left out.
 
-Stored alongside as filterable metadata: `feed_url`, `feed_title`, `title`,
-`url`, `comments_url`, `author`, `tags`, `published`.
+Stored alongside as metadata: `feed_url`, `feed_title`, `title`, `url`,
+`comments_url`, `author`, `tags`, `published`. A query may filter on
+`feed_url`, `title`, `author`, `tags` and `published`; the link keys are
+returned but never offered as filters.
 
 **Link-only items** — a Hacker News entry, for example, whose whole body is one
 "Comments" anchor — are indexed as their title alone. The body is dropped so the

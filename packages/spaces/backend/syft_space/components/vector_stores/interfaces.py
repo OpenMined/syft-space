@@ -20,8 +20,9 @@ from typing import Any, ClassVar, Protocol
 from pydantic import BaseModel
 
 from syft_space.components.shared.domain_types import HealthcheckResponse
+from syft_space.components.shared.filter_types import FieldFilterSpec, FilterOperator
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
-from syft_space.components.shared.metadata_types import MetadataFields
+from syft_space.components.shared.metadata_types import DatasetMetadata, MetadataFields
 from syft_space.components.shared.search_types import (
     SearchContext,
     SearchParameters,
@@ -114,6 +115,9 @@ class BaseVectorStore(Protocol):
     # Keys the store adds to a document's metadata, and which of them are
     # internal. The default declares nothing and hides nothing.
     METADATA_FIELDS: ClassVar[type[MetadataFields]] = MetadataFields
+    # Wire operators this store can run. The default runs none, so no
+    # field is filterable until a store says otherwise.
+    FILTER_OPERATORS: ClassVar[frozenset[FilterOperator]] = frozenset()
     # The configuration model; its fields and flags are the store's contract.
     CONFIG_MODEL: ClassVar[type[BaseModel]]
 
@@ -192,6 +196,14 @@ class BaseVectorStore(Protocol):
 
     async def healthcheck(self) -> HealthcheckResponse:
         """Report whether the underlying store is reachable / healthy."""
+        ...
+
+    async def filter_schema(
+        self, metadata: DatasetMetadata
+    ) -> dict[str, FieldFilterSpec]:
+        """What a query may filter on, per field: the binding's candidates
+        typed and cut to ``FILTER_OPERATORS``. Async because a remote store
+        may have to ask the collection for a field's type."""
         ...
 
 

@@ -30,6 +30,11 @@ from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
 )
+from syft_space.components.shared.filter_types import (
+    FieldFilterSpec,
+    FilterNode,
+    validate_filters,
+)
 from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
 from syft_space.components.shared.metadata_types import DatasetMetadata
 from syft_space.components.shared.search_types import (
@@ -284,6 +289,28 @@ class BaseDatasetType:
     ) -> SearchResult:
         """Delegate search to the vector store."""
         return await self.vector_store.search(ctx, query, params)
+
+    async def filter_spec(
+        self, allowed: list[str] | None = None
+    ) -> dict[str, FieldFilterSpec]:
+        """What a query may filter on: the store's spec for this binding's
+        metadata, cut to ``allowed`` when the endpoint names fields. Names
+        that no longer match a filterable field are ignored."""
+        spec = await self.vector_store.filter_schema(self.metadata)
+        if allowed is None:
+            return spec
+        return {name: spec[name] for name in allowed if name in spec}
+
+    async def validate_filters(
+        self, filters: FilterNode, allowed: list[str] | None = None
+    ) -> FilterNode:
+        """Check a query filter against ``filter_spec`` and coerce its values.
+
+        Raises:
+            FilterValidationError: the first field, operator or value the
+                dataset cannot run.
+        """
+        return validate_filters(filters, await self.filter_spec(allowed))
 
     async def healthcheck(self) -> HealthcheckResponse:
         """Delegate healthcheck to the vector store."""

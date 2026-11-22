@@ -30,7 +30,7 @@ from syft_space.components.datasets.events import (
 from syft_space.components.datasets.provisioner_state_repository import (
     ProvisionerStateRepository,
 )
-from syft_space.components.datasets.repository import DatasetRepository
+from syft_space.components.datasets.repository import UNSET, DatasetRepository
 from syft_space.components.datasets.schemas import (
     AddSelectionRequest,
     CreateDatasetRequest,
@@ -57,6 +57,7 @@ from syft_space.components.shared.domain_types import (
     HealthcheckResponse as ConnectionHealth,
 )
 from syft_space.components.shared.domain_types import HealthcheckStatus
+from syft_space.components.shared.filter_types import FilterSchema
 from syft_space.components.shared.ingest_types import IngestContext
 from syft_space.components.sources.errors import SourceError
 from syft_space.components.sources.registry import SOURCE_REGISTRY
@@ -537,6 +538,7 @@ class DatasetHandler:
             configuration=final_config,
             summary=request.summary,
             tags=request.tags,
+            filterable_fields=request.filterable_fields,
             tenant_id=tenant.id,
             provisioner_state_id=provisioner_state.id if provisioner_state else None,
         )
@@ -651,6 +653,8 @@ class DatasetHandler:
             )
             await self._validate_configuration(dataset, new_configuration)
 
+        # Only keys in the payload; null is a value for the allowlist.
+        sent = request.model_dump(exclude_unset=True)
         try:
             updated_dataset = await self.repository.update_by_name(
                 name,
@@ -659,6 +663,7 @@ class DatasetHandler:
                 summary=request.summary,
                 tags=request.tags,
                 configuration=new_configuration,
+                filterable_fields=sent.get("filterable_fields", UNSET),
             )
         except ValueError as e:
             # Name conflict or constraint violation
@@ -957,6 +962,27 @@ class DatasetHandler:
             raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
 
         return {"message": f"Successfully deleted dataset '{name}'"}
+
+    async def get_filter_schema(self, name: str, tenant: Tenant) -> FilterSchema:
+        """Every field a query on this dataset could filter on, before the
+        dataset's allowlist cuts it: what the owner picks from.
+
+        Raises:
+            HTTPException: 404 unknown dataset; 503 when the vector store
+                cannot describe its fields.
+        """
+        dataset = await self.repository.get_by_name(name, tenant.id)
+        if not dataset:
+            raise HTTPException(status_code=404, detail=f"Dataset '{name}' not found")
+        dataset_type_cls = self.registry.get_dataset_type(dataset.dtype)
+        try:
+            specs = await dataset_type_cls(dataset.configuration).filter_spec()
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"The vector store could not describe its fields: {e}",
+            ) from e
+        return FilterSchema(fields=specs)
 
     async def healthcheck(self, name: str, tenant: Tenant) -> HealthcheckResponse:
         """Check the health of a dataset.

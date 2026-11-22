@@ -35,6 +35,9 @@ export interface CreateDatasetRequest {
   // Picker selection for the dataset. Stored server-side in the
   // dataset_selection table, never inside configuration.
   selected_items?: SelectionItemRequest[]
+  // Metadata fields a query may filter on: null = every field the type
+  // declares filterable, [] = none.
+  filterable_fields?: string[] | null
 }
 
 // One pick to add to a dataset's selection (create or add-source flows).
@@ -81,6 +84,7 @@ export interface DatasetResponse {
   configuration: Record<string, unknown>
   summary: string
   tags: string
+  filterable_fields: string[] | null
   provisioner_state?: ProvisionerStateResponse
   created_at: string
   updated_at: string
@@ -140,6 +144,7 @@ export interface DatasetListItem {
   dtype: string
   summary: string
   tags: string
+  filterable_fields: string[] | null
   created_at: string
   configuration: Record<string, unknown>
   connected_endpoints: EndpointListItem[]
@@ -252,6 +257,25 @@ export interface UpdateDatasetRequest {
   // Only the editable keys being changed. A null value removes an optional
   // field; an absent key keeps the stored value.
   configuration?: Record<string, unknown>
+  // Sent only when changed: null = every declared field, [] = none.
+  filterable_fields?: string[] | null
+}
+
+// What a query may filter on, as GET /datasets/{name}/filter-schema and the
+// published `query_schema.filters` describe it.
+export type FilterFieldType = 'string' | 'number' | 'boolean' | 'datetime' | 'string[]' | 'number[]'
+
+export interface FilterFieldSpec {
+  type: FilterFieldType
+  ops: string[]
+}
+
+export interface FilterSchema {
+  fields: Record<string, FilterFieldSpec>
+  logic: string[]
+  max_depth: number
+  max_conditions: number
+  max_list_values: number
 }
 
 // Model API types

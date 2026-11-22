@@ -203,7 +203,7 @@ class _FakeClient:
     def __init__(self, collection):
         self._collection = collection
 
-    async def get_or_create_collection(self, name, metadata):
+    async def get_or_create_collection(self, name, configuration=None):
         return self._collection
 
 

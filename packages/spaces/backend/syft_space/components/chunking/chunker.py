@@ -215,7 +215,9 @@ def _get_pdf_page_count(pdf_path: Path) -> int:
         pdf_doc.close()
 
 
-def build_image_urls(dataset_id: str, doc_id: str, picture_ids: str) -> list[str]:
+def build_image_urls(
+    dataset_id: str, doc_id: str, picture_ids: list[str] | str
+) -> list[str]:
     """Build image endpoint URLs from chunk metadata.
 
     Uses dataset_id (not collection_name) in URLs to avoid leaking
@@ -224,7 +226,8 @@ def build_image_urls(dataset_id: str, doc_id: str, picture_ids: str) -> list[str
     Args:
         dataset_id: Dataset identifier (public-facing key)
         doc_id: Hash-based document identifier
-        picture_ids: Comma-separated picture filenames (e.g. "ab12cd34ef56.png,...")
+        picture_ids: Picture filenames (e.g. "ab12cd34ef56.png"); a
+            comma-joined string from a chunk written before arrays
 
     Returns:
         List of URI paths like
@@ -233,7 +236,9 @@ def build_image_urls(dataset_id: str, doc_id: str, picture_ids: str) -> list[str
     urls: list[str] = []
     if not doc_id or not dataset_id:
         return urls
-    for pic in picture_ids.split(","):
+    if isinstance(picture_ids, str):
+        picture_ids = picture_ids.split(",")
+    for pic in picture_ids:
         if pic.strip():
             urls.append(
                 f"{IMAGE_ENDPOINT_PREFIX}/{dataset_id}/images/{doc_id}/{pic.strip()}"

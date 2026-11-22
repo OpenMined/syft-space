@@ -25,6 +25,7 @@ from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
+from syft_space.components.shared.filter_types import FilterSchema
 from syft_space.components.shared.syfthub_client import (
     NotFoundError,
     SyftHubClient,
@@ -515,23 +516,35 @@ class PublishEndpointHandler:
                 marketplace_id=marketplace.id, available=None, error=str(e)
             )
 
-    async def _metadata_fields(self, endpoint: Endpoint) -> list[str]:
-        """Public metadata keys of the endpoint's dataset; empty without one."""
+    async def _query_schema(self, endpoint: Endpoint) -> dict[str, Any]:
+        """What a query returns and may filter on. ``metadata_fields`` is empty
+        without a dataset; ``filters`` is None when the store cannot say.
+        A schema problem never blocks publishing."""
+        schema: dict[str, Any] = {"metadata_fields": [], "filters": None}
         if endpoint.dataset_id is None:
-            return []
+            return schema
         dataset = await self.dataset_repository.get_by_id(
             endpoint.dataset_id, endpoint.tenant_id
         )
         if dataset is None:
-            return []
+            return schema
         try:
             dataset_type_cls = self.dataset_registry.get_dataset_type(dataset.dtype)
-            return dataset_type_cls.metadata_for(dataset.configuration).public_names()
-        except Exception as e:  # publishing must not fail on the schema
+            instance = dataset_type_cls(dataset.configuration)
+            schema["metadata_fields"] = instance.metadata.public_names()
+        except Exception as e:
             logger.warning(
-                f"metadata_fields unavailable for endpoint {endpoint.slug}: {e}"
+                f"query schema unavailable for endpoint {endpoint.slug}: {e}"
             )
-            return []
+            return schema
+        try:
+            specs = await instance.filter_spec(dataset.filterable_fields)
+            schema["filters"] = FilterSchema(fields=specs).model_dump(mode="json")
+        except Exception as e:
+            logger.warning(
+                f"filter schema unavailable for endpoint {endpoint.slug}: {e}"
+            )
+        return schema
 
     async def _build_publish_payload(self, endpoint: Endpoint) -> dict[str, Any]:
         """Build the publish payload for an endpoint.
@@ -623,12 +636,9 @@ class PublishEndpointHandler:
             "readme": endpoint.description or "",
             "slug": endpoint.slug,
             "policies": policies,
-            # What a query returns. The hub stores it beside the listing so
-            # callers can pick sources before spending; the hub ignores the
-            # key until it knows it.
-            "query_schema": {
-                "metadata_fields": await self._metadata_fields(endpoint),
-            },
+            # What a query returns and may filter on. The hub stores it
+            # beside the listing so callers can pick sources before spending.
+            "query_schema": await self._query_schema(endpoint),
             "connect": [
                 {
                     "type": "https",

@@ -68,7 +68,7 @@ libs = [
     "weaviate-client>=4.17.0",
     "docling>=2.94.0",
     "docling-core>=2.74.1",
-    "chromadb>=0.5.0",
+    "chromadb>=1.5",  # array metadata + $contains in where
     "torch>=2.13.0",
     "torchvision>=0.25.0",
 ]
