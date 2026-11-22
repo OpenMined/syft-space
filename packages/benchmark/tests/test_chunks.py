@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from syft_benchmark.sources import is_useful, load_documents, strip_header
-from syft_benchmark.sources.chroma import Chunk, _doc_meta, _indexed_at
+from syft_benchmark.sources.chroma import Chunk, _doc_meta, _indexed_at, _text
 
 
 def test_header_is_separated_from_body() -> None:
@@ -134,6 +134,14 @@ def test_doc_meta_skips_the_space_keys() -> None:
         "ingested_at": "2026-10-06T08:00:00Z",
         "tags": "a, b",
     }
+
+
+def test_list_fields_stored_as_arrays_read_as_text() -> None:
+    meta = {"doc_tags": ["a", " b ", ""], "doc_authors": [], "headings": ["H1", "H2"]}
+    assert _doc_meta(meta) == {"tags": "a, b"}
+    assert _text(meta["headings"], " > ") == "H1 > H2"
+    assert _text("H1 > H2", " > ") == "H1 > H2"
+    assert _text(None) == ""
 
 
 def test_header_is_read_from_the_chunk_metadata() -> None:

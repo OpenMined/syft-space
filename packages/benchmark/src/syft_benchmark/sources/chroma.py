@@ -241,7 +241,7 @@ class ChromaClient:
                     chunk_index=int(meta.get("chunk_index") or 0),
                     text=(documents[i] if i < len(documents) else "") or "",
                     file_name=str(meta.get("file_name") or ""),
-                    headings=str(meta.get("headings") or ""),
+                    headings=_text(meta.get("headings"), " > "),
                     published=str(meta.get("published") or ""),
                     indexed_at=_indexed_at(meta),
                     doc_meta=_doc_meta(meta),
@@ -403,16 +403,22 @@ _DOC_PREFIX = "doc_"
 _NOT_HEADER = frozenset({"doc_id"})
 
 
+def _text(value: Any, sep: str = ", ") -> str:
+    """A metadata value as text. Chroma 1.5 keeps list fields as arrays;
+    collections indexed before that hold them comma-joined."""
+    if isinstance(value, list):
+        return sep.join(str(item).strip() for item in value if str(item).strip())
+    return "" if value is None else str(value).strip()
+
+
 def _doc_meta(meta: dict[str, Any]) -> dict[str, str]:
     """The header fields the Space put into the chunk metadata as `doc_<key>`."""
-    return {
-        key[len(_DOC_PREFIX) :]: str(value).strip()
+    found = {
+        key[len(_DOC_PREFIX) :]: _text(value)
         for key, value in meta.items()
-        if key.startswith(_DOC_PREFIX)
-        and key not in _NOT_HEADER
-        and value is not None
-        and str(value).strip()
+        if key.startswith(_DOC_PREFIX) and key not in _NOT_HEADER
     }
+    return {key: value for key, value in found.items() if value}
 
 
 def strip_header(text: str) -> tuple[str, dict[str, str]]:
