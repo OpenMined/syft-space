@@ -1,9 +1,8 @@
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
 
+from syft_space.components.auth.satellite_tokens import default_verifier
 from syft_space.components.marketplaces.repository import Marketplace
-from syft_space.components.shared.syfthub_client import SyftHubError
-from syft_space.components.shared.telemetry import set_request_attributes, span
 from syft_space.config import app_settings
 
 # Security scheme for OpenAPI documentation
@@ -20,7 +19,8 @@ async def get_verified_user_email(
 ) -> str:
     """Extract and verify SyftHub satellite token.
 
-    Uses handler.marketplace_repository captured from closure.
+    Verified locally against the marketplace's public keys; the marketplace
+    is called only when that cannot settle it (see ``satellite_tokens``).
 
     Args:
         request: FastAPI request object
@@ -32,10 +32,8 @@ async def get_verified_user_email(
     Raises:
         HTTPException: 401 if token missing/invalid/expired
         HTTPException: 400 if no marketplace configured
-        HTTPException: 500 if verification fails
+        HTTPException: 503 if the marketplace had to be asked and is unreachable
     """
-    from syft_space.components.shared.syfthub_client import SyftHubClient
-
     # Extract Bearer token
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -52,26 +50,4 @@ async def get_verified_user_email(
     if token == app_settings.admin_api_key:
         return marketplace.email
 
-    # The satellite id narrows the accepted audience to this space, so a
-    # token minted for another service the same owner runs is rejected.
-    set_request_attributes(endpoint_slug=request.path_params.get("slug"))
-    try:
-        with span("auth.verify_sender"):
-            async with SyftHubClient(str(marketplace.url)) as client:
-                await client.login(marketplace.email, marketplace.password)
-                result = await client.verify_satellite_token(
-                    token, marketplace.satellite_id
-                )
-    except SyftHubError as e:
-        raise e.to_http_exception() from e
-
-    # TODO: guest tokens (sub == "guest") are accepted here but rejected by
-    # the station. Worth aligning the two receivers.
-    if not result.valid:
-        raise HTTPException(status_code=401, detail="Invalid satellite token")
-    if result.is_expired:
-        raise HTTPException(status_code=401, detail="Satellite token expired")
-    if not result.email:
-        raise HTTPException(status_code=401, detail="Token missing email claim")
-
-    return str(result.email)
+    return await default_verifier.email_for(token, marketplace)

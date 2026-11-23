@@ -186,7 +186,8 @@ sequenceDiagram
     Note over U,SS: Inbound (user → Syft Space, via tunnel)
     U->>HUB: discover endpoint
     U->>SS: POST /endpoints/{slug}/query (+ SyftHub token)
-    SS->>HUB: verify token
+    SS->>SS: verify token signature locally (SyftHub public keys)
+    SS->>HUB: look up the user's email (first query per user, then cached)
     SS-->>U: raw / summary / both
 ```
 
