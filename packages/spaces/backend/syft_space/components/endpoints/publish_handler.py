@@ -27,8 +27,8 @@ from syft_space.components.models.repository import ModelRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.filter_types import FilterSchema
 from syft_space.components.shared.syfthub import (
+    HubClientFactory,
     NotFoundError,
-    SyftHubClient,
     SyftHubError,
 )
 from syft_space.components.tenants.entities import Tenant
@@ -49,12 +49,14 @@ class PublishEndpointHandler:
         model_repository: ModelRepository,
         dataset_registry: DatasetTypeRegistry,
         model_registry: ModelTypeRegistry,
+        client_factory: HubClientFactory,
         wallet_repository: WalletRepository | None = None,
         wallet_providers: dict[str, WalletProvider] | None = None,
     ):
         self.endpoint_repository = endpoint_repository
         self.marketplace_repository = marketplace_repository
-        self.satellites = SatelliteRegistrar(marketplace_repository)
+        self._client_factory = client_factory
+        self.satellites = SatelliteRegistrar(marketplace_repository, client_factory)
         self.dataset_repository = dataset_repository
         self.model_repository = model_repository
         self.dataset_registry = dataset_registry
@@ -296,7 +298,7 @@ class PublishEndpointHandler:
 
                 payloads = [await self._build_publish_payload(ep) for ep in eps]
 
-                async with SyftHubClient(base_url=marketplace.url) as client:
+                async with self._client_factory(marketplace.url) as client:
                     await client.login(
                         username=marketplace.email, password=marketplace.password
                     )
@@ -366,7 +368,7 @@ class PublishEndpointHandler:
             )
 
         try:
-            async with SyftHubClient(base_url=marketplace.url) as client:
+            async with self._client_factory(marketplace.url) as client:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
@@ -445,7 +447,7 @@ class PublishEndpointHandler:
                 error="Marketplace credentials not configured",
             )
         try:
-            async with SyftHubClient(base_url=marketplace.url) as client:
+            async with self._client_factory(marketplace.url) as client:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )
@@ -496,7 +498,7 @@ class PublishEndpointHandler:
             )
 
         try:
-            async with SyftHubClient(base_url=marketplace.url) as client:
+            async with self._client_factory(marketplace.url) as client:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )

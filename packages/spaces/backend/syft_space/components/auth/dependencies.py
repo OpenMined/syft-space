@@ -1,8 +1,15 @@
-from fastapi import HTTPException, Request
+from collections.abc import Callable, Coroutine
+
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer
 
-from syft_space.components.auth.satellite_tokens import default_verifier
-from syft_space.components.marketplaces.repository import Marketplace
+from syft_space.components.auth.satellite_tokens import SatelliteTokenVerifier
+from syft_space.components.marketplaces.repository import (
+    Marketplace,
+    MarketplaceRepository,
+)
+from syft_space.components.tenants.dependency import get_tenant_dependency
+from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
 
 # Security scheme for OpenAPI documentation
@@ -16,6 +23,7 @@ bearer_scheme = HTTPBearer(
 async def get_verified_user_email(
     request: Request,
     marketplace: Marketplace,
+    verifier: SatelliteTokenVerifier,
 ) -> str:
     """Extract and verify SyftHub satellite token.
 
@@ -25,6 +33,7 @@ async def get_verified_user_email(
     Args:
         request: FastAPI request object
         marketplace: Marketplace
+        verifier: Verifies the satellite token
 
     Returns:
         Verified user's email address
@@ -50,4 +59,26 @@ async def get_verified_user_email(
     if token == app_settings.admin_api_key:
         return marketplace.email
 
-    return await default_verifier.email_for(token, marketplace)
+    return await verifier.email_for(token, marketplace)
+
+
+# Type alias for the dependency callable used by route builders
+get_verified_sender_email_dependency = Callable[..., Coroutine[None, None, str]]
+
+
+def make_verified_sender_email_dependency(
+    marketplace_repository: MarketplaceRepository,
+    verifier: SatelliteTokenVerifier,
+) -> get_verified_sender_email_dependency:
+    """Create the FastAPI dependency that returns the caller's verified email."""
+
+    async def get_verified_sender_email(
+        request: Request,
+        tenant: Tenant = Depends(get_tenant_dependency),
+    ) -> str:
+        marketplace = await marketplace_repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(status_code=400, detail="No marketplace configured")
+        return await get_verified_user_email(request, marketplace, verifier)
+
+    return get_verified_sender_email

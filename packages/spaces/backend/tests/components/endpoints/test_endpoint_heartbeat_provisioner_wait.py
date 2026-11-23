@@ -15,6 +15,7 @@ from loguru import logger
 from syft_space.components.endpoints.endpoint_heartbeat_manager import (
     EndpointHeartbeatManager,
 )
+from syft_space.components.shared.syfthub import SyftHubClient
 
 
 def make_manager(get_active) -> EndpointHeartbeatManager:
@@ -25,6 +26,7 @@ def make_manager(get_active) -> EndpointHeartbeatManager:
         health_checker=SimpleNamespace(),
         marketplace_repository=SimpleNamespace(get_active=get_active),
         settings_repository=SimpleNamespace(get_public_url=get_public_url),
+        client_factory=SyftHubClient,
     )
     manager.set_tenant(SimpleNamespace(id=uuid4()))
     return manager

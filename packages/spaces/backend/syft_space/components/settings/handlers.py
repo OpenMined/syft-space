@@ -17,7 +17,7 @@ from syft_space.components.settings.schemas import (
     PublicUrlResponse,
 )
 from syft_space.components.shared.proxy_service import ProxyService
-from syft_space.components.shared.syfthub import SyftHubError
+from syft_space.components.shared.syfthub import HubClientFactory, SyftHubError
 from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
 
@@ -29,6 +29,7 @@ class SettingsHandler:
         self,
         settings_repository: SettingsRepository,
         marketplace_repository: MarketplaceRepository,
+        client_factory: HubClientFactory,
         proxy_service: ProxyService | None = None,
     ) -> None:
         """Initialize the settings handler.
@@ -36,11 +37,12 @@ class SettingsHandler:
         Args:
             settings_repository: Repository for settings persistence
             marketplace_repository: Marketplace repository for syncing to SyftHub
+            client_factory: Builds the SyftHub clients used for that sync
             proxy_service: Optional proxy service for ngrok tunnel management
         """
         self.settings_repository = settings_repository
         self.marketplace_repository = marketplace_repository
-        self.satellites = SatelliteRegistrar(marketplace_repository)
+        self.satellites = SatelliteRegistrar(marketplace_repository, client_factory)
         self.proxy_service = proxy_service
 
     async def get_public_url(self) -> PublicUrlResponse:

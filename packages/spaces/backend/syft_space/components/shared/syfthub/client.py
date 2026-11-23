@@ -1,5 +1,6 @@
 """SyftHub marketplace API client using httpx."""
 
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -24,7 +25,7 @@ from .schemas import (
     UserProfile,
     VerifyOTPResponse,
 )
-from .session import AsyncRefreshTokenAuth, HubSession, HubSessions, _default_sessions
+from .session import AsyncRefreshTokenAuth, HubSession, HubSessions
 
 
 class SyftHubClient:
@@ -45,13 +46,13 @@ class SyftHubClient:
         Args:
             base_url: Base URL for the SyftHub instance (str)
             timeout: Request timeout in seconds (default: 10.0)
-            sessions: Sessions that login() shares between clients. Defaults
-                to the process-wide set.
+            sessions: Sessions that login() shares with other clients.
+                Defaults to a set of its own (see HubClients).
             transport: httpx transport for both HTTP clients (tests).
         """
         # Normalize URL (remove trailing slash)
         self.base_url = base_url.rstrip("/")
-        self._sessions = sessions if sessions is not None else _default_sessions
+        self._sessions = sessions if sessions is not None else HubSessions()
         self._timeout = httpx.Timeout(timeout or self.DEFAULT_TIMEOUT)
         self._transport = transport
         self._auth_client = httpx.AsyncClient(
@@ -122,7 +123,7 @@ class SyftHubClient:
         )
         _handle_response_raw(response)
 
-    async def _is_username_available(self, username: str) -> bool:
+    async def is_username_available(self, username: str) -> bool:
         """
         Check if a username is available.
         Returns:
@@ -419,3 +420,29 @@ class SyftHubClient:
 
     async def __aexit__(self, *args: Any) -> None:
         await self.close()
+
+
+class HubClients:
+    """Builds SyftHubClient instances that share one set of login sessions.
+
+    Created once at startup; ``for_url`` is passed to whatever talks to
+    the hub, so every client for an account reuses its session.
+    """
+
+    def __init__(
+        self,
+        sessions: HubSessions | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._sessions = sessions if sessions is not None else HubSessions()
+        self._transport = transport
+
+    def for_url(self, base_url: str) -> SyftHubClient:
+        """Return a new client for the hub at ``base_url``."""
+        return SyftHubClient(
+            base_url, sessions=self._sessions, transport=self._transport
+        )
+
+
+# Builds a client for a hub URL; what handlers are given, not HubClients.
+HubClientFactory = Callable[[str], SyftHubClient]

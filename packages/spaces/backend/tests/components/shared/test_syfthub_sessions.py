@@ -11,9 +11,9 @@ import asyncio
 import httpx
 import pytest
 
-import syft_space.components.shared.syfthub.client as syfthub_client_module
 from syft_space.components.shared.syfthub import (
     AuthenticationError,
+    HubClients,
     HubSession,
     HubSessions,
     ServerError,
@@ -104,15 +104,25 @@ async def test_second_client_reuses_the_session():
     assert second.is_authenticated
 
 
-async def test_default_sessions_are_shared_across_clients(monkeypatch):
-    monkeypatch.setattr(syfthub_client_module, "_default_sessions", HubSessions())
+async def test_clients_from_one_factory_share_a_session():
+    hub = Hub()
+    hub_clients = HubClients(transport=hub.transport)
+    async with hub_clients.for_url(HUB_URL) as first:
+        await first.login(USER, PASSWORD)
+    async with hub_clients.for_url(HUB_URL) as second:
+        await second.login(USER, PASSWORD)
+
+    assert hub.logins == 1
+
+
+async def test_clients_built_on_their_own_do_not_share_a_session():
     hub = Hub()
     async with hub.client() as first:
         await first.login(USER, PASSWORD)
     async with hub.client() as second:
         await second.login(USER, PASSWORD)
 
-    assert hub.logins == 1
+    assert hub.logins == 2
 
 
 async def test_sessions_are_scoped_per_url_and_username():

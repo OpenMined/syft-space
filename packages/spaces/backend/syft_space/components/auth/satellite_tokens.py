@@ -26,7 +26,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from syft_space.components.marketplaces.entities import Marketplace
-from syft_space.components.shared.syfthub import SyftHubClient, SyftHubError
+from syft_space.components.shared.syfthub import HubClientFactory, SyftHubError
 
 ALGORITHM = "RS256"
 REQUIRED_CLAIMS = ["exp", "iat", "sub", "aud"]
@@ -219,12 +219,14 @@ class KeyedLocks:
         return len(self._locks)
 
 
-async def verify_with_hub(token: str, marketplace: Marketplace) -> str:
+async def verify_with_hub(
+    client_factory: HubClientFactory, token: str, marketplace: Marketplace
+) -> str:
     """Ask the marketplace to verify the token; return the user's email."""
     # The satellite id narrows the accepted audience to this space, so a
     # token minted for another service the same owner runs is rejected.
     try:
-        async with SyftHubClient(str(marketplace.url)) as client:
+        async with client_factory(marketplace.url) as client:
             await client.login(marketplace.email, marketplace.password)
             result = await client.verify_satellite_token(
                 token, marketplace.satellite_id
@@ -251,9 +253,9 @@ class SatelliteTokenVerifier:
 
     def __init__(
         self,
+        remote: VerifyWithHub,
         emails: SubjectEmailCache | None = None,
         fetch: FetchKeySet = fetch_key_set,
-        remote: VerifyWithHub = verify_with_hub,
         clock: Clock = time.monotonic,
     ):
         self._emails = emails if emails is not None else SubjectEmailCache(clock=clock)
@@ -341,7 +343,3 @@ def _verified_subject(token: str, key: Any, satellite_id: str) -> str:
     if not isinstance(sub, str) or not sub:
         raise HTTPException(status_code=401, detail="Invalid satellite token")
     return sub
-
-
-# Default verifier shared by every request in the process.
-default_verifier = SatelliteTokenVerifier()

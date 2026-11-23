@@ -18,6 +18,7 @@ from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
     HealthcheckStatus,
 )
+from syft_space.components.shared.syfthub import SyftHubClient
 
 TENANT = SimpleNamespace(id=uuid4())
 
@@ -58,6 +59,7 @@ def make_handler(dataset_healthcheck, endpoint_slug="news", dataset_found=True):
         model_repository=SimpleNamespace(),
         dataset_registry=SimpleNamespace(get_dataset_type=lambda dtype: DatasetType),
         model_registry=SimpleNamespace(),
+        client_factory=SyftHubClient,
     )
 
 

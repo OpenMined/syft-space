@@ -17,6 +17,7 @@ from syft_space.components.marketplaces.schemas import (
     VerifyMarketplaceOTPRequest,
 )
 from syft_space.components.shared.syfthub import (
+    HubClientFactory,
     Satellite,
     SyftHubClient,
     SyftHubError,
@@ -29,14 +30,18 @@ from syft_space.config import app_settings
 class MarketplaceHandler:
     """Handler for marketplace business logic."""
 
-    def __init__(self, repository: MarketplaceRepository):
+    def __init__(
+        self, repository: MarketplaceRepository, client_factory: HubClientFactory
+    ):
         """Initialize the marketplace handler.
 
         Args:
             repository: Marketplace repository
+            client_factory: Builds the SyftHub clients this handler uses
         """
         self.repository = repository
-        self.satellites = SatelliteRegistrar(repository)
+        self._client_factory = client_factory
+        self.satellites = SatelliteRegistrar(repository, client_factory)
 
     async def register_marketplace(
         self, request: RegisterMarketplaceRequest, tenant: Tenant
@@ -48,7 +53,7 @@ class MarketplaceHandler:
         so the route layer can surface a 202 and the client can collect the
         OTP and call ``/verify-otp`` to finish setup.
         """
-        async with SyftHubClient(str(request.url)) as syfthub_client:
+        async with self._client_factory(str(request.url)) as syfthub_client:
             try:
                 register_response = await syfthub_client.register(
                     username=request.username,
@@ -84,7 +89,7 @@ class MarketplaceHandler:
         self, request: VerifyMarketplaceOTPRequest, tenant: Tenant
     ) -> MarketplaceResponse:
         """Complete a pending registration by verifying the OTP, then persist."""
-        async with SyftHubClient(str(request.url)) as syfthub_client:
+        async with self._client_factory(str(request.url)) as syfthub_client:
             try:
                 verify_response = await syfthub_client.verify_otp(
                     email=request.email,
@@ -110,7 +115,7 @@ class MarketplaceHandler:
         self, request: ResendMarketplaceOTPRequest
     ) -> dict:
         """Trigger SyftHub to resend a registration OTP."""
-        async with SyftHubClient(str(request.url)) as syfthub_client:
+        async with self._client_factory(str(request.url)) as syfthub_client:
             try:
                 await syfthub_client.resend_otp(email=request.email)
             except SyftHubError as e:
@@ -190,7 +195,7 @@ class MarketplaceHandler:
             str(request.url), tenant.id
         )
 
-        async with SyftHubClient(str(request.url)) as syfthub_client:
+        async with self._client_factory(str(request.url)) as syfthub_client:
             try:
                 # use_cache=False: this login validates user-supplied
                 # credentials before they are persisted — a cached session
@@ -252,8 +257,8 @@ class MarketplaceHandler:
         marketplace_url = (
             str(app_settings.default_marketplace_url) if url is None else url
         )
-        async with SyftHubClient(marketplace_url) as syfthub_client:
-            return await syfthub_client._is_username_available(username)
+        async with self._client_factory(marketplace_url) as syfthub_client:
+            return await syfthub_client.is_username_available(username)
 
     async def list_marketplaces(
         self, tenant: Tenant, url: str | None = None

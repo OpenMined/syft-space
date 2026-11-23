@@ -12,7 +12,6 @@ from uuid import uuid4
 
 import pytest
 
-import syft_space.components.endpoints.endpoint_heartbeat_manager as hb_module
 import syft_space.components.endpoints.publish_handler as publish_module
 from syft_space.components.endpoints.endpoint_heartbeat_manager import (
     EndpointHeartbeatManager,
@@ -45,7 +44,7 @@ def make_marketplace(satellite_id: str | None = SATELLITE_ID) -> SimpleNamespace
 # ── shutdown says nothing to the marketplace ────────────────────────────
 
 
-async def test_shutdown_does_not_contact_the_marketplace(monkeypatch):
+async def test_shutdown_does_not_contact_the_marketplace():
     """No deregistration and no final report.
 
     Deleting a satellite would take its endpoints, stars, uptime history and
@@ -53,7 +52,6 @@ async def test_shutdown_does_not_contact_the_marketplace(monkeypatch):
     health reports stop, which also covers the unclean exits no hook can run
     for — so a shutdown-time call would buy at most the remaining TTL.
     """
-    monkeypatch.setattr(hb_module, "SyftHubClient", ExplodingClient)
     marketplace = make_marketplace()
 
     # Stubs deliberately answer everything a final report would need, so the
@@ -73,6 +71,7 @@ async def test_shutdown_does_not_contact_the_marketplace(monkeypatch):
         ),
         marketplace_repository=SimpleNamespace(get_active=get_active),
         settings_repository=SimpleNamespace(get_public_url=get_public_url),
+        client_factory=ExplodingClient,
     )
     manager.set_tenant(SimpleNamespace(id=uuid4()))
 
@@ -83,7 +82,7 @@ async def test_shutdown_does_not_contact_the_marketplace(monkeypatch):
 # ── publishing does not overwrite another space's slug ──────────────────
 
 
-def make_publish_handler() -> PublishEndpointHandler:
+def make_publish_handler(new_client) -> PublishEndpointHandler:
     return PublishEndpointHandler(
         endpoint_repository=SimpleNamespace(),
         marketplace_repository=SimpleNamespace(),
@@ -91,6 +90,7 @@ def make_publish_handler() -> PublishEndpointHandler:
         model_repository=SimpleNamespace(),
         dataset_registry=SimpleNamespace(),
         model_registry=SimpleNamespace(),
+        client_factory=new_client,
     )
 
 
@@ -122,13 +122,12 @@ class RecordingClient:
 
 @pytest.fixture
 def publish_setup(monkeypatch):
-    monkeypatch.setattr(publish_module, "SyftHubClient", RecordingClient)
     monkeypatch.setattr(
         publish_module.app_settings, "public_url", ORIGIN, raising=False
     )
     RecordingClient.last = {}
 
-    handler = make_publish_handler()
+    handler = make_publish_handler(RecordingClient)
 
     async def build_payload(endpoint):
         return {"slug": endpoint.slug}

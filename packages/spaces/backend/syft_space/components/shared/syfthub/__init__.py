@@ -1,6 +1,6 @@
 """Client for the SyftHub marketplace API."""
 
-from .client import SyftHubClient
+from .client import HubClientFactory, HubClients, SyftHubClient
 from .errors import (
     AuthenticationError,
     ConflictError,
@@ -33,6 +33,8 @@ from .schemas import (
 from .session import HubSession, HubSessions
 
 __all__ = [
+    "HubClientFactory",
+    "HubClients",
     "AccountingResponse",
     "AuthenticationError",
     "ConflictError",

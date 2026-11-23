@@ -24,6 +24,7 @@ from syft_space.components.shared.metadata_types import (
     MetadataFields,
     MetadataType,
 )
+from syft_space.components.shared.syfthub import SyftHubClient
 
 TENANT_ID = uuid4()
 
@@ -93,6 +94,7 @@ def _handler(
         model_repository=SimpleNamespace(),
         dataset_registry=SimpleNamespace(get_dataset_type=get_dataset_type),
         model_registry=SimpleNamespace(),
+        client_factory=SyftHubClient,
     )
 
 

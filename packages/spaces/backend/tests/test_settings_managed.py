@@ -17,6 +17,7 @@ from pydantic import HttpUrl
 from syft_space.components.settings.handlers import SettingsHandler
 from syft_space.components.settings.repository import SettingsRepository
 from syft_space.components.shared.database import AsyncDatabase
+from syft_space.components.shared.syfthub import SyftHubClient
 from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
 
@@ -36,6 +37,7 @@ def handler(settings_repository: SettingsRepository) -> SettingsHandler:
     return SettingsHandler(
         settings_repository=settings_repository,
         marketplace_repository=marketplace_repository,
+        client_factory=SyftHubClient,
         proxy_service=None,
     )
 

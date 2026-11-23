@@ -118,10 +118,6 @@ class HubSessions:
         self._sessions.clear()
 
 
-# Sessions shared by all clients in the process.
-_default_sessions = HubSessions()
-
-
 class AsyncRefreshTokenAuth(httpx.Auth):
     """Sends the session's access token; on a 401, renews it and retries."""
 
