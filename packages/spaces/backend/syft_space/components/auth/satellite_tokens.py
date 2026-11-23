@@ -26,7 +26,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from syft_space.components.marketplaces.entities import Marketplace
-from syft_space.components.shared.syfthub_client import SyftHubClient, SyftHubError
+from syft_space.components.shared.syfthub import SyftHubClient, SyftHubError
 
 ALGORITHM = "RS256"
 REQUIRED_CLAIMS = ["exp", "iat", "sub", "aud"]

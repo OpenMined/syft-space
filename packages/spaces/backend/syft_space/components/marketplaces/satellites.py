@@ -17,7 +17,7 @@ from loguru import logger
 
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
     NotFoundError,
     Satellite,
     SatelliteKind,

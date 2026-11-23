@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from syft_space.components.marketplaces.satellites import SatelliteRegistrar
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
     SatelliteKindMismatchError,
     SyftHubClient,
 )

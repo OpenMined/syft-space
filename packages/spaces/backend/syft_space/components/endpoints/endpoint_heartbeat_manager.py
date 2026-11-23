@@ -13,7 +13,7 @@ from loguru import logger
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.shared.lifecycle import LifecycleService
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
     NotFoundError,
     RateLimitError,
     SyftHubClient,

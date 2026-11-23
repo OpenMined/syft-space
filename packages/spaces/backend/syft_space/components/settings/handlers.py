@@ -17,7 +17,7 @@ from syft_space.components.settings.schemas import (
     PublicUrlResponse,
 )
 from syft_space.components.shared.proxy_service import ProxyService
-from syft_space.components.shared.syfthub_client import SyftHubError
+from syft_space.components.shared.syfthub import SyftHubError
 from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
 

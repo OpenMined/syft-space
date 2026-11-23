@@ -26,7 +26,7 @@ from syft_space.components.model_types.registry import ModelTypeRegistry
 from syft_space.components.models.repository import ModelRepository
 from syft_space.components.shared.domain_types import HealthcheckStatus
 from syft_space.components.shared.filter_types import FilterSchema
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
     NotFoundError,
     SyftHubClient,
     SyftHubError,

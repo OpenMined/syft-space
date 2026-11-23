@@ -11,8 +11,8 @@ import asyncio
 import httpx
 import pytest
 
-import syft_space.components.shared.syfthub_client as syfthub_client_module
-from syft_space.components.shared.syfthub_client import (
+import syft_space.components.shared.syfthub.client as syfthub_client_module
+from syft_space.components.shared.syfthub import (
     AuthenticationError,
     HubSession,
     HubSessions,

@@ -15,7 +15,7 @@ from syft_space.components.endpoints.endpoint_heartbeat_manager import (
     EndpointHeartbeatManager,
     MarketplaceDeliveryState,
 )
-from syft_space.components.shared.syfthub_client import RateLimitError
+from syft_space.components.shared.syfthub import RateLimitError
 
 NOW = 1000.0
 

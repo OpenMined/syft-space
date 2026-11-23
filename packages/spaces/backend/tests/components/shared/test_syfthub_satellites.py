@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
     NotFoundError,
     Satellite,
     SatelliteKind,

@@ -12,7 +12,7 @@ from syft_space.components.feedback.schemas import (
     FeedbackResponse,
 )
 from syft_space.components.marketplaces.repository import MarketplaceRepository
-from syft_space.components.shared.syfthub_client import SyftHubClient
+from syft_space.components.shared.syfthub import SyftHubClient
 
 
 class FeedbackHandler:

@@ -1,5 +1,5 @@
 """Shared utilities and types for Syft Space."""
 
-from .syfthub_client import SyftHubClient
+from .syfthub import SyftHubClient
 
 __all__ = ["SyftHubClient"]

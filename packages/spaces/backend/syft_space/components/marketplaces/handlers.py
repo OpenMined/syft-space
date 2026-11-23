@@ -16,7 +16,7 @@ from syft_space.components.marketplaces.schemas import (
     ResendMarketplaceOTPRequest,
     VerifyMarketplaceOTPRequest,
 )
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
     Satellite,
     SyftHubClient,
     SyftHubError,

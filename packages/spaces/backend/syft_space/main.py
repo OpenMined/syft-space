@@ -143,11 +143,11 @@ from syft_space.components.shared.lifecycle import LifecycleService
 # Import proxy service
 from syft_space.components.shared.proxy_service import ProxyService
 from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
-from syft_space.components.shared.syfthub_client import SyftHubClient
 from syft_space.components.shared.telemetry import (
     setup_telemetry,
     shutdown_telemetry,
 )
+from syft_space.components.shared.syfthub import SyftHubClient
 from syft_space.components.sources import register_builtin_sources
 from syft_space.components.sources.local_file.local_file_watcher import (
     get_local_file_watcher,
