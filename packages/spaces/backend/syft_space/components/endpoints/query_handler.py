@@ -47,6 +47,11 @@ from syft_space.components.policy_types.interfaces import (
 from syft_space.components.policy_types.registry import PolicyTypeRegistry
 from syft_space.components.shared.filter_types import FilterValidationError
 from syft_space.components.shared.search_types import SearchContext, SearchParameters
+from syft_space.components.shared.telemetry import (
+    set_request_attributes,
+    set_span_attributes,
+    traced,
+)
 from syft_space.components.tenants.entities import Tenant
 from syft_space.components.wallets.entities import Wallet
 from syft_space.components.wallets.repository import WalletRepository
@@ -186,6 +191,7 @@ class QueryEndpointHandler:
         # post-hook, which chats through it, so it can't close any earlier).
         model_instance: BaseModelType | None = None
 
+        set_request_attributes(endpoint_slug=slug)
         try:
             endpoint = await self.endpoint_repository.get_by_slug(slug, tenant.id)
             if not endpoint:
@@ -257,10 +263,7 @@ class QueryEndpointHandler:
             # Apply pre-hooks per type (one instance per type, all configs passed).
             # PolicyViolationError (403) / PaymentRequiredError (402) raised from
             # anywhere in this body are converted once in the outer handler.
-            for policy_type_name, configs in configs_by_type.items():
-                policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
-                policy_instance = policy_type_cls()
-                policy_context = await policy_instance.pre_hook(configs, policy_context)
+            policy_context = await self._run_pre_hooks(configs_by_type, policy_context)
 
             # Execute query based on response_type
             references: ReferencesResponse | None = None
@@ -311,12 +314,7 @@ class QueryEndpointHandler:
             policy_context.response = query_response.model_dump()
 
             # Apply post-hooks per type
-            for policy_type_name, configs in configs_by_type.items():
-                policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
-                policy_instance = policy_type_cls()
-                policy_context = await policy_instance.post_hook(
-                    configs, policy_context
-                )
+            policy_context = await self._run_post_hooks(configs_by_type, policy_context)
 
             # Attach the success policy_metadata envelope onto the response.
             response_dict = policy_context.response or {}
@@ -371,6 +369,8 @@ class QueryEndpointHandler:
                 except Exception:
                     logger.exception("Failed to close model instance; continuing")
 
+            set_span_attributes(**{"syft.query.outcome": outcome.value})
+
             if self.event_reporter:
                 # Extract IDs here so the adapter never touches a possibly-detached ORM instance.
                 try:
@@ -393,6 +393,28 @@ class QueryEndpointHandler:
                 except Exception:
                     # Reporter runs in `finally`; raising here would mask the user-facing exception.
                     logger.exception("event_reporter failed; continuing")
+
+    @traced("query.policy.pre")
+    async def _run_pre_hooks(
+        self, configs_by_type: dict[str, list[dict]], policy_context: PolicyContext
+    ) -> PolicyContext:
+        """Run every attached policy type's pre-hook, one instance per type."""
+        for policy_type_name, configs in configs_by_type.items():
+            policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
+            policy_instance = policy_type_cls()
+            policy_context = await policy_instance.pre_hook(configs, policy_context)
+        return policy_context
+
+    @traced("query.policy.post")
+    async def _run_post_hooks(
+        self, configs_by_type: dict[str, list[dict]], policy_context: PolicyContext
+    ) -> PolicyContext:
+        """Run every attached policy type's post-hook, one instance per type."""
+        for policy_type_name, configs in configs_by_type.items():
+            policy_type_cls = self.policy_registry.get_policy_type(policy_type_name)
+            policy_instance = policy_type_cls()
+            policy_context = await policy_instance.post_hook(configs, policy_context)
+        return policy_context
 
     async def _resolve_recipient(
         self, tenant: Tenant, wallet: Wallet | None
@@ -418,6 +440,7 @@ class QueryEndpointHandler:
             return None
         return Recipient(username=username, email=email, wallet_address=wallet_address)
 
+    @traced("query.search")
     async def _search_dataset(
         self,
         endpoint: Endpoint,
@@ -432,6 +455,7 @@ class QueryEndpointHandler:
             raise HTTPException(status_code=404, detail="Dataset not found")
 
         try:
+            set_span_attributes(**{"syft.dataset.type": dataset.dtype})
             dataset_type_cls = self.dataset_registry.get_dataset_type(dataset.dtype)
         except KeyError:
             raise HTTPException(
@@ -490,6 +514,7 @@ class QueryEndpointHandler:
             ),
         )
 
+    @traced("query.chat")
     async def _chat_with_model(
         self,
         endpoint: Endpoint,
@@ -508,6 +533,7 @@ class QueryEndpointHandler:
             raise HTTPException(status_code=500, detail="Model not found")
 
         try:
+            set_span_attributes(**{"syft.model.type": model.dtype})
             model_type_cls = self.model_registry.get_model_type(model.dtype)
         except KeyError:
             logger.exception(f"Model type '{model.dtype}' not registered")

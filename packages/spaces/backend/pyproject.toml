@@ -35,6 +35,11 @@ dependencies = [
     "en-core-web-sm",
     "feedparser>=6.0.11",
     "pyyaml>=6.0",
+    "opentelemetry-sdk>=1.40.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.40.0",
+    "opentelemetry-instrumentation-fastapi>=0.61b0",
+    "opentelemetry-instrumentation-httpx>=0.61b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.61b0",
 ]
 
 [project.optional-dependencies]

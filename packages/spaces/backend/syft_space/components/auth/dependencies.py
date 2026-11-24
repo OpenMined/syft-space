@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer
 
 from syft_space.components.marketplaces.repository import Marketplace
 from syft_space.components.shared.syfthub_client import SyftHubError
+from syft_space.components.shared.telemetry import set_request_attributes, span
 from syft_space.config import app_settings
 
 # Security scheme for OpenAPI documentation
@@ -53,12 +54,14 @@ async def get_verified_user_email(
 
     # The satellite id narrows the accepted audience to this space, so a
     # token minted for another service the same owner runs is rejected.
+    set_request_attributes(endpoint_slug=request.path_params.get("slug"))
     try:
-        async with SyftHubClient(str(marketplace.url)) as client:
-            await client.login(marketplace.email, marketplace.password)
-            result = await client.verify_satellite_token(
-                token, marketplace.satellite_id
-            )
+        with span("auth.verify_sender"):
+            async with SyftHubClient(str(marketplace.url)) as client:
+                await client.login(marketplace.email, marketplace.password)
+                result = await client.verify_satellite_token(
+                    token, marketplace.satellite_id
+                )
     except SyftHubError as e:
         raise e.to_http_exception() from e
 
