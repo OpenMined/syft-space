@@ -25,20 +25,33 @@ packages/spaces/run.sh
 | `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | Sampling, for example `traceidratio` and `0.1` | every request |
 
 With Docker Compose, set the same variables in your shell or `.env`. A
-collector on the host is reached at `http://host.docker.internal:4318`.
+collector on the host is reached at `http://host.docker.internal:4318`. To run
+a viewer in Compose as well, see the next section.
 
 ## A viewer for local use
 
-Jaeger runs as one container and is enough to look at traces:
+Jaeger runs as one container and is enough to look at traces. It keeps them
+in memory, so they are lost when it stops.
+
+**With Docker Compose**, add the telemetry overlay. It starts Jaeger next to
+the Space and points the Space at it:
 
 ```bash
-docker run --rm -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one
+cd packages/spaces
+docker compose -f docker-compose.yml -f docker-compose.telemetry.yml up --build
 ```
 
-Open <http://localhost:16686> and pick the `syft-space` service.
+**Without Compose**, start Jaeger yourself and set the endpoint as shown above:
 
-For load tests, run the viewer on a different machine from the Space, so it
-does not compete for CPU and disk.
+```bash
+docker run --rm -p 16686:16686 -p 4318:4318 jaegertracing/jaeger:2.14.0
+```
+
+Either way, open <http://localhost:16686> and pick the `syft-space` service.
+
+For load tests, or to keep traces, send them to a collector on a different
+machine (SigNoz, Grafana, or another OTLP backend), so it does not compete
+with the Space for CPU and disk.
 
 ## What is recorded
 
