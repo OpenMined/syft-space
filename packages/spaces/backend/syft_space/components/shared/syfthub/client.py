@@ -27,44 +27,52 @@ from .schemas import (
 )
 from .session import AsyncRefreshTokenAuth, HubSession, HubSessions
 
+# --- Tunables for talking to a hub ---
+
+# Request timeout for hub calls.
+DEFAULT_TIMEOUT_SECONDS = 10.0
+
+# A shared connection idle this long is closed. Kept under the hub's own
+# idle limit (nginx, 65 s) so we never reuse one the hub is about to close.
+KEEPALIVE_EXPIRY_SECONDS = 50.0
+
 
 class SyftHubClient:
     """Async HTTP client for SyftHub marketplace API with typed requests/responses."""
-
-    # Default timeout for HTTP requests (10 seconds)
-    DEFAULT_TIMEOUT = 10.0
 
     def __init__(
         self,
         base_url: str,
         timeout: float | None = None,
         sessions: HubSessions | None = None,
-        transport: httpx.AsyncBaseTransport | None = None,
+        http: httpx.AsyncClient | None = None,
     ):
         """Initialize SyftHub client.
 
         Args:
             base_url: Base URL for the SyftHub instance (str)
-            timeout: Request timeout in seconds (default: 10.0)
+            timeout: Request timeout in seconds (default: 10.0). Unused
+                when ``http`` is given, which has its own.
             sessions: Sessions that login() shares with other clients.
                 Defaults to a set of its own (see HubClients).
-            transport: httpx transport for both HTTP clients (tests).
+            http: Connection to the hub that outlives this client and is
+                left open by close(). Defaults to one this client owns.
         """
         # Normalize URL (remove trailing slash)
         self.base_url = base_url.rstrip("/")
         self._sessions = sessions if sessions is not None else HubSessions()
-        self._timeout = httpx.Timeout(timeout or self.DEFAULT_TIMEOUT)
-        self._transport = transport
-        self._auth_client = httpx.AsyncClient(
-            base_url=self.base_url, timeout=self._timeout, transport=transport
+        self._owns_http = http is None
+        self._http = http or httpx.AsyncClient(
+            base_url=self.base_url,
+            timeout=httpx.Timeout(timeout or DEFAULT_TIMEOUT_SECONDS),
         )
-        self._client: httpx.AsyncClient | None = None
+        self._auth: AsyncRefreshTokenAuth | None = None
         self._session: HubSession | None = None
 
     @property
     def is_authenticated(self) -> bool:
         """Check if client has been authenticated."""
-        return self._client is not None
+        return self._auth is not None
 
     @property
     def tokens(self) -> TokenResponse | None:
@@ -94,7 +102,7 @@ class SyftHubClient:
             "password": password,
         }
 
-        response = await self._auth_client.post("/api/v1/auth/register", json=payload)
+        response = await self._http.post("/api/v1/auth/register", json=payload)
         return _handle_response(response, RegisterResponse)
 
     async def verify_otp(self, email: str, code: str) -> VerifyOTPResponse:
@@ -105,7 +113,7 @@ class SyftHubClient:
             NotFoundError: No pending verification for this email
             ServerError: Server-side error
         """
-        response = await self._auth_client.post(
+        response = await self._http.post(
             "/api/v1/auth/register/verify-otp",
             json={"email": email, "code": code},
         )
@@ -117,7 +125,7 @@ class SyftHubClient:
         SyftHub intentionally returns a generic success message regardless of
         whether the email exists, so this method does not surface a model.
         """
-        response = await self._auth_client.post(
+        response = await self._http.post(
             "/api/v1/auth/register/resend-otp",
             json={"email": email},
         )
@@ -129,9 +137,7 @@ class SyftHubClient:
         Returns:
             True if username is available, False otherwise.
         """
-        response = await self._auth_client.get(
-            f"/api/v1/users/check-username/{username}"
-        )
+        response = await self._http.get(f"/api/v1/users/check-username/{username}")
         return _handle_response_raw(response)["available"]
 
     def authenticate_with_tokens(self, access_token: str, refresh_token: str) -> None:
@@ -144,14 +150,9 @@ class SyftHubClient:
         self._install_auth(HubSession(tokens=tokens))
 
     def _install_auth(self, session: HubSession) -> None:
-        """Build the authenticated client around the given session."""
+        """Send this client's authenticated requests as the given session."""
         self._session = session
-        self._client = httpx.AsyncClient(
-            base_url=self.base_url,
-            auth=AsyncRefreshTokenAuth(session, self._auth_client),
-            timeout=self._timeout,
-            transport=self._transport,
-        )
+        self._auth = AsyncRefreshTokenAuth(session, self._http)
 
     async def login(
         self, username: str, password: str, use_cache: bool = True
@@ -179,7 +180,7 @@ class SyftHubClient:
             session = self._sessions.for_account(self.base_url, username, password)
         else:
             session = HubSession(username, password)
-        tokens = await session.start(self._auth_client)
+        tokens = await session.start(self._http)
         self._install_auth(session)
         return tokens
 
@@ -195,7 +196,7 @@ class SyftHubClient:
             ServerError: Server-side error
         """
         self._require_auth()
-        response = await self._client.get("/api/v1/users/me/accounting")  # type: ignore
+        response = await self._request("GET", "/api/v1/users/me/accounting")
         return _handle_response(response, AccountingResponse)
 
     async def slug_availability(self, slug: str) -> SlugAvailability:
@@ -206,9 +207,7 @@ class SyftHubClient:
         copy of those rules here.
         """
         self._require_auth()
-        response = await self._client.get(  # type: ignore[union-attr]
-            f"/api/v1/endpoints/{slug}/availability"
-        )
+        response = await self._request("GET", f"/api/v1/endpoints/{slug}/availability")
         return _handle_response(response, SlugAvailability)
 
     async def publish_endpoint(
@@ -237,7 +236,8 @@ class SyftHubClient:
             ServerError: Server-side error
         """
         self._require_auth()
-        response = await self._client.post(  # type: ignore[union-attr]
+        response = await self._request(
+            "POST",
             "/api/v1/endpoints",
             json=payload,
             params={"satellite_id": satellite_id},
@@ -245,9 +245,9 @@ class SyftHubClient:
 
         if overwrite and response.status_code == 400:
             # Endpoint already exists, try to update it
-            response = await self._client.patch(
-                f"/api/v1/endpoints/slug/{payload['slug']}", json=payload
-            )  # type: ignore
+            response = await self._request(
+                "PATCH", f"/api/v1/endpoints/slug/{payload['slug']}", json=payload
+            )
         return _handle_response_raw(response)
 
     async def profile(self) -> UserProfile:
@@ -256,7 +256,7 @@ class SyftHubClient:
             UserProfile: User profile
         """
         self._require_auth()
-        response = await self._client.get("/api/v1/users/me")  # type: ignore
+        response = await self._request("GET", "/api/v1/users/me")
         return _handle_response(response, UserProfile)
 
     async def get_tunnel_credentials(self) -> TunnelCredentialsResponse:
@@ -271,7 +271,7 @@ class SyftHubClient:
             ServerError: Server-side error
         """
         self._require_auth()
-        response = await self._client.get("/api/v1/users/me/tunnel-credentials")  # type: ignore
+        response = await self._request("GET", "/api/v1/users/me/tunnel-credentials")
         return _handle_response(response, TunnelCredentialsResponse)
 
     async def unpublish_endpoint(self, endpoint_slug: str) -> bool:
@@ -284,7 +284,9 @@ class SyftHubClient:
             True if endpoint was unpublished successfully
         """
         self._require_auth()
-        response = await self._client.delete(f"/api/v1/endpoints/slug/{endpoint_slug}")  # type: ignore
+        response = await self._request(
+            "DELETE", f"/api/v1/endpoints/slug/{endpoint_slug}"
+        )
 
         logger.info(
             f"Unpublish endpoint response: {response.status_code}: {response.content}"
@@ -303,8 +305,8 @@ class SyftHubClient:
         *different* origin creates a new satellite — use move_satellite.
         """
         self._require_auth()
-        response = await self._client.post(  # type: ignore[union-attr]
-            "/api/v1/satellites", json={"kind": str(kind), "base_url": base_url}
+        response = await self._request(
+            "POST", "/api/v1/satellites", json={"kind": str(kind), "base_url": base_url}
         )
         try:
             return _handle_response(response, Satellite)
@@ -320,8 +322,8 @@ class SyftHubClient:
         self is excluded from the conflict check, so a no-op move is a 200.
         """
         self._require_auth()
-        response = await self._client.put(  # type: ignore[union-attr]
-            f"/api/v1/satellites/{satellite_id}", json={"base_url": base_url}
+        response = await self._request(
+            "PUT", f"/api/v1/satellites/{satellite_id}", json={"base_url": base_url}
         )
         try:
             return _handle_response(response, Satellite)
@@ -346,7 +348,7 @@ class SyftHubClient:
         body: dict[str, Any] = {"token": token}
         if satellite_id:
             body["satellite_id"] = satellite_id
-        response = await self._client.post("/api/v1/verify", json=body)  # type: ignore
+        response = await self._request("POST", "/api/v1/verify", json=body)
         return _handle_response(response, SatelliteToken)
 
     async def sync_endpoints(
@@ -366,7 +368,8 @@ class SyftHubClient:
             dict[str, Any]: Sync endpoints response
         """
         self._require_auth()
-        response = await self._client.post(  # type: ignore[union-attr]
+        response = await self._request(
+            "POST",
             "/api/v1/endpoints/sync",
             json={"endpoints": payload, "satellite_id": satellite_id},
         )
@@ -394,7 +397,8 @@ class SyftHubClient:
             dict[str, Any]: Health update response
         """
         self._require_auth()
-        response = await self._client.post(  # type: ignore[union-attr]
+        response = await self._request(
+            "POST",
             "/api/v1/endpoints/health",
             json={
                 "endpoints": endpoint_health,
@@ -406,14 +410,19 @@ class SyftHubClient:
         return _handle_response_raw(response)
 
     def _require_auth(self) -> None:
-        if self._client is None:
+        if self._auth is None:
             raise NotAuthenticatedError()
 
+    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        """Send a request as the logged-in account."""
+        if self._auth is None:
+            raise NotAuthenticatedError()
+        return await self._http.request(method, url, auth=self._auth, **kwargs)
+
     async def close(self) -> None:
-        """Close HTTP clients."""
-        await self._auth_client.aclose()
-        if self._client:
-            await self._client.aclose()
+        """Close the connection, unless it was passed in."""
+        if self._owns_http:
+            await self._http.aclose()
 
     async def __aenter__(self) -> "SyftHubClient":
         return self
@@ -423,10 +432,11 @@ class SyftHubClient:
 
 
 class HubClients:
-    """Builds SyftHubClient instances that share one set of login sessions.
+    """Builds SyftHubClient instances that share sessions and connections.
 
     Created once at startup; ``for_url`` is passed to whatever talks to
-    the hub, so every client for an account reuses its session.
+    the hub. Clients for an account reuse its login session, and clients
+    for a hub reuse its open connection instead of reconnecting each time.
     """
 
     def __init__(
@@ -436,12 +446,35 @@ class HubClients:
     ) -> None:
         self._sessions = sessions if sessions is not None else HubSessions()
         self._transport = transport
+        self._https: dict[str, httpx.AsyncClient] = {}
 
     def for_url(self, base_url: str) -> SyftHubClient:
-        """Return a new client for the hub at ``base_url``."""
-        return SyftHubClient(
-            base_url, sessions=self._sessions, transport=self._transport
-        )
+        """Return a new client that reuses the connection to this hub."""
+        url = base_url.rstrip("/")
+        http = self._https.get(url)
+        if http is None:
+            http = httpx.AsyncClient(
+                base_url=url,
+                timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
+                limits=httpx.Limits(keepalive_expiry=KEEPALIVE_EXPIRY_SECONDS),
+                transport=self._transport,
+            )
+            self._https[url] = http
+        return SyftHubClient(url, sessions=self._sessions, http=http)
+
+    def one_off(self, base_url: str) -> SyftHubClient:
+        """Return a new client whose connection closes with it.
+
+        For a URL someone typed that is not a saved marketplace, so no
+        connection is kept open for it.
+        """
+        return SyftHubClient(base_url, sessions=self._sessions)
+
+    async def close(self) -> None:
+        """Close every connection opened by ``for_url``."""
+        https, self._https = self._https, {}
+        for http in https.values():
+            await http.aclose()
 
 
 # Builds a client for a hub URL; what handlers are given, not HubClients.

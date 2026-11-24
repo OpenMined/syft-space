@@ -68,7 +68,8 @@ class Hub:
         return httpx.Response(401, json={"detail": "expired"})
 
     def client(self, sessions: HubSessions | None = None, url: str = HUB_URL):
-        return SyftHubClient(url, sessions=sessions, transport=self.transport)
+        http = httpx.AsyncClient(base_url=url, transport=self.transport)
+        return SyftHubClient(url, sessions=sessions, http=http)
 
 
 async def _call(hub: Hub, sessions: HubSessions, **login_kwargs) -> bool:
@@ -304,3 +305,60 @@ async def test_waiters_get_the_first_failure_without_calling_the_hub():
     hub.login_status = 200
     assert await _call(hub, sessions)
     assert hub.logins == 3
+
+
+# --- One connection per hub, kept open between clients ---
+
+
+async def test_clients_from_one_factory_share_the_connection():
+    hub = Hub()
+    hub_clients = HubClients(transport=hub.transport)
+    async with hub_clients.for_url(HUB_URL) as first:
+        await first.login(USER, PASSWORD)
+
+    # Closing the first client left the hub connection open for the second.
+    async with hub_clients.for_url(HUB_URL + "/") as second:
+        await second.login(USER, PASSWORD)
+        assert (await second.slug_availability("slug")).available
+        assert second._http is first._http
+
+    await hub_clients.close()
+    assert first._http.is_closed
+
+
+async def test_each_hub_gets_its_own_connection():
+    hub_clients = HubClients(transport=Hub().transport)
+
+    first = hub_clients.for_url(HUB_URL)
+    other = hub_clients.for_url("https://other-hub.test")
+
+    assert first._http is not other._http
+    await hub_clients.close()
+
+
+async def test_shared_connection_is_dropped_after_fifty_idle_seconds():
+    hub_clients = HubClients()
+    client = hub_clients.for_url(HUB_URL)
+
+    pool = client._http._transport._pool
+    assert pool._keepalive_expiry == 50.0
+    await hub_clients.close()
+
+
+async def test_one_off_client_closes_its_own_connection():
+    hub_clients = HubClients()
+    shared = hub_clients.for_url(HUB_URL)
+
+    async with hub_clients.one_off(HUB_URL) as client:
+        assert client._http is not shared._http
+
+    assert client._http.is_closed
+    assert not shared._http.is_closed
+    await hub_clients.close()
+
+
+async def test_a_client_built_on_its_own_closes_its_connection():
+    async with SyftHubClient(HUB_URL) as client:
+        pass
+
+    assert client._http.is_closed

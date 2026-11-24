@@ -462,6 +462,9 @@ async def lifespan(app: FastAPI):
     # 8.0. Close the vector stores' long-lived clients.
     await client_cache.close_all()
 
+    # 8.0.1. Close the connections kept open to the hubs.
+    await hub_clients.close()
+
     # 8.1. Drain any in-flight analytics capture tasks. Bounded so a slow
     # SQLite write doesn't hang shutdown; events past the timeout are dropped
     # (logged by the collector if they raise).
@@ -505,7 +508,7 @@ analytics_database = AsyncDatabase(analytics_db_config)
 event_repository = QueryEventRepository(analytics_database)
 event_collector = QueryEventCollector(event_repository)
 
-# One set of SyftHub login sessions for everything that talks to a hub.
+# One set of SyftHub sessions and connections for everything that talks to a hub.
 hub_clients = HubClients()
 
 # Initialize repositories
@@ -565,7 +568,7 @@ capability_checker = CapabilityChecker(
 policy_handler = PolicyHandler(
     POLICY_TYPE_REGISTRY, policy_repository, capability_checker
 )
-marketplace_handler = MarketplaceHandler(marketplace_repository, hub_clients.for_url)
+marketplace_handler = MarketplaceHandler(marketplace_repository, hub_clients.one_off)
 
 # Initialize wallet handler with providers (Clean Architecture: concrete adapters injected here)
 wallet_providers = {

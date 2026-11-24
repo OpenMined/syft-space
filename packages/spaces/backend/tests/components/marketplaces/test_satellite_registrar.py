@@ -66,10 +66,9 @@ def make_client(handler) -> tuple[SyftHubClient, list[httpx.Request]]:
         seen.append(request)
         return handler(request)
 
-    client = SyftHubClient(HUB_URL)
-    client._client = httpx.AsyncClient(
-        base_url=HUB_URL, transport=httpx.MockTransport(record)
-    )
+    http = httpx.AsyncClient(base_url=HUB_URL, transport=httpx.MockTransport(record))
+    client = SyftHubClient(HUB_URL, http=http)
+    client.authenticate_with_tokens("access", "refresh")
     return client, seen
 
 
