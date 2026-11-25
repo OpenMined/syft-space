@@ -162,7 +162,7 @@ async def test_the_health_poll_is_not_traced(tracing):
     assert finished(exporter) == {}
 
 
-async def test_outbound_httpx_calls_are_traced(tracing):
+async def test_outbound_httpx_calls_are_traced_without_the_query_string(tracing):
     """Against a real socket: only httpx's own transports are instrumented."""
     _, exporter = tracing
 
@@ -175,7 +175,10 @@ async def test_outbound_httpx_calls_are_traced(tracing):
     server = await asyncio.start_server(respond, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     async with server, httpx.AsyncClient() as client:
-        await client.get(f"http://127.0.0.1:{port}/api/v1/verify")
+        # The station's balance call puts the buyer's email in the query.
+        await client.get(
+            f"http://127.0.0.1:{port}/api/v1/verify?user_email=buyer@test.com"
+        )
 
     attributes = dict(finished(exporter)["GET"].attributes)
     url = attributes.get("url.full") or attributes.get("http.url")
@@ -183,7 +186,18 @@ async def test_outbound_httpx_calls_are_traced(tracing):
         "http.status_code"
     )
     assert url == f"http://127.0.0.1:{port}/api/v1/verify"
+    assert "buyer@test.com" not in " ".join(str(v) for v in attributes.values())
     assert status == 200
+
+
+async def test_an_inbound_request_is_recorded_without_its_query_string(tracing):
+    app, exporter = tracing
+
+    await call(app, "/endpoints/ep/query?user_email=buyer@test.com")
+
+    for recorded in exporter_spans(exporter):
+        values = " ".join(str(v) for v in recorded.attributes.values())
+        assert "buyer@test.com" not in values
 
 
 # ── nothing private ─────────────────────────────────────────────────────
