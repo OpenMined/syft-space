@@ -178,13 +178,14 @@ docling:
       memory: 4Gi
 
 # ---------------------------------------------------------------------------
-# Telemetry — OpenTelemetry traces from every space. Off by default.
+# Telemetry — OpenTelemetry traces from the station and every space. Off by
+# default.
 #
-# Enabled, the chart runs one OpenTelemetry Collector and tells each space to
-# send its traces there; the Collector forwards them to the backend below.
-# Storage and the trace viewer are NOT part of this chart. Spaces pick the
-# setting up when their pod next starts. Each space shows up as its own
-# service, named ss-<subdomain>.
+# Enabled, the chart runs one OpenTelemetry Collector and tells the station
+# and each space to send traces there; the Collector forwards them to the
+# backend below. Storage and the trace viewer are NOT part of this chart.
+# Spaces pick the setting up when their pod next starts. The station shows up
+# as the service syft-station, each space as ss-<subdomain>.
 # ---------------------------------------------------------------------------
 telemetry:
   enabled: false
@@ -222,8 +223,8 @@ telemetry:
         memory: 256Mi
 
 # ---------------------------------------------------------------------------
-# NetworkPolicy restricting the shared backends (and the telemetry Collector,
-# when enabled) to space pods only. Requires a
+# NetworkPolicy restricting the shared backends to space pods only (and the
+# telemetry Collector, when enabled, to the spaces and the station). Requires a
 # CNI that enforces policy (k3d's default flannel does NOT — dev leaves it off).
 # ---------------------------------------------------------------------------
 networkPolicy:

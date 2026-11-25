@@ -55,6 +55,7 @@ from syft_station.components.credits.schemas import (
     WalletSetupRequest,
     WalletStatusResponse,
 )
+from syft_station.components.shared.telemetry import set_request_attributes
 
 # Small enough that a page needs no inner scroll; the ceiling keeps a
 # hand-written limit from pulling the whole table back.
@@ -82,7 +83,9 @@ def build_credits_routes(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing bearer token",
             )
-        return await handler.authenticate(token.strip())
+        caller = await handler.authenticate(token.strip())
+        set_request_attributes(space_id=str(caller.space_id))
+        return caller
 
     @router.post("/debit", response_model=DebitResponse)
     async def debit(

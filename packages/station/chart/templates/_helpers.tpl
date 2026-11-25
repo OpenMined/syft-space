@@ -92,3 +92,8 @@ one Secret serves both). Empty result = space Ingresses stay plain http.
 {{- define "syft-station.telemetryExporter" -}}
 {{- ternary "otlp" "otlphttp" (eq .Values.telemetry.export.protocol "grpc") -}}
 {{- end -}}
+
+{{/* OTLP/HTTP address of the Collector, as pods in this namespace reach it. */}}
+{{- define "syft-station.telemetryEndpoint" -}}
+{{- printf "http://%s:%v" .Values.telemetry.collector.service.name .Values.telemetry.collector.service.port -}}
+{{- end -}}

@@ -90,6 +90,13 @@ spec:
             # re-spun station reclaims its SyftHub registration.
             - name: SYFT_STATION_SATELLITE_ID
               value: {{ .Values.station.satelliteId | quote }}
+            {{- if .Values.telemetry.enabled }}
+            # The station traces to the same Collector as the spaces.
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ include "syft-station.telemetryEndpoint" . | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: syft-station
+            {{- end }}
             {{- range $k, $v := .Values.station.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}
