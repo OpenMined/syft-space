@@ -87,3 +87,8 @@ one Secret serves both). Empty result = space Ingresses stay plain http.
 {{- .Values.station.ingress.tls.secretName -}}
 {{- end -}}
 {{- end -}}
+
+{{/* Collector exporter for the configured protocol: otlphttp or otlp (gRPC). */}}
+{{- define "syft-station.telemetryExporter" -}}
+{{- ternary "otlp" "otlphttp" (eq .Values.telemetry.export.protocol "grpc") -}}
+{{- end -}}

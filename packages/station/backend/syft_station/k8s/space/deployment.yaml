@@ -34,7 +34,16 @@ spec:
           imagePullPolicy: ${IMAGE_PULL_POLICY}
           ports:
             - containerPort: 8080
+          # Telemetry settings, present only when the station chart has
+          # telemetry on; without the ConfigMap the space does not trace.
+          envFrom:
+            - configMapRef:
+                name: syft-space-telemetry
+                optional: true
           env:
+            # Tells this space's traces apart from the other spaces'.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.instance.id=${SUBDOMAIN}"
             - name: SYFT_PORT
               value: "8080"
             - name: SYFT_ADMIN_API_KEY

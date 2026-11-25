@@ -1,0 +1,80 @@
+{{- if .Values.telemetry.enabled }}
+{{- $export := .Values.telemetry.export }}
+{{- $collector := .Values.telemetry.collector }}
+{{/*
+OpenTelemetry Collector — every space sends its traces here, and it forwards
+them to the backend in telemetry.export. Stateless.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $collector.service.name }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "otel-collector") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "otel-collector") | nindent 8 }}
+      annotations:
+        # A config change rolls the pod; the Collector reads it only at start.
+        checksum/config: {{ include (print $.Template.BasePath "/telemetry/collector-config.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: otel-collector
+          image: {{ $collector.image | quote }}
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports:
+            - containerPort: 4318
+          {{- if $export.headers }}
+          env:
+            {{- range $i, $name := keys $export.headers | sortAlpha }}
+            - name: EXPORT_HEADER_{{ $i }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $export.headersSecret | quote }}
+                  key: {{ index $export.headers $name | quote }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml $collector.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $collector.service.name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $collector.service.name }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  selector:
+    {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "otel-collector") | nindent 4 }}
+  ports:
+    - port: {{ $collector.service.port }}
+      targetPort: 4318
+      protocol: TCP
+{{- end }}

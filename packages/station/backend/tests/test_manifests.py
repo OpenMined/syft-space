@@ -311,3 +311,16 @@ def test_deployment_credits_env_is_optional_secret_refs(manifests):
     for key in _CREDITS_KEYS:
         ref = env[key]["valueFrom"]["secretKeyRef"]
         assert ref == {"name": "space-alpha", "key": key, "optional": True}
+
+
+def test_deployment_loads_telemetry_env_from_an_optional_configmap(manifests):
+    """Absent ConfigMap = no OTLP endpoint = the space does not trace."""
+    container = manifests["deployment"]["spec"]["template"]["spec"]["containers"][0]
+    assert container["envFrom"] == [
+        {"configMapRef": {"name": "syft-space-telemetry", "optional": True}}
+    ]
+
+
+def test_deployment_names_the_space_as_the_trace_instance(manifests):
+    env = _env(manifests["deployment"])
+    assert env["OTEL_RESOURCE_ATTRIBUTES"]["value"] == "service.instance.id=alpha"

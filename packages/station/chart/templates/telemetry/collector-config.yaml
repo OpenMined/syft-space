@@ -1,0 +1,58 @@
+{{- if .Values.telemetry.enabled }}
+{{- $export := .Values.telemetry.export }}
+{{- $endpoint := required "telemetry.export.endpoint is required when telemetry.enabled is true" $export.endpoint }}
+{{- if not (has $export.protocol (list "http" "grpc")) }}
+{{- fail "telemetry.export.protocol must be http or grpc" }}
+{{- end }}
+{{- if and $export.headers (not $export.headersSecret) }}
+{{- fail "telemetry.export.headers needs telemetry.export.headersSecret" }}
+{{- end }}
+{{/*
+Collector pipeline: OTLP/HTTP in from the spaces, batched, out to one backend.
+Header values are read from env (set from a Secret on the Deployment), so no
+credential is written here.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.telemetry.collector.service.name }}
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      batch: {}
+    exporters:
+      {{ include "syft-station.telemetryExporter" . }}:
+        endpoint: {{ $endpoint | quote }}
+        {{- if and (eq $export.protocol "grpc") $export.insecure }}
+        tls:
+          insecure: true
+        {{- end }}
+        {{- if $export.headers }}
+        headers:
+          {{- range $i, $name := keys $export.headers | sortAlpha }}
+          {{ $name | quote }}: "${env:EXPORT_HEADER_{{ $i }}}"
+          {{- end }}
+        {{- end }}
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [{{ include "syft-station.telemetryExporter" . }}]
+{{- end }}
