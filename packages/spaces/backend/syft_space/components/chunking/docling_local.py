@@ -33,6 +33,10 @@ logger = logging.getLogger(__name__)
 # Total timeout = pages × this value.
 _SUBPROCESS_TIMEOUT_PER_PAGE = 180
 
+# Most pages one subprocess converts. Bounds memory for long PDFs; each
+# batch costs one model load (a few seconds).
+BATCH_PAGES = 50
+
 
 def _self_command() -> list[str]:
     """Return the command prefix to re-invoke this package's ``__main__``.
@@ -191,10 +195,9 @@ class LocalDoclingBackend:
         """Convert ``file`` into chunk dicts, saving pictures to ``images_dir``.
 
         PDFs are always processed via subprocess isolation to prevent
-        C-level OOM (``std::bad_alloc``) from crashing the server.
-        Subprocesses first attempt all pages in a single call; if that
-        OOMs, failed pages are retried individually — each in a fresh
-        process so the OS fully reclaims memory.
+        C-level OOM (``std::bad_alloc``) from crashing the server. They are
+        converted in batches of ``BATCH_PAGES`` pages; a batch that fails is
+        halved and retried until the failing pages are isolated.
 
         Setting ``cancel`` kills the running PDF subprocess and raises
         ``IngestCancelled``.
@@ -358,60 +361,73 @@ class LocalDoclingBackend:
         doc_id: str,
         cancel: CancelToken,
     ) -> list[dict[str, Any]]:
-        """Convert specific PDF pages via subprocess isolation.
+        """Convert a PDF in batches of at most ``BATCH_PAGES`` pages.
 
-        First pass: sends all pages to a single subprocess, letting
-        docling use its default internal batching (batch_size=4).
-        Second pass: any pages that failed (OOM / segfault) are retried
-        individually, each in its own fresh subprocess so the OS fully
-        reclaims memory between pages.
+        Each batch runs in its own subprocess, so memory use does not grow
+        with the length of the document. A batch that fails is narrowed
+        down by ``_convert_range``.
         """
-        page_start = 1
-        page_end = total_pages
+        all_chunks: list[dict[str, Any]] = []
+        for page_start in range(1, total_pages + 1, BATCH_PAGES):
+            page_end = min(page_start + BATCH_PAGES - 1, total_pages)
+            all_chunks.extend(
+                self._convert_range(
+                    pdf_path, page_start, page_end, images_dir, doc_id, file, cancel
+                )
+            )
+        return all_chunks
 
-        # First pass — all pages in one subprocess
+    def _convert_range(
+        self,
+        pdf_path: Path,
+        page_start: int,
+        page_end: int,
+        images_dir: Path,
+        doc_id: str,
+        file: IngestFile,
+        cancel: CancelToken,
+    ) -> list[dict[str, Any]]:
+        """Convert pages ``page_start``..``page_end``, narrowing down failures.
+
+        - Every page failed (the subprocess was killed or crashed): halve the
+          range and convert each half, down to single pages.
+        - Some pages failed: keep what converted and retry those pages alone.
+        - A single page that fails is skipped.
+        """
         logger.info(
             "Subprocess: converting pages %d-%d of %s",
             page_start,
             page_end,
             file.filename,
         )
-        all_chunks, failed = self._run_page_subprocess(
+        chunks, failed = self._run_page_subprocess(
             pdf_path, page_start, page_end, images_dir, doc_id, file, cancel
         )
 
-        # Determine which pages still need retrying
+        # A page counts as failed only if no chunk came back for it.
         covered_pages: set[int] = set()
-        for chunk in all_chunks:
+        for chunk in chunks:
             covered_pages.update(chunk["page_numbers"])
-        retry_pages = [p for p in failed if p not in covered_pages]
+        failed = [p for p in failed if p not in covered_pages]
+        if not failed:
+            return chunks
 
-        # Second pass — each failed page in its own subprocess
-        if retry_pages:
-            logger.info(
-                "Retrying %d failed pages individually for %s: %s",
-                len(retry_pages),
-                file.filename,
-                retry_pages,
+        if page_start == page_end:
+            logger.warning(
+                "Page %d of %s failed on its own, skipping", page_start, file.filename
             )
-            for i, page_no in enumerate(retry_pages, 1):
-                logger.info(
-                    "Subprocess: page %d (%d/%d) of %s",
-                    page_no,
-                    i,
-                    len(retry_pages),
-                    file.filename,
-                )
-                chunks, _ = self._run_page_subprocess(
-                    pdf_path, page_no, page_no, images_dir, doc_id, file, cancel
-                )
-                if chunks:
-                    all_chunks.extend(chunks)
-                else:
-                    logger.warning(
-                        "Page %d retry failed for %s, skipping",
-                        page_no,
-                        file.filename,
-                    )
+            return chunks
 
-        return all_chunks
+        if len(failed) == page_end - page_start + 1:
+            middle = (page_start + page_end) // 2
+            halves = ((page_start, middle), (middle + 1, page_end))
+        else:
+            halves = tuple((p, p) for p in failed)
+
+        for start, end in halves:
+            chunks.extend(
+                self._convert_range(
+                    pdf_path, start, end, images_dir, doc_id, file, cancel
+                )
+            )
+        return chunks
