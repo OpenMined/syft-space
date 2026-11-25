@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 # Total timeout = pages × this value.
 _SUBPROCESS_TIMEOUT_PER_PAGE = 180
 
-# Most pages one subprocess converts. Bounds memory for long PDFs; each
-# batch costs one model load (a few seconds).
-BATCH_PAGES = 50
+# Most pages one subprocess converts. Memory grows with the batch, while
+# each batch costs only one model load (a few seconds).
+BATCH_PAGES = 25
 
 
 def _self_command() -> list[str]:

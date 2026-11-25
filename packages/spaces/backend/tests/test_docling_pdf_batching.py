@@ -69,7 +69,7 @@ def test_a_long_pdf_is_split_into_bounded_batches():
 
 
 def test_one_bad_page_is_isolated_by_halving_not_by_retrying_every_page():
-    bad = 30
+    bad = BATCH_PAGES // 2 + 3
 
     def respond(pages):
         return killed(pages) if bad in pages else all_fine(pages)
@@ -77,7 +77,7 @@ def test_one_bad_page_is_isolated_by_halving_not_by_retrying_every_page():
     converted, worker = convert(BATCH_PAGES, respond)
 
     assert converted == [p for p in range(1, BATCH_PAGES + 1) if p != bad]
-    # Halving needs about 2 * log2(50) runs; the old fallback needed 51.
+    # Halving needs about 2 * log2(batch) runs; retrying each page needs one per page.
     assert len(worker.runs) <= 15
     assert (bad, bad) in worker.runs
 
