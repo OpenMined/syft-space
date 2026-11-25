@@ -7,17 +7,19 @@ individually in fresh processes.
 """
 
 import json
-import logging
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+from loguru import logger
 
 from syft_space.components.chunking.chunker import (
     _build_hybrid_chunker,
@@ -27,8 +29,6 @@ from syft_space.components.chunking.chunker import (
 from syft_space.components.shared.cancellation import CancelToken
 from syft_space.components.shared.ingest_types import IngestCancelled, IngestFile
 
-logger = logging.getLogger(__name__)
-
 # Timeout per page for subprocess conversion (seconds).
 # Total timeout = pages × this value.
 _SUBPROCESS_TIMEOUT_PER_PAGE = 180
@@ -36,6 +36,16 @@ _SUBPROCESS_TIMEOUT_PER_PAGE = 180
 # Most pages one subprocess converts. Memory grows with the batch, while
 # each batch costs only one model load (a few seconds).
 BATCH_PAGES = 25
+
+
+def _format_duration(seconds: float) -> str:
+    """Seconds as ``42s``, ``3m05s`` or ``1h02m``."""
+    total = int(seconds)
+    if total < 60:
+        return f"{total}s"
+    if total < 3600:
+        return f"{total // 60}m{total % 60:02d}s"
+    return f"{total // 3600}h{total % 3600 // 60:02d}m"
 
 
 def _self_command() -> list[str]:
@@ -300,7 +310,7 @@ class LocalDoclingBackend:
                 proc.kill()
                 proc.communicate()
                 logger.warning(
-                    "Subprocess timed out for pages %d-%d of %s",
+                    "Subprocess timed out for pages {}-{} of {}",
                     page_start,
                     page_end,
                     file.filename,
@@ -312,7 +322,7 @@ class LocalDoclingBackend:
 
             if proc.returncode != 0:
                 logger.warning(
-                    "Subprocess failed (rc=%d) for pages %d-%d of %s: %s",
+                    "Subprocess failed (rc={}) for pages {}-{} of {}: {}",
                     proc.returncode,
                     page_start,
                     page_end,
@@ -326,7 +336,7 @@ class LocalDoclingBackend:
                 data = json.loads(result_path.read_text())
             except (json.JSONDecodeError, ValueError, OSError) as exc:
                 logger.warning(
-                    "No valid result file for pages %d-%d of %s: %s (stderr: %s)",
+                    "No valid result file for pages {}-{} of {}: {} (stderr: {})",
                     page_start,
                     page_end,
                     file.filename,
@@ -342,7 +352,7 @@ class LocalDoclingBackend:
             # so the cause isn't silently dropped.
             if not chunks and failed_pages and stderr:
                 logger.warning(
-                    "Worker reported all pages failed for pages %d-%d of %s — stderr: %s",
+                    "Worker reported all pages failed for pages {}-{} of {} — stderr: {}",
                     page_start,
                     page_end,
                     file.filename,
@@ -365,16 +375,39 @@ class LocalDoclingBackend:
 
         Each batch runs in its own subprocess, so memory use does not grow
         with the length of the document. A batch that fails is narrowed
-        down by ``_convert_range``.
+        down by ``_convert_range``. Logs one progress line per batch.
         """
         all_chunks: list[dict[str, Any]] = []
+        skipped: list[int] = []
+        started = time.monotonic()
         for page_start in range(1, total_pages + 1, BATCH_PAGES):
             page_end = min(page_start + BATCH_PAGES - 1, total_pages)
-            all_chunks.extend(
-                self._convert_range(
-                    pdf_path, page_start, page_end, images_dir, doc_id, file, cancel
-                )
+            chunks, failed = self._convert_range(
+                pdf_path, page_start, page_end, images_dir, doc_id, file, cancel
             )
+            all_chunks.extend(chunks)
+            skipped.extend(failed)
+
+            elapsed = time.monotonic() - started
+            if page_end < total_pages:
+                remaining = elapsed / page_end * (total_pages - page_end)
+                logger.info(
+                    "Converting {}: {}/{} pages ({}%), {} elapsed, about {} left",
+                    file.filename,
+                    page_end,
+                    total_pages,
+                    page_end * 100 // total_pages,
+                    _format_duration(elapsed),
+                    _format_duration(remaining),
+                )
+
+        logger.info(
+            "Converted {}: {} pages in {}, {} skipped",
+            file.filename,
+            total_pages,
+            _format_duration(time.monotonic() - started),
+            len(skipped),
+        )
         return all_chunks
 
     def _convert_range(
@@ -386,16 +419,18 @@ class LocalDoclingBackend:
         doc_id: str,
         file: IngestFile,
         cancel: CancelToken,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], list[int]]:
         """Convert pages ``page_start``..``page_end``, narrowing down failures.
 
         - Every page failed (the subprocess was killed or crashed): halve the
           range and convert each half, down to single pages.
         - Some pages failed: keep what converted and retry those pages alone.
         - A single page that fails is skipped.
+
+        Returns the chunks and the pages that were skipped.
         """
-        logger.info(
-            "Subprocess: converting pages %d-%d of %s",
+        logger.debug(
+            "Subprocess: converting pages {}-{} of {}",
             page_start,
             page_end,
             file.filename,
@@ -410,13 +445,13 @@ class LocalDoclingBackend:
             covered_pages.update(chunk["page_numbers"])
         failed = [p for p in failed if p not in covered_pages]
         if not failed:
-            return chunks
+            return chunks, []
 
         if page_start == page_end:
             logger.warning(
-                "Page %d of %s failed on its own, skipping", page_start, file.filename
+                "Page {} of {} failed on its own, skipping", page_start, file.filename
             )
-            return chunks
+            return chunks, [page_start]
 
         if len(failed) == page_end - page_start + 1:
             middle = (page_start + page_end) // 2
@@ -424,10 +459,11 @@ class LocalDoclingBackend:
         else:
             halves = tuple((p, p) for p in failed)
 
+        skipped: list[int] = []
         for start, end in halves:
-            chunks.extend(
-                self._convert_range(
-                    pdf_path, start, end, images_dir, doc_id, file, cancel
-                )
+            more_chunks, more_skipped = self._convert_range(
+                pdf_path, start, end, images_dir, doc_id, file, cancel
             )
-        return chunks
+            chunks.extend(more_chunks)
+            skipped.extend(more_skipped)
+        return chunks, skipped
