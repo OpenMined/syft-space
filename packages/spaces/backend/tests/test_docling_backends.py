@@ -258,7 +258,7 @@ class _RecordingBackend:
     def __init__(self):
         self.calls: list[dict[str, Any]] = []
 
-    def convert_to_chunks(self, file, images_dir, doc_id, get_chunker):
+    def convert_to_chunks(self, file, images_dir, doc_id, get_chunker, cancel=None):
         self.calls.append({"file": file, "images_dir": images_dir, "doc_id": doc_id})
         return []
 

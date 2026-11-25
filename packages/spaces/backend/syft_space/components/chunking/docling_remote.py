@@ -18,7 +18,8 @@ from syft_space.components.chunking.chunker import (
     _get_pdf_page_count,
 )
 from syft_space.components.chunking.docling_serve_client import DoclingServeClient
-from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.cancellation import CancelToken
+from syft_space.components.shared.ingest_types import IngestCancelled, IngestFile
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,17 @@ class RemoteDoclingBackend:
         images_dir: Path,
         doc_id: str,
         get_chunker: Callable[[], Any],
+        cancel: CancelToken | None = None,
     ) -> list[dict[str, Any]]:
-        """Convert ``file`` into chunk dicts, saving pictures to ``images_dir``."""
+        """Convert ``file`` into chunk dicts, saving pictures to ``images_dir``.
+
+        ``cancel`` is checked before the request only; a conversion already
+        sent to docling-serve runs to the end.
+        """
         from docling.exceptions import ConversionError
+
+        if cancel is not None and cancel.cancelled:
+            raise IngestCancelled(f"Cancelled before converting {file.filename}")
         from docling_core.types.doc.document import DoclingDocument
 
         ext = Path(file.filename).suffix.lower()

@@ -24,7 +24,8 @@ from syft_space.components.chunking.chunker import (
     _extract_pictures_and_chunks,
     _get_pdf_page_count,
 )
-from syft_space.components.shared.ingest_types import IngestFile
+from syft_space.components.shared.cancellation import CancelToken
+from syft_space.components.shared.ingest_types import IngestCancelled, IngestFile
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,7 @@ class LocalDoclingBackend:
         images_dir: Path,
         doc_id: str,
         get_chunker: Callable[[], Any],
+        cancel: CancelToken | None = None,
     ) -> list[dict[str, Any]]:
         """Convert ``file`` into chunk dicts, saving pictures to ``images_dir``.
 
@@ -193,9 +195,14 @@ class LocalDoclingBackend:
         Subprocesses first attempt all pages in a single call; if that
         OOMs, failed pages are retried individually — each in a fresh
         process so the OS fully reclaims memory.
+
+        Setting ``cancel`` kills the running PDF subprocess and raises
+        ``IngestCancelled``.
         """
         from docling.datamodel.base_models import DocumentStream
         from docling.exceptions import ConversionError
+
+        cancel = cancel or CancelToken()
 
         ext = Path(file.filename).suffix.lower()
 
@@ -221,7 +228,7 @@ class LocalDoclingBackend:
             raise ConversionError(f"PDF has 0 pages: {file.filename}")
 
         chunks = self._convert_batched_pages(
-            file.path, file, total_pages, images_dir, doc_id
+            file.path, file, total_pages, images_dir, doc_id, cancel
         )
 
         # Sort by page number to preserve document order
@@ -241,8 +248,11 @@ class LocalDoclingBackend:
         images_dir: Path,
         doc_id: str,
         file: IngestFile,
+        cancel: CancelToken,
     ) -> tuple[list[dict[str, Any]], list[int]]:
         """Spawn a subprocess to convert a page range, returning (chunks, failed_pages).
+
+        Raises ``IngestCancelled`` if ``cancel`` is set before or during the run.
 
         Each subprocess loads docling fresh and exits after conversion,
         ensuring the OS fully reclaims memory — prevents C-level OOM
@@ -251,6 +261,8 @@ class LocalDoclingBackend:
         Results are exchanged via a temp JSON file (not stdout) so that
         stray prints from docling / PIL / ONNX cannot corrupt the data.
         """
+        if cancel.cancelled:
+            raise IngestCancelled(f"Cancelled while converting {file.filename}")
         page_nums = list(range(page_start, page_end + 1))
 
         result_fd, result_path_str = tempfile.mkstemp(suffix=".json")
@@ -271,15 +283,19 @@ class LocalDoclingBackend:
             ]
             num_pages = page_end - page_start + 1
             timeout = num_pages * _SUBPROCESS_TIMEOUT_PER_PAGE
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
             try:
-                proc = subprocess.run(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=timeout,
-                )
+                # Cancelling kills the subprocess, which ends the wait below.
+                with cancel.on_cancel(proc.kill):
+                    _, stderr = proc.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
                 logger.warning(
                     "Subprocess timed out for pages %d-%d of %s",
                     page_start,
@@ -288,6 +304,9 @@ class LocalDoclingBackend:
                 )
                 return [], page_nums
 
+            if cancel.cancelled:
+                raise IngestCancelled(f"Cancelled while converting {file.filename}")
+
             if proc.returncode != 0:
                 logger.warning(
                     "Subprocess failed (rc=%d) for pages %d-%d of %s: %s",
@@ -295,7 +314,7 @@ class LocalDoclingBackend:
                     page_start,
                     page_end,
                     file.filename,
-                    proc.stderr[-500:] if proc.stderr else "(no stderr)",
+                    stderr[-500:] if stderr else "(no stderr)",
                 )
                 # Worker may still have written a result file before crashing
                 # — fall through to attempt reading it.
@@ -309,7 +328,7 @@ class LocalDoclingBackend:
                     page_end,
                     file.filename,
                     exc,
-                    proc.stderr[-500:] if proc.stderr else "(no stderr)",
+                    stderr[-500:] if stderr else "(no stderr)",
                 )
                 return [], page_nums
 
@@ -318,13 +337,13 @@ class LocalDoclingBackend:
             # rc=0 doesn't imply success — the worker writes a valid result
             # file even when every page failed. Surface stderr in that case
             # so the cause isn't silently dropped.
-            if not chunks and failed_pages and proc.stderr:
+            if not chunks and failed_pages and stderr:
                 logger.warning(
                     "Worker reported all pages failed for pages %d-%d of %s — stderr: %s",
                     page_start,
                     page_end,
                     file.filename,
-                    proc.stderr[-1000:],
+                    stderr[-1000:],
                 )
             return chunks, failed_pages
         finally:
@@ -337,6 +356,7 @@ class LocalDoclingBackend:
         total_pages: int,
         images_dir: Path,
         doc_id: str,
+        cancel: CancelToken,
     ) -> list[dict[str, Any]]:
         """Convert specific PDF pages via subprocess isolation.
 
@@ -357,7 +377,7 @@ class LocalDoclingBackend:
             file.filename,
         )
         all_chunks, failed = self._run_page_subprocess(
-            pdf_path, page_start, page_end, images_dir, doc_id, file
+            pdf_path, page_start, page_end, images_dir, doc_id, file, cancel
         )
 
         # Determine which pages still need retrying
@@ -383,7 +403,7 @@ class LocalDoclingBackend:
                     file.filename,
                 )
                 chunks, _ = self._run_page_subprocess(
-                    pdf_path, page_no, page_no, images_dir, doc_id, file
+                    pdf_path, page_no, page_no, images_dir, doc_id, file, cancel
                 )
                 if chunks:
                     all_chunks.extend(chunks)

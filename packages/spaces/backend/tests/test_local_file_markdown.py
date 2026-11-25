@@ -166,7 +166,7 @@ class _BodyEchoBackend:
     def __init__(self):
         self.paths = []
 
-    def convert_to_chunks(self, file, images_dir, doc_id, get_chunker):
+    def convert_to_chunks(self, file, images_dir, doc_id, get_chunker, cancel=None):
         self.paths.append(file.path)
         text = file.path.read_text(encoding="utf-8")
         return [

@@ -38,6 +38,7 @@ def _processor(error: Exception) -> tuple[JobProcessor, SimpleNamespace]:
     processor._ingestion_repository = MagicMock(update_status=AsyncMock())
     processor._dataset_repository = MagicMock()
     processor._resolve_source_for_job = AsyncMock(return_value=(source, MagicMock()))
+    processor._running = None
     job = SimpleNamespace(
         id=uuid4(),
         tenant_id=uuid4(),
