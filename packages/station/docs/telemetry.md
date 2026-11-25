@@ -20,7 +20,7 @@ With `telemetry.enabled: true` the chart adds:
   spaces' traces and forwards them to `telemetry.export.endpoint`. It holds
   the backend's credentials, so spaces never see them.
 - **A ConfigMap, `syft-space-telemetry`**, with `OTEL_EXPORTER_OTLP_ENDPOINT`
-  (the Collector) and `OTEL_SERVICE_NAME`.
+  (the Collector).
 
 Every space pod loads that ConfigMap through an optional `envFrom`. With the
 ConfigMap absent the variables are unset and the space does not trace. The
@@ -54,14 +54,14 @@ kubectl -n <namespace> create secret generic telemetry-backend \
 | `telemetry.export.protocol` | `http` (OTLP/HTTP, default) or `grpc` |
 | `telemetry.export.insecure` | `grpc` only: send without TLS, for an in-cluster backend |
 | `telemetry.export.headersSecret`, `headers` | Request headers whose values live in a Secret |
-| `telemetry.serviceName` | `service.name` on every span; default `syft-space` |
 
 Any backend that accepts OTLP works; only these values change.
 
 ## Telling spaces apart
 
-All spaces share one `service.name`. Each pod also sets
-`service.instance.id` to its subdomain, so group or filter by that.
+Each space is its own service, named `ss-<subdomain>`: the space at
+`alpha.<domain>` appears as the service `ss-alpha`. All spaces also carry
+`service.namespace=syft-space`, to group or filter them together.
 
 ## Which spaces send traces
 

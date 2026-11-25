@@ -321,6 +321,7 @@ def test_deployment_loads_telemetry_env_from_an_optional_configmap(manifests):
     ]
 
 
-def test_deployment_names_the_space_as_the_trace_instance(manifests):
+def test_each_space_is_its_own_service_in_the_traces(manifests):
     env = _env(manifests["deployment"])
-    assert env["OTEL_RESOURCE_ATTRIBUTES"]["value"] == "service.instance.id=alpha"
+    assert env["OTEL_SERVICE_NAME"]["value"] == "ss-alpha"
+    assert env["OTEL_RESOURCE_ATTRIBUTES"]["value"] == "service.namespace=syft-space"

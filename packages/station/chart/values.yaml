@@ -183,13 +183,11 @@ docling:
 # Enabled, the chart runs one OpenTelemetry Collector and tells each space to
 # send its traces there; the Collector forwards them to the backend below.
 # Storage and the trace viewer are NOT part of this chart. Spaces pick the
-# setting up when their pod next starts.
+# setting up when their pod next starts. Each space shows up as its own
+# service, named ss-<subdomain>.
 # ---------------------------------------------------------------------------
 telemetry:
   enabled: false
-  # service.name on every space's spans; the space's subdomain is its
-  # service.instance.id.
-  serviceName: syft-space
 
   # Where the Collector sends traces. Any OTLP backend works.
   export:
