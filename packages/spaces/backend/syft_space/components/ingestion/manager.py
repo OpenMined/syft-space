@@ -169,7 +169,13 @@ class IngestionManager(LifecycleService):
         return await self._scanner.start(dataset)
 
     async def stop_dataset_ingestion(self, dataset_id: UUID) -> int:
-        return await self._scanner.stop(dataset_id)
+        """Stop a dataset's stream, pending jobs and running job.
+
+        Returns the number of pending jobs cancelled.
+        """
+        cancelled = await self._scanner.stop(dataset_id)
+        await self._job_processor.cancel_dataset(dataset_id)
+        return cancelled
 
     async def restart_dataset_ingestion(
         self, dataset_id: UUID, tenant_id: UUID
