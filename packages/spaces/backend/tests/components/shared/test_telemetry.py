@@ -247,3 +247,46 @@ async def test_query_spans_hold_no_query_text_or_email(tracing):
     )
     assert request.messages not in recorded
     assert str(request.sender_email) not in recorded
+
+
+async def test_a_chromadb_search_times_the_query_embedding(tracing, monkeypatch):
+    """The embedding runs in this process and competes with ingestion for CPU."""
+    from syft_space.components.shared.search_types import SearchContext
+    from syft_space.components.vector_stores.chromadb_local import (
+        chromadb_vector_store as store_module,
+    )
+
+    _, exporter = tracing
+    monkeypatch.setattr(store_module, "_chromadb_available", lambda: True)
+
+    class Collection:
+        async def query(self, **kwargs):
+            return {
+                "ids": [[]],
+                "distances": [[]],
+                "documents": [[]],
+                "metadatas": [[]],
+            }
+
+    class Client:
+        async def get_collection(self, name):
+            return Collection()
+
+    async def get_client():
+        return Client()
+
+    store = store_module.ChromaDBLocalVectorStore.__new__(
+        store_module.ChromaDBLocalVectorStore
+    )
+    store._generate_embeddings = lambda texts: [[0.0] for _ in texts]
+    store.get_client = get_client  # type: ignore[method-assign]
+    store.config = SimpleNamespace(collection_name="c")
+
+    with span("query.search"):
+        await store.search(
+            SearchContext(sender="u@example.org", dataset_id=TENANT_ID), "what is tcp?"
+        )
+
+    spans = finished(exporter)
+    assert spans["query.embed"].parent.span_id == spans["query.search"].context.span_id
+    assert "what is tcp?" not in repr(dict(spans["query.embed"].attributes))

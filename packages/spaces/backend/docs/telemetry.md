@@ -61,6 +61,7 @@ with the Space for CPU and disk.
 | `auth.verify_sender` | Verifying the caller's satellite token |
 | `query.policy.pre` | Policy checks before the query |
 | `query.search` | Dataset search |
+| `query.embed` | Turning the query text into an embedding, inside `query.search` (ChromaDB datasets) |
 | `query.chat` | Model call |
 | `query.policy.post` | Policy steps after the query |
 | `GET`, `POST`, … (client) | Every outbound HTTP call made with httpx, including calls to SyftHub |
