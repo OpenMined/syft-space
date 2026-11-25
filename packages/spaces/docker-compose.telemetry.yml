@@ -1,0 +1,30 @@
+# Overlay: collect and view traces with a Jaeger container.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.telemetry.yml up --build
+#
+# Then open http://localhost:16686 and pick the "syft-space" service.
+#
+# Traces are kept in memory and lost when the container stops. For load tests
+# or a standing setup, point OTEL_EXPORTER_OTLP_ENDPOINT at a collector on
+# another machine instead. See backend/docs/telemetry.md.
+services:
+  syft-space-server:
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.14.0
+    container_name: syft-space-jaeger
+    restart: unless-stopped
+    ports:
+      # Web UI, on this machine only.
+      - "127.0.0.1:${JAEGER_UI_PORT:-16686}:16686"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M

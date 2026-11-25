@@ -190,6 +190,9 @@ shows the results. The two packages share no code and talk over HTTP.
 - [Endpoints](http://syft.docs.openmined.org/space/components/endpoints) — Queryable RAG services
 - [Policies](http://syft.docs.openmined.org/space/components/policies) — Access control and rate limiting
 
+### Operations
+- [Telemetry](packages/spaces/backend/docs/telemetry.md) — OpenTelemetry tracing for latency and load testing (off by default)
+
 **Interactive API docs:** [http://localhost:8080/docs](http://localhost:8080/docs) (when running locally)
 
 ## 🌐 Part of the Syft Network

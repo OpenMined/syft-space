@@ -44,6 +44,7 @@ from syft_space.components.shared.search_types import (
     SearchParameters,
     SearchResult,
 )
+from syft_space.components.shared.telemetry import span
 from syft_space.components.shared.utils import ConfigSchemaGenerator
 from syft_space.components.vector_stores.chromadb_local.external_provisioner import (
     ExternalChromaDBProvisioner,
@@ -528,9 +529,10 @@ class ChromaDBLocalVectorStore:
                     metadata={"count": 0, "error": "Collection not found"},
                 )
 
-            query_embedding = await asyncio.to_thread(
-                self._generate_embeddings, [query]
-            )
+            with span("query.embed"):
+                query_embedding = await asyncio.to_thread(
+                    self._generate_embeddings, [query]
+                )
 
             results = await collection.query(
                 query_embeddings=query_embedding,

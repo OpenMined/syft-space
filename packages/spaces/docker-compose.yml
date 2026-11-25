@@ -49,6 +49,11 @@ services:
       # Public URL (optional - for callbacks/webhooks)
       - SYFT_PUBLIC_URL=${SYFT_PUBLIC_URL:-}
 
+      # Tracing (optional - empty = off). See backend/docs/telemetry.md.
+      # For a collector on the host: http://host.docker.internal:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-syft-space}
+
     # Enable host.docker.internal on Linux (already works on macOS/Windows)
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -144,6 +144,10 @@ from syft_space.components.shared.lifecycle import LifecycleService
 from syft_space.components.shared.proxy_service import ProxyService
 from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
 from syft_space.components.shared.syfthub_client import SyftHubClient
+from syft_space.components.shared.telemetry import (
+    setup_telemetry,
+    shutdown_telemetry,
+)
 from syft_space.components.sources import register_builtin_sources
 from syft_space.components.sources.local_file.local_file_watcher import (
     get_local_file_watcher,
@@ -466,6 +470,9 @@ async def lifespan(app: FastAPI):
     # 9. Dispose database engines (close all pooled connections)
     await database.dispose()
     await analytics_database.dispose()
+
+    # 10. Send any spans still buffered.
+    shutdown_telemetry()
 
 
 # Initialize FastAPI app
@@ -835,6 +842,9 @@ app.add_middleware(
 # Gzip responses, including the static frontend. Added last so it is outermost.
 # Level 6: higher levels cost much more CPU on the event loop for little gain.
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+
+# Tracing; does nothing unless an OTLP endpoint is set in the environment.
+setup_telemetry(app, [database.engine, analytics_database.engine])
 
 # Mount static files (if frontend exists)
 # Frontend is a sibling directory to backend
