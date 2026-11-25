@@ -27,6 +27,7 @@ from loguru import logger
 
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.shared.syfthub import HubClientFactory, SyftHubError
+from syft_space.components.shared.telemetry import traced
 
 ALGORITHM = "RS256"
 REQUIRED_CLAIMS = ["exp", "iat", "sub", "aud"]
@@ -265,6 +266,7 @@ class SatelliteTokenVerifier:
         self._key_sets: dict[str, HubKeySet] = {}
         self._lookups = KeyedLocks()
 
+    @traced("auth.verify_sender")
     async def email_for(self, token: str, marketplace: Marketplace) -> str:
         """Verify ``token`` for this space and return the user's email.
 

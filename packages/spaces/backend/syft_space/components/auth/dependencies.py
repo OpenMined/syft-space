@@ -8,6 +8,7 @@ from syft_space.components.marketplaces.repository import (
     Marketplace,
     MarketplaceRepository,
 )
+from syft_space.components.shared.telemetry import set_request_attributes
 from syft_space.components.tenants.dependency import get_tenant_dependency
 from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
@@ -59,6 +60,7 @@ async def get_verified_user_email(
     if token == app_settings.admin_api_key:
         return marketplace.email
 
+    set_request_attributes(endpoint_slug=request.path_params.get("slug"))
     return await verifier.email_for(token, marketplace)
 
 
