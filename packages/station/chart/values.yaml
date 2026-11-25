@@ -178,7 +178,52 @@ docling:
       memory: 4Gi
 
 # ---------------------------------------------------------------------------
-# NetworkPolicy restricting the shared backends to space pods only. Requires a
+# Telemetry — OpenTelemetry traces from every space. Off by default.
+#
+# Enabled, the chart runs one OpenTelemetry Collector and tells each space to
+# send its traces there; the Collector forwards them to the backend below.
+# Storage and the trace viewer are NOT part of this chart. Spaces pick the
+# setting up when their pod next starts. Each space shows up as its own
+# service, named ss-<subdomain>.
+# ---------------------------------------------------------------------------
+telemetry:
+  enabled: false
+
+  # Where the Collector sends traces. Any OTLP backend works.
+  export:
+    # http:  base URL, e.g. https://ingest.eu.signoz.cloud:443
+    # grpc:  host:port, e.g. jaeger.observability:4317
+    endpoint: ""
+    # http (OTLP/HTTP) or grpc (OTLP/gRPC).
+    protocol: http
+    # grpc only: send without TLS (an in-cluster backend).
+    insecure: false
+    # Request headers, usually the backend's API key. Values stay in a Secret
+    # you create in this namespace; `headers` maps header name -> key in it:
+    #   headersSecret: telemetry-backend
+    #   headers:
+    #     signoz-ingestion-key: ingestion-key
+    headersSecret: ""
+    headers: {}
+
+  collector:
+    # Digest-pinned like chromadb.image — bump tag and digest together.
+    image: otel/opentelemetry-collector:0.165.0@sha256:34b24b740c3c88d3467740e8642a397c13898ef76d7295c5425164c482ed1b73
+    service:
+      name: otel-collector
+      # OTLP/HTTP port the spaces send to.
+      port: 4318
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy restricting the shared backends (and the telemetry Collector,
+# when enabled) to space pods only. Requires a
 # CNI that enforces policy (k3d's default flannel does NOT — dev leaves it off).
 # ---------------------------------------------------------------------------
 networkPolicy:
