@@ -1,9 +1,9 @@
 {{- if .Values.networkPolicy.enabled }}
 {{/*
 Lock the shared backends down to space pods only: nothing outside the spaces
-(which carry the syftcluster.openmined.org/space label) may reach ChromaDB,
-docling-serve or the telemetry Collector. Requires a policy-enforcing CNI —
-k3d's flannel is not one, so dev disables this.
+(which carry the syftcluster.openmined.org/space label) may reach ChromaDB or
+docling-serve. Requires a policy-enforcing CNI — k3d's flannel is not one, so
+dev disables this.
 */}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -16,12 +16,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: In
-        values:
-          - chromadb
-          - docling
-          {{- if .Values.telemetry.enabled }}
-          - otel-collector
-          {{- end }}
+        values: [chromadb, docling]
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -29,4 +24,28 @@ spec:
             matchExpressions:
               - key: syftcluster.openmined.org/space
                 operator: Exists
+{{- if .Values.telemetry.enabled }}
+---
+{{/* Only the spaces and the station may send traces to the Collector. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "syft-station.fullname" . }}-telemetry
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "otel-collector") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: syftcluster.openmined.org/space
+                operator: Exists
+        - podSelector:
+            matchLabels:
+              {{- include "syft-station.selectorLabels" (dict "ctx" . "component" "station") | nindent 14 }}
+{{- end }}
 {{- end }}

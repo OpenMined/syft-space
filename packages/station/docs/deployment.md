@@ -18,8 +18,8 @@ locally-built `:dev` image, `*.localhost` hosts, no NetworkPolicy/TLS).
   (requires a policy-enforcing CNI; k3d's flannel doesn't, so dev leaves
   it off).
 - **Telemetry Collector** — only with `telemetry.enabled`: one
-  OpenTelemetry Collector that forwards every space's traces to a backend
-  you choose ([telemetry.md](telemetry.md)).
+  OpenTelemetry Collector that forwards the station's and every space's
+  traces to a backend you choose ([telemetry.md](telemetry.md)).
 
 Per-space resources are *not* templated in the chart — the station renders
 them at runtime ([provisioning.md](provisioning.md)). The chart passes the

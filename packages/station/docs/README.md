@@ -38,7 +38,8 @@ one, start at the [station README](../README.md).
    at rest, with a worked example.
 
 8. **[telemetry.md](telemetry.md)** — optional OpenTelemetry traces from
-   every space, through one Collector, to a backend you choose.
+   the station and every space, through one Collector, to a backend you
+   choose.
 
 ## Terminology (important)
 

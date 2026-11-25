@@ -83,10 +83,11 @@ span as `http.route`, and is the same for every Space endpoint.
 ## What is not recorded
 
 - Query text, responses, emails, tokens and request bodies.
+- URL query strings, on inbound and outbound requests: they can carry emails.
 - Error messages: a failed span keeps only the error's class name.
 
-Request URLs and SQL statement text are recorded. SQL values are not, since
-statements use placeholders.
+Request URLs up to the `?` and SQL statement text are recorded. SQL values
+are not, since statements use placeholders.
 
 ## Code
 
