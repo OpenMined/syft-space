@@ -13,6 +13,7 @@ in via ``bind()`` at startup.
 """
 
 import asyncio
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -22,12 +23,27 @@ from loguru import logger
 from syft_space.components.ingestion.entities import IngestionJob, IngestionJobStatus
 from syft_space.components.ingestion.factory import DatasetTypeFactory
 from syft_space.components.ingestion.repository import IngestionJobRepository
-from syft_space.components.shared.ingest_types import IngestContext, IngestRequest
+from syft_space.components.shared.cancellation import CancelToken
+from syft_space.components.shared.ingest_types import (
+    IngestCancelled,
+    IngestContext,
+    IngestRequest,
+)
 from syft_space.components.sources.errors import SourceError
 from syft_space.components.sources.interfaces import BaseSource
 
 if TYPE_CHECKING:
     from syft_space.components.datasets.repository import DatasetRepository
+
+
+@dataclass
+class _RunningJob:
+    """The job being ingested now."""
+
+    dataset_id: UUID
+    cancel: CancelToken = field(default_factory=CancelToken)
+    # Set when the job has reached a terminal state.
+    done: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class JobProcessor:
@@ -49,6 +65,7 @@ class JobProcessor:
         self._sources: dict[UUID, BaseSource] = {}
 
         self._task: asyncio.Task | None = None
+        self._running: _RunningJob | None = None
 
     def bind(
         self,
@@ -71,8 +88,23 @@ class JobProcessor:
         if self._job_signal is not None:
             self._job_signal.set()
 
+    async def cancel_dataset(self, dataset_id: UUID) -> None:
+        """Stop the running job if it belongs to ``dataset_id``, and wait for it.
+
+        Returns once that job has reached a terminal state, so the caller can
+        safely remove the dataset's data.
+        """
+        running = self._running
+        if running is None or running.dataset_id != dataset_id:
+            return
+        running.cancel.cancel()
+        await running.done.wait()
+
     async def stop(self) -> None:
         """Cancel and await the loop task."""
+        # Stop the running conversion too, or its subprocess outlives the app.
+        if self._running is not None:
+            self._running.cancel.cancel()
         if self._task and not self._task.done():
             self._task.cancel()
             try:
@@ -149,6 +181,7 @@ class JobProcessor:
         # claiming leaves the row PENDING and must mark FAILED unconditionally,
         # or the job would loop forever.
         claimed = False
+        running: _RunningJob | None = None
         try:
             # Re-fingerprint before claiming: if the item changed since the job
             # was queued, re-queue it under the new fingerprint and cancel this
@@ -180,11 +213,16 @@ class JobProcessor:
                 # Can't re-fingerprint — proceed and let the ingest try anyway.
                 logger.debug(f"Fingerprint recheck failed for {external_id}: {e}")
 
-            # Claim the job.
-            await self._ingestion_repository.update_status(
-                job.id, IngestionJobStatus.IN_PROGRESS
+            # Claim the job, unless it was cancelled since we listed it.
+            claim = await self._ingestion_repository.update_status(
+                job.id,
+                IngestionJobStatus.IN_PROGRESS,
+                expected_status=IngestionJobStatus.PENDING,
             )
+            if claim is None:
+                return
             claimed = True
+            running = self._running = _RunningJob(job.dataset_id)
 
             try:
                 async with source.fetch(external_id) as ingest_file:
@@ -201,7 +239,9 @@ class JobProcessor:
                         return
 
                     ctx = IngestContext(
-                        sender="system@openmined.org", dataset_id=dataset.id
+                        sender="system@openmined.org",
+                        dataset_id=dataset.id,
+                        cancel=running.cancel,
                     )
                     # When the Space indexed this version of the file. The
                     # benchmark's time window reads it for articles without a
@@ -211,6 +251,8 @@ class JobProcessor:
                         await dataset_type.ingest(  # type: ignore[attr-defined]
                             ctx, IngestRequest(files=[ingest_file])
                         )
+                    except IngestCancelled:
+                        raise
                     except Exception as ingest_err:
                         raise RuntimeError(
                             f"[{dataset.dtype}] Ingestion error: {ingest_err}"
@@ -233,6 +275,14 @@ class JobProcessor:
             )
             logger.info(f"Successfully ingested: {external_id}")
 
+        except IngestCancelled:
+            logger.info(f"Cancelled ingest of {external_id}")
+            await self._ingestion_repository.update_status(
+                job.id,
+                IngestionJobStatus.CANCELLED,
+                "Cancelled during processing",
+                expected_status=IngestionJobStatus.IN_PROGRESS,
+            )
         except SourceError as src_err:
             # The source could not hand the item over (an RSS item that left
             # the feed, a refused fetch): expected, so one line and no stack.
@@ -241,6 +291,10 @@ class JobProcessor:
         except Exception as e:
             logger.exception(f"Failed to ingest {external_id}: {e}")
             await self._fail(job, str(e), claimed)
+        finally:
+            if running is not None:
+                running.done.set()
+            self._running = None
 
     async def _fail(self, job: IngestionJob, reason: str, claimed: bool) -> None:
         # Same guard as COMPLETED, but only once claimed: a failed ingest of

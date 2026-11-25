@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from syft_space.components.shared.cancellation import CancelToken
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.config import app_settings
 
@@ -259,6 +260,7 @@ class DoclingBackend(Protocol):
         images_dir: Path,
         doc_id: str,
         get_chunker: Callable[[], Any],
+        cancel: CancelToken | None = None,
     ) -> list[dict[str, Any]]:
         """Convert ``file`` into chunk dicts, saving pictures to ``images_dir``.
 
@@ -371,7 +373,10 @@ class DocumentChunker:
         return PAGE_IMAGES_BASE_DIR / collection_name / doc_id
 
     def parse_document(
-        self, file: IngestFile, collection_name: str
+        self,
+        file: IngestFile,
+        collection_name: str,
+        cancel: CancelToken | None = None,
     ) -> list[dict[str, Any]]:
         """Parse document into chunks with metadata and save images to disk.
 
@@ -384,6 +389,7 @@ class DocumentChunker:
         Args:
             file: IngestFile to parse
             collection_name: Dataset collection name (used for image storage partitioning)
+            cancel: Set to stop the conversion while it runs
 
         Returns:
             List of chunk dicts, each with keys:
@@ -427,7 +433,7 @@ class DocumentChunker:
             return self._get_chunker(tabular=ext in _TABULAR_EXTS)
 
         return self._get_backend().convert_to_chunks(
-            file, images_dir, doc_id, get_chunker
+            file, images_dir, doc_id, get_chunker, cancel
         )
 
     def purge_page_images(self, collection_name: str) -> None:

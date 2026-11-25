@@ -346,6 +346,7 @@ class ChromaDBLocalVectorStore:
                 self._document_chunker.parse_document,
                 file,
                 self.collection_name,
+                ctx.cancel,
             )
             await self._store_chunks(
                 collection,
