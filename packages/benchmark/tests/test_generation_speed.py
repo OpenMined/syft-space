@@ -33,6 +33,13 @@ SPACE = "pytest-generation-speed"
 ANSWER = "Harbourton lighthouse"
 
 
+@pytest.fixture(autouse=True)
+def _repeats_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every fake question here has one answer, so each would repeat the
+    first; repeats are tested in test_repeated_facts.py."""
+    monkeypatch.setattr(pipeline, "_drop_repeats", lambda *_, **__: None)
+
+
 def _space() -> SpaceConfig:
     return SpaceConfig(key=SPACE, url="http://space:8080", endpoint="ep")
 
@@ -42,8 +49,10 @@ def _settings(**kwargs: Any) -> Settings:
         "document_window_days": 0,
         "pairs_per_chunk": 2,
         "max_consecutive_failures": 5,
-        # The entity check is a writer call of its own: test_entity_check.py.
+        # The entity and quality checks are writer calls of their own:
+        # test_entity_check.py, test_quality_check.py.
         "entity_check": False,
+        "quality_check": False,
     }
     return openrouter_settings(**{**base, **kwargs})
 

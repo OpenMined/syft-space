@@ -259,7 +259,7 @@ def _answerable_section(
             "Abstentions",
             "Incomplete",
             "LMI",
-            "Retrieval",
+            "Retrieval found / shown",
         ),
         [
             (
@@ -273,7 +273,11 @@ def _answerable_section(
                 f"{m.abstain_rate:.0%}",
                 f"{m.incomplete_rate:.0%}",
                 f"{m.lmi:.2f}" if m.lmi is not None else "—",
-                f"{m.retrieval_rate:.0%}" if m.retrieval_checked else "—",
+                (
+                    f"{m.retrieval_rate:.0%} / {_shown(m)}"
+                    if m.retrieval_checked
+                    else "—"
+                ),
             )
             for m in rows
         ],
@@ -530,7 +534,8 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
         "share: an abstention on a retrieval miss is correct behaviour by the model, "
         "an abstention on a hit is its blindness, and an answer on a miss is an "
         "invention assembled out of topically neighbouring chunks and looking "
-        "confirmed.",
+        "confirmed. Found: the source chunk within the chunks asked of the "
+        "endpoint; shown: within those put into the prompt. The cut goes by shown.",
     )
     with_judge = _many_judges(rows)
     labels = [_label(m, with_judge=with_judge) for m in rows]
@@ -539,7 +544,8 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
         charts.grouped(
             labels,
             [
-                ("retrieval hit", [m.retrieval_rate for m in rows], charts.NEUTRAL),
+                ("found", [m.retrieval_rate for m in rows], charts.NEUTRAL_LIGHT),
+                ("shown", [m.retrieval_shown_rate for m in rows], charts.NEUTRAL),
                 # None reaches the chart as a gap rather than as a zero: where
                 # retrieval never hit, a false abstention does not exist, and a zero
                 # bar would read as "the model never erred".
@@ -563,7 +569,8 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
             "Arm",
             "Model",
             "Judge",
-            "Retrieval hit",
+            "Found",
+            "Shown",
             "False abstentions",
             "Answers on a miss",
         ),
@@ -573,6 +580,7 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
                 m.model or m.endpoint or "—",
                 m.judge or "—",
                 f"{m.retrieval_rate:.0%}",
+                _shown(m),
                 f"{m.false_abstain_rate:.0%}"
                 if m.false_abstain_rate is not None
                 else "—",
@@ -590,6 +598,17 @@ def _retrieval_section(sections: _Sections, rows: list[Metrics]) -> None:
         "common total, so the bars stand side by side rather than one inside the "
         "other.",
     )
+    if any(m.retrieval_shown_assumed for m in rows):
+        note(
+            doc,
+            "* Some answers were stored without the shown flag in a run that did "
+            "not record how many chunks went into the prompt: shown is taken as "
+            "found for them.",
+        )
+
+
+def _shown(m: Metrics) -> str:
+    return f"{m.retrieval_shown_rate:.0%}{'*' if m.retrieval_shown_assumed else ''}"
 
 
 def _stability_section(

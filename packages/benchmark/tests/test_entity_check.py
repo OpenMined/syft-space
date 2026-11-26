@@ -100,6 +100,7 @@ def _settings(**kwargs: Any) -> Settings:
         "pairs_per_chunk": 3,
         "max_consecutive_failures": 5,
         "entity_check": True,
+        "quality_check": False,
     }
     return Settings(**{**base, **kwargs})
 
@@ -371,3 +372,130 @@ class _NoRotation:
 
     def line(self) -> str:
         return ""
+
+
+# --- surnames, abbreviations, new names, one decision per reference -----------
+
+
+def test_the_check_asks_for_surnames_abbreviations_and_not_for_fame() -> None:
+    flat = " ".join(entities.SYSTEM.split())
+    assert '"surname_only": a surname with no first name and no role' in flat
+    assert (
+        '"abbreviation": an abbreviation or acronym the question does not spell' in flat
+    )
+    assert "never whether you know it" in flat
+    assert "News is about new names" in flat
+
+
+def _verdict(*listed: dict[str, Any], ok: bool = False) -> str:
+    return json.dumps([{"index": 1, "entities": list(listed), "ok": ok}])
+
+
+@pytest.mark.parametrize(
+    "entity",
+    [
+        # DemoSyft's false rejects (demo-question-removal): new names the
+        # model did not know.
+        {
+            "name": "Godzilla Minus Zero",
+            "identifiable": False,
+            "why": "not a recognized film",
+        },
+        {
+            "name": "Friend 2 device",
+            "identifiable": False,
+            "why": "not a widely recognized product",
+        },
+        {
+            "name": "Ursea",
+            "identifiable": False,
+            "issue": "unfamiliar",
+            "why": "I do not know it",
+        },
+    ],
+)
+def test_a_name_rejected_only_as_unknown_is_identifiable(
+    entity: dict[str, Any],
+) -> None:
+    (verdict,) = entities.parse(_verdict(entity), 1).values()
+    assert verdict.ok
+    (kept,) = verdict.entities
+    assert kept["identifiable"] is True
+    assert kept["overridden"] == entities.OVERRIDDEN_UNFAMILIAR
+
+
+@pytest.mark.parametrize(
+    "entity",
+    [
+        # The la diaria review's questions 8, 11 and 32: a surname, an
+        # abbreviation not spelled out.
+        {
+            "name": "Sánchez",
+            "identifiable": False,
+            "issue": "surname_only",
+            "why": "surname only, not widely known",
+        },
+        {
+            "name": "MPP",
+            "identifiable": False,
+            "issue": "abbreviation",
+            "why": "abbreviation not recognized outside Uruguay",
+        },
+        {"name": "Mariam", "identifiable": False, "why": "first name only"},
+    ],
+)
+def test_a_real_defect_stays_a_reject(entity: dict[str, Any]) -> None:
+    (verdict,) = entities.parse(_verdict(entity), 1).values()
+    assert not verdict.ok
+    assert verdict.unclear and "overridden" not in verdict.unclear[0]
+
+
+def test_one_reference_gets_one_decision_in_a_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _verdict(
+        {
+            "name": "Ursea",
+            "identifiable": False,
+            "issue": "abbreviation",
+            "why": "abbreviation not spelled out",
+        },
+    )
+    second = _verdict(
+        {"name": "URSEA", "identifiable": True, "why": "the energy regulator"},
+        {"name": "Uruguay", "identifiable": True, "why": "a country"},
+        ok=True,
+    )
+    replies = iter([first, second])
+    checker = _Checker()
+    checker.reply = ""
+
+    def chat(system: str, user: str, **kwargs: Any) -> tuple[str, dict[str, Any]]:
+        checker.calls.append({"system": system, "user": user, **kwargs})
+        return next(replies), {}
+
+    monkeypatch.setattr(pipeline, "chat", chat)
+    memory = entities.Memory()
+    asked = "¿Cuánto subió la tarifa que fija la Ursea en Uruguay?"
+    pipeline._screen_entities(
+        {"qa": [_pair("¿Qué decidió la Ursea sobre el gasoil 50S?")]},
+        _settings(),
+        PROVIDER,
+        memory=memory,
+    )
+    kept, rejected, _ = pipeline._screen_entities(
+        {"qa": [_pair(asked)]}, _settings(), PROVIDER, memory=memory
+    )
+
+    assert kept["qa"] == []
+    (item,) = rejected["qa"]
+    ursea, uruguay = item.pair.meta[entities.META]["entities"]
+    assert ursea["identifiable"] is False
+    assert ursea["overridden"] == entities.OVERRIDDEN_EARLIER
+    assert uruguay["identifiable"] is True
+    # The second call is shown the first decision on the reference it names.
+    assert "Earlier decisions" not in checker.calls[0]["user"]
+    assert (
+        "- Ursea: not identifiable (abbreviation not spelled out)"
+        in (checker.calls[1]["user"])
+    )

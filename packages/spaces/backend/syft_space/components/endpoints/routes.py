@@ -175,7 +175,9 @@ def build_endpoint_routes(
         """Preview an endpoint as the space owner (admin auth, full policy pipeline).
 
         Identical to /query but uses admin auth so the owner can test exactly
-        what external users experience — policies, filters, and all.
+        what external users experience — policies, filters, and all. Works on
+        an unpublished endpoint too: the owner tests (and the benchmark
+        measures) an endpoint before, or without, publishing it.
         """
         marketplace = await handler.marketplace_repository.get_default(tenant.id)
         sender_email = marketplace.email if marketplace else "owner@localhost.local"
@@ -184,7 +186,7 @@ def build_endpoint_routes(
 
         try:
             return await qhandler.query_endpoint(
-                slug, auth_request, tenant, x_payment=None
+                slug, auth_request, tenant, x_payment=None, require_published=False
             )
         except QueryRejectedError as e:
             return _render_rejection(e)

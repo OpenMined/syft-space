@@ -354,7 +354,7 @@ class AnalyticsHandler:
         if granularity == BucketGranularity.DAILY:
             while current <= end:
                 key = current.strftime(bucket_format)
-                label = current.strftime("%b %-d")
+                label = f"{current:%b} {current.day}"
                 buckets.append((key, label))
                 current += timedelta(days=1)
 
@@ -364,7 +364,7 @@ class AnalyticsHandler:
             current = current - timedelta(days=days_since_monday)
             while current <= end:
                 key = current.strftime(bucket_format)
-                label = f"Week of {current.strftime('%b %-d')}"
+                label = f"Week of {current:%b} {current.day}"
                 buckets.append((key, label))
                 current += timedelta(weeks=1)
 

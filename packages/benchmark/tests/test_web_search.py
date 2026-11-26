@@ -523,19 +523,21 @@ def test_max_results_comes_from_the_settings(
     assert found == [9]
 
 
-def test_the_search_cap_binds_the_tested_models_only(
+def test_the_tested_models_and_the_web_check_each_have_their_search_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = _Recorder()
     monkeypatch.setattr(httpx, "post", provider)
-    conf = _external(web_search_max_calls=4)
+    conf = _external(web_search_max_calls=4, web_check_max_calls=2)
 
-    for role in ("subjects", "web_check"):
+    for role in ("subjects", "web_check", "judge"):
         chat("s", "u", model=NATIVE, settings=conf, web_search=True, role=role)
 
-    capped, free = provider.bodies
-    assert capped["max_tool_calls"] == 4
-    assert capped["tools"][0]["parameters"] == {"engine": "native", "max_uses": 4}
+    tested, web_check, free = provider.bodies
+    assert tested["max_tool_calls"] == 4
+    assert tested["tools"][0]["parameters"] == {"engine": "native", "max_uses": 4}
+    assert web_check["max_tool_calls"] == 2
+    assert web_check["tools"][0]["parameters"] == {"engine": "native", "max_uses": 2}
     assert "max_tool_calls" not in free
     assert free["tools"][0]["parameters"] == {"engine": "native"}
 
@@ -592,16 +594,18 @@ def test_an_answer_past_the_search_cap_is_flagged(
     assert usage["web_search_over_cap"] is over
 
 
-def test_the_web_check_is_never_flagged_past_the_cap(
+def test_the_web_check_is_flagged_past_its_own_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(httpx, "post", _searching(30))
+    conf = _external(web_search_max_calls=0, web_check_max_calls=3)
 
     _answer, usage = chat(
-        "s", "u", model=NATIVE, settings=_external(), web_search=True, role="web_check"
+        "s", "u", model=NATIVE, settings=conf, web_search=True, role="web_check"
     )
 
-    assert "web_search_over_cap" not in usage
+    assert usage["web_search_max_calls"] == 3
+    assert usage["web_search_over_cap"] is True
 
 
 def test_no_search_no_tool(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1253,7 +1257,7 @@ def test_defaults_hand_out_the_web_search_fields() -> None:
     assert shown["web_search_generator"] is False
     assert shown["web_search_judge"] is False
     assert shown["web_search_max_results"] == 5
-    assert shown["filter_judge_model"] is None
+    assert shown["filter_judge_model"] == "anthropic/claude-sonnet-5"
 
 
 @pytest.mark.parametrize(("toggle", "engine"), [(False, None), (True, "native")])

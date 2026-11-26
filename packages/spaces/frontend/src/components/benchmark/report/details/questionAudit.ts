@@ -43,6 +43,8 @@ export interface BlockAudit {
 export interface Retrieval {
   hit: boolean | null
   rank: number | null
+  /** The source chunk was in the prompt; null when the result does not say. */
+  shown: boolean | null
   /** Chunks put in the prompt; null when unknown. */
   contextDocs: number | null
   fragmentMaxChars: number | null
@@ -132,6 +134,7 @@ function armOf(arm: string, rows: BenchmarkResult[], panel: string[]): ArmAudit 
       ? {
           hit: searched.retrieval_hit ?? null,
           rank: searched.retrieval_rank ?? null,
+          shown: searched.retrieval_shown ?? null,
           contextDocs: searched.context_docs ?? null,
           fragmentMaxChars: searched.fragment_max_chars ?? null,
           fragments: rows.find((row) => row.fragments?.length)?.fragments ?? null,
@@ -164,6 +167,8 @@ export function shortened(fragment: BenchmarkFragment): boolean {
 /** Where the question's source chunk ended up, in words. */
 export function sourceText(retrieval: Retrieval): string {
   if (!retrieval.hit) return 'Source not found'
-  const shown = retrieval.contextDocs === null || (retrieval.rank ?? 0) <= retrieval.contextDocs
+  const shown =
+    retrieval.shown ??
+    (retrieval.contextDocs === null || (retrieval.rank ?? 0) <= retrieval.contextDocs)
   return shown ? `Source #${retrieval.rank}` : `Source #${retrieval.rank}, not in the prompt`
 }

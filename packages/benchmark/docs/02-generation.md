@@ -46,16 +46,22 @@ The user message opens with the document header: title, section (chunk
 scope), and, when the front matter has them, outlet (`source`), author and
 publish date (`published_date`). The answerable prompts share these rules:
 answerable from the fragment alone; standalone (no "the text", "according
-to…", no "this/that" pointing); exactly one correct answer; concrete facts;
-built on facts **only this story reports** (its own figures, sources, quotes,
-inside details — not general background); invent nothing.
+to the article", no "this/that" pointing); exactly one correct answer; concrete
+facts; built on facts **only this story reports** (its own figures, sources,
+quotes, inside details — not general background); a claim stays attributed to
+whoever makes it ("según el Ministerio de Economía…"); invent nothing. Open and
+multi-hop answers give only what is asked.
 
-Every prompt, control ones included, also says: turn a relative time into an
-absolute one from the publish date ("in July 2026", not "last month" or a
-month without its year); name a reviewer or first-person writer as "<Outlet>'s <Author>"
-("WIRED's Nena Farrell"), never "the reviewer"; never refer to the story by its
-title. Fill-ins copy sentences verbatim, so they skip a sentence placed only by
-a relative time or naming only "the reviewer".
+Every prompt, control ones included, also says: use only the outlet's own
+reporting (no wire copy — AFP, EFE, Reuters…, no press release reprinted as
+issued, no other outlet's reporting it cites); never ask about the byline,
+the author's bio or staff lines; turn a relative time into an absolute one
+from the publish date ("in July 2026", not "last month"); every date carries
+its year ("el 20 de octubre de 2026"); name a reviewer or first-person writer
+as "<Outlet>'s <Author>" ("WIRED's Nena Farrell"), never "the reviewer"; never
+refer to the story by its title. Fill-ins copy sentences verbatim, so they
+skip a sentence placed only by a relative time, a date without its year or
+naming only "the reviewer".
 
 ### Extractive: fill in the blank
 
@@ -119,9 +125,13 @@ The prompt requires exactly one missing detail, no hinted value, and nothing
 that is public knowledge. The stored answer is `not in the corpus: <missing>`.
 Abstaining is correct; any answer, including a hedged guess, is an invention.
 
-**`false_premise`** — a question built on a premise the chunk plainly
-contradicts ("why did the hub move to SQLite" when it is on PostgreSQL). The
-gold answer is the correction; an abstention does not count as correct.
+**`false_premise`** — a question built on a premise the chunk explicitly
+contradicts ("why did the hub move to SQLite" when it is on PostgreSQL): a
+different number, name, date, place or outcome, not an omission or a claim that
+could be true alongside the text; fewer questions rather than a weak one. At
+most one question of a reply opens with "Why" / "¿Por qué…?". The grounds are
+the chunk's sentences, verbatim. The gold answer is the correction; an
+abstention does not count as correct.
 
 ---
 
@@ -141,8 +151,8 @@ flowchart TB
     LLMG --> R1
 
     R1{"question screening<br/><i>quality.py</i>"} -- "fails" --> DROP["dropped — never stored"]
-    R1 -- "fit" --> R2{"language check,<br/>entity check"}
-    R2 -- "fails" --> REJ[("rejected: wrong_language,<br/>ambiguous_entity")]
+    R1 -- "fit" --> R2{"language check, date check,<br/>entity check, quality check,<br/>repeated fact"}
+    R2 -- "fails" --> REJ[("rejected: wrong_language,<br/>ambiguous_entity, quality,<br/>repeated_fact")]
     R2 -- "fit" --> PEND[("pending")]
 
     MARK["processed_units:<br/>space + generator + unit_id + cohort"]
@@ -188,11 +198,39 @@ drop reasons and why it stopped (`budget reached`, `ran out of material`,
 `failure streak`, `cancelled`, `top-up cost limit`). Each top-up round is
 noted, e.g. `top-up round 1: qa +12 (target 10, survival 30%)`.
 
+### The gold
+
+Each stored question gets `meta.gold` (`generation/gold.py`), the reference
+for retrieval quality on any dataset of the same corpus:
+
+- `articles` — the source file: `file_name` (hits are matched by it; doc and
+  chunk ids differ between datasets), `absolute_path`, `doc_id`, `chunk_ids`
+  where the evidence sat, and `fingerprint`.
+- `fingerprint` — `{scheme: "sha256-nfkc-nows", sha256}`: sha256 of the
+  article's chunk texts in `chunk_index` order, chunk overlap cut off,
+  concatenated, NFKC, every whitespace character removed; front matter is
+  not part of it. Equal across chunkings of the same text, so a dataset's
+  copy of the file can be checked for change.
+- `evidence` — per thing the answer rests on (`role`: `answer`, `claim`,
+  `hop`, `key_fact`, `correction`), the whole sentences of the source text
+  that hold it, verbatim (`passages`). Found as written (`match: exact`:
+  masked sentences, MCQ options, the "two truths, one lie" detail), else by
+  content words (`overlap`, at least 60% of them, up to 3 sentences). Not
+  located → `match: none`, no passages.
+- `control: true` on control kinds: `unanswerable_property` has no
+  evidence; `false_premise` has its corrections.
+
+Located on the rig's 860 stored answerable and false-premise questions:
+masking 100%, MCQ 96%, QA 93%, "two truths, one lie" detail 100% (claims
+88%), false-premise corrections 99%, multi-hop hops 94%, tiered key facts
+75%.
+
 ### Question screening
 
 The answerer sees only the question, so a question must stand without its
-source. Checks in `quality.py` (English patterns; other languages pass
-unscreened), by class:
+source. Patterns in `quality.py` drop a draft before it is stored. They are
+English, so another language passes them; the quality check below screens
+every language. By class:
 
 | Class | Checks |
 | --- | --- |
@@ -232,16 +270,76 @@ the people, organisations, products, places, events and documents named and
 says whether each is identifiable from the question alone: a full name, or a
 name with a role or affiliation, a product with its maker, a writer or piece
 by its outlet ("WIRED's review of Amazon's Kindle Aluminum"), an event with
-its date. A first name, a pseudonym, "a startup", "the company", "the
-reviewer" or an event placed only by "last month" is not. A question that
-depends on an unidentifiable one is rejected (`ambiguous_entity`, note "ambiguous entity:
-Mariam (first name only)"). A failed call or an unreadable reply keeps the
-questions, `meta.entity_check.outcome` `failed` and a failed Writing decision.
-The call is charged to the `writer` cost role and recorded on the unit's
+its date, an abbreviation spelled out or known to any reader (UN, NATO). Not
+identifiable, each with its `issue`: a first name, pseudonym or anonymous
+source (`first_name`); a surname with no first name and no role
+(`surname_only`); an abbreviation not spelled out (`abbreviation`: ASSE,
+Ursea); "a startup", "the company" (`generic`); "the reviewer" with no outlet
+(`no_outlet`); an event placed only by "last month" or a date without its year
+(`no_year`). A question that depends on an unidentifiable one is rejected
+(`ambiguous_entity`, note "ambiguous entity: Mariam (first name only)").
+
+- **New names are not unknown names.** The check judges whether a reference is
+  unambiguous, not whether the model knows it. An entity rejected only as
+  unfamiliar (`issue: unfamiliar`, or a reason like "not a recognized film")
+  is counted identifiable, marked `overridden`.
+- **One reference, one decision.** Within a build the first verdict on a
+  reference (its name, normalised) stands: later calls are shown it ("Earlier
+  decisions of this review") and a different verdict is overridden to it.
+
+A failed call or an unreadable reply keeps the questions,
+`meta.entity_check.outcome` `failed` and a failed Writing decision. The call is
+charged to the `writer` cost role and recorded on the unit's
 first stored pair (`meta.entity_check`; xlsx "Entity check" columns).
 
-Language and entity rejects are stored as `rejected` with a Writing-stage
-filter decision, so they appear in the run's Rejected sheet and Filter list;
+**Quality check** (`quality_check`, `quality_check.py`), after the entity
+check. One call per unit to the question writer's address (`quality_check_model`,
+empty — the writer model): the article (cut at 12,000 chars, the unit's
+passage added if cut off), its language as the language check detected it, and
+the unit's questions, each with the checks for its kind. The model names the
+checks a question fails, each with a reason:
+
+| Check | Fails when | Kinds |
+| --- | --- | --- |
+| `source_reference` | it points at its source ("según el artículo", "the text") | all |
+| `unanchored` | a pronoun or demonstrative names no one in the question ("él", "esta medida") | all |
+| `quote` | the sentence is someone's quoted wording | fill-ins |
+| `unsupported_wording` | it says or presupposes what the article does not | `qa`, `mcq`, `multihop_synthesis` |
+| `several_answers` | more than one answer fits ("what did X say" when X says several things; two correct options) | `qa`, `mcq`, `multihop_synthesis` |
+| `obvious` | an informed reader answers it without the article | fill-ins, `qa`, `mcq`, `multihop_synthesis` |
+
+A question that fails any is rejected (`quality`, note "quality check: no
+antecedent ('él' names no one)"). `meta.quality_check` holds `language`,
+`checks` (`pass` / `fail` per check asked) and `reasons`. A failed call or a
+question the reply leaves out is kept: outcome `failed`, checks `unchecked`, a
+failed Writing decision. Charged to `writer`; the call is recorded on the
+unit's first stored pair. Cost: one call per unit, about the article's tokens
+plus 80 output tokens per question.
+
+**Date without a year** (`yearless.py`), before the entity check, no model
+call. A date or month with no year in what the reader sees (the question, the
+stem of a choice question, the statements of a two-truths item, the topic of
+an explanation) gets the year from the publish date: its last occurrence on or
+before it, or the next one when that is under 90 days ahead and nearer;
+"pasado" / "próximo" pick the side ("el pasado 3 de diciembre" → "el 3 de
+diciembre de 2025"). Repairs are listed in `meta.year_added`. English, Spanish,
+Portuguese, French, Italian and German dates are read. A text that writes a
+year anywhere, or a date next to a fill-in's blank, is left as it is. Without
+a publish date the question is dropped (`a date without its year`).
+
+**Repeated fact** (`repeats.py`), as a unit's questions are stored. A
+question's fact is what its gold answer adds to the question (its content
+words less the question's; for a choice question the correct option, for "two
+truths, one lie" the altered detail) plus the sentences its gold evidence
+locates. A question repeats another of the same article and cohort (stored and
+not rejected, or earlier in the unit) when they share an evidence sentence and
+the smaller fact is at least 60% inside the other; not located — only when the
+facts are near equal (80%). The later one is rejected (`repeated_fact`, note
+`repeated fact: the answer of qa "…"`, `meta.repeats` names the question it
+repeats). Unanswerable questions and tiered explanations are not compared.
+
+Language, entity and repeated-fact rejects are stored as `rejected` with a
+Writing-stage filter decision, so they appear in the run's Rejected sheet and Filter list;
 they do not count against a kind's budget. The writer prompts ask for the same
 thing up front: every person, organisation and product named with a full name
 plus role or affiliation, never a first name, pseudonym or anonymous source as
@@ -287,7 +385,9 @@ the window, cohort or cap, and reversible — [03-dataset.md](03-dataset.md).
 
 Lexical: the share of the gold answer's content words found in the stored
 chunk must reach `answer_coverage_threshold` (0.6). In a gold answer of up to
-3 content words every word must be in the chunk. The stopword list is English.
+3 content words every word must be in the chunk. Function words are those
+of the chunk's language (detected as for the language check) plus English;
+words compare case- and accent-folded ("Perú" is "Peru").
 Hedges (about, around, roughly, approximately, nearly, almost, some) do not
 count; digits do ("8%" is checked as "8", "$1.5 trillion" as "1", "5",
 "trillion").
@@ -341,27 +441,49 @@ behaviour (`control.py`):
 
 On when `filter_model` is set. Each pair that passed the archive check is put
 to that model as a bare question (no passage), with web search where its
-provider supports it, otherwise from its own training. The answer is graded the
-way the main run grades that kind of item (letter, span match, key facts
-without the article check, or judge with the hop facts —
-`filter_judge_model`, default the first judge), with today's date in the
-judge prompt ([05-judging.md](05-judging.md)).
+provider supports it, otherwise from its own training. The search is
+`web_check_engine` (Exa by default, whatever the tested models use), up to
+`web_check_max_calls` searches; the prompt asks to search in the question's
+language first (named when the passage's language is detected) and to retry
+with other words. The answer is graded the way the main run grades that kind
+of item (letter, span match, key facts without the article check, or judge
+with the hop facts — `filter_judge_model`), with today's date in the judge
+prompt ([05-judging.md](05-judging.md)).
 
 - Answered correctly → rejected as `web_answerable`.
+- Answered, but every citation is on a `web_check_mirror_domains` site (a
+  reprint of the publisher's text, which excluding the publisher's domain does
+  not cover) → active; the record has `mirror_only`. An answer with no
+  citations is not a reprint.
 - Not answered → active.
 - Call or grading failed → stays `pending` with a note, retried next pass.
   A provider refusal, or `max_consecutive_failures` failed checks in a row,
   stops the web check for the pass; the pairs not reached stay `pending`.
-- `unanswerable_property` (trick questions) that passed the retrieval gate are
-  checked too. The behaviour judge ([05-judging.md](05-judging.md)) reads the
-  answer with its citations: specifics its search supports (`web_sourced`) →
-  rejected as `public_knowledge` (note "public knowledge"); a decline, or
-  specifics with no citation behind them → active. The record keeps
-  `behavior`.
-- `false_premise` is exempt; a key-facts item without key facts is rejected.
+- Control questions that passed the retrieval gate are checked too:
+  - `unanswerable_property` (trick questions): the behaviour judge
+    ([05-judging.md](05-judging.md)) reads the answer with its citations:
+    specifics its search supports (`web_sourced`) → rejected as
+    `public_knowledge` (note "public knowledge"); a decline, or specifics with
+    no citation behind them → active. The record keeps `behavior`.
+  - `false_premise`: the judge compares the answer with the correction (the
+    gold answer). The answer states it → the web refutes the premise without
+    the archive → rejected as `web_answerable`. A doubt without the fact does
+    not count.
+- A key-facts item without key facts is rejected.
 - Pairs of the current cohort already in the set (active or held back by the
   cap) without a verdict from the current `filter_model` are checked in the
-  same pass; one it answers is rejected.
+  same pass; one it answers is rejected. With `web_check_recheck_days` set, a
+  pair (control questions included) whose last check is that old is checked
+  again in the same way: the web catches up with a story.
+- `meta.web_check` keeps the last check (`checked_at`, `search`, `max_calls`,
+  `citations`, `cited_domains`) and `history`, the earlier checks with their
+  dates (last 10); each job's decision is also in `meta.screening`.
+
+The default judge is Claude Sonnet 5, not the first judge: grading here is a
+few short calls per question (well under the web model's searches in cost),
+the panel is chosen for the tested models, and a panel judge that stands down
+after an empty reply would stall the check with it. It is from another company
+than the usual web check models (GPT).
 
 Only these pairs are ever asked: control items, pairs that passed the web
 check by the current `filter_model`, and hand-set pairs when
@@ -381,8 +503,14 @@ model", and `evaluate`/`freeze` report that no question passed.
 | `pairs_per_chunk` | `2` | Items asked for per unit |
 | `min_chunk_chars` | `400` | Shorter chunks are not used |
 | `answer_coverage_threshold` | `0.6` | Content-word coverage for grounding |
+| `quality_check` | `true` | The quality check: one call per unit |
+| `quality_check_model` | empty | Its model, at the writer's address; empty — the writer model |
 | `filter_model` | empty | Web check model; empty — no web check, nothing answerable can be asked |
-| `filter_judge_model` | empty | Judge of the web check; empty — the first judge |
+| `filter_judge_model` | `anthropic/claude-sonnet-5` | Judge of the web check; empty — the first judge |
+| `web_check_engine` | `plugin` | The web check's search: `plugin` (Exa) or `native` |
+| `web_check_max_calls` | `3` | Searches per question for the web check (the tested models: `web_search_max_calls`) |
+| `web_check_mirror_domains` | `[]` | Sites that reprint the publisher (per target, e.g. `["iberonoticias.com","elnotero.com"]` for la diaria); an answer citing only these keeps the question |
+| `web_check_recheck_days` | `0` | Check a question in the set again once its last check is this old; 0 — once |
 | `manual_status_priority` | `filter` | Whether the web check can override a hand-set status |
 | `web_search_generator` | `false` | The generator searches the web (OpenRouter models) |
 | `entity_check` | `true` | Reject questions whose subject the question alone does not identify |

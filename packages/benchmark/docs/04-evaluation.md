@@ -46,9 +46,19 @@ block.
 | `endpoint_both` | both, as the endpoint returned them | `raw` or `both` |
 | `oracle_chunk` | the ceiling: the item's source chunk, no retrieval | any |
 
-The first `context_docs` (3) chunks go into the prompt, each cut to
-`fragment_max_chars` (2000). The source is stored in `runs.context_source`;
-values are never added into one share.
+The first `context_docs` (5, equal to `retrieval_top_k`) chunks go into the
+prompt, each cut to `fragment_max_chars` (2000). The source is stored in
+`runs.context_source`; values are never added into one share.
+
+**Found and shown.** Each arm C answer records `retrieval_hit` and
+`retrieval_rank` (the source chunk within the `retrieval_top_k` found) and
+`extra.retrieval_shown` (within the `context_docs` put into the prompt; an
+empty chunk is left out of the prompt). With `endpoint_answer` no chunk is in
+the prompt and shown equals found: the endpoint wrote its answer from every
+chunk found. False abstentions and answers on a miss go by shown; reports give
+both rates. For an answer stored without the flag, shown comes from its rank
+and the run's `params.context_docs`; a run without it counts shown as found
+and the report marks it (`shown_assumed`).
 
 ```bash
 uv run syft-benchmark evaluate docs -m model_with_context --context-source oracle_chunk
@@ -254,7 +264,7 @@ through a chat has none of these limits — [05-judging.md](05-judging.md#judgin
 | --- | --- | --- |
 | `arms` | `closed_book`, `model_with_context` | Arms to run |
 | `context_source` | `endpoint_fragments` | What arm C gets |
-| `context_docs` | `3` | Chunks in arm C's prompt |
+| `context_docs` | `5` | Chunks in arm C's prompt; keep it equal to `retrieval_top_k`, else a chunk found past it counts as found but not shown |
 | `fragment_max_chars` | `2000` | Ceiling on one chunk's text |
 | `blocks` | all three | Test blocks |
 | `denial_rounds` | `5` | Pressure rounds (max 12) |
@@ -284,6 +294,12 @@ through a chat has none of these limits — [05-judging.md](05-judging.md#judgin
 | `audit_log` | `true` | Store prompts beside every answer |
 | `audit_max_chars` | `20000` | Ceiling on the stored arm C context |
 
+**`context_docs` default.** A stored value stays: the installation's settings
+and a target's own layer keep theirs (the Space setup form stores it on every
+save). Only where nothing sets it does a launch move from 3 to 5; that changes
+the launch's settings hash, so it is not combined with earlier launches. A
+re-ask runs with its source launch's snapshot.
+
 Web search applies only to models the catalogue can search with. A model that
 takes tools gets OpenRouter's `web_search` tool, forced: `tool_choice:
 required`, then the named tool if the provider refuses that; a model without
@@ -299,7 +315,9 @@ in the job's `message`.
 
 **Engine and cap.** The default engine is Exa (`plugin`) for every role: the
 same search for every model, and the only one that leaves out the excluded
-domains for all of them. `native` and `auto` stay selectable. A tested model's
+domains for all of them. `native` and `auto` stay selectable. The web check
+has its own engine and cap (`web_check_engine`, `web_check_max_calls`,
+[02-generation.md](02-generation.md)). A tested model's
 answer may search at most `web_search_max_calls` times (default 1; `0` — no
 cap of ours, only the provider's own, up to ~30 per answer). The cap
 goes as `max_tool_calls` (and `max_uses` for Anthropic's native search), which

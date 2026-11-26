@@ -11,6 +11,9 @@ export type Group = BenchmarkQuestionGroup
 
 export const TRICK_GENERATOR = 'unanswerable_property'
 
+/** What a control question expects instead of an answer. */
+export type ControlExpected = 'abstain' | 'correct_premise'
+
 export interface SettingRow {
   key: string
   label: string

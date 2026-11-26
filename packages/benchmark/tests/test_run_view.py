@@ -298,14 +298,14 @@ def test_incomplete_is_graded_but_neither_right_nor_made_up(
     assert m1["groups"] == {"fixed": 1, "either": 0, "still": 1, "worse": 0}
 
 
-def test_trick_questions_feed_only_the_trick_check(
+def test_trick_questions_feed_only_the_trick_check_and_are_listed_last(
     client: TestClient, clean: Any
 ) -> None:
     auth = console_auth(client, KEY)
     seed = Seed()
     seed.pair("q1")
-    seed.pair("t1", generator=run_view.TRICK_GENERATOR)
-    seed.pair("t2", generator=run_view.TRICK_GENERATOR)
+    seed.pair("t1", generator=run_view.TRICK_GENERATOR, expected_behavior="abstain")
+    seed.pair("t2", generator=run_view.TRICK_GENERATOR, expected_behavior="abstain")
     seed.answer("q1", M1, "with", "correct")
     seed.answer("t1", M1, "with", "hallucinate")
     seed.answer("t2", M1, "with", "abstain")
@@ -321,10 +321,28 @@ def test_trick_questions_feed_only_the_trick_check(
     assert report["funnel"]["trick"] == 2 and report["run"]["questions"] == 1
     assert report["method"]["trick"] == 2
 
-    listed = client.get(
-        f"/console/report/runs/{JOB}/questions", params={"model": M1}, headers=auth
-    ).json()
-    assert [row["qa_id"] for row in listed["items"]] == ["q1"]
+    url = f"/console/report/runs/{JOB}/questions"
+    listed = client.get(url, params={"model": M1}, headers=auth).json()
+    rows = listed["items"]
+    assert [row["qa_id"] for row in rows] == ["q1", "t1", "t2"]
+    assert [row["control"] for row in rows] == [False, True, True]
+    expected = [row["expected_behavior"] for row in rows]
+    assert expected == ["answer", "abstain", "abstain"]
+    # A trick question is in no group: the groups count the main figures only.
+    assert [row["group"] for row in rows[1:]] == [None, None]
+    assert listed["counts"]["all"] == 3 and listed["counts"]["still"] == 0
+
+    def ids(expected: str) -> list[str]:
+        page = client.get(
+            url, params={"model": M1, "expected": expected}, headers=auth
+        ).json()
+        return [row["qa_id"] for row in page["items"]]
+
+    assert ids("abstain") == ["t1", "t2"]
+    assert ids("answer") == ["q1"]
+    assert ids("correct_premise") == []
+    refused = client.get(url, params={"model": M1, "expected": "x"}, headers=auth)
+    assert refused.status_code == 422
 
 
 def test_the_question_set_ignores_the_pairs_status_now(
@@ -452,10 +470,12 @@ def test_groups_counts_and_paging(client: TestClient, clean: Any) -> None:
 def test_checks_from_the_extra_blocks(client: TestClient, clean: Any) -> None:
     auth = console_auth(client, KEY)
     seed = Seed()
-    for qa in ("q1", "q2"):
+    for qa in ("q1", "q2", "q3"):
         seed.pair(qa)
     seed.answer("q1", M1, "with", "correct", hit=True, rank=1)
     seed.answer("q2", M1, "with", "correct", hit=False)
+    # Found at 3 with context_docs 2: never in the prompt.
+    seed.answer("q3", M1, "with", "abstain", hit=True, rank=3)
     seed.answer(
         "q1",
         M1,
@@ -499,10 +519,11 @@ def test_checks_from_the_extra_blocks(client: TestClient, clean: Any) -> None:
         {"t": 0.9, "accuracy": 0.5},
     ]
     assert (checks["searched"], checks["missed"], checks["search_found"]) == (
-        2,
+        3,
         1,
-        0.5,
+        0.6667,
     )
+    assert (checks["search_shown"], checks["shown_assumed"]) == (0.3333, 0)
 
     detail = client.get(
         f"/console/report/runs/{JOB}/questions/q2", params={"model": M1}, headers=auth
@@ -516,9 +537,15 @@ def test_checks_from_the_extra_blocks(client: TestClient, clean: Any) -> None:
     assert detail["arms"]["with"]["retrieval"] == {
         "hit": False,
         "rank": None,
+        "shown": False,
+        "shown_assumed": False,
         "context_docs": 2,
     }
     assert detail["arms"]["alone"] is None
+    found = client.get(
+        f"/console/report/runs/{JOB}/questions/q3", params={"model": M1}, headers=auth
+    ).json()["arms"]["with"]["retrieval"]
+    assert (found["hit"], found["shown"]) == (True, False)
 
 
 def test_each_judge_carries_its_reasoning(client: TestClient, clean: Any) -> None:

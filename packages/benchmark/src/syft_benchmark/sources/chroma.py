@@ -14,9 +14,12 @@ The transport is chosen once, on the first call.
 
 from __future__ import annotations
 
+import hashlib
+import itertools
 import json
 import subprocess
-from collections.abc import Iterator
+import unicodedata
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -61,6 +64,9 @@ class Chunk:
     text: str
     file_name: str
     headings: str
+    # The source file's path, as the Space's local file source records it
+    # ("" for other sources).
+    absolute_path: str = ""
     # Dates the Space wrote into the chunk metadata (ISO strings, "" when absent).
     published: str = ""
     indexed_at: str = ""
@@ -90,6 +96,9 @@ class Document:
     ingested_at: datetime | None = None
     # The ETL header's author ("" when absent).
     author: str = ""
+    absolute_path: str = ""
+    # The text fingerprint over all its chunks (text_fingerprint).
+    fingerprint: str = ""
 
     @property
     def dated_at(self) -> datetime | None:
@@ -242,6 +251,7 @@ class ChromaClient:
                     text=(documents[i] if i < len(documents) else "") or "",
                     file_name=str(meta.get("file_name") or ""),
                     headings=_text(meta.get("headings"), " > "),
+                    absolute_path=str(meta.get("absolute_path") or ""),
                     published=str(meta.get("published") or ""),
                     indexed_at=_indexed_at(meta),
                     doc_meta=_doc_meta(meta),
@@ -437,6 +447,45 @@ def strip_header(text: str) -> tuple[str, dict[str, str]]:
     return "\n".join(body).strip(), header
 
 
+FINGERPRINT_SCHEME = "sha256-nfkc-nows"
+
+
+def without_overlap(texts: Sequence[str]) -> list[str]:
+    """Chunk texts with the overlap cut off.
+
+    A Space chunking with overlap starts each chunk after the first with the
+    tail of the one before it and a line break (``tail\\nown text``). The
+    longest such prefix that ends the previous chunk is cut.
+    """
+    found = list(texts[:1])
+    for previous, text in itertools.pairwise(texts):
+        cut = 0
+        at = text.find("\n")
+        while 0 < at <= len(previous):
+            if previous.endswith(text[:at]):
+                cut = at + 1
+            at = text.find("\n", at + 1)
+        found.append(text[cut:])
+    return found
+
+
+def text_fingerprint(texts: Sequence[str]) -> str:
+    """The fingerprint of an article's text, independent of its chunking.
+
+    sha256 (hex) of the article's chunk texts in ``chunk_index`` order, the
+    overlap cut off (``without_overlap``), concatenated, NFKC-normalised,
+    with every whitespace character removed. Chunk boundaries, the separators
+    between chunks and line wrapping fall away; any change to the words or
+    punctuation changes it. The texts are the indexed body: the front matter
+    the Space lifts into ``doc_*`` metadata is not part of it, and a header
+    left at the start of chunk 0 is cut off first (``strip_header``). Every
+    chunk counts, boilerplate too.
+    """
+    joined = unicodedata.normalize("NFKC", "".join(without_overlap(texts)))
+    body = "".join(joined.split())
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
 def is_useful(text: str, min_chars: int) -> bool:
     """Whether the chunk will do as the basis for a question."""
     if len(text) < min_chars:
@@ -500,6 +549,10 @@ def load_documents(
                 indexed_at=parse_date(chunks[0].indexed_at),
                 ingested_at=parse_date(header.get("ingested_at", "")),
                 author=header.get("author", ""),
+                absolute_path=chunks[0].absolute_path,
+                fingerprint=text_fingerprint(
+                    [first_body, *(chunk.text for chunk in chunks[1:])]
+                ),
             )
         )
 

@@ -179,7 +179,13 @@ def settings_snapshot(settings: Settings) -> dict[str, Any]:
 
 # Left out of the hash while empty: an empty value changes nothing, so a launch
 # that does not set it hashes like one whose snapshot lacks the field.
-HASH_EXCLUDED_WHEN_EMPTY: frozenset[str] = frozenset({"web_search_excluded_domains"})
+HASH_EXCLUDED_WHEN_EMPTY: frozenset[str] = frozenset(
+    {
+        "web_search_excluded_domains",
+        "web_check_mirror_domains",
+        "web_check_recheck_days",
+    }
+)
 
 
 def settings_hash(snapshot: dict[str, Any]) -> str:

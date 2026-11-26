@@ -29,6 +29,7 @@ from sqlalchemy import select
 from syft_benchmark.config import ARM_LETTER
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.report.job_params import iso
+from syft_benchmark.retrieval.arm_c import shown_of
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +57,13 @@ def _answer_record(
         audit.pop("context", None)
         audit["responder_prompt"] = "[cut out: --no-context]"
         audit["judge_prompt"] = "[cut out: --no-context]"
+    shown = shown_of(
+        result.retrieval_hit,
+        result.retrieval_rank,
+        result.extra,
+        run.params,
+        run.context_source,
+    )
 
     return {
         "arm": ARM_LETTER.get(run.context_mode, "?"),
@@ -73,6 +81,8 @@ def _answer_record(
         "retrieval": {
             "hit": result.retrieval_hit,
             "rank": result.retrieval_rank,
+            "shown": shown.value,
+            "shown_assumed": shown.assumed,
             "fragments": (
                 result.retrieved
                 if include_context

@@ -401,6 +401,7 @@ def test_a_scoped_build_reads_only_its_documents_whatever_the_window_and_mode(
     conf = openrouter_settings(
         concurrency=1,
         entity_check=False,
+        quality_check=False,
         document_window_days=1,
         dataset_mode=DatasetMode.REBUILD,
         pairs_per_chunk=1,

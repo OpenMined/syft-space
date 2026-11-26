@@ -92,6 +92,15 @@
         <Checkbox id="bm-entity-check" v-model="form.entityCheck" />
         <span class="text-sm">On</span>
       </SettingRow>
+      <SettingRow
+        label="Check question quality"
+        help="Drops a question that leans on its article, has several right answers or is obvious without it. Any language."
+        tip="One call per passage to the question writer, with the article. The reason is shown with each dropped question."
+        for-id="bm-quality-check"
+      >
+        <Checkbox id="bm-quality-check" v-model="form.qualityCheck" />
+        <span class="text-sm">On</span>
+      </SettingRow>
     </template>
   </SetupStep>
 </template>

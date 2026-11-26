@@ -42,6 +42,8 @@ depend on the settings of the moment.
 
 `results.extra` keeps the block transcripts: every `denial_loop` round
 (objection, answer, judge prompt and reply) and every `monte_carlo` trial.
+In arm C it also keeps `retrieval_shown`: whether the source chunk was among
+the `context_docs` put into the prompt.
 
 A later verdict on the same answer (owner override, chat or deferred
 judging) is a new row with the answer side of the audit record and the block
@@ -59,7 +61,8 @@ One record per question, JSON Lines (or Markdown when `--out` ends in `.md`):
   note, the model that built it, its `meta`;
 * `answers` — both arms side by side, the **latest** answer per (arm, block,
   answerer, judge): answer, verdict, reasoning, judge, grounding, retrieval
-  hit/rank and the retrieved chunks, block transcripts, the audit record, and
+  hit/rank/shown (`shown_assumed` when the run did not record `context_docs`)
+  and the retrieved chunks, block transcripts, the audit record, and
   the run's id, profile and settings snapshot.
 
 One launch's records, writer calls that dropped drafts or failed included,

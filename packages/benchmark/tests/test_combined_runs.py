@@ -361,6 +361,7 @@ def test_combined_questions_name_the_counted_member(
         "cb-q2": A,
         "cb-q3": B,
         "cb-q4": B,
+        "cb-t1": A,
     }
     detail = client.get(
         f"/console/report/runs/{cid}/questions/cb-q2",

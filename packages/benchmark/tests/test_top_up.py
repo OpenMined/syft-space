@@ -33,6 +33,13 @@ ANSWER = "Harbourton lighthouse"
 EASY = "Which council restored"
 
 
+@pytest.fixture(autouse=True)
+def _repeats_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every fake question here has one answer, so each would repeat the
+    first; repeats are tested in test_repeated_facts.py."""
+    monkeypatch.setattr(pipeline, "_drop_repeats", lambda *_, **__: None)
+
+
 def _settings(**kwargs: Any) -> Settings:
     base: dict[str, Any] = {
         "judge_url": OPENROUTER,

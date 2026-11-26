@@ -43,6 +43,7 @@ from syft_benchmark.llm import (
 )
 from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.llm.web_search import search_unused, unused_reason
+from syft_benchmark.retrieval.arm_c import SHOWN_KEY, shown_in_prompt
 from syft_benchmark.runs.blocks import (
     DenialOutcome,
     MonteCarloOutcome,
@@ -521,6 +522,12 @@ def _material_for(
         retrieval = check_retrieval(
             outcome["documents"], pair, max_chars=settings.fragment_max_chars
         )
+        retrieval[SHOWN_KEY] = shown_in_prompt(
+            retrieval["retrieval_rank"],
+            retrieval["retrieved"],
+            source=source,
+            context_docs=settings.context_docs,
+        )
         endpoint_answer = str(outcome["answer"])
 
     context = build_context(
@@ -945,10 +952,13 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
     grounded: bool | None = None
     grounded_note = ""
     if ctx.mode in ENDPOINT_ARMS and not verdict.failed:
+        retrieved = asked.retrieval["retrieved"]
+        # Ground against what the model was given: an endpoint answer was
+        # written from everything found, fragments alone only up to context_docs.
+        if asked.context_source not in _NEEDS_ANSWER:
+            retrieved = retrieved[: ctx.settings.context_docs]
         fragments = [
-            str(doc.get("content", ""))
-            for doc in asked.retrieval["retrieved"]
-            if doc.get("content")
+            str(doc.get("content", "")) for doc in retrieved if doc.get("content")
         ]
         grounded, grounded_note = await ctx.pool.to_model(
             (
@@ -1016,7 +1026,11 @@ def _save_result(
                 retrieval_hit=asked.retrieval["retrieval_hit"],
                 retrieval_rank=asked.retrieval["retrieval_rank"],
                 retrieved=asked.retrieval["retrieved"],
-                extra=extra,
+                extra=(
+                    extra | {SHOWN_KEY: asked.retrieval[SHOWN_KEY]}
+                    if SHOWN_KEY in asked.retrieval
+                    else extra
+                ),
                 audit=audit_record(asked, verdict, ctx.settings),
                 latency_s=round(asked.latency, 2),
                 model=responder,

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from syft_space.components.embeddings.hf_imports import ensure_transformers
 from syft_space.components.shared.ingest_types import IngestFile
 from syft_space.config import app_settings
 
@@ -142,6 +143,7 @@ def _build_prose_tokenizer():
     re-raises as a fatal RepositoryNotFoundError even when every file is
     already cached.
     """
+    ensure_transformers()
     from docling_core.transforms.chunker.tokenizer.huggingface import (
         HuggingFaceTokenizer,
     )

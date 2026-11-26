@@ -1085,6 +1085,8 @@ export interface BenchmarkResult {
   /** Whether the question's source chunk was retrieved, and where; null when nothing was. */
   retrieval_hit?: boolean | null
   retrieval_rank?: number | null
+  /** Whether the source chunk was among the excerpts put into the prompt. */
+  retrieval_shown?: boolean | null
   call?: BenchmarkCall | null
   /** The run's two ceilings. Null where the run does not carry them. */
   context_docs?: number | null
@@ -1258,6 +1260,10 @@ export interface BenchmarkRunChecks {
   searched: number
   search_found: number | null
   missed: number
+  /** Found within the excerpts put into the prompt; absent in older reports. */
+  search_shown?: number | null
+  /** Answers whose "shown" is taken as found: the run did not record it. */
+  shown_assumed?: number
   answers: number
   judges_agreed: number
   agreement: number | null
@@ -1436,15 +1442,21 @@ export interface BenchmarkQuestionRow {
   file_name: string
   question: string
   gold_answer: string
+  /** What counts as right; anything but `answer` is a control question. */
+  expected_behavior?: BenchmarkExpectedBehavior
+  control?: boolean
   verdict_alone: BenchmarkVerdict | null
   verdict_with: BenchmarkVerdict | null
   group: BenchmarkQuestionGroup | null
 }
 
+export type BenchmarkExpectedBehavior = 'answer' | 'abstain' | 'correct_premise'
+
 export interface BenchmarkQuestionQuery {
   model: string
   group?: BenchmarkQuestionGroup
   generator?: string
+  expected?: BenchmarkExpectedBehavior
   q?: string
   limit?: number
   offset?: number

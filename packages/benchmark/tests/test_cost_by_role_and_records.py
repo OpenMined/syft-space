@@ -59,8 +59,10 @@ def _settings(**kwargs: Any) -> Settings:
     base: dict[str, Any] = {
         "concurrency": 1,
         "document_window_days": 0,
-        # The entity check is a writer call of its own: test_entity_check.py.
+        # The entity and quality checks are writer calls of their own:
+        # test_entity_check.py, test_quality_check.py.
         "entity_check": False,
+        "quality_check": False,
     }
     return openrouter_settings(**{**base, **kwargs})
 

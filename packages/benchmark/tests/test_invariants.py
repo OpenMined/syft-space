@@ -68,6 +68,12 @@ def test_only_sources_reads_the_corpus() -> None:
         # and the gold answer is checked against it.
         SRC / "generation" / "pipeline.py",
         SRC / "generation" / "generators.py",
+        # The question's gold quotes the sentences of the chunk its answer
+        # rests on.
+        SRC / "generation" / "gold.py",
+        # The quality check judges a question against its article, at the
+        # question writer's address.
+        SRC / "generation" / "quality_check.py",
         # The CLI holds the diagnostic command chunks.
         SRC / "cli" / "diagnostics.py",
         # The target check counts chunks but returns none of them —

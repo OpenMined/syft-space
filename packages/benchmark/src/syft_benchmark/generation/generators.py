@@ -31,7 +31,13 @@ from syft_benchmark.generation.negative import (
 from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.shuffle import LETTERS, shuffle_options
-from syft_benchmark.generation.wording import ANCHOR_RULE
+from syft_benchmark.generation.wording import (
+    ANCHOR_RULE,
+    ATTRIBUTION_RULE,
+    NO_BYLINE_RULE,
+    OWN_JOURNALISM_RULE,
+    TIGHT_ANSWER_RULE,
+)
 from syft_benchmark.sources import Chunk, Document
 
 MAX_FRAGMENT_CHARS = 6000
@@ -41,7 +47,7 @@ _RULES = f"""\
 Rules:
 1. Every question must be fully answerable from the fragment alone.
 2. Questions must be standalone. Never write "the text", "the fragment", \
-"the document", "the article" or "according to ...". Name the subject \
+"the document", "the article" or "according to the article". Name the subject \
 explicitly instead, so that the question still makes sense to someone who \
 has never seen the fragment.
 3. Name every person, organisation and product so it is identifiable \
@@ -60,9 +66,12 @@ several things: pin the question to a detail that identifies the answer.
 subject named as rule 3 says: its own \
 figures, named sources, quotes or inside details. Avoid facts that other \
 outlets also covered or that are general background.
-8. Use only what the fragment states. Invent nothing.
-9. {ANCHOR_RULE}
-10. Write the question and the answer in the SAME language as the fragment.
+8. {OWN_JOURNALISM_RULE}
+9. {NO_BYLINE_RULE}
+10. {ATTRIBUTION_RULE}
+11. Use only what the fragment states. Invent nothing.
+12. {ANCHOR_RULE}
+13. Write the question and the answer in the SAME language as the fragment.
 """
 
 _QA_SYSTEM = f"""\
@@ -70,7 +79,7 @@ You build a question-answer benchmark for a private knowledge base. \
 You are given ONE fragment of ONE document and must produce exactly {{n}} \
 question-answer pairs.
 
-{_RULES}11. The answer is short: one to three sentences.
+{_RULES}14. The answer is short: one to three sentences. {TIGHT_ANSWER_RULE}
 
 Return ONLY a JSON array of {{n}} objects:
 [{{{{"question": "...", "answer": "...", "difficulty": "easy|medium|hard"}}}}]
@@ -82,9 +91,9 @@ You build a multiple-choice benchmark for a private knowledge base. \
 You are given ONE fragment of ONE document and must produce exactly {{n}} \
 questions with four options each.
 
-{_RULES}11. Exactly one option is correct; the other three are plausible but wrong \
+{_RULES}14. Exactly one option is correct; the other three are plausible but wrong \
 according to the fragment.
-12. The wrong options must sound right to someone who hasn't read the story, \
+15. The wrong options must sound right to someone who hasn't read the story, \
 and each must be contradicted by it.
 
 Return ONLY a JSON array of {{n}} objects:

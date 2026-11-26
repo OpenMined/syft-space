@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 from syft_space.components.endpoints.entities import Endpoint
 from syft_space.components.endpoints.query_handler import QueryEndpointHandler
@@ -125,6 +126,24 @@ def _make_request() -> AuthenticatedQueryRequest:
         messages="what do the papers say?",
         sender_email="user@example.com",
     )
+
+
+@pytest.mark.asyncio
+async def test_an_unpublished_endpoint_answers_only_the_owner_preview() -> None:
+    endpoint = _make_endpoint("raw")
+    endpoint.published = False
+    handler, dataset_instance, _ = _make_handler(endpoint)
+    tenant = SimpleNamespace(id=TENANT_ID)
+
+    with pytest.raises(HTTPException) as refused:
+        await handler.query_endpoint("ep", _make_request(), tenant)
+    assert refused.value.status_code == 403
+
+    response = await handler.query_endpoint(
+        "ep", _make_request(), tenant, require_published=False
+    )
+    dataset_instance.search.assert_awaited_once()
+    assert response.references is not None
 
 
 @pytest.mark.asyncio

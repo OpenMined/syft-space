@@ -30,6 +30,7 @@ VERDICT_COLOUR: dict[str, str] = {
 GOOD = "#2f9e44"
 BAD = "#e03131"
 NEUTRAL = "#4c6ef5"
+NEUTRAL_LIGHT = "#a5b4fc"
 
 # The height of a bar in inches. A report can have three rows or thirty: a figure
 # of fixed height leaves an empty field in the first case and crushes the labels

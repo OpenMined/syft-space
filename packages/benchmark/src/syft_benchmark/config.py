@@ -212,6 +212,17 @@ class WebSearchEngine(StrEnum):
     PLUGIN = "plugin"
 
 
+class WebCheckEngine(StrEnum):
+    """The web check's search: Exa (``PLUGIN``) or the model's own (``NATIVE``).
+
+    No "auto": the check decides what the tested models could have found, so
+    its search is named, not inferred from the model.
+    """
+
+    NATIVE = "native"
+    PLUGIN = "plugin"
+
+
 class JudgeReasoningEffort(StrEnum):
     """How hard a judge reasons: OpenRouter's ``reasoning.effort``.
 
@@ -286,6 +297,11 @@ class StatusReason(StrEnum):
     # not identify.
     WRONG_LANGUAGE = "wrong_language"
     AMBIGUOUS_ENTITY = "ambiguous_entity"
+    # Asks a fact another question of its article already asks
+    # (generation/repeats.py).
+    REPEATED_FACT = "repeated_fact"
+    # The quality check found it unfit (generation/quality_check.py).
+    QUALITY = "quality"
     # Retired in a document-scoped run: over ``control_max_share``
     # (generation/rotation.py).
     CONTROL_SHARE = "control_share"
@@ -523,8 +539,10 @@ class Settings(BaseSettings):
             "and a question it answers is dropped. Empty — no web check"
         ),
     )
+    # Not the first judge: the panel is chosen for the tested models, and a
+    # panel judge that stands down (an empty reply) would stall the check too.
     filter_judge_model: str | None = Field(
-        default=None,
+        default="anthropic/claude-sonnet-5",
         description="The judge of the web check's answers. Empty — the first judge",
     )
     filter_url: str = Field(
@@ -549,6 +567,36 @@ class Settings(BaseSettings):
         description=(
             "Every judge's reasoning effort, where the model reasons; "
             "default — the model's own"
+        ),
+    )
+    web_check_engine: WebCheckEngine = Field(
+        default=WebCheckEngine.PLUGIN,
+        description="The web check's search: plugin (Exa, OpenRouter) or native",
+    )
+    web_check_max_calls: int = Field(
+        default=3,
+        ge=1,
+        le=30,
+        description=(
+            "Searches the web check model may make per question, apart from "
+            "the tested models' web_search_max_calls"
+        ),
+    )
+    web_check_mirror_domains: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_EXCLUDED_DOMAINS,
+        description=(
+            "Sites that reprint the publisher's text. A web check answer that "
+            "cites only these is not public: the question is kept"
+        ),
+    )
+    web_check_recheck_days: int = Field(
+        default=0,
+        ge=0,
+        le=365,
+        description=(
+            "Check a question in the set again once its last web check is this "
+            "many days old. Zero — checked once"
         ),
     )
     manual_status_priority: ManualStatusPriority = Field(
@@ -625,8 +673,10 @@ class Settings(BaseSettings):
             "foreign conclusion"
         ),
     )
+    # Equal to retrieval_top_k: a chunk found past context_docs counts as found,
+    # yet the model never saw it.
     context_docs: int = Field(
-        default=3,
+        default=5,
         ge=1,
         le=20,
         description="How many top chunks found to put into the arm C prompt",
@@ -806,6 +856,22 @@ class Settings(BaseSettings):
             "Ask the question writer, in a fresh call, whether every person, "
             "organisation and product a question names is identifiable from the "
             "question alone; questions that fail are rejected"
+        ),
+    )
+    quality_check: bool = Field(
+        default=True,
+        description=(
+            "Ask a model, with the article, whether each question stands without "
+            "its source, says what the article says, has one correct answer and is "
+            "not obvious without the article, in the question's language; "
+            "questions that fail are rejected"
+        ),
+    )
+    quality_check_model: str | None = Field(
+        default=None,
+        description=(
+            "The quality check model, called at the question writer's address: "
+            "it sees the article. Empty — the question writer"
         ),
     )
     answer_coverage_threshold: float = Field(
@@ -989,7 +1055,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    @field_validator("web_search_excluded_domains")
+    @field_validator("web_search_excluded_domains", "web_check_mirror_domains")
     @classmethod
     def _search_domains(cls, value: list[str]) -> list[str]:
         return search_domains(value)

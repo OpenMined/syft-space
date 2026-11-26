@@ -13,7 +13,13 @@ from typing import Any
 from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.quality import reject_reason
 from syft_benchmark.generation.shuffle import seed_of, shuffle_options
-from syft_benchmark.generation.wording import ANCHOR_RULE
+from syft_benchmark.generation.wording import (
+    ANCHOR_RULE,
+    ATTRIBUTION_RULE,
+    NO_BYLINE_RULE,
+    OWN_JOURNALISM_RULE,
+    TIGHT_ANSWER_RULE,
+)
 
 TTIL_SYSTEM = f"""\
 You design benchmark questions that measure whether a system has access to a \
@@ -42,6 +48,9 @@ seen the fragment.
   - Build each question on a fact that only this story reports: its own \
 figures, named sources, quotes or inside details. Avoid facts that other \
 outlets also covered or that are general background.
+  - {OWN_JOURNALISM_RULE}
+  - {NO_BYLINE_RULE}
+  - {ATTRIBUTION_RULE}
   - {ANCHOR_RULE}
   - Write in the SAME language as the fragment.
 
@@ -76,7 +85,11 @@ the step or the effect
   - Build each question on a fact that only this story reports: its own \
 figures, named sources, quotes or inside details. Avoid facts that other \
 outlets also covered or that are general background.
-  - Answers: 1-3 sentences, fully grounded in the document.
+  - {OWN_JOURNALISM_RULE}
+  - {NO_BYLINE_RULE}
+  - {ATTRIBUTION_RULE}
+  - Answers: 1-3 sentences, fully grounded in the document. \
+{TIGHT_ANSWER_RULE}
   - {ANCHOR_RULE}
   - Write in the SAME language as the document.
 
@@ -134,6 +147,9 @@ source.
 - List 3 to 5 key facts: the central ones, and ones only this story reports. \
 Leave out background a reader could know from elsewhere.
 - Use the same key facts for every audience level.
+- {OWN_JOURNALISM_RULE}
+- {NO_BYLINE_RULE}
+- {ATTRIBUTION_RULE}
 - {ANCHOR_RULE}
 
 Write in the SAME language as the document.

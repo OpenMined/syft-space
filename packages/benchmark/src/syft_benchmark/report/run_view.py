@@ -73,13 +73,14 @@ from syft_benchmark.report.job_params import (
     window_days_of,
 )
 from syft_benchmark.report.metrics import accuracy_by_temperature, held_by_round
+from syft_benchmark.retrieval.arm_c import SHOWN_KEY, Shown, shown_of
 from syft_benchmark.runs.gate import passes
 from syft_benchmark.runs.judge import ERROR_PREFIX
 from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 16
+AGGREGATE_VERSION = 18
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -138,6 +139,7 @@ class _Row:
     verdict: str
     judge_model: str
     retrieval_hit: bool | None
+    retrieval_shown: Shown
     mode: str
     arm: str
     block: str
@@ -160,6 +162,10 @@ def load_rows(session: Session, job_ids: Sequence[str]) -> list[_Row]:
             Result.verdict,
             Result.judge_model,
             Result.retrieval_hit,
+            Result.retrieval_rank,
+            Result.extra[SHOWN_KEY],
+            Run.params["context_docs"],
+            Run.context_source,
             Run.context_mode,
             Run.block,
             Run.model,
@@ -177,6 +183,13 @@ def load_rows(session: Session, job_ids: Sequence[str]) -> list[_Row]:
             verdict=verdict,
             judge_model=judge or "",
             retrieval_hit=hit,
+            retrieval_shown=shown_of(
+                hit,
+                rank,
+                {SHOWN_KEY: shown},
+                {"context_docs": context_docs},
+                context_source,
+            ),
             mode=mode,
             arm=ARM_OF[mode],
             block=block,
@@ -190,6 +203,10 @@ def load_rows(session: Session, job_ids: Sequence[str]) -> list[_Row]:
             verdict,
             judge,
             hit,
+            rank,
+            shown,
+            context_docs,
+            context_source,
             mode,
             block,
             model,
@@ -493,7 +510,7 @@ def aggregate_core(
     # (model, arm, qa) -> counted verdict; (model, qa) -> overridden
     direct: dict[tuple[str, str, str], str] = {}
     overridden: set[tuple[str, str]] = set()
-    retrieval: dict[tuple[str, str], bool | None] = {}
+    retrieval: dict[tuple[str, str], tuple[bool | None, Shown]] = {}
     blocks: dict[tuple[str, str], list[_Row]] = defaultdict(list)
     agreement: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     for (model, mode, block, qa), (chosen, answer_rows) in answers.items():
@@ -506,7 +523,10 @@ def aggregate_core(
             if chosen.override is not None:
                 overridden.add((model, qa))
             if arm == WITH:
-                retrieval[(model, qa)] = counted.retrieval_hit
+                retrieval[(model, qa)] = (
+                    counted.retrieval_hit,
+                    counted.retrieval_shown,
+                )
             if qa in counted_main:
                 graded = {
                     r.judge_model: r.verdict
@@ -623,8 +643,10 @@ def aggregate_core(
     }
 
     titles = {qa: title for qa, _, title, _, _ in pairs}
+    # Trick questions are listed after the rest; they belong to no group.
+    listed = [*main_ids, *(qa for qa, *_ in pairs if qa in trick_ids)]
     index = []
-    for n, qa in enumerate(main_ids, start=1):
+    for n, qa in enumerate(listed, start=1):
         verdicts = {}
         sources: dict[str, str] = {}
         for model in models:
@@ -632,7 +654,8 @@ def aggregate_core(
             w = direct.get((model, WITH, qa))
             if a is None and w is None:
                 continue
-            verdicts[model] = [a, w, group_of(a, w), (model, qa) in overridden]
+            group = None if qa in trick_ids else group_of(a, w)
+            verdicts[model] = [a, w, group, (model, qa) in overridden]
             if origin is not None:
                 key = AnswerKey(model, ARM_MODE[ALONE], EvalBlock.DIRECT.value, qa)
                 if key not in origin:
@@ -851,7 +874,7 @@ def _checks(
     asked_ids: Sequence[str],
     trick_ids: set[str],
     direct: dict[tuple[str, str, str], str],
-    retrieval: dict[tuple[str, str], bool | None],
+    retrieval: dict[tuple[str, str], tuple[bool | None, Shown]],
     blocks: dict[tuple[str, str], list[_Row]],
     agreement: Sequence[int],
     denial_limit_param: int | None,
@@ -892,9 +915,13 @@ def _checks(
     trick_asked, trick_answered, trick_web = trick(WITH)
     trick_alone_asked, trick_alone_answered, trick_alone_web = trick(ALONE)
 
-    hits = [retrieval.get((model, qa)) for qa in asked_ids]
-    searched = [h for h in hits if h is not None]
-    found = sum(1 for h in searched if h)
+    searched = [
+        r
+        for r in (retrieval.get((model, qa)) for qa in asked_ids)
+        if r and r[0] is not None
+    ]
+    found = sum(1 for hit, _ in searched if hit)
+    shown = sum(1 for _, s in searched if s.value)
     answers, agreed = int(agreement[0]), int(agreement[1])
     return {
         "challenged": len(pressed),
@@ -915,6 +942,9 @@ def _checks(
         "searched": len(searched),
         "search_found": rate(found, len(searched)),
         "missed": len(searched) - found,
+        # A passage found past context_docs never reached the prompt.
+        "search_shown": rate(shown, len(searched)),
+        "shown_assumed": sum(1 for _, s in searched if s.assumed),
         "answers": answers,
         "judges_agreed": agreed,
         "agreement": rate(agreed, answers),

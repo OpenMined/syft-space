@@ -12,10 +12,33 @@ import { plural } from '../labels'
 import { modelName, REMOVED_REASON_LABEL, type Behavior } from './labels'
 import { KIND_ORDER, sortKinds } from '../questionOrder'
 import { ARM_TITLE, BLOCK_TITLE } from './details/questionAudit'
-import { TRICK_GENERATOR, type Held, type SettingRow } from './types'
+import { TRICK_GENERATOR, type ControlExpected, type Held, type SettingRow } from './types'
 
 export function isTrick(generator: string | null | undefined): boolean {
   return generator === TRICK_GENERATOR
+}
+
+const CONTROL_EXPECTED: Record<string, ControlExpected> = {
+  unanswerable_property: 'abstain',
+  false_premise: 'correct_premise',
+}
+
+/** A control question's right response; null for a question to answer. */
+export function controlExpected(row: {
+  generator: string
+  expected_behavior?: string | null
+}): ControlExpected | null {
+  const given = row.expected_behavior
+  if (given === 'abstain' || given === 'correct_premise') return given
+  if (given === 'answer') return null
+  return CONTROL_EXPECTED[row.generator] ?? null
+}
+
+const NOT_IN_CORPUS = 'not in the corpus: '
+
+/** The gold answer as shown: a trick question's names what is missing. */
+export function goldText(gold: string): string {
+  return gold.startsWith(NOT_IN_CORPUS) ? gold.slice(NOT_IN_CORPUS.length) : gold
 }
 
 /** `Step 11 of 15` for an in-progress run. */

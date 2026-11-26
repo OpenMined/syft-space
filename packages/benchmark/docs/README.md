@@ -127,6 +127,7 @@ src/syft_benchmark/
   generation/          stages 2-3: the generators, screening, filtering, the set
   runs/                stages 4-5: the arms, the blocks, judging, resuming
   report/              stages 6-7: metrics, the documents, the audit export
+  retrieval/           arm C: whether the source chunk was found and shown
   control/             the service: routes, settings layers, targets, jobs, the schedule
 tests/                 including the invariants as executable checks
 alembic/versions/      the schema migrations

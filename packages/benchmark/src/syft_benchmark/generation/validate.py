@@ -3,19 +3,24 @@
 The check is lexical and deterministic: the share of the answer's content
 words found in the context, against ``answer_coverage_threshold``; a short
 answer must be found whole, and a reworded item is checked by its claims.
+Function words are those of the context's language (``languages.py``) plus
+English; words are compared case- and accent-folded.
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from syft_benchmark.config import Settings, get_settings
+from syft_benchmark.languages import STOP_WORDS, detect_language
 
 # Function words carry no content: their matching proves nothing, and in a
 # short phrase they give almost a hundred percent coverage out of thin air.
-# The list is English: for a corpus in another language nothing is subtracted,
-# and the coverage threshold is merely applied more strictly.
+# This English list is what an English context subtracts; another language
+# subtracts its own function words as well, never English content words that
+# happen to be function words elsewhere ("war", "die").
 _STOPWORDS = frozenset(
     {
         "the", "a", "an", "and", "or", "but", "of", "in", "on", "at", "to",
@@ -32,6 +37,13 @@ _HEDGES = frozenset(
     {
         "about", "around", "roughly", "approximately", "approx", "nearly",
         "almost", "some", "circa",
+    }
+)  # fmt: skip
+_FOREIGN_HEDGES = frozenset(
+    {
+        "aproximadamente", "alrededor", "cerca", "casi", "unos", "unas",
+        "quase", "environ", "presque", "quelque", "etwa", "ungefähr", "rund",
+        "fast", "knapp",
     }
 )  # fmt: skip
 
@@ -51,18 +63,32 @@ class Review:
     note: str
 
 
-def _content_tokens(text: str) -> list[str]:
+def _fold(text: str) -> str:
+    """Lower case without accents: "Perú" and "Peru" are one word."""
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def _skipped(language: str | None) -> frozenset[str]:
+    """The words that carry no content in a text of ``language``."""
+    if language is None or language == "en" or language not in STOP_WORDS:
+        return _STOPWORDS | _HEDGES
+    return frozenset(
+        _fold(w) for w in _STOPWORDS | _HEDGES | STOP_WORDS[language] | _FOREIGN_HEDGES
+    )
+
+
+def _content_tokens(text: str, language: str | None = None) -> list[str]:
     """Content words: no function words or hedges, nothing one letter long.
 
     A digit is content: "8%" is the token "8", "$1.5 trillion" is "1", "5",
     "trillion".
     """
+    skipped = _skipped(language)
     return [
         token
-        for token in (m.group(0).lower() for m in _TOKEN_RE.finditer(text))
-        if (len(token) > 1 or token.isdigit())
-        and token not in _STOPWORDS
-        and token not in _HEDGES
+        for token in (_fold(m.group(0)) for m in _TOKEN_RE.finditer(text))
+        if (len(token) > 1 or token.isdigit()) and token not in skipped
     ]
 
 
@@ -101,7 +127,10 @@ def review_claims(
     if not claims:
         return Review(False, 0.0, "nothing to check: no claims were listed")
 
-    verdicts = [review_answer(claim, fragment, settings) for claim in claims]
+    language = detect_language(fragment)
+    verdicts = [
+        review_answer(claim, fragment, settings, language=language) for claim in claims
+    ]
     grounded = sum(1 for v in verdicts if v.grounded)
     share = grounded / len(verdicts)
 
@@ -115,7 +144,11 @@ def review_claims(
 
 
 def review_answer(
-    answer: str, fragment: str, settings: Settings | None = None
+    answer: str,
+    fragment: str,
+    settings: Settings | None = None,
+    *,
+    language: str | None = "",
 ) -> Review:
     """Whether the gold answer was taken from the chunk.
 
@@ -123,16 +156,20 @@ def review_answer(
         answer: The gold answer from the generator
         fragment: The chunk the pair was built from
         settings: The process settings; the coverage threshold comes from them
+        language: The chunk's language code; None — not known (English
+            function words only); empty — detected from the chunk
 
     Returns:
         A Review with the coverage share and an explanation
     """
     threshold = (settings or get_settings()).answer_coverage_threshold
-    tokens = _content_tokens(answer)
+    if language == "":
+        language = detect_language(fragment)
+    tokens = _content_tokens(answer, language)
     if not tokens:
         return Review(False, 0.0, "the gold answer has no content words")
 
-    haystack = {_stem(token) for token in _content_tokens(fragment)}
+    haystack = {_stem(token) for token in _content_tokens(fragment, language)}
     hits = sum(1 for token in tokens if _stem(token) in haystack)
     coverage = hits / len(tokens)
 

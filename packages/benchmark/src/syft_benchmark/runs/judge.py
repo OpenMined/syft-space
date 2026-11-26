@@ -30,6 +30,7 @@ from syft_benchmark.llm import (
 from syft_benchmark.llm.cost import spent
 from syft_benchmark.llm.roles import web_search_for
 from syft_benchmark.runs.fill_in import match_fill_in
+from syft_benchmark.runs.refusal import NOT_KNOWING_RE, detect_abstain
 
 if TYPE_CHECKING:
     from syft_benchmark.db import QaPair
@@ -41,32 +42,6 @@ def judge_web_search(conf: Settings, judge: Provider) -> tuple[bool, str]:
 
 
 ERROR_PREFIX = "ERROR:"
-
-# The patterns are English: that is the language the answering models are asked
-# in, and an unrecognised abstention is counted as an answer rather than lost.
-_ABSTAIN_PATTERNS = (
-    r"i don'?t (?:know|have (?:access|information|enough|the))",
-    r"i'?m not (?:sure|certain|able|aware)",
-    r"i (?:cannot|can'?t|am unable to) "
-    r"(?:determine|answer|confirm|verify|find|provide)",
-    r"(?:no|not enough) (?:information|context|data) (?:available|provided|in the)",
-    r"the (?:provided )?context does not (?:contain|mention|provide|specify)",
-    r"(?:is|are) not (?:mentioned|specified|provided) in the (?:context|document)",
-    r"based on the (?:provided )?context,? i (?:cannot|can'?t|don'?t)",
-)
-_ABSTAIN_RE = re.compile("|".join(_ABSTAIN_PATTERNS), re.IGNORECASE)
-
-# Signs that the model did give an answer after all, if with a hedge. A hedge
-# plus an answer is a guess, not an abstention, and must be assessed as an answer.
-_ANSWER_SIGNALS = re.compile(
-    r"(?:^|\n)\s*[A-Da-d]\)|"
-    r"[A-Da-d]\)\s+\w|"
-    r"\b(?:the answer is|most likely|apparently)\b|"
-    # The word boundaries here are mandatory: without them "though" is found
-    # inside "Although", and an honest abstention is scored as an answer.
-    r"\b(?:however|but|though)\b[,;]?\s+\S+",
-    re.IGNORECASE,
-)
 
 _MCQ_LETTER = re.compile(r"\b([A-D])\s*[\)\.:]", re.IGNORECASE)
 
@@ -198,16 +173,6 @@ def judge_trail(verdict: Grade) -> dict[str, Any]:
             "latency_s": verdict.latency_s,
         }
     return trail
-
-
-def detect_abstain(answer: str) -> bool:
-    """Whether it refused to answer."""
-    text = (answer or "").strip()
-    if not text:
-        return True
-    if not _ABSTAIN_RE.search(text):
-        return False
-    return not _ANSWER_SIGNALS.search(text)
 
 
 def grade_mcq(answer: str, expected: str) -> bool | None:
@@ -725,15 +690,6 @@ Return ONLY a JSON object, no markdown and no commentary:
 _NO_CITATIONS_NOTE = "(no web citations: counted as made up)"
 _BARE_DECLINE_NOTE = "(only says it does not know: counted as declined)"
 
-# A sentence that says the model does not know, cannot tell or lacks access.
-_NOT_KNOWING_RE = re.compile(
-    r"\b(?:i|we)\s+(?:do not|don'?t|cannot|can'?t|am unable to|am not able to|"
-    r"have no|lack)\b|"
-    r"\bi'?m not (?:sure|certain|able|aware)\b|"
-    r"\bwithout (?:access|information|details|data)\b|"
-    r"\bno (?:information|details|data|access)\b",
-    re.IGNORECASE,
-)
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
@@ -747,7 +703,7 @@ def bare_decline(answer: str) -> bool:
     if not detect_abstain(answer):
         return False
     sentences = [s.strip() for s in _SENTENCE_RE.split(answer.strip()) if s.strip()]
-    return all(_NOT_KNOWING_RE.search(s) for s in sentences)
+    return all(NOT_KNOWING_RE.search(s) for s in sentences)
 
 
 @dataclass(frozen=True, slots=True)

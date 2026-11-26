@@ -128,8 +128,9 @@ def chat(
         with the Exa plugin: "leaked" or "unused"; absent — it was not) and,
         when ``web_search_excluded_domains`` applies to the role (the tested
         models and the web check), web_search_exclusion (whether the search
-        left them out; see ``excludes_domains``) and, for a tested model under
-        ``web_search_max_calls``, web_search_max_calls (the cap) and
+        left them out; see ``excludes_domains``) and, for a tested model
+        (``web_search_max_calls``) or the web check (``web_check_max_calls``),
+        web_search_max_calls (the cap) and
         web_search_over_cap (the provider reports more searches than it)
 
     Raises:
@@ -173,8 +174,11 @@ def chat(
     searched: str | bool = False
     steps: list[SearchStep] = []
     results = conf.web_search_max_results
-    # The search cap is the tested models': the web check searches unbounded.
-    calls = conf.web_search_max_calls if cost.role_of(role) == cost.SUBJECTS else 0
+    # Each searching role has its own cap; the rest search unbounded.
+    calls = {
+        cost.SUBJECTS: conf.web_search_max_calls,
+        cost.WEB_CHECK: conf.web_check_max_calls,
+    }.get(cost.role_of(role) or "", 0)
     # Kept out of the searches of the tested models and of the web check, which
     # decides what they could have found.
     excluded = (

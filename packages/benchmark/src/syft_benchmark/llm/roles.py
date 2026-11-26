@@ -120,6 +120,7 @@ def web_search_for(settings: Settings, role: str, model: str) -> tuple[bool, str
         takes native when the catalogue says the model has it; "native" asked of
         a model without it falls back to Exa, so the model still searches.
         A model the catalogue cannot search with (local) never searches.
+        The web check ("filter") takes ``web_check_engine``.
 
     Raises:
         KeyError: an unknown role
@@ -130,7 +131,10 @@ def web_search_for(settings: Settings, role: str, model: str) -> tuple[bool, str
     capability = catalog.load(settings).web_search_of(model)
     if capability == "none":
         return False, ""
-    wanted = str(settings.web_search_engine)
+    # The web check names its own search: it must not follow the tested models'.
+    wanted = str(
+        settings.web_check_engine if role == "filter" else settings.web_search_engine
+    )
     if wanted == "plugin" or capability != "native":
         return True, "plugin"
     return True, "native"

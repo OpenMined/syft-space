@@ -154,11 +154,14 @@ describe('auditOf', () => {
   })
 
   it('says where the source ranked', () => {
-    const base = { fragmentMaxChars: null, fragments: null }
+    const base = { fragmentMaxChars: null, fragments: null, shown: null }
     expect(sourceText({ ...base, hit: false, rank: null, contextDocs: 5 })).toBe('Source not found')
     expect(sourceText({ ...base, hit: true, rank: 2, contextDocs: 5 })).toBe('Source #2')
     expect(sourceText({ ...base, hit: true, rank: 6, contextDocs: 5 })).toBe(
       'Source #6, not in the prompt',
+    )
+    expect(sourceText({ ...base, hit: true, rank: 2, contextDocs: 5, shown: false })).toBe(
+      'Source #2, not in the prompt',
     )
   })
 })

@@ -174,7 +174,12 @@ def _decision_states(
 
 # Reasons decided as the question is written (the ``writing`` stage).
 _WRITING_REASONS = frozenset(
-    {StatusReason.WRONG_LANGUAGE.value, StatusReason.AMBIGUOUS_ENTITY.value}
+    {
+        StatusReason.WRONG_LANGUAGE.value,
+        StatusReason.AMBIGUOUS_ENTITY.value,
+        StatusReason.REPEATED_FACT.value,
+        StatusReason.QUALITY.value,
+    }
 )
 # Reasons decided by a live retrieval search (the ``control`` stage).
 _SEARCH_REASONS = frozenset(

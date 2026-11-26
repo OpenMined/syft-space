@@ -23,6 +23,7 @@ const MEASURED: BenchmarkRunChecks = {
   searched: 100,
   search_found: 0.96,
   missed: 4,
+  search_shown: 0.92,
   answers: 200,
   judges_agreed: 185,
   agreement: 0.925,
@@ -105,7 +106,7 @@ describe('ChecksPage', () => {
       'Refused all 4. It hallucinated an answer to none of them.',
     )
 
-    expect(lines(wrapper, 'search')).toEqual(['Found 96%'])
+    expect(lines(wrapper, 'search')).toEqual(['Found 96%', 'Given to the model 92%'])
     expect(reading(wrapper, 'search')).toBe(
       'On 4 questions the source paragraph was not among the excerpts.',
     )
@@ -161,7 +162,7 @@ describe('ChecksPage', () => {
     expect(reading(wrapper, 'repeated')).toBe('Gave the same answer every time on — of questions.')
     expect(wrapper.findAll('[data-testid="check-square"]')).toHaveLength(0)
     expect(reading(wrapper, 'trick')).toBe('—')
-    expect(lines(wrapper, 'search')).toEqual(['Found —'])
+    expect(lines(wrapper, 'search')).toEqual(['Found —', 'Given to the model —'])
     expect(reading(wrapper, 'search')).toBe('—')
     expect(reading(wrapper, 'judges')).toBe('—')
     const bars = wrapper.findAll('[data-testid="check-line"] .bg-chart-5')

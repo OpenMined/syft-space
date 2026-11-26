@@ -6,8 +6,9 @@ testing the answerer sees only the question, without the chunk. Unambiguity only
 where the answer is not picked from ready-made options; the options make the
 question unambiguous by themselves.
 
-The patterns below are English. They are lexical, so a corpus in another
-language passes through them unscreened rather than wrongly screened.
+The patterns below are English and drop a draft before it is stored. They are
+lexical, so another language passes through them; the quality check
+(``quality_check.py``) asks a model the same questions in any language.
 """
 
 from __future__ import annotations

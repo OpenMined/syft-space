@@ -41,6 +41,7 @@ from syft_benchmark.config import (
     PairStatus,
     TextMetric,
     Verdict,
+    WebCheckEngine,
     WebSearchEngine,
     search_domains,
 )
@@ -173,7 +174,30 @@ class Instrument(Layer):
     )
     filter_judge_model: str | None = Field(
         default=None,
-        description="The web check's judge. Empty — the first judge",
+        description="The web check's judge",
+    )
+    web_check_engine: WebCheckEngine | None = Field(
+        default=None, description="The web check's search: plugin (Exa) or native"
+    )
+    web_check_max_calls: int | None = Field(
+        default=None,
+        ge=1,
+        le=30,
+        description="Searches the web check model may make per question",
+    )
+    web_check_mirror_domains: list[str] | None = Field(
+        default=None,
+        max_length=MAX_EXCLUDED_DOMAINS,
+        description=(
+            "Sites that reprint the publisher's text: a web check answer citing "
+            "only these keeps the question. Empty — none"
+        ),
+    )
+    web_check_recheck_days: int | None = Field(
+        default=None,
+        ge=0,
+        le=365,
+        description="Days after which a question's web check is repeated. Zero — never",
     )
     manual_status_priority: ManualStatusPriority | None = Field(
         default=None,
@@ -239,6 +263,17 @@ class Instrument(Layer):
         default=None,
         description="Reject questions whose subject the question does not identify",
     )
+    quality_check: bool | None = Field(
+        default=None,
+        description=(
+            "Reject questions a model finds unfit to ask apart from the article, "
+            "in any language"
+        ),
+    )
+    quality_check_model: str | None = Field(
+        default=None,
+        description="The quality check model; empty — the question writer",
+    )
     consistency_floor: float | None = Field(default=None, ge=0.0, le=1.0)
 
     # --- Everything else about the instrument
@@ -281,7 +316,7 @@ class Instrument(Layer):
     def _one_model_name(cls, value: str | None) -> str | None:
         return None if value is None else _model_name(value)
 
-    @field_validator("web_search_excluded_domains")
+    @field_validator("web_search_excluded_domains", "web_check_mirror_domains")
     @classmethod
     def _search_domains(cls, value: list[str] | None) -> list[str] | None:
         return None if value is None else search_domains(value)
@@ -917,6 +952,16 @@ class ResultResponse(BaseModel):
     )
     retrieval_rank: int | None = Field(
         default=None, description="At which position, if it was"
+    )
+    retrieval_shown: bool | None = Field(
+        default=None,
+        description="Whether it was among the `context_docs` chunks put into "
+        "the prompt; false abstentions and answers on a miss go by this",
+    )
+    retrieval_shown_assumed: bool = Field(
+        default=False,
+        description="The answer and its run do not record what was shown: "
+        "`retrieval_shown` is taken as found",
     )
     # Null with `audit_log` off, which is not "the answer was not cut".
     call: ResultCall | None = None

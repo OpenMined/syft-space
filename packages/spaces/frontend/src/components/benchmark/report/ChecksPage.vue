@@ -263,7 +263,10 @@ const rows = computed<CheckRow[]>(() => {
     key: 'search',
     title: 'Finding the right passage',
     what: 'With your data, the model gets the most relevant excerpts from a search of your archive. This checks the search, not the model, so it is the same for every model.',
-    lines: [{ label: 'Found', value: c.searched ? c.search_found : null }],
+    lines: [
+      { label: 'Found', value: c.searched ? c.search_found : null },
+      { label: 'Given to the model', value: c.searched ? (c.search_shown ?? null) : null },
+    ],
     reading: c.searched
       ? `On ${plural(c.missed, 'question', 'questions')} the source paragraph was not among the excerpts.`
       : DASH,

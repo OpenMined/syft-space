@@ -1,7 +1,7 @@
 /** The report's customer wording: verdicts and their pill colours, outcomes and model names. */
-import type { BenchmarkBehavior, BenchmarkModel } from '@/api/types'
+import type { BenchmarkBehavior, BenchmarkExpectedBehavior, BenchmarkModel } from '@/api/types'
 import { TONE } from '../labels'
-import type { Group } from './types'
+import type { ControlExpected, Group } from './types'
 
 const VERDICT_LABEL: Record<string, string> = {
   correct: 'Right',
@@ -116,6 +116,26 @@ export function outcomeLabel(
   return behavior ? BEHAVIOR_LABEL[behavior] : verdictLabel(verdict)
 }
 
+/** A control question's right response, short; the tip says why. */
+export const EXPECTED_LABEL: Record<ControlExpected, string> = {
+  abstain: 'Expect “I don’t know”',
+  correct_premise: 'Expect a correction',
+}
+
+export const EXPECTED_TIP: Record<ControlExpected, string> = {
+  abstain:
+    'Control question. Your reporting doesn’t hold this detail, so the right response is to say so.',
+  correct_premise:
+    'Control question. It assumes something your reporting contradicts, so the right response is to correct it.',
+}
+
+/** The question filter by right response. */
+export const EXPECTED_FILTER_LABEL: Record<BenchmarkExpectedBehavior, string> = {
+  answer: 'Answer it',
+  abstain: 'Say “I don’t know”',
+  correct_premise: 'Correct the premise',
+}
+
 export const GROUP_LABEL: Record<Group, string> = {
   fixed: 'Your data fixed it',
   either: 'Right either way',
@@ -206,6 +226,8 @@ export const REMOVED_REASON_LABEL: Record<string, string> = {
   public_knowledge: 'Public knowledge',
   wrong_language: 'Wrong language',
   ambiguous_entity: 'Unclear subject',
+  quality: 'Failed the quality check',
+  repeated_fact: 'Repeats another question',
   other: 'Other',
 }
 

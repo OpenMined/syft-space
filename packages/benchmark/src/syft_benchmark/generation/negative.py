@@ -17,7 +17,12 @@ from typing import Any
 
 from syft_benchmark.generation.pair import Dropped, Pair
 from syft_benchmark.generation.quality import reject_reason
-from syft_benchmark.generation.wording import ANCHOR_RULE
+from syft_benchmark.generation.wording import (
+    ANCHOR_RULE,
+    ATTRIBUTION_RULE,
+    NO_BYLINE_RULE,
+    OWN_JOURNALISM_RULE,
+)
 
 # What an unanswerable item's answer field opens with.
 NOT_IN_CORPUS = "not in the corpus:"
@@ -25,8 +30,9 @@ NOT_IN_CORPUS = "not in the corpus:"
 _SHARED_RULES = f"""\
 Rules:
 1. The question must be standalone. Never write "the text", "the fragment", \
-"the document" or "according to ...". Name the subject explicitly, so that \
-the question still makes sense to someone who has never seen the fragment.
+"the document" or "according to the article". Name the subject explicitly, \
+so that the question still makes sense to someone who has never seen the \
+fragment.
 2. Name every person, organisation and product so it is identifiable \
 without the story: full name plus role or affiliation, a product with its \
 maker. Never make a first name, a pseudonym or an anonymous source the \
@@ -35,8 +41,10 @@ subject of a question.
 4. Ask about something factual and specific — a number, a name, a date, a \
 setting, a limit, a default. Never ask for an opinion or a prediction: those \
 have no right answer at all, and the benchmark would be measuring nothing.
-5. {ANCHOR_RULE}
-6. Write the question in the SAME language as the fragment.
+5. {NO_BYLINE_RULE}
+6. {OWN_JOURNALISM_RULE}
+7. {ANCHOR_RULE}
+8. Write the question in the SAME language as the fragment.
 """
 
 UNANSWERABLE_SYSTEM = f"""\
@@ -48,14 +56,14 @@ You are given ONE fragment of ONE document. Produce exactly {{n}} questions \
 that are about subjects the fragment DOES name, but ask for a property the \
 fragment does NOT state.
 
-{_SHARED_RULES}7. Name a subject that actually appears in the fragment. A \
+{_SHARED_RULES}9. Name a subject that actually appears in the fragment. A \
 question about something unrelated is useless here: it must look like a \
 question a real user of these documents would ask.
-8. The property you ask about must be absent from the fragment. Do not ask \
+10. The property you ask about must be absent from the fragment. Do not ask \
 something the fragment answers, even partly.
-9. Do not invent a value and do not hint at one.
-10. Ask for exactly ONE missing detail. Never combine two asks in one question.
-11. The detail must not be public knowledge either: nothing a well-informed \
+11. Do not invent a value and do not hint at one.
+12. Ask for exactly ONE missing detail. Never combine two asks in one question.
+13. The detail must not be public knowledge either: nothing a well-informed \
 person could look up elsewhere, like a famous crew list or a well-known founder.
 
 Return ONLY a JSON array of {{n}} objects:
@@ -72,17 +80,26 @@ premise.
 
 You are given ONE fragment of ONE document. Produce exactly {{n}} questions.
 
-{_SHARED_RULES}7. The false premise must contradict a fact the fragment \
-states plainly. Do not build it on something the fragment merely omits — \
-that is a different kind of question.
-8. Phrase the question as if the premise were settled fact, the way a \
-confused user would ask it: "why did X switch to Y", "when was Z removed".
-9. The correction must state what the fragment actually says.
+{_SHARED_RULES}9. The false premise must contradict a fact the fragment \
+states explicitly, in words that rule it out: a different number, name, \
+date, place or outcome. Do not build it on something the fragment merely \
+omits — that is a different kind of question — nor on a claim that could \
+be true alongside what the fragment says. If the fragment holds fewer such \
+facts than asked, return fewer questions.
+10. Phrase the question as if the premise were settled fact, the way a \
+confused user would ask it. Vary how the questions open: at most one may \
+start with "Why" ("¿Por qué...?"); ask "When...", "How much...", "Which...", \
+"Who...", "Where...", "How did..." or "After X did Y, what..." instead, in \
+the fragment's language.
+11. The correction must state what the fragment actually says. \
+{ATTRIBUTION_RULE}
+12. Each item of "grounds" copies, verbatim, a sentence of the fragment \
+that rules the premise out.
 
 Return ONLY a JSON array of {{n}} objects:
 [{{{{"question": "...", "premise": "the false claim built into the question", \
 "correction": "what the fragment actually states", \
-"grounds": ["fact from the fragment that makes the premise false"]}}}}]
+"grounds": ["the fragment's sentence that makes the premise false"]}}}}]
 No markdown fences, no commentary.
 """
 

@@ -60,9 +60,11 @@ from syft_benchmark.generation.web_check import (
     WebChecker,
     WebCheckSummary,
     WebVerdict,
+    checks_control,
     checks_public,
     exclusion,
     lean,
+    recheck_due,
     skips_manual,
     web_checked,
 )
@@ -492,14 +494,14 @@ class Screening:
                 status, reason, note, meta = _screen_pair(
                     row, spec, self.retrieve, self.conf, self.judge
                 )
-            public = self.web_on and checks_public(row)
-            if public and status is PairStatus.ACTIVE:
+            asked = self.web_on and checks_control(row)
+            if asked and status is PairStatus.ACTIVE:
                 if skips_manual(row, self.conf):
                     self._write(row, status, None, note, meta, decisions.CONTROL)
                 else:
                     self._web_decide(row, note, meta)
                 return
-            if self.web_on and not public:
+            if self.web_on and not asked:
                 meta = {**meta, "web_check": {"skipped": CONTROL_NOTE}}
             self._write(row, status, reason, note, meta, decisions.CONTROL)
             return
@@ -548,14 +550,12 @@ class Screening:
         if verdict.answerable is None:
             self._note_pending(row, verdict, meta)
         elif verdict.answerable:
-            public = checks_public(row)
+            reason, why = _removal(row)
             self._write(
                 row,
                 PairStatus.REJECTED,
-                StatusReason.PUBLIC_KNOWLEDGE
-                if public
-                else StatusReason.WEB_ANSWERABLE,
-                PUBLIC_KNOWLEDGE if public else WEB_ANSWERABLE,
+                reason,
+                why,
                 {**meta, **self._web_meta(verdict)},
                 decisions.WEB_CHECK,
                 self._web_record(verdict),
@@ -581,11 +581,12 @@ class Screening:
         with self._lock:
             self.rechecked += 1
         if verdict.answerable:
+            reason, why = _removal(row)
             self._write(
                 row,
                 PairStatus.REJECTED,
-                StatusReason.WEB_ANSWERABLE,
-                WEB_ANSWERABLE,
+                reason,
+                why,
                 self._web_meta(verdict),
                 decisions.WEB_CHECK,
                 self._web_record(verdict),
@@ -602,6 +603,13 @@ class Screening:
                 if note not in self.report.notes:
                     self.report.notes.append(note)
         return self.report
+
+
+def _removal(row: QaPair) -> tuple[StatusReason, str]:
+    """The reason and note of a pair the web check answers."""
+    if checks_public(row):
+        return StatusReason.PUBLIC_KNOWLEDGE, PUBLIC_KNOWLEDGE
+    return StatusReason.WEB_ANSWERABLE, WEB_ANSWERABLE
 
 
 def _pending_rows(
@@ -671,7 +679,8 @@ def filter_pending(
             pass off
         recheck_cohort: With the web check on, also check this cohort's pairs
             already in the set (active, or held back by the cap) that have no
-            verdict from the current ``filter_model``; None — none of them
+            verdict from the current ``filter_model``, or whose last check is
+            ``web_check_recheck_days`` old; None — none of them
         recheck_docs: Limit those to pairs from these documents (the window);
             None — no limit
         job_id: The job every decision is stamped with; empty — none
@@ -709,9 +718,7 @@ def filter_pending(
     _run_all(screening.screen, rows, width)
 
     if screening.web_on and recheck_cohort is not None and not screening.stopped():
-        recheck = _unchecked_in_set(
-            space.key, conf, recheck_cohort, generator, recheck_docs
-        )
+        recheck = _due_in_set(space.key, conf, recheck_cohort, generator, recheck_docs)
         _run_all(screening.recheck, recheck, width)
 
     report = screening.summary()
@@ -719,15 +726,17 @@ def filter_pending(
     return report
 
 
-def _unchecked_in_set(
+def _due_in_set(
     space: str,
     conf: Settings,
     cohort: str,
     generator: str | None,
     docs: Collection[str] | None,
 ) -> list[QaPair]:
-    """This cohort's pairs in the set, or held back by the cap, not yet checked
-    by the current web check model. Active ones first, the newest first."""
+    """This cohort's pairs in the set, or held back by the cap, due a web
+    check: not yet checked by the current web check model, or checked
+    ``web_check_recheck_days`` ago (a control question: only that). Active
+    ones first, the newest first."""
     model = conf.filter_model or ""
     with session_scope(conf) as session:
         query = select(QaPair).where(
@@ -744,12 +753,20 @@ def _unchecked_in_set(
         rows = list(session.execute(query).scalars())
         for row in rows:
             session.expunge(row)
+    now = datetime.now(UTC)
+
+    def due(row: QaPair) -> bool:
+        if checks_control(row):
+            return recheck_due(row, conf, now)
+        if exclusion(row):
+            return False
+        return not web_checked(row, model) or recheck_due(row, conf, now)
+
     rows = [
         row
         for row in rows
         if row.generator in GENERATORS
-        and not exclusion(row)
-        and not web_checked(row, model)
+        and due(row)
         and not skips_manual(row, conf)
         and (docs is None or row.doc_id in docs)
     ]

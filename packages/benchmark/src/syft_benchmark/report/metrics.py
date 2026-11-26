@@ -40,6 +40,7 @@ from syft_benchmark.report.counted import (
     primary_judge,
 )
 from syft_benchmark.report.job_params import configured_panel, job_panel
+from syft_benchmark.retrieval.arm_c import Shown, shown_of
 from syft_benchmark.runs.judge import is_technical
 from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 
@@ -117,11 +118,15 @@ class Metrics(VerdictShares):
     by_temperature: dict[str, float] = field(default_factory=dict)
     # The cut by retrieval hit on the answerable questions (``retrieval_split``):
     # an abstention on a miss is correct, on a hit it is the model's blindness.
+    # The cut is on "shown": the source chunk in the prompt, not only found.
     hit_correct: int = 0
     hit_abstain: int = 0
     hit_wrong: int = 0
     miss_answered: int = 0
     miss_abstain: int = 0
+    retrieval_shown: int = 0
+    # Shown counted as found: stored without the flag, run without context_docs.
+    retrieval_shown_assumed: int = 0
 
     @property
     def arm(self) -> str:
@@ -148,6 +153,13 @@ class Metrics(VerdictShares):
         if not self.retrieval_checked:
             return 0.0
         return self.retrieval_hits / self.retrieval_checked
+
+    @property
+    def retrieval_shown_rate(self) -> float:
+        """The share of questions where the right document reached the prompt."""
+        if not self.retrieval_checked:
+            return 0.0
+        return self.retrieval_shown / self.retrieval_checked
 
     @property
     def is_reliable(self) -> bool:
@@ -203,8 +215,8 @@ class Metrics(VerdictShares):
 
     @property
     def false_abstain_rate(self) -> float | None:
-        """The share of retrieval hits the answerer abstained on, every other
-        verdict on a hit counting as answered; None without a single hit."""
+        """The share of shown source chunks the answerer abstained on, every
+        other verdict counting as answered; None without a single one."""
         hits = self.hit_correct + self.hit_abstain + self.hit_wrong
         return self.hit_abstain / hits if hits else None
 
@@ -212,7 +224,7 @@ class Metrics(VerdictShares):
     def blind_answer_rate(self) -> float | None:
         """Answers on a retrieval miss — the most dangerous class.
 
-        The right chunk was not found, and the answerer answered anyway: an
+        The right chunk was not shown, and the answerer answered anyway: an
         invention assembled out of topically neighbouring quotations and looking
         as if it were confirmed.
         """
@@ -237,6 +249,9 @@ def _answered(verdict: str) -> bool:
 
 def retrieval_split(checked: Iterable[tuple[bool, str]]) -> RetrievalSplit:
     """``(hit, verdict)`` pairs of the checked answers, cut by retrieval hit.
+
+    Pass "shown" as the hit: a chunk found past ``context_docs`` was never in
+    the prompt, and abstaining without it is not blindness.
 
     A hit is correct, abstained or wrong (answered, not correct); a miss is
     answered or abstained. Both sides use the one ``_answered`` predicate, so a
@@ -565,9 +580,12 @@ def summarize(
 
     by_temperature = _accuracy_by_temperature(repeated)
 
-    # The 2x2 cut: what the answerer did when retrieval found the right chunk and
-    # when it missed. Computed only where retrieval took part at all.
-    split = retrieval_split((bool(r.retrieval_hit), r.verdict) for r in checked)
+    # The 2x2 cut: what the answerer did when the right chunk was in its prompt
+    # and when it was not. Computed only where retrieval took part at all.
+    shown = _shown(checked)
+    split = retrieval_split(
+        (bool(s.value), r.verdict) for r, s in zip(checked, shown, strict=True)
+    )
 
     return Metrics(
         space=space,
@@ -583,7 +601,7 @@ def summarize(
         pending=len(rest) - len(graded_rows),
         web_sourced=counts[Verdict.WEB_SOURCED.value],
         incomplete=counts[Verdict.INCOMPLETE.value],
-        retrieval_hits=split.hit_correct + split.hit_abstain + split.hit_wrong,
+        retrieval_hits=sum(1 for r in checked if r.retrieval_hit),
         retrieval_checked=len(checked),
         checked_at=max((r.created_at for r in rows), default=None),
         judge=judge or counted_judge((r.judge_model for r in rows), job),
@@ -598,7 +616,31 @@ def summarize(
         hit_wrong=split.hit_wrong,
         miss_answered=split.miss_answered,
         miss_abstain=split.miss_abstain,
+        retrieval_shown=split.hit_correct + split.hit_abstain + split.hit_wrong,
+        retrieval_shown_assumed=sum(1 for s in shown if s.assumed),
     )
+
+
+def _shown(rows: list[Result]) -> list[Shown]:
+    """Per row, whether the source chunk was in the prompt (``shown_of``)."""
+    run_ids = {r.run_id for r in rows}
+    if not run_ids:
+        return []
+    with session_scope() as session:
+        runs = {
+            run_id: (params, source)
+            for run_id, params, source in session.execute(
+                select(Run.id, Run.params, Run.context_source).where(
+                    Run.id.in_(run_ids)
+                )
+            ).tuples()
+        }
+    return [
+        shown_of(
+            r.retrieval_hit, r.retrieval_rank, r.extra, *runs.get(r.run_id, ({}, ""))
+        )
+        for r in rows
+    ]
 
 
 def _held_by_round(pressed: list[Result]) -> list[float]:

@@ -42,7 +42,16 @@ from syft_benchmark.config import (
 )
 from syft_benchmark.db import ProcessedUnit, QaPair, session_scope
 from syft_benchmark.generation import cohort as cohorts
-from syft_benchmark.generation import decisions, entities, recorded, writer_log
+from syft_benchmark.generation import (
+    decisions,
+    entities,
+    gold,
+    quality_check,
+    recorded,
+    repeats,
+    writer_log,
+    yearless,
+)
 from syft_benchmark.generation.article_dates import article_stamp, backfill
 from syft_benchmark.generation.control import Retriever
 from syft_benchmark.generation.extractive import (
@@ -121,6 +130,9 @@ OVER_BUDGET = "over budget"
 OVER_UNIT_LIMIT = "over the per-passage limit"
 WRONG_LANGUAGE = "wrong language"
 AMBIGUOUS_ENTITY = entities.AMBIGUOUS_ENTITY
+REPEATED_FACT = repeats.REPEATED_FACT
+NO_YEAR = yearless.NO_YEAR
+POOR_QUALITY = quality_check.POOR_QUALITY
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,6 +332,7 @@ def _row(
     job: str,
     writer: dict[str, Any] | None,
     check: dict[str, Any] | None,
+    quality: dict[str, Any] | None = None,
     rejected: _Rejected | None = None,
     conf: Settings,
 ) -> QaPair | None:
@@ -335,6 +348,15 @@ def _row(
         **pair.meta,
         "grading": pair.meta.get("grading", generator.grading),
         **article_stamp(doc),
+        gold.META: gold.build_gold(
+            generator.key,
+            pair.question,
+            pair.answer,
+            pair.meta,
+            doc,
+            chunk_id,
+            control=generator.is_control,
+        ),
     }
     if writer is not None:
         meta[recorded.WRITER] = writer_meta(writer, context)
@@ -350,6 +372,21 @@ def _row(
                         stage=decisions.WRITING,
                         outcome=decisions.FAILED,
                         note=f"entity check failed: {verdict.get('error') or ''}",
+                    ),
+                )
+            )
+    screened = pair.meta.get(quality_check.META)
+    if isinstance(screened, dict):
+        meta[quality_check.META] = recorded.check_meta(quality or {}, screened)
+        if screened.get("outcome") == decisions.FAILED and job:
+            meta.update(
+                decisions.stamped(
+                    meta,
+                    decisions.record(
+                        job_id=job,
+                        stage=decisions.WRITING,
+                        outcome=decisions.FAILED,
+                        note=f"quality check failed: {screened.get('error') or ''}",
                     ),
                 )
             )
@@ -414,6 +451,8 @@ def _row(
             writer["_stored"] = False
         if check is not None and "system" in meta.get(entities.META, {}):
             check["_stored"] = False
+        if quality is not None and "system" in meta.get(quality_check.META, {}):
+            quality["_stored"] = False
         return None
     return row
 
@@ -435,6 +474,7 @@ def _store(
     cap: int | None = None,
     writer: dict[str, Any] | None = None,
     check: dict[str, Any] | None = None,
+    quality: dict[str, Any] | None = None,
     rejected: Sequence[_Rejected] = (),
     lost: list[Dropped] | None = None,
 ) -> list[QaPair]:
@@ -481,6 +521,7 @@ def _store(
             job=job,
             writer=writer,
             check=check,
+            quality=quality,
             rejected=refused,
             conf=conf,
         )
@@ -578,10 +619,12 @@ def _entity_check(
     conf: Settings,
     provider: Provider,
     hold: Callable[[], AbstractContextManager[None]] = nullcontext,
+    earlier: Sequence[dict[str, Any]] = (),
 ) -> _EntityCheck:
     """Ask the writer model, with no article, whether each question's
-    subjects are identifiable (``entities.SYSTEM``)."""
-    user = entities.user_prompt(texts)
+    subjects are identifiable (``entities.SYSTEM``); ``earlier`` — the build's
+    decisions on references the questions contain."""
+    user = entities.user_prompt(texts, earlier)
     try:
         with hold():
             raw, usage = chat(
@@ -614,8 +657,10 @@ def _screen_entities(
     conf: Settings,
     provider: Provider,
     hold: Callable[[], AbstractContextManager[None]] = nullcontext,
+    memory: entities.Memory | None = None,
 ) -> tuple[dict[str, list[Pair]], dict[str, list[_Rejected]], dict[str, Any]]:
-    """The entity check over one unit's questions, in one call.
+    """The entity check over one unit's questions, in one call; ``memory`` —
+    the build's decisions, applied and added to.
 
     Returns:
         Per kind the questions kept, each with its verdict in
@@ -628,11 +673,13 @@ def _screen_entities(
     order = [(key, pair) for key, pairs in made.items() for pair in pairs]
     if not conf.entity_check or not order:
         return dict(made), rejected, {}
-    check = _entity_check(
-        [entities.shown(key, pair) for key, pair in order], conf, provider, hold
-    )
+    texts = [entities.shown(key, pair) for key, pair in order]
+    earlier = memory.earlier(texts) if memory is not None else []
+    check = _entity_check(texts, conf, provider, hold, earlier)
     for i, (key, pair) in enumerate(order):
         verdict = check.verdicts.get(i)
+        if verdict is not None and memory is not None:
+            verdict = memory.settle(verdict)
         record: dict[str, Any] = (
             {
                 "outcome": decisions.FAILED,
@@ -659,6 +706,50 @@ def _screen_entities(
     if check.error:
         logger.warning(f"entity check failed, the questions are kept: {check.error}")
     return kept, rejected, check.call
+
+
+def _drop_repeats(
+    space: str,
+    cohort: str,
+    doc: Document,
+    chunk_id: str,
+    outcome: _Outcome,
+    conf: Settings,
+) -> None:
+    """Reject the unit's questions that ask a fact another question of the
+    article already asks (``repeats.py``): one stored in the cohort, or one
+    earlier in this unit. Moved into ``outcome.rejected`` with the reason
+    added to the kind's drops."""
+    if not any(good for good, _ in outcome.pairs.values()):
+        return
+    facts = repeats.stored_facts(space, cohort, doc.doc_id, conf)
+    for key, (good, dropped) in outcome.pairs.items():
+        kept: list[Pair] = []
+        for pair in good:
+            evidence = gold.build_gold(
+                key,
+                pair.question,
+                pair.answer,
+                pair.meta,
+                doc,
+                chunk_id,
+                control=GENERATORS[key].is_control,
+            )["evidence"]
+            fact = repeats.fact_of(key, pair.question, pair.answer, pair.meta, evidence)
+            twin = repeats.first_repeat(fact, facts) if fact is not None else None
+            if twin is None:
+                kept.append(pair)
+                if fact is not None:
+                    facts.append(fact)
+                continue
+            stamped = replace(pair, meta={**pair.meta, repeats.META: twin.record()})
+            outcome.rejected.setdefault(key, []).append(
+                _Rejected(
+                    stamped, REPEATED_FACT, StatusReason.REPEATED_FACT, twin.note()
+                )
+            )
+            dropped.append(REPEATED_FACT)
+        outcome.pairs[key] = (kept, dropped)
 
 
 @dataclass(slots=True)
@@ -844,6 +935,8 @@ class _Outcome:
     call: dict[str, Any] = field(default_factory=dict)
     # The entity check call (``_entity_check``).
     check: dict[str, Any] = field(default_factory=dict)
+    # The quality check call (``quality_check.screen``).
+    quality: dict[str, Any] = field(default_factory=dict)
 
 
 def _queues(
@@ -1060,6 +1153,7 @@ class _Build:
         # The ids of the questions written, per kind.
         self.built: dict[str, list[str]] = {}
         self._check_pool: ThreadPoolExecutor | None = None
+        self.entity_memory = entities.Memory()
 
     def called_off(self) -> bool:
         """Whether to stop before the next unit. Said once, in the report."""
@@ -1140,12 +1234,30 @@ class _Build:
             good, bad[key] = queue.spec.clean(items, conf.pairs_per_chunk, whole)
             made[key], refused[key] = _drop_wrong_language(good, whole)
         parsed = sum(len(items) for items in made.values())
+        published = doc.published_at.date() if doc.published_at else None
+        for key in made:
+            made[key], undated = yearless.screen(key, made[key], published)
+            bad[key] += undated
         made, unclear, check = _screen_entities(
-            made, conf, self.provider, self.slots.hold
+            made, conf, self.provider, self.slots.hold, memory=self.entity_memory
+        )
+        made, poor, quality = quality_check.screen(
+            made,
+            doc,
+            chunk,
+            language=detect_language(whole[:MAX_DOCUMENT_CHARS]),
+            conf=conf,
+            provider=quality_check.provider(conf, self.provider),
+            chat=chat,
+            headroom=REASONING_HEADROOM,
+            hold=self.slots.hold,
         )
         pairs: dict[str, tuple[list[Pair], list[str]]] = {}
         for key, good in made.items():
-            refused[key] += unclear[key]
+            refused[key] += unclear[key] + [
+                _Rejected(pair, POOR_QUALITY, StatusReason.QUALITY, note)
+                for pair, note in poor[key]
+            ]
             dropped = [d.reason for d in bad[key]] + [r.drop for r in refused[key]]
             if queue.spec is None:
                 # The model may return more than asked, and one dense passage
@@ -1166,6 +1278,7 @@ class _Build:
             parsed=parsed,
             call=call,
             check=check,
+            quality=quality,
         )
 
     def _settle(self, unit: _Unit, outcome: _Outcome) -> None:
@@ -1203,6 +1316,8 @@ class _Build:
         before = report.pairs_made
         unit_id = chunk.chunk_id if chunk is not None else doc.doc_id
         shown = chunk.chunk_id[:10] if chunk is not None else doc.title[:24]
+        stored_as = unit_id if chunk is not None else f"doc:{doc.doc_id}"
+        _drop_repeats(self.space.key, self.cohort, doc, stored_as, outcome, self.conf)
         lost: dict[str, list[Dropped]] = {}
         for key, (good, bad) in outcome.pairs.items():
             lost[key] = list(outcome.drafts.get(key, ()))
@@ -1227,6 +1342,7 @@ class _Build:
                 cap=self.caps[key],
                 writer=outcome.call or None,
                 check=outcome.check or None,
+                quality=outcome.quality or None,
                 rejected=outcome.rejected.get(key, ()),
                 lost=lost[key],
             )

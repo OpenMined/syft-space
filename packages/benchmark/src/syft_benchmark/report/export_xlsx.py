@@ -61,6 +61,7 @@ from syft_benchmark.report.filter_view import (
     job_decisions,
     job_pairs,
 )
+from syft_benchmark.retrieval.arm_c import shown_of
 from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
 from syft_benchmark.runs.result_views import behavior_of
 
@@ -575,6 +576,8 @@ ANSWER_COLS = (
     Col("Served by", 14),
     Col("Retrieval hit", 9),
     Col("Retrieval rank", 9),
+    Col("Retrieval shown", 9),
+    Col("Shown assumed", 9),
     Col("Latency (s)", 9),
     Col("Cost (USD)", 10),
     *(Col(name, 10) for name in TEXT_METRICS),
@@ -676,6 +679,13 @@ def _answer_rows(rows: Sequence[_Answer], panel: Sequence[str]) -> list[list[Any
     call = _dict(audit.get("call"))
     metrics = _dict(_dict(result.extra).get("text_metrics"))
     requests = call.get("web_search_requests")
+    shown = shown_of(
+        result.retrieval_hit,
+        result.retrieval_rank,
+        result.extra,
+        run.params,
+        run.context_source,
+    )
     head = [result.qa_id, lead.generator, lead.question, run.model, run.context_mode]
     first = [
         *head,
@@ -702,6 +712,8 @@ def _answer_rows(rows: Sequence[_Answer], panel: Sequence[str]) -> list[list[Any
         result.served_by,
         result.retrieval_hit,
         result.retrieval_rank,
+        shown.value,
+        True if shown.assumed else None,
         result.latency_s,
         call.get("cost_usd"),
         *(metrics.get(name) for name in TEXT_METRICS),

@@ -237,8 +237,8 @@ def _retrieval_finding(results: list[Metrics]) -> Finding | None:
         worst_blind = max(guessing, key=lambda m: m.blind_answer_rate or 0.0)
         parts.append(
             f"an answer on a miss — {worst_blind.blind_answer_rate:.0%} for "
-            f"{_label(worst_blind)}: the right chunk was not found, and an answer "
-            f"was given anyway, and it looks confirmed by material"
+            f"{_label(worst_blind)}: the right chunk was not in the prompt, and an "
+            f"answer was given anyway, and it looks confirmed by material"
         )
     if not parts:
         return Finding(
@@ -325,11 +325,15 @@ def numbers_block(results: list[Metrics]) -> str:
     """
     lines = [
         "arm | block | model | judge | correct behaviour | questions | "
-        "correct | abstain | invention | incomplete | LMI | retrieval"
+        "correct | abstain | invention | incomplete | LMI | retrieval found / shown"
     ]
     for m in results:
         lmi = f"{m.lmi:.2f}" if m.lmi is not None else "—"
-        retrieval = f"{m.retrieval_rate:.0%}" if m.retrieval_checked else "—"
+        retrieval = (
+            f"{m.retrieval_rate:.0%} / {m.retrieval_shown_rate:.0%}"
+            if m.retrieval_checked
+            else "—"
+        )
         lines.append(
             f"{m.arm} | {m.block.value} | {m.model or m.endpoint or '—'} | "
             f"{m.judge or '—'} | "

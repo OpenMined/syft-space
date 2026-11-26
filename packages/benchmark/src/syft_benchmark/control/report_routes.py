@@ -21,6 +21,7 @@ from sqlalchemy import ColumnElement, case, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased
 from starlette.background import BackgroundTask
 
+from syft_benchmark.config import ExpectedBehavior
 from syft_benchmark.control import combined
 from syft_benchmark.control.auth import ConsoleAuth, ConsoleGuard
 from syft_benchmark.control.compose import target_panel
@@ -479,9 +480,10 @@ def list_run_questions(
     q: str | None = None,
     limit: Annotated[int, Query(ge=1, le=run_questions.MAX_PAGE)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    expected: ExpectedBehavior | None = None,
 ) -> dict[str, Any]:
-    """One model's questions in this run, paged; trick questions are not
-    listed."""
+    """One model's questions in this run, paged, trick questions last;
+    ``expected`` keeps those whose right behaviour it names."""
     if group is not None and group not in run_view.GROUPS:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -501,6 +503,7 @@ def list_run_questions(
                 limit=limit,
                 offset=offset,
                 configured=lambda: target_panel(target, auth.settings),
+                expected=expected.value if expected else None,
             )
         except run_questions.UnknownModel as exc:
             raise _unknown_model(model) from exc

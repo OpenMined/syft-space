@@ -228,7 +228,7 @@ def test_every_kind_goes_through_the_web_check(
     # The bare question, nothing of the publisher's, search on.
     asked = {call["user"] for call in models.web}
     controls = {"unanswerable_property", "false_premise"}
-    assert asked == {q for k, (q, _, _) in KINDS.items() if k != "false_premise"}
+    assert asked == {q for q, _, _ in KINDS.values()}
     for call in models.web:
         assert SECRET not in call["user"] and SECRET not in call["system"]
         assert call["web_search"] is True
@@ -259,9 +259,9 @@ def test_every_kind_goes_through_the_web_check(
     mcq = rows["mcq"].meta["web_check"]
     assert mcq["citations"] == [{"url": "https://example.org/mcq", "title": "mcq"}]
     assert "web_search_unused" not in mcq
-    assert rows["false_premise"].meta["web_check"] == {
-        "skipped": web_check.CONTROL_NOTE
-    }
+    premise = rows["false_premise"].meta["web_check"]
+    assert premise["model"] == "openai/gpt-5.1" and premise["verdict"] != "correct"
+    assert "false_premise" in models.judged
     trick = rows["unanswerable_property"].meta["web_check"]
     assert (trick["behavior"], trick["verdict"]) == ("declined", "abstain")
 
@@ -272,9 +272,9 @@ def test_every_kind_goes_through_the_web_check(
     assert multihop.meta["web_check"]["attempts"] == 1
 
     assert report.web is not None
-    assert (report.web.checked, report.web.removed) == (9, 4)
-    assert (report.web.kept, report.web.failed) == (4, 1)
-    assert "web check: checked 9, removed 4, kept 4, failed 1" in report.line()
+    assert (report.web.checked, report.web.removed) == (10, 4)
+    assert (report.web.kept, report.web.failed) == (5, 1)
+    assert "web check: checked 10, removed 4, kept 5, failed 1" in report.line()
 
     models.judge_down_for = set()
     again = filter_stage.filter_pending(_space(), settings=conf, retrieve=_archive)
@@ -293,7 +293,10 @@ def test_without_web_search_it_answers_from_its_own_training(
     models = _Models(monkeypatch)
 
     report = filter_stage.filter_pending(
-        _space(), settings=_settings(subject_url="http://ollama:11434/v1")
+        _space(),
+        settings=_settings(
+            subject_url="http://ollama:11434/v1", filter_judge_model=None
+        ),
     )
 
     assert all(call["web_search"] is False for call in models.web)

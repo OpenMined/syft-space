@@ -32,6 +32,24 @@
           </SelectContent>
         </Select>
       </div>
+      <div class="max-w-full space-y-1.5">
+        <Label for="questions-expected" class="text-xs text-muted-foreground">Right response</Label>
+        <Select v-model="expected">
+          <SelectTrigger
+            id="questions-expected"
+            class="w-56 max-w-full"
+            data-testid="expected-select"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Any response</SelectItem>
+            <SelectItem v-for="e in EXPECTED_OPTIONS" :key="e" :value="e">{{
+              EXPECTED_FILTER_LABEL[e]
+            }}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <div class="min-w-0 flex-[1_1_280px] space-y-1.5">
         <Label for="questions-search" class="text-xs text-muted-foreground">Search questions</Label>
         <Input
@@ -86,9 +104,17 @@
             <span class="w-7 shrink-0 text-muted-foreground tabular-nums">{{ q.n }}</span>
             <span class="flex min-w-0 flex-[1_1_420px] flex-col gap-0.5">
               <span class="break-words">{{ q.question }}</span>
-              <span class="text-xs text-muted-foreground"
-                >{{ kindLabel(q.generator) }} · {{ articleOf(q) }}</span
-              >
+              <span
+                class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground"
+                ><span>{{ kindLabel(q.generator) }} · {{ articleOf(q) }}</span>
+                <Hint v-if="controlExpected(q)" :text="EXPECTED_TIP[controlExpected(q)!]">
+                  <span
+                    class="rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-400"
+                    data-testid="question-control"
+                    >{{ EXPECTED_LABEL[controlExpected(q)!] }}</span
+                  >
+                </Hint>
+              </span>
             </span>
             <span
               v-if="combined"
@@ -129,11 +155,11 @@
           data-testid="question-detail"
         >
           <div class="flex flex-col gap-0.5">
-            <span class="text-xs text-muted-foreground"
-              >Correct answer, from “{{ articleOf(q) }}”</span
-            >
+            <span class="text-xs text-muted-foreground" data-testid="gold-label">{{
+              goldLabel(q)
+            }}</span>
             <b class="font-semibold break-words" data-testid="gold-answer">{{
-              sentence(q.gold_answer)
+              sentence(goldText(q.gold_answer))
             }}</b>
           </div>
 
@@ -420,6 +446,7 @@ import type {
   BenchmarkQuestionDetail,
   BenchmarkQuestionJudge,
   BenchmarkQuestionObservation,
+  BenchmarkExpectedBehavior,
   BenchmarkQuestionPage,
   BenchmarkQuestionRow,
   BenchmarkReportFragment,
@@ -456,6 +483,9 @@ import { kindLabel } from '../kinds'
 import {
   CITES_ARTICLE_TIP,
   EXCLUSION_NOT_APPLIED_TIP,
+  EXPECTED_FILTER_LABEL,
+  EXPECTED_LABEL,
+  EXPECTED_TIP,
   GROUP_LABEL,
   SEARCH_UNUSED_TIP,
   judgesText,
@@ -464,7 +494,7 @@ import {
   searchEngineLabel,
   searchEngineTip,
 } from './labels'
-import { heldOf, isTrick } from './selectors'
+import { controlExpected, goldText, heldOf } from './selectors'
 import { KIND_ORDER, sortKinds, sortQuestions } from '../questionOrder'
 import { ARM_KEY, type Arm, type Group } from './types'
 
@@ -472,6 +502,8 @@ const PAGE_SIZE = 25
 const SEARCH_DEBOUNCE_MS = 300
 
 type GroupFilter = Group | 'all'
+type ExpectedFilter = BenchmarkExpectedBehavior | 'all'
+const EXPECTED_OPTIONS: BenchmarkExpectedBehavior[] = ['answer', 'abstain', 'correct_premise']
 const GROUPS: Group[] = ['fixed', 'either', 'still', 'worse']
 const ARMS: Arm[] = ['closed', 'ctx']
 const GRID_ROW =
@@ -492,6 +524,7 @@ const auditOpen = computed({
 
 const group = ref<GroupFilter>('all')
 const kind = ref('all')
+const expected = ref<ExpectedFilter>('all')
 const search = ref('')
 const query = ref('')
 const page = ref(0)
@@ -520,6 +553,7 @@ async function fetchPage(): Promise<void> {
       model,
       group: group.value === 'all' ? undefined : group.value,
       generator: kind.value === 'all' ? undefined : kind.value,
+      expected: expected.value === 'all' ? undefined : expected.value,
       q: query.value || undefined,
       limit: PAGE_SIZE,
       offset: page.value * PAGE_SIZE,
@@ -536,7 +570,7 @@ async function fetchPage(): Promise<void> {
   }
 }
 
-watch([group, kind, query, () => run.model.value], () => {
+watch([group, kind, expected, query, () => run.model.value], () => {
   openId.value = null
   if (page.value !== 0) page.value = 0
   else void fetchPage()
@@ -568,7 +602,7 @@ const subtitle = computed(() => {
 /** The run's kinds in the canonical order. */
 const kinds = computed(() => {
   const recorded = run.data.value?.method.kinds ?? []
-  return sortKinds(recorded.length ? recorded : KIND_ORDER).filter((k) => !isTrick(k))
+  return sortKinds(recorded.length ? recorded : KIND_ORDER)
 })
 
 const chips = computed(() => {
@@ -598,6 +632,14 @@ const range = computed(() => {
 
 function articleOf(q: BenchmarkQuestionRow): string {
   return q.document_title || q.file_name
+}
+
+function goldLabel(q: BenchmarkQuestionRow): string {
+  const article = `“${articleOf(q)}”`
+  const control = controlExpected(q)
+  if (control === 'abstain') return `Not in ${article}`
+  if (control === 'correct_premise') return `What ${article} says instead`
+  return `Correct answer, from ${article}`
 }
 
 /** The gold answer as one sentence, with its full stop. */

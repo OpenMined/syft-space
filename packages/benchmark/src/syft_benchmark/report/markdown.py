@@ -92,13 +92,15 @@ def _retrieval_split_section(answerable: list[Metrics]) -> list[str]:
         "",
         "## Retrieval found it — did the model use it?",
         "",
-        "Computed only where retrieval took part. A false abstention is the",
-        "model fault: the material lay in front of it. An answer on a miss is an",
-        "invention assembled out of topically neighbouring chunks.",
+        "Computed only where retrieval took part. Found: the source chunk within",
+        "`retrieval_top_k`; shown: within the `context_docs` put into the prompt.",
+        "Both cuts go by shown. A false abstention is the model fault: the",
+        "material lay in front of it. An answer on a miss is an invention",
+        "assembled out of topically neighbouring chunks.",
         "",
-        "| Space | Arm | Model | Judge | Hits | False abstentions "
+        "| Space | Arm | Model | Judge | Found | Shown | False abstentions "
         "| Answers on a miss |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
     ]
     for m in rows:
         false_abstain = (
@@ -110,10 +112,21 @@ def _retrieval_split_section(answerable: list[Metrics]) -> list[str]:
         # and without the name the rows would read as inexplicable duplicates.
         lines.append(
             f"| {m.space} | {m.arm_label} | {m.model or '—'} "
-            f"| {m.judge or '—'} | {m.retrieval_rate:.0%} | {false_abstain} "
-            f"| {blind} |"
+            f"| {m.judge or '—'} | {m.retrieval_rate:.0%} | {_shown_cell(m)} "
+            f"| {false_abstain} | {blind} |"
         )
+    if any(m.retrieval_shown_assumed for m in rows):
+        lines += [
+            "",
+            "\\* Some answers were stored without the shown flag in a run that did",
+            "not record `context_docs`: shown is taken as found for them.",
+        ]
     return lines
+
+
+def _shown_cell(m: Metrics) -> str:
+    mark = "*" if m.retrieval_shown_assumed else ""
+    return f"{m.retrieval_shown_rate:.0%}{mark}"
 
 
 def _stability_lines(results: list[Metrics]) -> list[str]:
@@ -254,12 +267,15 @@ def render_markdown(results: list[Metrics]) -> str:
         "There is an answer to them in the corpus: the item was built from a chunk.",
         "",
         "| Space | Arm | Block | Model | Judge | Questions | Accuracy "
-        "| Hallucinations | Abstentions | Incomplete | LMI | Retrieval |",
+        "| Hallucinations | Abstentions | Incomplete | LMI "
+        "| Retrieval found / shown |",
         "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: "
         "| ---: |",
     ]
     for m in answerable:
-        retrieval = f"{m.retrieval_rate:.0%}" if m.retrieval_checked else "—"
+        retrieval = (
+            f"{m.retrieval_rate:.0%} / {_shown_cell(m)}" if m.retrieval_checked else "—"
+        )
         lmi = f"{m.lmi:.2f}" if m.lmi is not None else "—"
         lines.append(
             f"| {m.space} | {m.arm_label} | {m.block.value} "

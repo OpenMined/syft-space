@@ -510,6 +510,7 @@ def test_only_context_docs_of_what_was_found_reach_the_prompt(
     )
     assert len(asked.retrieval["retrieved"]) == 5
     assert asked.retrieval["retrieval_rank"] == 4
+    assert asked.retrieval["retrieval_shown"] is False
     ((_system, user),) = model
     assert "fragment number 3" in user
     assert "fragment number 4" not in user

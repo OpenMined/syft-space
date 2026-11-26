@@ -70,10 +70,13 @@ flowchart TB
     KIND -- "other" --> JD["free-text judge"]
 ```
 
-**Abstention** is detected before any judge call, by English regexes ("I don't
-know", "the context does not contain…"). A hedge followed by an answer ("I'm
-not sure, but the answer is C") is a guess and is graded as an answer. An empty
-answer is an abstention.
+**Abstention** is detected before any judge call, by phrases in en, es, pt,
+fr and de (`runs/refusal.py`: "I don't know", "No tengo información", "the
+context does not contain…"). Only first-person or about-the-context phrases:
+"the ministry said there is no information" is an answer. A hedge followed by
+an answer ("I'm not sure, but the answer is C", "No estoy seguro, pero…") is a
+guess and is graded as an answer. An empty answer is an abstention. A refusal
+no phrase matches goes to the judge, which grades it `abstain`.
 
 **Choice items** (`mcq`, `two_truths_one_lie`): the option letter is searched
 across the whole answer. Exactly one letter named decides correct or
@@ -91,9 +94,12 @@ a failed grounded call — `technical`.
 
 **Fill-ins** (the three masking generators): a reply that matches the gold
 span, alone or put back in its sentence, is `correct` with no judge call
-(`runs/fill_in.py`: case, unicode, quotes and dashes, a leading article,
-thousands separators, numbers and number words up to twenty, percent, dates
-at equal precision, "The answer is X"). No match — the free-text judge.
+(`runs/fill_in.py`: case, accents, unicode, quotes and dashes, a leading
+article, thousands and decimal separators, numbers and number words up to
+twenty, percent, dates at equal precision, "The answer is X"). Articles,
+number words and separators follow the masked sentence's language (en, es, pt,
+fr, de; too short to tell — English); month names of any of them are read.
+No match — the free-text judge.
 
 **Free-text judge** (everything else). It gets the question, the gold answer
 and the answer, and returns `correct`, `false_claims` and a reason. The rules:
@@ -147,8 +153,9 @@ round's or trial's web citations), key-facts items to the facts check, the
 rest to the letter match and the free-text judge.
 
 **Grounding.** In arm C the judge also checks whether the answer is supported
-by the retrieved chunks; stored in `results.grounded` and `grounded_note`, not
-part of the verdict.
+by the chunks the model was given — the first `context_docs`, or all retrieved
+ones when the context is the endpoint's answer; stored in `results.grounded`
+and `grounded_note`, not part of the verdict.
 
 **Judge calls** are capped at `answer_max_tokens` (8192).
 `judge_temperature` and `judge_reasoning_effort` apply to every judge that

@@ -173,6 +173,7 @@ export interface SetupForm {
   answerCoverage: number
   webWriter: boolean
   entityCheck: boolean
+  qualityCheck: boolean
   // step 3
   webCheckModel: string
   /** '' means Judge 1. */
@@ -232,7 +233,7 @@ const FALLBACK = {
   answer_coverage_threshold: 0.6,
   dataset_max_pairs: 100,
   retrieval_top_k: 5,
-  context_docs: 3,
+  context_docs: 5,
   fragment_max_chars: 2000,
   similarity_threshold: 0,
   denial_rounds: 3,
@@ -257,6 +258,7 @@ const BENCH_DEFAULTS = {
   web_search_with_context: true,
   web_search_generator: false,
   entity_check: true,
+  quality_check: true,
   web_search_judge: false,
   web_search_engine: 'plugin',
   web_search_max_results: 5,
@@ -366,6 +368,7 @@ export function formFromTarget(target: BenchmarkTarget, kinds: string[]): SetupF
     answerCoverage: toPercent(num(instrument, 'answer_coverage_threshold')),
     webWriter: bool(instrument, 'web_search_generator'),
     entityCheck: bool(instrument, 'entity_check'),
+    qualityCheck: bool(instrument, 'quality_check'),
 
     webCheckModel: str(instrument, 'filter_model'),
     webCheckJudge: str(instrument, 'filter_judge_model'),
@@ -571,6 +574,7 @@ export function buildRequest(
   i('web_search_with_context', form.webWithData)
   i('web_search_generator', form.webWriter)
   i('entity_check', form.entityCheck)
+  i('quality_check', form.qualityCheck)
   i('web_search_judge', form.webJudges)
   i(
     'web_search_engine',

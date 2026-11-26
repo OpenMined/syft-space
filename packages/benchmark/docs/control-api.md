@@ -202,7 +202,7 @@ Run reports, under `/console/report`:
 | `GET /runs/{job}/pairs?ids=` | Questions of the target by id (comma-separated, at most 200), whichever job wrote them |
 | `GET /runs/{job}/pairs/{qa}` | One question of the target with its meta |
 | `GET /runs/{job}/filter` | The job's filter decisions, including on questions earlier jobs wrote (`generator`, `stage`, `outcome`), paged; `limit=0` with a `generator` returns all of that kind; `counts` are of the `generator`, before `stage` and `outcome` |
-| `GET /runs/{job}/questions` | One model's questions in the run, paged |
+| `GET /runs/{job}/questions` | One model's questions in the run, paged, trick questions last (in no `group`); each row has `expected_behavior` (`answer`, `abstain`, `correct_premise`) and `control`; `expected=` filters by it |
 | `GET /runs/{job}/questions/{qa}` | One question in full |
 | `GET /runs/{job}/questions/{qa}/fragments` | The passages sent with the arm C answer |
 | `GET /runs/{job}/summary.docx` | The run's summary document: figures only |

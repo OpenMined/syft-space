@@ -3,17 +3,20 @@
 Every grounded pending question is put to the web check model
 (``filter_model``) bare, with web search where its provider offers it, and
 graded as the main run grades that kind of question. A correct answer rejects
-it as ``web_answerable``; a trick question its search answers, as
-``public_knowledge``. A failed call never decides a pair: it stays pending
-with a note. The rules: docs/02-generation.md.
+it as ``web_answerable`` (a false premise: the answer states the correction);
+a trick question its search answers, as ``public_knowledge``. An answer that
+cites only reprints of the publisher (``web_check_mirror_domains``) rejects
+nothing. A failed call never decides a pair: it stays pending with a note.
+The rules: docs/02-generation.md.
 """
 
 from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 from loguru import logger
 
@@ -24,6 +27,7 @@ from syft_benchmark.config import (
     Verdict,
 )
 from syft_benchmark.db import QaPair
+from syft_benchmark.generation.language import detect_language
 from syft_benchmark.llm import LLMError, LLMFatalError, Provider, chat, cost, roles
 from syft_benchmark.llm.web_search import search_unused, supports_web_search
 from syft_benchmark.runs.judge import (
@@ -38,6 +42,12 @@ WEB_ANSWERABLE = "web_answerable"
 
 WEB_CHECK_SYSTEM = """\
 Answer the question. Search the web and use your own knowledge.
+
+Search in the language of the question first: local and regional sources \
+count. If a search finds nothing, search again with other words before you \
+give up.
+
+If the question assumes something that is not true, say so and give the facts.
 
 If you cannot find the answer, respond with ONLY: I don't know
 Write these three English words exactly, whatever the language of the question.
@@ -61,9 +71,28 @@ NO_SEARCH_NOTE = "no web search for this model here: answered from its own train
 CONTROL_NOTE = "not checked: a control question, its right answer is to abstain"
 # The note on a trick question the web model answers from its search.
 PUBLIC_KNOWLEDGE = "public knowledge"
-# The control kinds the web check asks: their missing detail must not be public.
-_PUBLIC_CHECKED = frozenset({"unanswerable_property"})
+# A trick question: its missing detail must not be public.
+_TRICK = "unanswerable_property"
+# A false premise: the web must not know the fact that refutes it.
+_PREMISE = "false_premise"
+_CONTROLS_CHECKED = frozenset({_TRICK, _PREMISE})
 NO_FACTS_NOTE = "not checked: a key-facts question without key facts"
+# The record of an answer that would reject the pair but cites only reprints.
+MIRROR_NOTE = "answered only from reprints of the publisher"
+
+# The languages ``detect_language`` tells apart, as the prompt names them.
+_LANGUAGE_NAMES = {
+    "en": "English",
+    "ru": "Russian",
+    "de": "German",
+    "fr": "French",
+    "es": "Spanish",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "nl": "Dutch",
+}
+# Earlier checks a pair's record keeps, the newest last.
+_HISTORY_KEPT = 10
 
 # How much of the web model's answer ``meta.web_check`` keeps; the job's
 # decision record (``meta.screening``) keeps it whole, with the prompts.
@@ -129,7 +158,8 @@ class WebCheckSummary:
 
 
 def search_for(conf: Settings, provider: Provider) -> tuple[bool, str]:
-    """Whether the web check model searches, and with which engine.
+    """Whether the web check model searches, and with which engine
+    (``web_check_engine``).
 
     The role is always on; the model's provider decides whether it can.
     """
@@ -152,7 +182,36 @@ def exclusion(row: QaPair) -> str:
 
 def checks_public(row: QaPair) -> bool:
     """A trick question the web check asks whether its detail is public."""
-    return row.generator in _PUBLIC_CHECKED
+    return row.generator == _TRICK
+
+
+def checks_premise(row: QaPair) -> bool:
+    """A false premise the web check asks whether the web corrects."""
+    return row.generator == _PREMISE
+
+
+def checks_control(row: QaPair) -> bool:
+    """A control question the web check asks."""
+    return row.generator in _CONTROLS_CHECKED
+
+
+def recheck_due(row: QaPair, conf: Settings, now: datetime | None = None) -> bool:
+    """Its last graded web check is ``web_check_recheck_days`` old or more.
+
+    The web catches up with a story: a detail absent at the check (a referee
+    named later) can be public by the time the question is asked.
+    """
+    days = conf.web_check_recheck_days
+    record = (row.meta or {}).get("web_check") or {}
+    if not days or not record.get("verdict") or record.get("error"):
+        return False
+    try:
+        checked = datetime.fromisoformat(str(record.get("checked_at")))
+    except ValueError:
+        return False
+    if checked.tzinfo is None:
+        checked = checked.replace(tzinfo=UTC)
+    return (now or datetime.now(UTC)) - checked >= timedelta(days=days)
 
 
 def web_checked(row: QaPair, model: str) -> bool:
@@ -213,9 +272,13 @@ def _graded(
 
     An explanation is checked against its key facts only: a web answer brings
     in facts the article lacks, and only "correct" matters here. A trick
-    question gets the behaviour judge, told the answer's citations.
+    question gets the behaviour judge, told the answer's citations; a false
+    premise, the free-text judge against its correction: the web knows the
+    fact that refutes it.
     """
     meta = row.meta or {}
+    if checks_premise(row):
+        return grade(row.question, row.answer, answer, settings=conf, judge=judge)
     if checks_public(row):
         case = control_case(row.generator, row.question, row.answer, meta)
         return grade_control(
@@ -251,6 +314,53 @@ def _attempts(row: QaPair) -> int:
     return int(previous.get("attempts") or 0) + 1
 
 
+def _host(url: str) -> str:
+    return urlsplit(url.strip()).netloc.lower().removeprefix("www.")
+
+
+def cited_domains(citations: list[dict[str, str]]) -> list[str]:
+    """The sites the citations point to, sorted, without repeats."""
+    return sorted({h for c in citations if (h := _host(str(c.get("url") or "")))})
+
+
+def _is_mirror(url: str, mirrors: list[str]) -> bool:
+    """The page is on one of the mirror domains (a subdomain counts; a
+    domain with a path matches that path and below)."""
+    parts = urlsplit(url.strip())
+    host = parts.netloc.lower().removeprefix("www.")
+    page = f"{host}{parts.path}"
+    for mirror in mirrors:
+        site, _, path = mirror.removeprefix("www.").partition("/")
+        on_site = host == site or host.endswith(f".{site}")
+        if on_site and (not path or page.startswith(f"{host}/{path}")):
+            return True
+    return False
+
+
+def mirror_only(citations: list[dict[str, str]], mirrors: list[str]) -> bool:
+    """Every citation is a reprint of the publisher: the answer is the
+    publisher's text, not public knowledge. False with no citations."""
+    urls = [str(c.get("url") or "") for c in citations]
+    return bool(mirrors and urls) and all(_is_mirror(u, mirrors) for u in urls)
+
+
+def _language_line(row: QaPair) -> str:
+    """The question's language for the prompt; empty — not told."""
+    found = detect_language(row.context or "") or detect_language(row.question)
+    name = _LANGUAGE_NAMES.get(found or "")
+    return f"\nThe question is in {name}: search in {name} first.\n" if name else ""
+
+
+def _history(row: QaPair) -> list[dict[str, Any]]:
+    """The pair's earlier checks, the last one included, each with its date."""
+    previous = (row.meta or {}).get("web_check") or {}
+    earlier = [h for h in previous.get("history") or [] if isinstance(h, dict)]
+    if previous.get("checked_at"):
+        keys = ("checked_at", "model", "verdict", "behavior", "cited_domains", "error")
+        earlier.append({k: previous[k] for k in keys if previous.get(k) is not None})
+    return earlier[-_HISTORY_KEPT:]
+
+
 def check_pair(
     row: QaPair,
     provider: Provider,
@@ -266,13 +376,20 @@ def check_pair(
         "judge": judge.model,
         "judge_temperature": conf.judge_temperature,
         "judge_reasoning_effort": conf.judge_reasoning_effort.value,
-        "search": (engine or str(conf.web_search_engine)) if searching else "none",
+        "search": (engine or str(conf.web_check_engine)) if searching else "none",
         "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "attempts": _attempts(row),
     }
-    if not searching:
+    if searching:
+        record["max_calls"] = conf.web_check_max_calls
+    else:
         record["note"] = NO_SEARCH_NOTE
-    record["system"] = WEB_CHECK_SYSTEM if searching else OWN_KNOWLEDGE_SYSTEM
+    history = _history(row)
+    if history:
+        record["history"] = history
+    record["system"] = (
+        WEB_CHECK_SYSTEM + _language_line(row) if searching else OWN_KNOWLEDGE_SYSTEM
+    )
     record["user"] = row.question
     try:
         answer, usage = chat(
@@ -298,6 +415,7 @@ def check_pair(
     record["answer"] = answer
     record.update(cost.spent(usage))
     record["citations"] = citations
+    record["cited_domains"] = cited_domains(citations)
     record["web_search"] = usage.get("web_search", searching)
     for key in (
         "web_search_via",
@@ -333,15 +451,17 @@ def check_pair(
             {"web_check": {**record, "error": verdict.reasoning}},
             fatal=verdict.fatal,
         )
-    if checks_public(row):
-        public = verdict.behavior == ControlOutcome.WEB_SOURCED.value
-        return WebVerdict(
-            public, PUBLIC_KNOWLEDGE if public else "", {"web_check": record}
-        )
-    answerable = verdict.verdict is Verdict.CORRECT
-    return WebVerdict(
-        answerable, WEB_ANSWERABLE if answerable else "", {"web_check": record}
-    )
+    public = checks_public(row)
+    if public:
+        answerable = verdict.behavior == ControlOutcome.WEB_SOURCED.value
+    else:
+        answerable = verdict.verdict is Verdict.CORRECT
+    if answerable and mirror_only(citations, conf.web_check_mirror_domains):
+        answerable = False
+        record["mirror_only"] = True
+        record["note"] = MIRROR_NOTE
+    note = (PUBLIC_KNOWLEDGE if public else WEB_ANSWERABLE) if answerable else ""
+    return WebVerdict(answerable, note, {"web_check": record})
 
 
 def skips_manual(row: QaPair, conf: Settings) -> bool:

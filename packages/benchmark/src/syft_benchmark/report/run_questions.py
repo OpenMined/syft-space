@@ -15,9 +15,10 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from syft_benchmark.config import EvalBlock
+from syft_benchmark.config import EvalBlock, ExpectedBehavior
 from syft_benchmark.db.models import Job, QaPair, Result, Run
 from syft_benchmark.generation.article_dates import URL_KEY
+from syft_benchmark.generation.generators import GENERATORS
 from syft_benchmark.llm.web_search import (
     cites_article,
     search_count_of,
@@ -35,6 +36,7 @@ from syft_benchmark.report.counted import (
     pick,
 )
 from syft_benchmark.report.run_view import ALONE, ARM_OF, GROUPS, WITH
+from syft_benchmark.retrieval.arm_c import shown_of
 from syft_benchmark.runs.result_views import behavior_of
 
 MAX_PAGE = 100
@@ -66,6 +68,10 @@ def _row(entry: dict[str, Any], model: str, pair: QaPair, job: Job) -> dict[str,
         "file_name": pair.file_name or "",
         "question": pair.question,
         "gold_answer": pair.answer,
+        # What counts as right: answer, abstain or correct_premise; a control
+        # question is any but answer.
+        "expected_behavior": pair.expected_behavior,
+        "control": pair.expected_behavior != ExpectedBehavior.ANSWER.value,
         "status": pair.status,
         "verdict_alone": alone,
         "verdict_with": with_,
@@ -76,6 +82,11 @@ def _row(entry: dict[str, Any], model: str, pair: QaPair, job: Job) -> dict[str,
 
 def _models(run: dict[str, Any]) -> list[str]:
     return [m["model"] for m in run.get("models") or []]
+
+
+def _expected_of(generator: str) -> str:
+    spec = GENERATORS.get(generator)
+    return (spec.expected if spec else ExpectedBehavior.ANSWER).value
 
 
 def list_questions(
@@ -89,8 +100,12 @@ def list_questions(
     limit: int = 25,
     offset: int = 0,
     configured: Panel = (),
+    expected: str | None = None,
 ) -> dict[str, Any]:
     """A page of the run's questions for one model, with counts per group.
+
+    ``expected`` keeps the questions whose right behaviour it names
+    (``ExpectedBehavior``): "abstain" lists the trick questions.
 
     Raises:
         UnknownModel: the model did not answer in this run
@@ -104,6 +119,8 @@ def list_questions(
     entries = [e for e in index if model in e["models"]]
     if generator:
         entries = [e for e in entries if e["generator"] == generator]
+    if expected:
+        entries = [e for e in entries if _expected_of(e["generator"]) == expected]
     if q and q.strip() and entries:
         pattern = f"%{_escape(q.strip())}%"
         matched = set(
@@ -212,6 +229,23 @@ def _context_docs(run: Run) -> int | None:
     return int(value) if isinstance(value, int) else None
 
 
+def _retrieval(result: Result, run: Run) -> dict[str, Any]:
+    shown = shown_of(
+        result.retrieval_hit,
+        result.retrieval_rank,
+        result.extra,
+        run.params,
+        run.context_source,
+    )
+    return {
+        "hit": result.retrieval_hit,
+        "rank": result.retrieval_rank,
+        "shown": shown.value,
+        "shown_assumed": shown.assumed,
+        "context_docs": _context_docs(run),
+    }
+
+
 def _denial(extra: Any) -> dict[str, Any] | None:
     block = extra.get("denial") if isinstance(extra, dict) else None
     if not isinstance(block, dict):
@@ -282,15 +316,7 @@ def _arm(
             if override is not None
             else None
         ),
-        "retrieval": (
-            {
-                "hit": counted.retrieval_hit,
-                "rank": counted.retrieval_rank,
-                "context_docs": _context_docs(run_of[counted.id]),
-            }
-            if arm == WITH
-            else None
-        ),
+        "retrieval": (_retrieval(counted, run_of[counted.id]) if arm == WITH else None),
         "denial": _denial(block_extra(EvalBlock.DENIAL_LOOP.value)),
         "repeats": _repeats(block_extra(EvalBlock.MONTE_CARLO.value)),
         # Web search evidence of the counted answer; empty where it did not search.

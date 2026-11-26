@@ -147,18 +147,68 @@ describe('QuestionsPage', () => {
     expect(wrapper.get('[data-testid="group-still"]').attributes('aria-pressed')).toBe('true')
   })
 
-  it('lists kinds in the canonical order without trick questions and filters by kind', async () => {
+  it('lists kinds in the canonical order and filters by kind', async () => {
     const { wrapper, report } = await mountPage()
     await wrapper.get('[data-testid="kind-select"]').trigger('keydown', { key: 'ArrowDown' })
     await flushPromises()
     const options = [...document.body.querySelectorAll('[role="option"]')].map((o) =>
       squash(o.textContent ?? ''),
     )
-    expect(options).toEqual(['All kinds', 'Names', 'Dates', 'Multiple choice'])
+    expect(options).toEqual(['All kinds', 'Names', 'Dates', 'Multiple choice', 'Trick questions'])
 
     wrapper.findComponent(Select).vm.$emit('update:modelValue', 'mcq')
     await flushPromises()
     expect(lastQuery(report).generator).toBe('mcq')
+  })
+
+  it('filters by the right response', async () => {
+    const { wrapper, report } = await mountPage()
+    await wrapper.get('[data-testid="expected-select"]').trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+    const options = [...document.body.querySelectorAll('[role="option"]')].map((o) =>
+      squash(o.textContent ?? ''),
+    )
+    expect(options).toEqual([
+      'Any response',
+      'Answer it',
+      'Say “I don’t know”',
+      'Correct the premise',
+    ])
+    expect(lastQuery(report).expected).toBeUndefined()
+
+    wrapper.findAllComponents(Select)[1]!.vm.$emit('update:modelValue', 'abstain')
+    await flushPromises()
+    expect(lastQuery(report).expected).toBe('abstain')
+  })
+
+  it('marks control questions with the response they expect', async () => {
+    const trick = questionRow('t1', {
+      generator: 'unanswerable_property',
+      gold_answer: 'not in the corpus: the keeper’s car',
+      expected_behavior: 'abstain',
+      control: true,
+      group: null,
+    })
+    const premise = questionRow('p1', {
+      n: 2,
+      generator: 'false_premise',
+      gold_answer: 'The council restored it',
+    })
+    const { wrapper } = await mountPage(fakeReport(page([questionRow('q1'), trick, premise])))
+    const rows = wrapper.findAll('[data-testid="question-row"]')
+
+    expect(rows[0]!.find('[data-testid="question-control"]').exists()).toBe(false)
+    const chip = rows[1]!.get('[data-testid="question-control"]')
+    expect(chip.text()).toBe('Expect “I don’t know”')
+    expect(await hintText(chip)).toContain('right response is to say so')
+    // Without the field, the kind tells.
+    expect(rows[2]!.get('[data-testid="question-control"]').text()).toBe('Expect a correction')
+
+    await rows[1]!.get('button').trigger('click')
+    await flushPromises()
+    expect(words(wrapper.get('[data-testid="question-detail"]'))).toContain(
+      'Not in “Article A” the keeper’s car.',
+    )
   })
 
   it('debounces the search and sends it as q', async () => {

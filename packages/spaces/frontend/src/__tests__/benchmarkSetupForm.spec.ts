@@ -472,7 +472,7 @@ describe('web search settings', () => {
     expect(buildRequest(target, form, KEYS).instrument!.max_job_usd).toBe(0)
   })
 
-  it('keeps the entity check on unless switched off', () => {
+  it('keeps the entity and quality checks on unless switched off', () => {
     const target = makeTarget()
     const form = formFromTarget(target, KEYS)
     expect(form.entityCheck).toBe(true)
@@ -480,6 +480,9 @@ describe('web search settings', () => {
     expect(buildRequest(target, form, KEYS).instrument).toMatchObject({ entity_check: false })
     const off = makeTarget({ instrument: { entity_check: false } })
     expect(formFromTarget(off, KEYS).entityCheck).toBe(false)
+    expect(form.qualityCheck).toBe(true)
+    form.qualityCheck = false
+    expect(buildRequest(target, form, KEYS).instrument).toMatchObject({ quality_check: false })
   })
 
   it('clears the web check judge back to Judge 1', () => {

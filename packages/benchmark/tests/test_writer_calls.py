@@ -42,6 +42,7 @@ def _settings(**kwargs: Any) -> Settings:
         "concurrency": 1,
         "document_window_days": 0,
         "entity_check": False,
+        "quality_check": False,
     }
     return openrouter_settings(**{**base, **kwargs})
 

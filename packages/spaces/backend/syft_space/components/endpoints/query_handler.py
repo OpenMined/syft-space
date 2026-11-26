@@ -163,6 +163,8 @@ class QueryEndpointHandler:
         request: AuthenticatedQueryRequest,
         tenant: Tenant,
         x_payment: str | None = None,
+        *,
+        require_published: bool = True,
     ) -> QueryEndpointResponse:
         """Query an endpoint - main RAG flow.
 
@@ -194,8 +196,7 @@ class QueryEndpointHandler:
                     status_code=404, detail=f"Endpoint '{slug}' not found"
                 )
 
-            # Check if published
-            if not endpoint.published:
+            if require_published and not endpoint.published:
                 outcome = QueryOutcome.NOT_PUBLISHED
                 raise HTTPException(status_code=403, detail="Endpoint is not published")
 

@@ -427,5 +427,4 @@ def test_every_list_shows_questions_in_one_order(
     assert [d["qa_id"] for d in filtered["items"]] == EXPECTED
     asked = client.get(f"{base}/questions", params={"model": M1}, headers=auth)
     assert asked.status_code == 200, asked.text
-    # Trick questions are not listed there.
-    assert [q["qa_id"] for q in asked.json()["items"]] == EXPECTED[:-1]
+    assert [q["qa_id"] for q in asked.json()["items"]] == EXPECTED

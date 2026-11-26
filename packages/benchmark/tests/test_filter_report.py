@@ -375,7 +375,7 @@ def test_how_tested_reads_the_jobs_snapshot(client: TestClient, clean: Any) -> N
 
 
 def test_the_web_check_judge_is_resolved() -> None:
-    conf = Settings(judge_models=["judge/one", "judge/two"])
+    conf = Settings(judge_models=["judge/one", "judge/two"], filter_judge_model=None)
     assert job_params.web_check_judge(conf) == ""
     on = conf.model_copy(update={"filter_model": "m/web"})
     assert job_params.web_check_judge(on) == "judge/one"

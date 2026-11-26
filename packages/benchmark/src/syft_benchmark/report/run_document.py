@@ -170,6 +170,7 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
             "Trick questions answered (with data)",
             "Trick questions answered (on its own)",
             "Search found the passage",
+            "Passage given to the model",
             "Judges agreed",
         ],
         [
@@ -180,6 +181,7 @@ def build_summary(report: dict[str, Any], *, title: str) -> bytes:
                 f"{c['trick_answered']} of {c['trick_asked']}",
                 f"{c['trick_alone_answered']} of {c['trick_alone_asked']}",
                 _pct(c["search_found"]),
+                _pct(c.get("search_shown")),
                 _pct(c["agreement"]),
             ]
             for m in models

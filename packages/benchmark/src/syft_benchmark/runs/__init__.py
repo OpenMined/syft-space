@@ -13,13 +13,14 @@ from syft_benchmark.runs.execute import (
     run_pass,
     with_context_prompt,
 )
-from syft_benchmark.runs.judge import Grade, detect_abstain, grade_mcq, is_error
+from syft_benchmark.runs.judge import Grade, grade_mcq, is_error
 from syft_benchmark.runs.judge_stage import (
     judge_pending,
     override_verdict,
     withdraw_override,
 )
 from syft_benchmark.runs.parallel import Pool, Progress, RunCache
+from syft_benchmark.runs.refusal import detect_abstain
 from syft_benchmark.runs.result_views import get_result, list_results
 
 __all__ = [

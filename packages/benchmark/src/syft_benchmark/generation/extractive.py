@@ -15,7 +15,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from syft_benchmark.generation.wording import FILL_IN_TIME_RULE
+from syft_benchmark.generation.wording import (
+    FILL_IN_TIME_RULE,
+    NO_BYLINE_RULE,
+    OWN_JOURNALISM_RULE,
+)
 
 _MASK = "______"
 
@@ -139,6 +143,8 @@ minister, "one", "this year") or lets you work out (a unit conversion).
 products so they are identifiable without the story: full name plus role \
 or affiliation, a product with its maker. Skip a sentence whose subject is \
 a first name, a pseudonym or an anonymous source.
+  - {OWN_JOURNALISM_RULE}
+  - {NO_BYLINE_RULE}
   - {FILL_IN_TIME_RULE}
   - Use each sentence once.
 

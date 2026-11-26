@@ -96,8 +96,10 @@ def _settings(**kwargs: Any) -> Settings:
             "document_window_days": 0,
             "pairs_per_chunk": 2,
             "max_consecutive_failures": 3,
-            # The entity check is a writer call of its own: test_entity_check.py.
+            # The entity and quality checks are writer calls of their own:
+            # test_entity_check.py, test_quality_check.py.
             "entity_check": False,
+            "quality_check": False,
             **kwargs,
         }
     )

@@ -13,6 +13,7 @@ from syft_benchmark.sources.chroma import (
     load_documents,
     parse_date,
     strip_header,
+    text_fingerprint,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "load_documents",
     "parse_date",
     "strip_header",
+    "text_fingerprint",
 ]

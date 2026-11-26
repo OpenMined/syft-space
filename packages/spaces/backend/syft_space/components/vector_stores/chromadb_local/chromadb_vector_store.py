@@ -21,6 +21,7 @@ from syft_space.components.chunking import (
     DocumentChunker,
     build_image_urls,
 )
+from syft_space.components.embeddings.hf_imports import ensure_transformers
 from syft_space.components.shared import client_cache
 from syft_space.components.shared.domain_types import (
     HealthcheckResponse,
@@ -85,6 +86,8 @@ class _E5Embedder:
 
     def __init__(self) -> None:
         import torch
+
+        ensure_transformers()
         from transformers import AutoModel, AutoTokenizer
 
         self._torch = torch

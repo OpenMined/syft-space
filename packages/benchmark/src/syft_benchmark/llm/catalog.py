@@ -28,6 +28,7 @@ MODEL_FIELDS: tuple[str, ...] = (
     "judge_models",
     "filter_model",
     "filter_judge_model",
+    "quality_check_model",
 )
 
 # The snapshot that ships with the code: the floor under the table, read

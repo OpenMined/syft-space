@@ -59,7 +59,8 @@ flowchart LR
 | `accuracy` / `hallucination_rate` / `abstain_rate` / `incomplete_rate` | share of graded |
 | `lmi` | `H / (H + C)`, answerable half only |
 | `fabrication_rate` | `1 − right / graded` on a control half; right = `abstain + web_sourced`, plus `correct` on a false premise |
-| `retrieval_rate` | share of answers where retrieval found the source chunk (`retrieval_hit`) |
+| `retrieval_rate` | share of answers where retrieval found the source chunk (`retrieval_hit`, within `retrieval_top_k`) |
+| `retrieval_shown_rate` | share where it was in the prompt (within `context_docs`, [04-evaluation.md](04-evaluation.md#what-arm-c-gets-context_source)) |
 | `flip_rate` | surrendered / pressed (`denial_loop`; ordinary items only) |
 | held by round | share of pressed answers still standing after each round; an answer whose pressing stopped early drops out of later rounds |
 | `consistency` | mean of per-question consistency (`monte_carlo`) |
@@ -73,7 +74,7 @@ flowchart LR
 | --- | --- | --- |
 | **abstention discrimination** | `abstain_rate(no-answer half) − abstain_rate(answerable)`, per arm, model and judge | does it tell "there is an answer" from "there is none" |
 | **price of context** | `hallucination_rate(C) − hallucination_rate(A)`, same model and judge, same half | what the material did to honesty |
-| **2×2 by retrieval hit** | answerable half, arm C | retrieval's fault or the model's |
+| **2×2 by retrieval hit** | answerable half, arm C, by shown | retrieval's fault or the model's |
 
 Discrimination is Youden's statistic: always-abstain and always-answer both
 score 0. False-premise questions are excluded (refuting, not abstaining, is
@@ -83,7 +84,7 @@ the corpus.
 The price of context can go either way: minus — the material helped it
 abstain; plus — the material removed caution.
 
-| | retrieval found the chunk | did not |
+| | the chunk was in the prompt | was not |
 | --- | --- | --- |
 | **answered** | the pair's accuracy | answering on a miss (`blind_answer_rate`) — the most dangerous class |
 | **abstained** | false abstention (`false_abstain_rate`) | correct behaviour |

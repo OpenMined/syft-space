@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from syft_benchmark.config import Settings, get_settings
 from syft_benchmark.db import QaPair, Result, Run, session_scope
 from syft_benchmark.question_order import answer_order, pair_order
+from syft_benchmark.retrieval.arm_c import shown_of
 from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE, citations_of
 
 # A page any larger stops being something a person reviews.
@@ -138,6 +139,10 @@ class ResultView:
     # nothing was retrieved, as in closed book.
     retrieval_hit: bool | None = None
     retrieval_rank: int | None = None
+    # Whether that chunk was among the context_docs put into the prompt;
+    # ``retrieval_shown_assumed``: taken as found, the run not saying.
+    retrieval_shown: bool | None = None
+    retrieval_shown_assumed: bool = False
 
     # How the call ended, and the two ceilings of its run.
     call: CallView | None = None
@@ -244,6 +249,17 @@ def _call_of(audit: Any) -> CallView | None:
     )
 
 
+def _shown_fields(result: Result, run: Run) -> dict[str, Any]:
+    shown = shown_of(
+        result.retrieval_hit,
+        result.retrieval_rank,
+        result.extra,
+        run.params,
+        run.context_source,
+    )
+    return {"retrieval_shown": shown.value, "retrieval_shown_assumed": shown.assumed}
+
+
 def _params_int(params: Any, name: str) -> int | None:
     """One number out of a run's settings snapshot; None where it has none.
 
@@ -315,6 +331,7 @@ def _view(
         repeats=_repeats_of(result.extra),
         retrieval_hit=result.retrieval_hit,
         retrieval_rank=result.retrieval_rank,
+        **_shown_fields(result, run),
         call=_call_of(result.audit),
         citations=citations_of(result.audit),
         web_search_unused=_unused_search(result.audit),

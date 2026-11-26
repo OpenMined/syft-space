@@ -27,7 +27,7 @@ erDiagram
         text answer "SENSITIVE: quotes the source"
         jsonb distractors
         text context
-        jsonb meta "grading, key_facts, screening, writer call, entity check, article date"
+        jsonb meta "grading, key_facts, screening, writer call, entity check, article date, gold"
         string expected_behavior "answer-abstain-correct_premise"
         string status "pending-active-rejected-retired"
         text status_note
@@ -131,14 +131,20 @@ resuming.
   cohort or the set cap).
   `status_reason`: `grounding`, `retrieval_gate`, `not_answerable`,
   `duplicate`, `owner`, `rotation`, `web_answerable`, `public_knowledge`,
-  `wrong_language`, `ambiguous_entity`, `other`. Screened-out pairs are kept.
+  `wrong_language`, `ambiguous_entity`, `quality`, `repeated_fact`, `other`. Screened-out
+  pairs are kept.
+* **`qa_pairs.meta.gold`** — the question's gold for measuring retrieval:
+  source article (file name, path, doc id, text fingerprint) and the
+  verbatim sentences its answer rests on ([02-generation.md](02-generation.md#the-gold)).
+  A key in `meta`, not columns: nested, read whole per question, never
+  filtered in SQL; absent on questions built before it (unknown).
 * **`qa_pairs.cohort` in the unique key** — the same question may repeat
   across cohorts (a rebuild over the same material).
 * **`processed_units` keyed by generator and cohort** — each generator
   processes every chunk; a rebuild processes it afresh.
 * **`results.endpoint_response_type`** — the endpoint mode at answer time.
-* **`results.extra`** — per-block results (`denial`, `repeats`) and text
-  metrics.
+* **`results.extra`** — per-block results (`denial`, `repeats`), text
+  metrics and, in arm C, `retrieval_shown`.
 * **`retrieval_hit` / `retrieval_rank`** — for `raw` mode this is the
   measurement: whether and where the gold chunk was retrieved.
 * **`results.audit`** — the prompts as sent.
