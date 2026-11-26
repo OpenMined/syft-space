@@ -170,6 +170,9 @@ jobs:
     concurrency:
       group: space-image-changelog
       cancel-in-progress: false
+    env:
+      # A token of a user with a Copilot seat; unset means no rewording.
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
 
     steps:
       # Full history of main as it is now: the entry lists the changes
@@ -181,12 +184,43 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      # What the entry will list, as text for the model. Rewording is
+      # skipped when nothing is listed or no Copilot token is configured.
+      - name: Collect the changes in this image
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/space_changelog.py "${{ needs.manifest.outputs.tag }}" \
+            --since "${{ needs.manifest.outputs.previous }}" \
+            --facts "${RUNNER_TEMP}/changes.txt"
+          if [ -s "${RUNNER_TEMP}/changes.txt" ] && [ -n "${COPILOT_GITHUB_TOKEN}" ]; then
+            echo "reword=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Optional: a failure here leaves the entry with the PR titles.
+      - name: Install the Copilot CLI
+        if: steps.changes.outputs.reword == 'true'
+        continue-on-error: true
+        run: npm install -g @github/copilot
+
+      - name: Reword the changes with Copilot
+        id: reword
+        if: steps.changes.outputs.reword == 'true'
+        continue-on-error: true
+        uses: actions/ai-inference@v3
+        with:
+          system-prompt-file: .github/prompts/space_changelog.txt
+          prompt-file: ${{ runner.temp }}/changes.txt
+          model: gpt-4.1
+
       - name: Add the changelog entry and push it
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 .github/scripts/space_changelog.py "${{ needs.manifest.outputs.tag }}" \
-            --since "${{ needs.manifest.outputs.previous }}"
+            --since "${{ needs.manifest.outputs.previous }}" \
+            --wording "${{ steps.reword.outputs.response-file }}"
           if git diff --quiet -- packages/spaces/CHANGELOG.md; then
             exit 0
           fi
