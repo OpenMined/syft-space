@@ -18,7 +18,7 @@ There are two identities, enforced by `AdminKeyMiddleware`:
 | Caller | Routes | How |
 | --- | --- | --- |
 | **Admin** (the dashboard) | Everything except `@public_route` | `Authorization: Bearer <SYFT_ADMIN_API_KEY>`. If the key is unset, the server is in **dev mode** and admin auth is skipped. |
-| **End user** | Public routes that identify a user (e.g. query, gateway balance/invoices) | A **SyftHub token** in `Authorization: Bearer …`, verified against SyftHub. |
+| **End user** | Public routes that identify a user (e.g. query, gateway balance/invoices) | A **SyftHub token** in `Authorization: Bearer …`, verified locally against SyftHub's public keys. |
 | **Anyone** | Open public routes (health, webhooks) | None. |
 
 Public routes are marked in code with the `@public_route` decorator and

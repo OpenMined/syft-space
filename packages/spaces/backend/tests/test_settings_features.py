@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from syft_space.components.settings.handlers import SettingsHandler
+from syft_space.components.shared.syfthub import SyftHubClient
 from syft_space.config import AppSettings, app_settings
 
 
@@ -13,6 +14,7 @@ def handler() -> SettingsHandler:
     return SettingsHandler(
         settings_repository=MagicMock(),
         marketplace_repository=MagicMock(),
+        client_factory=SyftHubClient,
         proxy_service=None,
     )
 

@@ -8,6 +8,7 @@ os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 
 import asyncio
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, status
@@ -29,9 +30,16 @@ from syft_space.components.analytics.routes import build_analytics_routes
 from syft_space.components.analytics.text_processing import extract_user_query
 
 # Import auth components
-from syft_space.components.auth.dependencies import bearer_scheme
+from syft_space.components.auth.dependencies import (
+    bearer_scheme,
+    make_verified_sender_email_dependency,
+)
 from syft_space.components.auth.middleware import AdminKeyMiddleware
 from syft_space.components.auth.public import discover_public_routes, public_route
+from syft_space.components.auth.satellite_tokens import (
+    SatelliteTokenVerifier,
+    verify_with_hub,
+)
 from syft_space.components.benchmarks.handlers import BenchmarkHandler
 from syft_space.components.benchmarks.repository import (
     BenchmarkConnectionRepository,
@@ -101,9 +109,6 @@ from syft_space.components.models.routes import build_model_routes
 
 # Import payment components
 from syft_space.components.payments.gateway.balance_service import BalanceService
-from syft_space.components.payments.gateway.dependencies import (
-    make_verified_sender_email_dependency,
-)
 from syft_space.components.payments.gateway.handlers import PaymentHandler
 from syft_space.components.payments.gateway.payment_ledger import PaymentLedger
 from syft_space.components.payments.gateway.stripe.gateway import StripeGateway
@@ -143,11 +148,11 @@ from syft_space.components.shared.lifecycle import LifecycleService
 # Import proxy service
 from syft_space.components.shared.proxy_service import ProxyService
 from syft_space.components.shared.sentry import init_sentry, set_diagnostics_enabled
-from syft_space.components.shared.syfthub_client import SyftHubClient
 from syft_space.components.shared.telemetry import (
     setup_telemetry,
     shutdown_telemetry,
 )
+from syft_space.components.shared.syfthub import HubClients
 from syft_space.components.sources import register_builtin_sources
 from syft_space.components.sources.local_file.local_file_watcher import (
     get_local_file_watcher,
@@ -391,7 +396,7 @@ async def lifespan(app: FastAPI):
             marketplace = await marketplace_repository.get_default(default_tenant.id)
             if not marketplace:
                 raise RuntimeError("No default marketplace configured")
-            async with SyftHubClient(str(marketplace.url)) as client:
+            async with hub_clients.for_url(marketplace.url) as client:
                 await client.login(marketplace.email, marketplace.password)
                 creds = await client.get_tunnel_credentials()
             return (creds.auth_token, creds.domain)
@@ -457,6 +462,9 @@ async def lifespan(app: FastAPI):
     # 8.0. Close the vector stores' long-lived clients.
     await client_cache.close_all()
 
+    # 8.0.1. Close the connections kept open to the hubs.
+    await hub_clients.close()
+
     # 8.1. Drain any in-flight analytics capture tasks. Bounded so a slow
     # SQLite write doesn't hang shutdown; events past the timeout are dropped
     # (logged by the collector if they raise).
@@ -499,6 +507,9 @@ analytics_database = AsyncDatabase(analytics_db_config)
 # Initialize analytics repository and collector
 event_repository = QueryEventRepository(analytics_database)
 event_collector = QueryEventCollector(event_repository)
+
+# One set of SyftHub sessions and connections for everything that talks to a hub.
+hub_clients = HubClients()
 
 # Initialize repositories
 tenant_repository = TenantRepository(database)
@@ -557,7 +568,7 @@ capability_checker = CapabilityChecker(
 policy_handler = PolicyHandler(
     POLICY_TYPE_REGISTRY, policy_repository, capability_checker
 )
-marketplace_handler = MarketplaceHandler(marketplace_repository)
+marketplace_handler = MarketplaceHandler(marketplace_repository, hub_clients.one_off)
 
 # Initialize wallet handler with providers (Clean Architecture: concrete adapters injected here)
 wallet_providers = {
@@ -586,8 +597,11 @@ gateway_payment_handler = PaymentHandler(
     endpoint_repository=endpoint_repository,
     gateways={"xendit": XenditGateway(), "stripe": StripeGateway()},
 )
+satellite_token_verifier = SatelliteTokenVerifier(
+    remote=partial(verify_with_hub, hub_clients.for_url)
+)
 get_verified_sender_email = make_verified_sender_email_dependency(
-    marketplace_repository
+    marketplace_repository, satellite_token_verifier
 )
 
 
@@ -722,6 +736,7 @@ publish_endpoint_handler = PublishEndpointHandler(
     model_repository=model_repository,
     dataset_registry=DATASET_TYPE_REGISTRY,
     model_registry=MODEL_TYPE_REGISTRY,
+    client_factory=hub_clients.for_url,
     wallet_repository=wallet_repository,
     wallet_providers=wallet_providers,
 )
@@ -735,9 +750,9 @@ analytics_handler = AnalyticsHandler(
 
 # Initialize settings handler with proxy service
 settings_handler = SettingsHandler(
-    settings_repository, marketplace_repository, proxy_service
+    settings_repository, marketplace_repository, hub_clients.for_url, proxy_service
 )
-feedback_handler = FeedbackHandler(marketplace_repository)
+feedback_handler = FeedbackHandler(marketplace_repository, hub_clients.for_url)
 
 # With no benchmark connection, these routes report that nothing is connected.
 benchmark_handler = BenchmarkHandler(
@@ -761,6 +776,7 @@ endpoint_heartbeat_manager = EndpointHeartbeatManager(
     health_checker=publish_endpoint_handler,
     marketplace_repository=marketplace_repository,
     settings_repository=settings_repository,
+    client_factory=hub_clients.for_url,
     enabled=app_settings.heartbeat_enabled,
     check_interval=app_settings.health_check_interval,
 )
@@ -785,6 +801,7 @@ router.include_router(
         endpoint_handler,
         query_endpoint_handler,
         publish_endpoint_handler,
+        get_verified_sender_email,
     )
 )
 router.include_router(build_tenant_routes(tenant_handler))

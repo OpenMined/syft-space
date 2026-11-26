@@ -17,7 +17,8 @@ from loguru import logger
 
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.repository import MarketplaceRepository
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
+    HubClientFactory,
     NotFoundError,
     Satellite,
     SatelliteKind,
@@ -30,8 +31,13 @@ from syft_space.components.shared.syfthub_client import (
 class SatelliteRegistrar:
     """Keeps a marketplace row's satellite pointed at the local public URL."""
 
-    def __init__(self, marketplace_repository: MarketplaceRepository):
+    def __init__(
+        self,
+        marketplace_repository: MarketplaceRepository,
+        client_factory: HubClientFactory,
+    ):
         self.marketplace_repository = marketplace_repository
+        self._client_factory = client_factory
 
     async def ensure_with_client(
         self,
@@ -63,7 +69,7 @@ class SatelliteRegistrar:
             return marketplace.satellite_id
 
         try:
-            async with SyftHubClient(str(marketplace.url)) as client:
+            async with self._client_factory(marketplace.url) as client:
                 await client.login(marketplace.email, marketplace.password)
                 satellite = await self.ensure_with_client(
                     client, base_url, marketplace.satellite_id

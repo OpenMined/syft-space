@@ -2,10 +2,12 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header
 from fastapi.responses import JSONResponse
 
-from syft_space.components.auth.dependencies import get_verified_user_email
+from syft_space.components.auth.dependencies import (
+    get_verified_sender_email_dependency,
+)
 from syft_space.components.auth.public import public_route
 from syft_space.components.endpoints.handlers import EndpointHandler
 from syft_space.components.endpoints.publish_handler import PublishEndpointHandler
@@ -52,6 +54,7 @@ def build_endpoint_routes(
     handler: EndpointHandler,
     query_handler: QueryEndpointHandler,
     publish_handler: PublishEndpointHandler,
+    get_verified_sender_email: get_verified_sender_email_dependency,
 ) -> APIRouter:
     """Build the endpoint routes."""
     router = APIRouter(prefix="/endpoints", tags=["endpoints"])
@@ -64,17 +67,6 @@ def build_endpoint_routes(
 
     def get_publish_handler() -> PublishEndpointHandler:
         return publish_handler
-
-    async def get_verified_sender_email(
-        request: Request,
-        tenant: Tenant = Depends(get_tenant_dependency),
-        handler: PublishEndpointHandler = Depends(get_publish_handler),
-    ) -> str:
-        """Get verified sender email from SyftHub token."""
-        marketplace = await handler.marketplace_repository.get_default(tenant.id)
-        if not marketplace:
-            raise HTTPException(status_code=400, detail="No marketplace configured")
-        return await get_verified_user_email(request, marketplace)
 
     # ── CRUD routes (EndpointHandler) ────────────────────────────
 

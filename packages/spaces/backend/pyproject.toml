@@ -40,6 +40,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.61b0",
     "opentelemetry-instrumentation-httpx>=0.61b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.61b0",
+    "pyjwt[crypto]>=2.15.1",
 ]
 
 [project.optional-dependencies]

@@ -1,9 +1,16 @@
-from fastapi import HTTPException, Request
+from collections.abc import Callable, Coroutine
+
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer
 
-from syft_space.components.marketplaces.repository import Marketplace
-from syft_space.components.shared.syfthub_client import SyftHubError
-from syft_space.components.shared.telemetry import set_request_attributes, span
+from syft_space.components.auth.satellite_tokens import SatelliteTokenVerifier
+from syft_space.components.marketplaces.repository import (
+    Marketplace,
+    MarketplaceRepository,
+)
+from syft_space.components.shared.telemetry import set_request_attributes
+from syft_space.components.tenants.dependency import get_tenant_dependency
+from syft_space.components.tenants.entities import Tenant
 from syft_space.config import app_settings
 
 # Security scheme for OpenAPI documentation
@@ -17,14 +24,17 @@ bearer_scheme = HTTPBearer(
 async def get_verified_user_email(
     request: Request,
     marketplace: Marketplace,
+    verifier: SatelliteTokenVerifier,
 ) -> str:
     """Extract and verify SyftHub satellite token.
 
-    Uses handler.marketplace_repository captured from closure.
+    Verified locally against the marketplace's public keys; the marketplace
+    is called only when that cannot settle it (see ``satellite_tokens``).
 
     Args:
         request: FastAPI request object
         marketplace: Marketplace
+        verifier: Verifies the satellite token
 
     Returns:
         Verified user's email address
@@ -32,10 +42,8 @@ async def get_verified_user_email(
     Raises:
         HTTPException: 401 if token missing/invalid/expired
         HTTPException: 400 if no marketplace configured
-        HTTPException: 500 if verification fails
+        HTTPException: 503 if the marketplace had to be asked and is unreachable
     """
-    from syft_space.components.shared.syfthub_client import SyftHubClient
-
     # Extract Bearer token
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -52,26 +60,27 @@ async def get_verified_user_email(
     if token == app_settings.admin_api_key:
         return marketplace.email
 
-    # The satellite id narrows the accepted audience to this space, so a
-    # token minted for another service the same owner runs is rejected.
     set_request_attributes(endpoint_slug=request.path_params.get("slug"))
-    try:
-        with span("auth.verify_sender"):
-            async with SyftHubClient(str(marketplace.url)) as client:
-                await client.login(marketplace.email, marketplace.password)
-                result = await client.verify_satellite_token(
-                    token, marketplace.satellite_id
-                )
-    except SyftHubError as e:
-        raise e.to_http_exception() from e
+    return await verifier.email_for(token, marketplace)
 
-    # TODO: guest tokens (sub == "guest") are accepted here but rejected by
-    # the station. Worth aligning the two receivers.
-    if not result.valid:
-        raise HTTPException(status_code=401, detail="Invalid satellite token")
-    if result.is_expired:
-        raise HTTPException(status_code=401, detail="Satellite token expired")
-    if not result.email:
-        raise HTTPException(status_code=401, detail="Token missing email claim")
 
-    return str(result.email)
+# Type alias for the dependency callable used by route builders
+get_verified_sender_email_dependency = Callable[..., Coroutine[None, None, str]]
+
+
+def make_verified_sender_email_dependency(
+    marketplace_repository: MarketplaceRepository,
+    verifier: SatelliteTokenVerifier,
+) -> get_verified_sender_email_dependency:
+    """Create the FastAPI dependency that returns the caller's verified email."""
+
+    async def get_verified_sender_email(
+        request: Request,
+        tenant: Tenant = Depends(get_tenant_dependency),
+    ) -> str:
+        marketplace = await marketplace_repository.get_default(tenant.id)
+        if not marketplace:
+            raise HTTPException(status_code=400, detail="No marketplace configured")
+        return await get_verified_user_email(request, marketplace, verifier)
+
+    return get_verified_sender_email

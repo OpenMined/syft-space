@@ -12,14 +12,19 @@ from syft_space.components.feedback.schemas import (
     FeedbackResponse,
 )
 from syft_space.components.marketplaces.repository import MarketplaceRepository
-from syft_space.components.shared.syfthub_client import SyftHubClient
+from syft_space.components.shared.syfthub import HubClientFactory
 
 
 class FeedbackHandler:
     """Handler that forwards feedback to SyftHub's /api/v1/feedback endpoint."""
 
-    def __init__(self, marketplace_repository: MarketplaceRepository) -> None:
+    def __init__(
+        self,
+        marketplace_repository: MarketplaceRepository,
+        client_factory: HubClientFactory,
+    ) -> None:
         self.marketplace_repository = marketplace_repository
+        self._client_factory = client_factory
 
     async def create_feedback(
         self,
@@ -41,7 +46,7 @@ class FeedbackHandler:
             )
 
         try:
-            async with SyftHubClient(str(marketplace.url)) as syfthub:
+            async with self._client_factory(marketplace.url) as syfthub:
                 await syfthub.login(marketplace.email, marketplace.password)
 
                 # Build multipart form data

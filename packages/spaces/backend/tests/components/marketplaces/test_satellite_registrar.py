@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from syft_space.components.marketplaces.satellites import SatelliteRegistrar
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
     SatelliteKindMismatchError,
     SyftHubClient,
 )
@@ -66,10 +66,9 @@ def make_client(handler) -> tuple[SyftHubClient, list[httpx.Request]]:
         seen.append(request)
         return handler(request)
 
-    client = SyftHubClient(HUB_URL)
-    client._client = httpx.AsyncClient(
-        base_url=HUB_URL, transport=httpx.MockTransport(record)
-    )
+    http = httpx.AsyncClient(base_url=HUB_URL, transport=httpx.MockTransport(record))
+    client = SyftHubClient(HUB_URL, http=http)
+    client.authenticate_with_tokens("access", "refresh")
     return client, seen
 
 
@@ -93,7 +92,7 @@ def calls(seen: list[httpx.Request]) -> list[tuple[str, str]]:
 
 
 async def test_no_stored_id_registers_and_returns_the_satellite():
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, seen = make_client(routes(post=httpx.Response(201, json=satellite_body())))
 
     satellite = await registrar.ensure_with_client(client, ORIGIN, None)
@@ -104,7 +103,7 @@ async def test_no_stored_id_registers_and_returns_the_satellite():
 
 async def test_a_changed_origin_moves_and_never_creates_a_second_satellite():
     """The reason the registrar exists: POST here would duplicate."""
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, seen = make_client(
         routes(put=httpx.Response(200, json=satellite_body(base_url=MOVED)))
     )
@@ -118,7 +117,7 @@ async def test_a_changed_origin_moves_and_never_creates_a_second_satellite():
 
 async def test_an_unchanged_origin_is_a_no_op_move_not_a_second_satellite():
     """Self is excluded from the hub's conflict check, so re-moving is a 200."""
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, seen = make_client(routes(put=httpx.Response(200, json=satellite_body())))
 
     satellite = await registrar.ensure_with_client(client, ORIGIN, SATELLITE_ID)
@@ -128,7 +127,7 @@ async def test_an_unchanged_origin_is_a_no_op_move_not_a_second_satellite():
 
 
 async def test_a_stale_id_re_registers_and_adopts_the_new_one():
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, seen = make_client(
         routes(
             put=httpx.Response(404, json={"detail": {"code": "NOT_FOUND"}}),
@@ -147,7 +146,7 @@ async def test_a_stale_id_re_registers_and_adopts_the_new_one():
 
 async def test_a_sibling_on_that_origin_keeps_our_id_rather_than_stealing_theirs():
     """Taking it would drag this space's endpoints onto another's satellite."""
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, seen = make_client(
         routes(put=httpx.Response(409, json={"detail": {"code": "CONFLICT"}}))
     )
@@ -160,7 +159,7 @@ async def test_a_sibling_on_that_origin_keeps_our_id_rather_than_stealing_theirs
 
 async def test_no_public_url_registers_nothing():
     """Onboarding connects the marketplace before the URL is set."""
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, seen = make_client(routes())
 
     assert await registrar.ensure_with_client(client, None, None) is None
@@ -168,7 +167,7 @@ async def test_no_public_url_registers_nothing():
 
 
 async def test_a_kind_mismatch_is_raised_not_swallowed():
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, _ = make_client(
         routes(
             post=httpx.Response(
@@ -188,7 +187,7 @@ async def test_a_space_only_ever_registers_itself_as_a_space():
     the heartbeat has already claimed it as a `space`. Nothing here may ask
     for the other kind.
     """
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     kinds: list[str] = []
 
     def capture(request: httpx.Request) -> httpx.Response:
@@ -207,7 +206,7 @@ async def test_a_space_only_ever_registers_itself_as_a_space():
 
 async def test_resolve_id_spends_no_hub_call_when_the_id_is_known():
     """The heartbeat runs every 30s; it must not move the satellite each time."""
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, seen = make_client(routes())
     marketplace = make_marketplace(SATELLITE_ID)
 
@@ -219,7 +218,7 @@ async def test_resolve_id_spends_no_hub_call_when_the_id_is_known():
 
 async def test_resolve_id_registers_and_persists_when_there_is_no_id():
     repository = FakeMarketplaceRepository()
-    registrar = SatelliteRegistrar(repository)
+    registrar = SatelliteRegistrar(repository, SyftHubClient)
     client, seen = make_client(routes(post=httpx.Response(201, json=satellite_body())))
     marketplace = make_marketplace(None)
 
@@ -232,7 +231,7 @@ async def test_resolve_id_registers_and_persists_when_there_is_no_id():
 
 
 async def test_resolve_id_returns_none_without_a_public_url():
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     client, seen = make_client(routes())
 
     resolved = await registrar.resolve_id(client, make_marketplace(None), None, uuid4())
@@ -243,7 +242,7 @@ async def test_resolve_id_returns_none_without_a_public_url():
 
 async def test_forget_id_clears_the_stored_id_so_the_next_resolve_registers():
     repository = FakeMarketplaceRepository()
-    registrar = SatelliteRegistrar(repository)
+    registrar = SatelliteRegistrar(repository, SyftHubClient)
     marketplace = make_marketplace(SATELLITE_ID)
 
     await registrar.forget_id(marketplace, uuid4())
@@ -255,14 +254,11 @@ async def test_forget_id_clears_the_stored_id_so_the_next_resolve_registers():
 # ── ensure: the persisting wrapper used by the settings routes ──────────
 
 
-async def test_ensure_persists_the_id_and_surfaces_hub_errors_as_http(monkeypatch):
-    import syft_space.components.marketplaces.satellites as satellites_module
-
+async def test_ensure_persists_the_id_and_surfaces_hub_errors_as_http():
     repository = FakeMarketplaceRepository()
-    registrar = SatelliteRegistrar(repository)
     marketplace = make_marketplace(None)
 
-    def fake_client(base_url, **kwargs):
+    def fake_client(base_url):
         client, _ = make_client(routes(post=httpx.Response(201, json=satellite_body())))
 
         async def login(*args, **kwargs):
@@ -271,7 +267,7 @@ async def test_ensure_persists_the_id_and_surfaces_hub_errors_as_http(monkeypatc
         client.login = login  # type: ignore[method-assign]
         return client
 
-    monkeypatch.setattr(satellites_module, "SyftHubClient", fake_client)
+    registrar = SatelliteRegistrar(repository, fake_client)
 
     resolved = await registrar.ensure(marketplace, ORIGIN, uuid4())
 
@@ -280,7 +276,7 @@ async def test_ensure_persists_the_id_and_surfaces_hub_errors_as_http(monkeypatc
 
 
 async def test_ensure_without_credentials_keeps_whatever_id_is_stored():
-    registrar = SatelliteRegistrar(FakeMarketplaceRepository())
+    registrar = SatelliteRegistrar(FakeMarketplaceRepository(), SyftHubClient)
     marketplace = make_marketplace(SATELLITE_ID)
     marketplace.password = ""
 

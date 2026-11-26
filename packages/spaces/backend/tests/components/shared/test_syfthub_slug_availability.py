@@ -9,11 +9,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from syft_space.components.shared.syfthub_client import (
-    SyftHubClient,
-    ValidationError,
-    _parse_error_response,
-)
+from syft_space.components.shared.syfthub import SyftHubClient, ValidationError
+from syft_space.components.shared.syfthub.responses import _parse_error_response
 
 HUB_URL = "https://hub.test"
 
@@ -25,10 +22,9 @@ def make_client(handler) -> tuple[SyftHubClient, list[httpx.Request]]:
         seen.append(request)
         return handler(request)
 
-    client = SyftHubClient(HUB_URL)
-    client._client = httpx.AsyncClient(
-        base_url=HUB_URL, transport=httpx.MockTransport(record)
-    )
+    http = httpx.AsyncClient(base_url=HUB_URL, transport=httpx.MockTransport(record))
+    client = SyftHubClient(HUB_URL, http=http)
+    client.authenticate_with_tokens("access", "refresh")
     return client, seen
 
 

@@ -4,10 +4,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from syft_space.components.auth.public import public_route
-from syft_space.components.payments.gateway.dependencies import (
+from syft_space.components.auth.dependencies import (
     get_verified_sender_email_dependency,
 )
+from syft_space.components.auth.public import public_route
 from syft_space.components.payments.gateway.entities import InvoiceStatus
 from syft_space.components.payments.gateway.handlers import PaymentHandler
 from syft_space.components.payments.gateway.schemas import (

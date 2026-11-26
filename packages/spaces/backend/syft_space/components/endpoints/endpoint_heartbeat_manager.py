@@ -13,10 +13,10 @@ from loguru import logger
 from syft_space.components.marketplaces.entities import Marketplace
 from syft_space.components.marketplaces.satellites import SatelliteRegistrar
 from syft_space.components.shared.lifecycle import LifecycleService
-from syft_space.components.shared.syfthub_client import (
+from syft_space.components.shared.syfthub import (
+    HubClientFactory,
     NotFoundError,
     RateLimitError,
-    SyftHubClient,
     SyftHubError,
 )
 
@@ -77,6 +77,7 @@ class EndpointHeartbeatManager(LifecycleService):
         health_checker: EndpointHealthChecker,
         marketplace_repository: MarketplaceRepository,
         settings_repository: SettingsRepository,
+        client_factory: HubClientFactory,
         enabled: bool = True,
         check_interval: float = CHECK_INTERVAL,
     ) -> None:
@@ -86,12 +87,14 @@ class EndpointHeartbeatManager(LifecycleService):
             health_checker: Provider for endpoint health checks (e.g. EndpointHandler)
             marketplace_repository: Repository for accessing marketplace credentials
             settings_repository: Repository for accessing public_url setting
+            client_factory: Builds the SyftHub clients that deliver heartbeats
             enabled: Whether endpoint heartbeat manager is enabled
             check_interval: Interval in seconds between health checks
         """
         self._health_checker = health_checker
         self._marketplace_repository = marketplace_repository
-        self._satellites = SatelliteRegistrar(marketplace_repository)
+        self._client_factory = client_factory
+        self._satellites = SatelliteRegistrar(marketplace_repository, client_factory)
         self._settings_repository = settings_repository
         self._enabled = enabled
         self._check_interval = check_interval
@@ -337,7 +340,7 @@ class EndpointHeartbeatManager(LifecycleService):
         ttl = int(self._check_interval * self.TTL_MULTIPLIER)
 
         try:
-            async with SyftHubClient(base_url=marketplace.url) as client:
+            async with self._client_factory(marketplace.url) as client:
                 await client.login(
                     username=marketplace.email, password=marketplace.password
                 )

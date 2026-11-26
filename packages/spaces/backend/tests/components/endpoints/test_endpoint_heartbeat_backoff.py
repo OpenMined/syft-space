@@ -10,21 +10,22 @@ from __future__ import annotations
 from types import SimpleNamespace
 from uuid import uuid4
 
-from syft_space.components.endpoints import endpoint_heartbeat_manager as hb_module
 from syft_space.components.endpoints.endpoint_heartbeat_manager import (
     EndpointHeartbeatManager,
     MarketplaceDeliveryState,
 )
-from syft_space.components.shared.syfthub_client import RateLimitError
+from syft_space.components.shared.syfthub import RateLimitError, SyftHubClient
 
 NOW = 1000.0
 
 
-def make_manager() -> EndpointHeartbeatManager:
+def make_manager(new_client=None) -> EndpointHeartbeatManager:
+    """Build a manager; ``new_client`` stands in for building a hub client."""
     return EndpointHeartbeatManager(
         health_checker=SimpleNamespace(),
         marketplace_repository=SimpleNamespace(),
         settings_repository=SimpleNamespace(),
+        client_factory=new_client or SyftHubClient,
     )
 
 
@@ -106,11 +107,10 @@ def make_marketplace() -> SimpleNamespace:
     )
 
 
-async def test_rate_limited_delivery_backs_off_and_skips_next_attempt(monkeypatch):
-    monkeypatch.setattr(hb_module, "SyftHubClient", _RateLimitedClient)
+async def test_rate_limited_delivery_backs_off_and_skips_next_attempt():
     _RateLimitedClient.instantiations = 0
 
-    manager = make_manager()
+    manager = make_manager(_RateLimitedClient)
     marketplace = make_marketplace()
     health = [{"slug": "ep", "status": "online", "checked_at": "now"}]
 
