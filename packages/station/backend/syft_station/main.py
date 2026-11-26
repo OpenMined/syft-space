@@ -45,6 +45,10 @@ from syft_station.components.setup.repository import SetupRepository
 from syft_station.components.setup.routes import build_setup_routes
 from syft_station.components.setup.satellites import StationSatelliteRegistrar
 from syft_station.components.shared.database import AsyncDatabase, SQLiteConfig
+from syft_station.components.shared.telemetry import (
+    setup_telemetry,
+    shutdown_telemetry,
+)
 from syft_station.components.spaces.handlers import SpaceHandler
 from syft_station.components.spaces.provisioning import SpaceConverger
 from syft_station.components.spaces.repository import SpaceRepository
@@ -196,6 +200,7 @@ async def lifespan(app: FastAPI):
 
     await request_handler.wait_for_provisioning()
     await database.dispose()
+    shutdown_telemetry()
 
 
 app = FastAPI(title="Syft Station", lifespan=lifespan)
@@ -224,6 +229,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# After the last add_middleware, so the request span wraps them all.
+setup_telemetry(app, [database.engine])
 
 app.include_router(build_auth_routes(auth_handler), prefix="/api/v1")
 app.include_router(

@@ -37,6 +37,10 @@ one, start at the [station README](../README.md).
    the admin must ensure around firewalls, DNS, certificates, and secrets
    at rest, with a worked example.
 
+8. **[telemetry.md](telemetry.md)** — optional OpenTelemetry traces from
+   the station and every space, through one Collector, to a backend you
+   choose.
+
 ## Terminology (important)
 
 - **"Syft Station"** is the brand — user-visible copy, docs, URLs.

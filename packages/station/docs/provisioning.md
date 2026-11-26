@@ -39,6 +39,10 @@ templates stay valid YAML with no control flow:
 | Host mount | `space_host_mount` | node's `/mnt/host-home` mounted read-only at `/root/host-home` — *inside* the container's home, because syft-space's dataset file browser is rooted at home and rejects paths outside it. `DirectoryOrCreate` so an unmapped node serves an empty dir instead of wedging the pod |
 | TLS | `space_tls_secret` | a `tls:` section on the Ingress pointing at the shared wildcard cert Secret ([deployment.md](deployment.md#tls)) |
 
+Telemetry is not an injection: every Deployment carries the same optional
+`envFrom` to the `syft-space-telemetry` ConfigMap, which exists only when the
+chart has telemetry on ([telemetry.md](telemetry.md)).
+
 ## The bundle
 
 Five resources per space, applied in dependency order (Secret + PVC before

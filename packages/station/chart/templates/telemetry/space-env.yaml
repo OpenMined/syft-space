@@ -1,0 +1,16 @@
+{{- if .Values.telemetry.enabled }}
+{{/*
+Env every space pod loads through an optional envFrom. The name is fixed: the
+space pod template (syft_station/k8s/space/deployment.yaml) refers to it.
+Without this ConfigMap a space has no OTLP endpoint and does not trace.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: syft-space-telemetry
+  labels:
+    {{- include "syft-station.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ include "syft-station.telemetryEndpoint" . | quote }}
+{{- end }}

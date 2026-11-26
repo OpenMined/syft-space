@@ -13,6 +13,7 @@ from loguru import logger
 
 from syft_station.components.provision.interfaces import Provisioner, SpaceSpec
 from syft_station.components.setup.repository import SetupRepository
+from syft_station.components.shared.telemetry import SPACE_SUBDOMAIN_ATTR, span
 from syft_station.components.spaces.entities import CLEARED_BY_CONVERGE, Space
 from syft_station.components.spaces.interfaces import CreditsService
 from syft_station.components.spaces.repository import SpaceRepository
@@ -72,7 +73,8 @@ class SpaceConverger:
             credits_bundles=grant.bundles if grant else "",
         )
 
-        url = await self.provisioner.provision(spec)
+        with span("space.provision", **{SPACE_SUBDOMAIN_ATTR: space.subdomain}):
+            url = await self.provisioner.provision(spec)
 
         space.url = url
         space.version = target_version

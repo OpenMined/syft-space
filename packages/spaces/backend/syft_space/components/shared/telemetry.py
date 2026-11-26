@@ -41,6 +41,9 @@ EXCLUDED_URLS = "/health$,/frontend"
 # the HTTP route, which the request span records as http.route).
 ENDPOINT_SLUG_ATTR = "syft.endpoint.slug"
 
+# Span attributes that hold a URL, its path or its query string.
+URL_ATTRS = ("http.url", "url.full", "http.target", "url.query")
+
 TRACER_NAME = "syft_space"
 
 # A no-op tracer until setup_telemetry replaces it.
@@ -113,8 +116,13 @@ def setup_telemetry(
             tracer_provider=provider,
             excluded_urls=EXCLUDED_URLS,
             exclude_spans=["send", "receive"],
+            server_request_hook=_drop_query_string,
         )
-        HTTPXClientInstrumentor().instrument(tracer_provider=provider)
+        HTTPXClientInstrumentor().instrument(
+            tracer_provider=provider,
+            request_hook=_drop_query_string,
+            async_request_hook=_drop_query_string_async,
+        )
         SQLAlchemyInstrumentor().instrument(
             engines=[engine.sync_engine for engine in engines],
             tracer_provider=provider,
@@ -125,6 +133,23 @@ def setup_telemetry(
     except Exception as e:
         # Tracing must never stop the app from starting.
         logger.warning(f"Failed to set up telemetry: {e}")
+
+
+def _drop_query_string(span: Any, _request: Any) -> None:
+    """Cut the query string from a request span's URL attributes.
+
+    Query strings can carry emails (the station's
+    ``/credits/balance?user_email=``).
+    """
+    attributes = getattr(span, "attributes", None) or {}
+    for key in URL_ATTRS:
+        value = attributes.get(key)
+        if isinstance(value, str) and (key == "url.query" or "?" in value):
+            span.set_attribute(key, "" if key == "url.query" else value.split("?")[0])
+
+
+async def _drop_query_string_async(span: Any, request: Any) -> None:
+    _drop_query_string(span, request)
 
 
 def flush_telemetry() -> None:
