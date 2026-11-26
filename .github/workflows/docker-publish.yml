@@ -119,23 +119,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Read before :latest is replaced. The commit is an annotation on the
-      # index, or on older images a label in the per-arch image config.
+      # Read before :latest is replaced.
       - name: Find the commit the current latest image was built from
         id: previous
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          IMAGE="${IMAGE,,}"
-          KEY="org.opencontainers.image.revision"
-          find_revision() {
-            jq -r --arg key "$KEY" \
-              '[.. | objects | select(has($key)) | .[$key]] | first // empty'
-          }
-
-          revision=$(docker buildx imagetools inspect --raw "${IMAGE}:latest" | find_revision || true)
-          if [ -z "$revision" ]; then
-            revision=$(docker buildx imagetools inspect "${IMAGE}:latest" --format '{{json .Image}}' | find_revision || true)
-          fi
+          revision=$(.github/scripts/latest_image_revision.sh "${IMAGE,,}")
           echo "Previous image was built from: ${revision:-unknown}"
           echo "revision=${revision}" >> "$GITHUB_OUTPUT"
 
@@ -166,13 +155,12 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+      # Lets the built-in token call Copilot, billed to the organisation.
+      copilot-requests: write
     # One at a time, so two builds can't race the changelog commit.
     concurrency:
       group: space-image-changelog
       cancel-in-progress: false
-    env:
-      # A token of a user with a Copilot seat; unset means no rewording.
-      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
 
     steps:
       # Full history of main as it is now: the entry lists the changes
@@ -184,35 +172,13 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      # What the entry will list, as text for the model. Rewording is
-      # skipped when nothing is listed or no Copilot token is configured.
-      - name: Collect the changes in this image
-        id: changes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 .github/scripts/space_changelog.py "${{ needs.manifest.outputs.tag }}" \
-            --since "${{ needs.manifest.outputs.previous }}" \
-            --facts "${RUNNER_TEMP}/changes.txt"
-          if [ -s "${RUNNER_TEMP}/changes.txt" ] && [ -n "${COPILOT_GITHUB_TOKEN}" ]; then
-            echo "reword=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Optional: a failure here leaves the entry with the PR titles.
-      - name: Install the Copilot CLI
-        if: steps.changes.outputs.reword == 'true'
-        continue-on-error: true
-        run: npm install -g @github/copilot
-
+      # Optional: without an answer the entry uses the PR titles.
       - name: Reword the changes with Copilot
-        id: reword
-        if: steps.changes.outputs.reword == 'true'
-        continue-on-error: true
-        uses: actions/ai-inference@v3
+        id: wording
+        uses: ./.github/actions/space-changelog-wording
         with:
-          system-prompt-file: .github/prompts/space_changelog.txt
-          prompt-file: ${{ runner.temp }}/changes.txt
-          model: gpt-4.1
+          tag: ${{ needs.manifest.outputs.tag }}
+          since: ${{ needs.manifest.outputs.previous }}
 
       - name: Add the changelog entry and push it
         env:
@@ -220,7 +186,7 @@ jobs:
         run: |
           python3 .github/scripts/space_changelog.py "${{ needs.manifest.outputs.tag }}" \
             --since "${{ needs.manifest.outputs.previous }}" \
-            --wording "${{ steps.reword.outputs.response-file }}"
+            --wording "${{ steps.wording.outputs.response-file }}"
           if git diff --quiet -- packages/spaces/CHANGELOG.md; then
             exit 0
           fi

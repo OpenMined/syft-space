@@ -1,0 +1,73 @@
+# Shows the changelog entry an image built from this commit would get,
+# on the run's summary page. Builds no image and commits nothing.
+#
+# Runs on pull requests that change the changelog tooling, and on demand.
+name: Space Changelog Preview
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/scripts/space_changelog.py
+      - .github/scripts/latest_image_revision.sh
+      - .github/prompts/space_changelog.txt
+      - .github/actions/space-changelog-wording/**
+      - .github/workflows/space-changelog-preview.yml
+
+env:
+  IMAGE: ghcr.io/openmined/syft-space
+
+jobs:
+  preview:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      # Lets the built-in token call Copilot, billed to the organisation.
+      copilot-requests: write
+
+    steps:
+      # Full history: the entry lists the changes since the previous image.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pick the image tag and the previous image's commit
+        id: image
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "previous=$(.github/scripts/latest_image_revision.sh "${IMAGE}")" >> "$GITHUB_OUTPUT"
+
+      - name: Reword the changes with Copilot
+        id: wording
+        uses: ./.github/actions/space-changelog-wording
+        with:
+          tag: ${{ steps.image.outputs.tag }}
+          since: ${{ steps.image.outputs.previous }}
+
+      - name: Show the entry on the run's summary page
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANSWER: ${{ steps.wording.outputs.response-file }}
+        run: |
+          {
+            echo "### Changelog preview"
+            echo
+            echo "Changes since \`${{ steps.image.outputs.previous }}\`. Copilot step: ${{ steps.wording.outputs.outcome }}."
+            echo
+            python3 .github/scripts/space_changelog.py "${{ steps.image.outputs.tag }}" \
+              --since "${{ steps.image.outputs.previous }}" \
+              --wording "${ANSWER}" --dry-run
+            if [ -n "${ANSWER}" ] && [ -f "${ANSWER}" ]; then
+              echo
+              echo "<details><summary>Copilot's answer, as received</summary>"
+              echo
+              echo '```'
+              cat "${ANSWER}"
+              echo
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
