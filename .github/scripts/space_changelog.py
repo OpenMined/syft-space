@@ -3,6 +3,8 @@
 An image is named by its tag, the short commit id it was built from. The
 entry lists the pull requests merged between the previous image's commit and
 this one that touch the image's code, grouped by the type in their title.
+A pull request is breaking if its title has `!` before the colon, or its
+description has a line starting with `BREAKING CHANGE:`.
 
 The previous image's commit is passed in by the publish workflow, which reads
 it from the registry. Without it, the newest entry in the changelog is used.
@@ -14,8 +16,11 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
+import os
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 CHANGELOG = Path("packages/spaces/CHANGELOG.md")
@@ -23,7 +28,9 @@ CHANGELOG = Path("packages/spaces/CHANGELOG.md")
 IMAGE_PATHS = ("packages/spaces", ":!packages/spaces/src-tauri")
 HEADING = re.compile(r"^## Docker image (?P<image>\S+) \(", flags=re.MULTILINE)
 
-# Title type -> section. Types not listed here are left out of the entry.
+REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "OpenMined/syft-space")
+
+# Title type -> section. A title with no known type goes under Other.
 SECTIONS = {
     "feat": "Added",
     "fix": "Fixed",
@@ -31,9 +38,22 @@ SECTIONS = {
     "refactor": "Changed",
     "revert": "Changed",
 }
-SECTION_ORDER = ("Added", "Changed", "Fixed")
-TITLE = re.compile(r"^(?P<type>[a-z]+)(\([^)]*\))?!?:\s*(?P<subject>.+)$")
+# Housekeeping: left out of the entry unless marked breaking.
+SKIPPED_TYPES = {"chore", "docs", "test", "ci", "style", "build"}
+BREAKING = "Breaking"
+OTHER = "Other"
+SECTION_ORDER = (BREAKING, "Added", "Changed", "Fixed", OTHER)
+
+TITLE = re.compile(r"^(?P<type>[a-z]+)(\([^)]*\))?(?P<bang>!)?:\s*(?P<subject>.+)$")
+BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE:", flags=re.MULTILINE)
 PR_NUMBER = re.compile(r"#(\d+)")
+
+
+@dataclass
+class PullRequest:
+    number: int
+    title: str
+    body: str
 
 
 def git(*args: str) -> str:
@@ -80,25 +100,42 @@ def merged_pull_requests(since: str, until: str) -> list[int]:
     return numbers
 
 
-def pull_request_title(number: int) -> str | None:
+def pull_request(number: int) -> PullRequest | None:
     result = subprocess.run(
-        ["gh", "pr", "view", str(number), "--json", "title", "--jq", ".title"],
+        ["gh", "pr", "view", str(number), "--json", "title,body"],
         capture_output=True,
         text=True,
     )
-    return result.stdout.strip() or None
+    if result.returncode != 0:
+        return None
+    data = json.loads(result.stdout)
+    return PullRequest(number, data["title"].strip(), data.get("body") or "")
 
 
-def entry(image: str, date: str, titles: dict[int, str]) -> str:
+def section_and_subject(pr: PullRequest) -> tuple[str | None, str]:
+    """Where a pull request is listed (None: not listed) and its wording."""
+    match = TITLE.match(pr.title)
+    if match is None:
+        subject, kind, bang = pr.title, None, False
+    else:
+        subject, kind, bang = match["subject"], match["type"], bool(match["bang"])
+
+    if bang or BREAKING_FOOTER.search(pr.body):
+        return BREAKING, subject
+    if kind in SKIPPED_TYPES:
+        return None, subject
+    return SECTIONS.get(kind or "", OTHER), subject
+
+
+def entry(image: str, date: str, pull_requests: list[PullRequest]) -> str:
     """The Markdown for one release."""
     sections: dict[str, list[str]] = {name: [] for name in SECTION_ORDER}
-    for number, title in titles.items():
-        match = TITLE.match(title)
-        if not match or match.group("type") not in SECTIONS:
+    for pr in pull_requests:
+        section, subject = section_and_subject(pr)
+        if section is None:
             continue
-        subject = match.group("subject")
-        line = f"- {subject[0].upper()}{subject[1:]} (#{number})"
-        sections[SECTIONS[match.group("type")]].append(line)
+        link = f"[#{pr.number}](https://github.com/{REPOSITORY}/pull/{pr.number})"
+        sections[section].append(f"- {subject[0].upper()}{subject[1:]} ({link})")
 
     lines = [f"## Docker image {image} ({date})", ""]
     for name in SECTION_ORDER:
@@ -136,12 +173,8 @@ def main() -> None:
         new_entry = f"## Docker image {args.image} ({date})\n\n"
         new_entry += "No earlier image to compare with.\n"
     else:
-        titles: dict[int, str] = {}
-        for number in merged_pull_requests(since, args.image):
-            title = pull_request_title(number)
-            if title:
-                titles[number] = title
-        new_entry = entry(args.image, date, titles)
+        found = [pull_request(n) for n in merged_pull_requests(since, args.image)]
+        new_entry = entry(args.image, date, [pr for pr in found if pr])
 
     if args.dry_run:
         print(new_entry)
