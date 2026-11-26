@@ -261,6 +261,18 @@ def test_a_failed_model_carries_the_reason(client: TestClient, clean: Any) -> No
     [
         ("ERROR: m -> 402: Insufficient credits", "Out of credits"),
         ("ERROR: m -> 401: No auth credentials found", "Key refused"),
+        ("ERROR: m -> 403: Key is disabled", "Access refused"),
+        (
+            "ERROR: m -> 403: Web search was blocked by the search provider's "
+            "content policy",
+            "Blocked by content policy",
+        ),
+        (
+            "ERROR: m: m returned an empty answer "
+            "(finish_reason=length, max_tokens=32768)",
+            "Out of tokens",
+        ),
+        ("ERROR: m: m returned an empty answer (finish_reason=stop)", "No answer"),
         ("ERROR: m -> 400: m is not a valid model ID", "Unknown model"),
         ("ERROR: m: m -> 429: Rate limit exceeded", "Rate limited"),
         ("ERROR: m: ReadTimeout: timed out", "Timed out"),

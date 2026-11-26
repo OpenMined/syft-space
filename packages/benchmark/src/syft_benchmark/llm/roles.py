@@ -252,6 +252,12 @@ def judge_providers(settings: Settings) -> list[Provider]:
     ]
 
 
+def judge_seat(settings: Settings, model: str) -> Provider:
+    """The judge role's provider for one model, on today's panel or not: a
+    re-grade asks the judge that gave the verdict it replaces."""
+    return _resolve("judge", settings.judge_url, settings.judge_key, model, settings)
+
+
 def subject_providers(settings: Settings) -> list[Provider]:
     """The models under test.
 

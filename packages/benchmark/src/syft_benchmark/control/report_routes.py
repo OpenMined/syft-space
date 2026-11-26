@@ -24,7 +24,7 @@ from starlette.background import BackgroundTask
 from syft_benchmark.config import ExpectedBehavior
 from syft_benchmark.control import combined
 from syft_benchmark.control.auth import ConsoleAuth, ConsoleGuard
-from syft_benchmark.control.compose import target_panel
+from syft_benchmark.control.compose import node_settings, target_panel
 from syft_benchmark.control.jobs import PROGRESS_PLAN, discard_run
 from syft_benchmark.control.refusals import job_or_404, target_or_404
 from syft_benchmark.control.schemas import (
@@ -521,6 +521,7 @@ def _detail(
             qa_id,
             model=model,
             configured=lambda: target_panel(target, auth.settings),
+            mirrors=node_settings(target, auth.settings).web_check_mirror_domains,
         )
     except run_questions.UnknownModel as exc:
         raise _unknown_model(model or "") from exc

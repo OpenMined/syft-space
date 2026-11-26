@@ -189,8 +189,10 @@ class Instrument(Layer):
         default=None,
         max_length=MAX_EXCLUDED_DOMAINS,
         description=(
-            "Sites that reprint the publisher's text: a web check answer citing "
-            "only these keeps the question. Empty — none"
+            "Sites that reprint the publisher's text, its social accounts "
+            "included: left out of the models' and the web check's searches; "
+            "a web check answer citing only these keeps the question; the "
+            "report flags answers citing them. Empty — none"
         ),
     )
     web_check_recheck_days: int | None = Field(

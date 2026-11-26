@@ -130,7 +130,8 @@ resuming.
   `rejected` (screened out), `retired` (taken out by the window, a newer
   cohort or the set cap).
   `status_reason`: `grounding`, `retrieval_gate`, `not_answerable`,
-  `duplicate`, `owner`, `rotation`, `web_answerable`, `public_knowledge`,
+  `corpus_contradiction`, `duplicate`, `owner`, `rotation`, `web_answerable`,
+  `public_knowledge`, `premise_confirmed`,
   `wrong_language`, `ambiguous_entity`, `quality`, `repeated_fact`, `other`. Screened-out
   pairs are kept.
 * **`qa_pairs.meta.gold`** — the question's gold for measuring retrieval:

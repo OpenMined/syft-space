@@ -10,7 +10,9 @@ Two gates share that search and that judge. ``gate_unanswerable`` keeps a
 question retrieval does NOT answer (a missing detail). ``gate_answerable``
 keeps a question retrieval DOES answer; a false premise goes through it with
 its correction as the expected answer, since refuting the premise needs the
-archive to state the true fact.
+archive to state the true fact. The same call asks whether another fragment
+contradicts that answer (or states the false premise as true): such a
+question is rejected as a contradiction in the corpus.
 
 The gate uses the same retrieval that is measured afterwards: "there is no
 answer" is meaningful only relative to a specific endpoint.
@@ -62,15 +64,30 @@ states the true fact that contradicts the false premise.
 A fragment that is merely about the same topic does NOT count: the fact must \
 actually be stated. The wording may differ; the meaning must match.
 
+Each fragment may open with its article's header: title, author, outlet, \
+date. A claim the question attributes to an article's author or outlet is \
+stated when that article's fragment makes it.
+
+Then decide whether another fragment contradicts it: states a different \
+value for the same fact (another figure, date, name or outcome), or, for a \
+false premise, states the premise as true. Figures for different dates, \
+places or things, a later update the question's date accounts for, and \
+added detail are not contradictions.
+
 Return ONLY a JSON object, no markdown and no commentary:
-{"answered": false, "where": "", "reasoning": "one short sentence"}
+{"answered": false, "where": "", "contradicted": false, "conflict": "", \
+"reasoning": "one short sentence"}
 
 Set "answered" to true only if the fragments state it, and put a short quote \
-from one of them in "where".
+from one of them in "where". Set "contradicted" to true only if a fragment \
+contradicts it, and put a short quote from that fragment in "conflict".
 """
 
 # Fragments beyond this many characters are not shown to the judge.
 _FRAGMENTS_CHARS = 8000
+
+# The note of a question another found fragment contradicts.
+CONTRADICTION_NOTE = "contradiction in corpus"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +101,9 @@ class Gate:
     # The model call, for the record: {model, system, user, reply, cost_usd,
     # latency_s}; empty — no call was made or it failed.
     call: dict[str, Any] = field(default_factory=dict)
+    # The archive states the answer, and another fragment contradicts it
+    # (``gate_answerable``): the corpus disagrees with itself.
+    contradicted: bool = False
 
 
 def _search(question: str, retrieve: Retriever) -> list[str] | Gate:
@@ -226,9 +246,11 @@ def gate_answerable(
         parts.append("Facts it rests on:\n" + "\n".join(f"- {f}" for f in facts))
     parts.append(f"Fragments:\n{listed}")
     parts.append(
-        "Does any fragment state the true fact that contradicts the false premise?"
+        "Does any fragment state the true fact that contradicts the false "
+        "premise? Does another state the premise as true?"
         if premise
-        else "Does any fragment state the expected answer?"
+        else "Does any fragment state the expected answer? Does another "
+        "contradict it?"
     )
     user = "\n\n".join(parts)
     try:
@@ -240,6 +262,15 @@ def gate_answerable(
         )
 
     if bool(data.get("answered", False)):
+        if data.get("contradicted") is True:
+            conflict = str(data.get("conflict", ""))[:200]
+            return Gate(
+                False,
+                f"{CONTRADICTION_NOTE}: {conflict}",
+                len(fragments),
+                call=call,
+                contradicted=True,
+            )
         where = str(data.get("where", ""))[:200]
         return Gate(
             True, f"{what} found in the archive: {where}", len(fragments), call=call

@@ -35,6 +35,7 @@ from syft_benchmark.config import PairStatus, StatusReason
 from syft_benchmark.db.models import Job, QaPair, Result, Run, Target, WriterCall
 from syft_benchmark.generation import decisions, entities, recorded
 from syft_benchmark.generation.article_dates import DATE_KEY, URL_KEY
+from syft_benchmark.generation.web_check import is_mirror
 from syft_benchmark.llm.web_search import (
     cites_article,
     search_exclusion_of,
@@ -568,6 +569,7 @@ ANSWER_COLS = (
     Col("Over search cap", 9),
     Col("Citations", 40, long=True),
     Col("Cites the article", 9),
+    Col("Cites a mirror", 9),
     Col("Domains excluded", 9),
     Col("Search unused", 9),
     Col("Finish reason", 10),
@@ -665,7 +667,29 @@ def _trial(entry: dict[str, Any]) -> str:
     )
 
 
-def _answer_rows(rows: Sequence[_Answer], panel: Sequence[str]) -> list[list[Any]]:
+def _mirrors(job: Job, target: Target) -> list[str]:
+    """The publisher's mirrors: the job's at launch and the target's now."""
+    snapshot = _dict(_dict(job.params).get(job_params.SETTINGS_SNAPSHOT))
+    found = [
+        *(snapshot.get("web_check_mirror_domains") or []),
+        *(_dict(target.instrument).get("web_check_mirror_domains") or []),
+    ]
+    return sorted({str(m) for m in found})
+
+
+def _cites_mirror(citations: Any, mirrors: Sequence[str]) -> bool | None:
+    """One of the citations is on a mirror; None — no mirrors, or no search."""
+    if not mirrors or not isinstance(citations, list):
+        return None
+    return any(
+        isinstance(c, dict) and is_mirror(str(c.get("url") or ""), mirrors)
+        for c in citations
+    )
+
+
+def _answer_rows(
+    rows: Sequence[_Answer], panel: Sequence[str], mirrors: Sequence[str] = ()
+) -> list[list[Any]]:
     """One answer, then the challenge rounds and repeats of each judge's
     block (every judge seat drives its own).
 
@@ -704,6 +728,7 @@ def _answer_rows(rows: Sequence[_Answer], panel: Sequence[str]) -> list[list[Any
             if "citations" in audit
             else None
         ),
+        _cites_mirror(audit.get("citations"), mirrors),
         search_exclusion_of(audit),
         audit.get("web_search_unused") if "web_search_unused" in audit else None,
         call.get("finish_reason"),
@@ -1056,9 +1081,10 @@ def write(
 
     groups = _answer_groups(answers)
     panel = [*judges, ""]
+    mirrors = _mirrors(job, target)
     answer_rows: list[list[Any]] = []
     for rows in groups.values():
-        answer_rows.extend(_answer_rows(rows, panel))
+        answer_rows.extend(_answer_rows(rows, panel, mirrors))
     _sheet(wb, "Answers", ANSWER_COLS, answer_rows)
     del answer_rows
 
@@ -1316,7 +1342,9 @@ def _write_combined(
         panel = [*run_view.counting_judges(session, m, configured=configured), ""]
         primary = primary_judge(session, m, configured=configured)
         for key, rows in groups_of[m.id].items():
-            answer_rows.extend([m.id, *row] for row in _answer_rows(rows, panel))
+            answer_rows.extend(
+                [m.id, *row] for row in _answer_rows(rows, panel, _mirrors(m, target))
+            )
             measured = key.context_mode in run_view.ARM_OF and earliest[key] == m.id
             chosen = pick([a.result for a in rows], panel).counted if measured else None
             for a in rows:

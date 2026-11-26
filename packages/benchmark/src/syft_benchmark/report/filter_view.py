@@ -183,11 +183,19 @@ _WRITING_REASONS = frozenset(
 )
 # Reasons decided by a live retrieval search (the ``control`` stage).
 _SEARCH_REASONS = frozenset(
-    {StatusReason.RETRIEVAL_GATE.value, StatusReason.NOT_ANSWERABLE.value}
+    {
+        StatusReason.RETRIEVAL_GATE.value,
+        StatusReason.NOT_ANSWERABLE.value,
+        StatusReason.CORPUS_CONTRADICTION.value,
+    }
 )
 # Reasons decided by the web check.
 _WEB_REASONS = frozenset(
-    {StatusReason.WEB_ANSWERABLE.value, StatusReason.PUBLIC_KNOWLEDGE.value}
+    {
+        StatusReason.WEB_ANSWERABLE.value,
+        StatusReason.PUBLIC_KNOWLEDGE.value,
+        StatusReason.PREMISE_CONFIRMED.value,
+    }
 )
 
 

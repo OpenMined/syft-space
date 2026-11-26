@@ -266,3 +266,85 @@ def test_an_empty_reply_that_stays_empty_is_not_a_refusal(
 
     assert not isinstance(raised.value, LLMFatalError)
     assert provider.calls == 3
+
+
+# --- One request refused for its content; reasoning headroom ---------------
+
+
+def test_a_content_policy_refusal_fails_this_call_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A search blocked by a content policy is about one question, not the key:
+    not fatal (the model stays in the run) and not retried (it would be refused
+    the same way)."""
+    from syft_benchmark.llm.errors import LLMContentRefusedError
+
+    provider = _Provider(
+        (
+            403,
+            {
+                "error": {
+                    "message": "Web search was blocked by the search provider's "
+                    "content policy"
+                }
+            },
+        )
+    )
+    monkeypatch.setattr(httpx, "post", provider)
+
+    with pytest.raises(LLMContentRefusedError) as raised:
+        chat("s", "u", retries=2, settings=_local())
+
+    assert not isinstance(raised.value, LLMFatalError)
+    assert provider.calls == 1
+
+
+def test_moderation_403_is_a_content_refusal() -> None:
+    from syft_benchmark.llm.errors import LLMContentRefusedError, classify
+
+    flagged = classify(403, "m -> 403: Input was flagged for moderation")
+    keyed = classify(403, "m -> 403: Key is disabled")
+
+    assert isinstance(flagged, LLMContentRefusedError)
+    assert isinstance(keyed, LLMFatalError)
+
+
+def test_an_empty_answer_at_the_ceiling_is_not_asked_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retrying a model that spent the whole ceiling on reasoning only pays for
+    the same cut-off again."""
+    provider = _Provider((200, _reply("", finish="length")))
+    monkeypatch.setattr(httpx, "post", provider)
+
+    with pytest.raises(LLMError, match="finish_reason=length"):
+        chat("s", "u", max_tokens=8192, retries=2, settings=_local())
+
+    assert provider.budgets == [8192]
+
+
+def test_a_reasoning_model_climbs_past_the_answer_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reasoning comes out of the answer budget: a model the catalogue lists
+    with ``reasoning`` may climb to four times ``answer_max_tokens``, within its
+    own output cap."""
+    from syft_benchmark.llm import catalog
+    from syft_benchmark.llm.catalog import Catalog, ModelEntry
+
+    models = {
+        "r/think": ModelEntry(id="r/think", name="t", supports=["reasoning"]),
+        "r/small": ModelEntry(
+            id="r/small", name="s", supports=["reasoning"], max_output_tokens=12000
+        ),
+        "p/plain": ModelEntry(id="p/plain", name="p", supports=["temperature"]),
+    }
+    monkeypatch.setattr(catalog, "load", lambda settings=None: Catalog(models=models))
+    provider = _Provider((200, _reply("", finish="length")))
+    monkeypatch.setattr(httpx, "post", provider)
+
+    for model in models:
+        with pytest.raises(LLMError):
+            chat("s", "u", model=model, max_tokens=8192, settings=_local())
+
+    assert provider.budgets == [8192, 16384, 32768, 8192, 12000, 8192]

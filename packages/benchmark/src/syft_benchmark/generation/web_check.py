@@ -3,16 +3,18 @@
 Every grounded pending question is put to the web check model
 (``filter_model``) bare, with web search where its provider offers it, and
 graded as the main run grades that kind of question. A correct answer rejects
-it as ``web_answerable`` (a false premise: the answer states the correction);
-a trick question its search answers, as ``public_knowledge``. An answer that
-cites only reprints of the publisher (``web_check_mirror_domains``) rejects
-nothing. A failed call never decides a pair: it stays pending with a note.
+it as ``web_answerable`` (a false premise: the answer corrects it); a trick
+question its search answers, as ``public_knowledge``; a false premise its
+search confirms, as ``premise_confirmed``. An answer that cites only reprints
+of the publisher (``web_check_mirror_domains``) rejects nothing. A failed call
+never decides a pair: it stays pending with a note.
 The rules: docs/02-generation.md.
 """
 
 from __future__ import annotations
 
 import threading
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -71,9 +73,11 @@ NO_SEARCH_NOTE = "no web search for this model here: answered from its own train
 CONTROL_NOTE = "not checked: a control question, its right answer is to abstain"
 # The note on a trick question the web model answers from its search.
 PUBLIC_KNOWLEDGE = "public knowledge"
+# The note on a false premise the web model's search confirms.
+PREMISE_CONFIRMED = "false premise confirmed by the web"
 # A trick question: its missing detail must not be public.
 _TRICK = "unanswerable_property"
-# A false premise: the web must not know the fact that refutes it.
+# A false premise: the web must neither refute nor confirm it.
 _PREMISE = "false_premise"
 _CONTROLS_CHECKED = frozenset({_TRICK, _PREMISE})
 NO_FACTS_NOTE = "not checked: a key-facts question without key facts"
@@ -271,15 +275,11 @@ def _graded(
     """The main run's grading for this pair's kind (runs.judge.grade_item).
 
     An explanation is checked against its key facts only: a web answer brings
-    in facts the article lacks, and only "correct" matters here. A trick
-    question gets the behaviour judge, told the answer's citations; a false
-    premise, the free-text judge against its correction: the web knows the
-    fact that refutes it.
+    in facts the article lacks, and only "correct" matters here. A control
+    question gets the behaviour judge, told the answer's citations.
     """
     meta = row.meta or {}
-    if checks_premise(row):
-        return grade(row.question, row.answer, answer, settings=conf, judge=judge)
-    if checks_public(row):
+    if checks_control(row):
         case = control_case(row.generator, row.question, row.answer, meta)
         return grade_control(
             case, answer, citations=citations or [], settings=conf, judge=judge
@@ -323,7 +323,7 @@ def cited_domains(citations: list[dict[str, str]]) -> list[str]:
     return sorted({h for c in citations if (h := _host(str(c.get("url") or "")))})
 
 
-def _is_mirror(url: str, mirrors: list[str]) -> bool:
+def is_mirror(url: str, mirrors: Sequence[str]) -> bool:
     """The page is on one of the mirror domains (a subdomain counts; a
     domain with a path matches that path and below)."""
     parts = urlsplit(url.strip())
@@ -341,7 +341,7 @@ def mirror_only(citations: list[dict[str, str]], mirrors: list[str]) -> bool:
     """Every citation is a reprint of the publisher: the answer is the
     publisher's text, not public knowledge. False with no citations."""
     urls = [str(c.get("url") or "") for c in citations]
-    return bool(mirrors and urls) and all(_is_mirror(u, mirrors) for u in urls)
+    return bool(mirrors and urls) and all(is_mirror(u, mirrors) for u in urls)
 
 
 def _language_line(row: QaPair) -> str:
@@ -451,17 +451,19 @@ def check_pair(
             {"web_check": {**record, "error": verdict.reasoning}},
             fatal=verdict.fatal,
         )
-    public = checks_public(row)
-    if public:
-        answerable = verdict.behavior == ControlOutcome.WEB_SOURCED.value
+    sourced = verdict.behavior == ControlOutcome.WEB_SOURCED.value
+    if checks_public(row):
+        answerable, note = sourced, PUBLIC_KNOWLEDGE
+    elif checks_premise(row) and sourced:
+        # The search backs the "false" detail: true by other sources.
+        answerable, note = True, PREMISE_CONFIRMED
     else:
-        answerable = verdict.verdict is Verdict.CORRECT
+        answerable, note = verdict.verdict is Verdict.CORRECT, WEB_ANSWERABLE
     if answerable and mirror_only(citations, conf.web_check_mirror_domains):
         answerable = False
         record["mirror_only"] = True
         record["note"] = MIRROR_NOTE
-    note = (PUBLIC_KNOWLEDGE if public else WEB_ANSWERABLE) if answerable else ""
-    return WebVerdict(answerable, note, {"web_check": record})
+    return WebVerdict(answerable, note if answerable else "", {"web_check": record})
 
 
 def skips_manual(row: QaPair, conf: Settings) -> bool:

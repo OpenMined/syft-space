@@ -32,6 +32,14 @@ class LLMTruncatedError(LLMError):
     """The answer hit the token cap and brought back nothing usable."""
 
 
+class LLMContentRefusedError(LLMError):
+    """The provider's content policy or moderation blocked this one request.
+
+    It is about the request's content, not the key: the next question goes
+    through. A retry of the same request is refused the same way.
+    """
+
+
 class LLMBusyError(LLMError):
     """A rate limit or an overload: the same call later is likely to pass."""
 
@@ -53,6 +61,10 @@ _FATAL_BODY = (
     "not a valid model id",
 )
 
+# Signs that the content of one request was refused, not the key or access:
+# a search provider's content policy, OpenRouter's moderation (403).
+_CONTENT_BODY = ("content policy", "flagged for moderation", "requires moderation")
+
 # Replies that mean "busy, come back later": a rate limit or an overload.
 _BUSY_STATUS = frozenset({429, 500, 502, 503, 504, 529})
 
@@ -69,8 +81,10 @@ DETAIL_CAP = 800
 
 
 def classify(status: int, detail: str, retry_after: float | None = None) -> LLMError:
-    """A provider's refusal — fatal, busy, or worth retrying."""
+    """A provider's refusal — content, fatal, busy, or worth retrying."""
     lowered = detail.lower()
+    if any(mark in lowered for mark in _CONTENT_BODY):
+        return LLMContentRefusedError(detail)
     if status in _FATAL_STATUS or any(mark in lowered for mark in _FATAL_BODY):
         fatal = LLMFatalError(detail)
         fatal.status = status

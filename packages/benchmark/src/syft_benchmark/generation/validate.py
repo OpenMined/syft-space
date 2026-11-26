@@ -48,6 +48,8 @@ _FOREIGN_HEDGES = frozenset(
 )  # fmt: skip
 
 _TOKEN_RE = re.compile(r"[\w’'-]+", re.UNICODE)
+# "Tech Policy Press's" names the outlet the header calls "Tech Policy Press".
+_POSSESSIVE_RE = re.compile(r"['’]s$")
 
 # Short gold answers — "47", "Alembic", "2026-09-08" — are not measured by
 # coverage: one word is either there or it is not, there is no share in between.
@@ -87,7 +89,9 @@ def _content_tokens(text: str, language: str | None = None) -> list[str]:
     skipped = _skipped(language)
     return [
         token
-        for token in (_fold(m.group(0)) for m in _TOKEN_RE.finditer(text))
+        for token in (
+            _POSSESSIVE_RE.sub("", _fold(m.group(0))) for m in _TOKEN_RE.finditer(text)
+        )
         if (len(token) > 1 or token.isdigit()) and token not in skipped
     ]
 

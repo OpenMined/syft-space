@@ -192,7 +192,7 @@ Run reports, under `/console/report`:
 | Route | What it does |
 | --- | --- |
 | `GET /runs` | Active jobs and a page of finished runs (`from`, `to`, `limit`, `offset`). Runs a combined run holds are left out unless `show_combined_members=true`. Items carry `kind`, `reask` (on a re-ask, else null), `combined` (`{members, origin, period, period_start, title}` on a combined run, else null) and `combined_into` (`[{job_id, title}]`, the combined runs holding it) |
-| `GET /runs/{job}` | One run's report, without per-question rows |
+| `GET /runs/{job}` | One run's report, without per-question rows. Each model's figures carry `failure` (`{label, detail}` for its failed answers: e.g. "Key refused" for a 401, "Access refused" for another 403, "Blocked by content policy", "Out of tokens"), `regrade` (`{answers, changed}`: counted answers whose verdict is a re-grade, [05-judging.md](05-judging.md#re-grading-the-old-refusal-rule); null — none) and `searches` per arm (`{answers, reported, total, max}`: answers given web search, how many of them the provider reported a count for, its sum and largest; null — no search offered) |
 | `DELETE /runs/{job}` | Delete a finished run: its runs, answers, verdicts, overrides, cached figures, writer calls and its records on the questions. Questions stay. 409 while queued or running. A combined run goes alone; a deleted run leaves every combined run, and one left with fewer than two runs is deleted |
 | `POST /combined/check` | `{job_ids}` → `{ok, members, settings_hash, differences: [{field, values: [{job_id, value}]}], repeated_questions}` |
 | `POST /combined` | `{job_ids, title?}` → 201, the new combined run's `/runs` item. 422 for fewer than two runs, or `{detail, differences}` when they differ |

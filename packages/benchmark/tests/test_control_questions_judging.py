@@ -153,7 +153,8 @@ def test_what_needs_no_judge_and_what_fails(monkeypatch: pytest.MonkeyPatch) -> 
         is Verdict.TECHNICAL
     )
     empty = grade_control(ABSENT, "  ", judge=_seat("judge", J1))
-    assert empty.verdict is Verdict.ABSTAIN and empty.behavior == "declined"
+    # An empty answer measured nothing: technical, not a decline.
+    assert empty.verdict is Verdict.TECHNICAL and not empty.behavior
     assert stub.sent == []
 
     unread = grade_control(ABSENT, "The fee is $40.", judge=_seat("judge", J1))

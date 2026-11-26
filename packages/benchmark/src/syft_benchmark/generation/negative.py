@@ -84,8 +84,10 @@ You are given ONE fragment of ONE document. Produce exactly {{n}} questions.
 states explicitly, in words that rule it out: a different number, name, \
 date, place or outcome. Do not build it on something the fragment merely \
 omits — that is a different kind of question — nor on a claim that could \
-be true alongside what the fragment says. If the fragment holds fewer such \
-facts than asked, return fewer questions.
+be true alongside what the fragment says. Invent the false value: never one \
+other reporting of the story may give (an earlier or later estimate, a \
+figure for a wider or narrower scope, a well-known headline number). If the \
+fragment holds fewer such facts than asked, return fewer questions.
 10. Phrase the question as if the premise were settled fact, the way a \
 confused user would ask it. Vary how the questions open: at most one may \
 start with "Why" ("¿Por qué...?"); ask "When...", "How much...", "Which...", \

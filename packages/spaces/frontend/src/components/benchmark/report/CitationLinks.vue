@@ -16,6 +16,8 @@ defineProps<{ citations: readonly BenchmarkCitation[] }>()
         rel="noopener noreferrer"
         class="max-w-60 truncate text-primary hover:underline"
         >{{ cite.title || hostOf(cite.url) }}</a
+      ><span v-if="cite.mirror" class="text-amber-700 dark:text-amber-300" data-testid="mirror"
+        >&nbsp;(reprint)</span
       >
     </Hint>
   </span>

@@ -6,6 +6,11 @@ person or about the given context, never a bare "no information": an answer
 reporting that an official "had no information" is still an answer. What
 matches none of them goes to the judge, which grades a refusal it reads as
 did not know: an unrecognised refusal costs a judge call, not a wrong verdict.
+
+Only a whole-answer refusal skips the judge: every sentence says the model
+does not know. A refusal phrase inside a longer answer ("... so I can't
+confirm the author") or glued to the answer that follows it ("I don't
+knowThe two obligations ...") goes to the judge.
 """
 
 from __future__ import annotations
@@ -95,11 +100,40 @@ NOT_KNOWING_RE = re.compile(
 )
 
 
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+# Markdown and list marks around a sentence, which say nothing.
+_DECORATION = " \t*_#>-•"
+
+
+def _glued(text: str) -> bool:
+    """A refusal phrase run straight into more text: "I don't knowThe ...".
+
+    Seen when a model writes "I don't know" before a web search and its answer
+    after it: the provider joins the two turns' text with no separator.
+    """
+    for found in ABSTAIN_RE.finditer(text):
+        after = text[found.end() : found.end() + 1]
+        if after and (after.isupper() or after.isdigit() or after in "*#"):
+            return True
+    return False
+
+
 def detect_abstain(answer: str) -> bool:
-    """Whether it refused to answer."""
+    """Whether the whole answer is a refusal: every sentence says the model
+    does not know, nothing is glued to the refusal, and no answer signal."""
     text = (answer or "").strip()
     if not text:
         return True
-    if not ABSTAIN_RE.search(text):
+    if not ABSTAIN_RE.search(text) or ANSWER_SIGNALS_RE.search(text):
         return False
-    return not ANSWER_SIGNALS_RE.search(text)
+    if _glued(text):
+        return False
+    sentences = [
+        part.strip(_DECORATION)
+        for part in _SENTENCE_RE.split(text)
+        if part.strip(_DECORATION)
+    ]
+    return all(
+        ABSTAIN_RE.search(sentence) or NOT_KNOWING_RE.search(sentence)
+        for sentence in sentences
+    )

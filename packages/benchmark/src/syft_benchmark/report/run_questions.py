@@ -19,6 +19,7 @@ from syft_benchmark.config import EvalBlock, ExpectedBehavior
 from syft_benchmark.db.models import Job, QaPair, Result, Run
 from syft_benchmark.generation.article_dates import URL_KEY
 from syft_benchmark.generation.generators import GENERATORS
+from syft_benchmark.generation.web_check import is_mirror
 from syft_benchmark.llm.web_search import (
     cites_article,
     search_count_of,
@@ -35,6 +36,7 @@ from syft_benchmark.report.counted import (
     group_answers,
     pick,
 )
+from syft_benchmark.report.job_params import SETTINGS_SNAPSHOT
 from syft_benchmark.report.run_view import ALONE, ARM_OF, GROUPS, WITH
 from syft_benchmark.retrieval.arm_c import shown_of
 from syft_benchmark.runs.result_views import behavior_of
@@ -281,6 +283,7 @@ def _arm(
     arm: str,
     panel: Sequence[str],
     article_url: str = "",
+    mirrors: Sequence[str] = (),
 ) -> dict[str, Any] | None:
     by_block: dict[str, list[Result]] = defaultdict(list)
     run_of: dict[str, Run] = {}
@@ -295,7 +298,11 @@ def _arm(
     base = picked.judged or counted
     override = picked.override
     audit = counted.audit or {}
-    citations = list(audit.get("citations") or [])
+    citations = [
+        {**c, "mirror": True} if is_mirror(str(c.get("url") or ""), mirrors) else c
+        for c in audit.get("citations") or []
+        if isinstance(c, dict)
+    ]
 
     def block_extra(block: str) -> Any:
         chosen = pick(by_block.get(block, []), panel).counted
@@ -326,6 +333,9 @@ def _arm(
         # One of the citations is the question's own article; None — the
         # article's address is not known.
         "cites_article": cites_article(citations, article_url),
+        # One of the citations is on a reprint of the publisher
+        # (``web_check_mirror_domains``).
+        "cites_mirror": any(c.get("mirror") for c in citations),
         # The search left out the run's excluded domains; None — none were set.
         "search_exclusion": search_exclusion_of(audit),
         # The searches the provider reports, and whether they passed
@@ -389,8 +399,12 @@ def question_detail(
     *,
     model: str | None = None,
     configured: Panel = (),
+    mirrors: Sequence[str] = (),
 ) -> dict[str, Any] | None:
     """One question of the run in full; None — it did not take part.
+
+    A citation on one of ``mirrors`` or of the job's own
+    ``web_check_mirror_domains`` is flagged ``mirror``.
 
     Raises:
         UnknownModel: the model did not answer in this run
@@ -419,12 +433,13 @@ def question_detail(
     panel = [*judges, ""]
     judge_rows, agreed = _judges(rows, judges)
     article_url = str((pair.meta or {}).get(URL_KEY) or "")
+    mirrors = sorted({*mirrors, *_job_mirrors(source)})
     detail = {
         "question": _row(entry, model, pair, source),
         "context": pair.context,
         "arms": {
-            ALONE: _arm(rows, ALONE, panel, article_url),
-            WITH: _arm(rows, WITH, panel, article_url),
+            ALONE: _arm(rows, ALONE, panel, article_url, mirrors),
+            WITH: _arm(rows, WITH, panel, article_url, mirrors),
         },
         "judges": judge_rows,
         "judges_agreed": agreed,
@@ -434,6 +449,15 @@ def question_detail(
             session, job, model, qa_id, configured=configured
         )
     return detail
+
+
+def _job_mirrors(job: Job) -> list[str]:
+    """The publisher's mirrors the job was launched with."""
+    snapshot = (job.params or {}).get(SETTINGS_SNAPSHOT) or {}
+    found = (
+        snapshot.get("web_check_mirror_domains") if isinstance(snapshot, dict) else None
+    )
+    return [str(m) for m in found] if isinstance(found, list) else []
 
 
 def _source(

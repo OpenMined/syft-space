@@ -31,6 +31,7 @@ from syft_benchmark.config import (
     get_settings,
 )
 from syft_benchmark.db import QaPair, Result, Run, session_scope
+from syft_benchmark.generation.article_dates import pair_header
 from syft_benchmark.llm import (
     LLMError,
     LLMFatalError,
@@ -54,7 +55,7 @@ from syft_benchmark.runs.blocks import (
     skips_monte_carlo,
     tally_monte_carlo,
 )
-from syft_benchmark.runs.endpoint import check_retrieval, endpoint_mode
+from syft_benchmark.runs.endpoint import check_retrieval, endpoint_mode, headed
 from syft_benchmark.runs.gate import evaluable, nothing_passed
 from syft_benchmark.runs.judge import (
     ERROR_PREFIX,
@@ -310,11 +311,14 @@ def build_context(
     source: ContextSource,
     limit: int,
     oracle: str = "",
+    oracle_header: str = "",
 ) -> str:
     """Assemble what is mixed in with the question in arm C.
 
-    The chunks are numbered and labelled with the file name, so the answer shows
-    which of them it relied on and an auditor can check that against the prompt.
+    The chunks are numbered and labelled with their article header (the file
+    name where none is known), so the answer shows which of them it relied on,
+    an auditor can check that against the prompt, and a claim attributed to
+    the article's author or outlet can be checked.
 
     Args:
         fragments: What the endpoint found, in the order returned
@@ -322,12 +326,14 @@ def build_context(
         source: What exactly to mix in
         limit: How many top chunks to take
         oracle: The pair's source chunk — the ceiling, retrieval takes no part
+        oracle_header: Its article header; empty — not known
 
     Returns:
         The context text; empty if there is nothing to mix in
     """
     if source is ContextSource.ORACLE_CHUNK:
-        return f"[1] source fragment\n{oracle}".strip() if oracle else ""
+        head = f"[1] {oracle_header or 'source fragment'}"
+        return f"{head}\n{oracle}".strip() if oracle else ""
 
     parts: list[str] = []
     if source in _NEEDS_FRAGMENTS:
@@ -335,7 +341,7 @@ def build_context(
             text = str(doc.get("content") or "").strip()
             if not text:
                 continue
-            name = str(doc.get("file_name") or "").strip()
+            name = str(doc.get("header") or doc.get("file_name") or "").strip()
             head = f"[{number}] {name}" if name else f"[{number}]"
             parts.append(f"{head}\n{text}")
 
@@ -536,6 +542,9 @@ def _material_for(
         source=source,
         limit=settings.context_docs,
         oracle=pair.context,
+        oracle_header=pair_header(
+            str(getattr(pair, "document_title", "") or ""), getattr(pair, "meta", None)
+        ),
     )
     return retrieval, context
 
@@ -958,7 +967,9 @@ async def _judge_one(pair: QaPair, asked: Asked, seat_key: str, ctx: _Pass) -> N
         if asked.context_source not in _NEEDS_ANSWER:
             retrieved = retrieved[: ctx.settings.context_docs]
         fragments = [
-            str(doc.get("content", "")) for doc in retrieved if doc.get("content")
+            headed(str(doc.get("header") or ""), str(doc["content"]))
+            for doc in retrieved
+            if doc.get("content")
         ]
         grounded, grounded_note = await ctx.pool.to_model(
             (

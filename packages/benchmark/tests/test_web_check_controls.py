@@ -98,6 +98,8 @@ class _Web:
         self.cites: dict[str, list[str]] = {}
         self.right: set[str] = set()
         self.behavior = "declined"
+        # The behaviour judge's reading per pair id; ``behavior`` otherwise.
+        self.behaviors: dict[str, str] = {}
         self.calls: list[dict[str, Any]] = []
         monkeypatch.setattr(web_check, "chat", self.web_chat)
         monkeypatch.setattr(run_judge, "chat", self.judge_chat)
@@ -120,7 +122,11 @@ class _Web:
         self, system: str, user: str, **_: Any
     ) -> tuple[str, dict[str, Any]]:
         if "How did the model handle the question?" in user:
-            return f'{{"behavior": "{self.behavior}", "reasoning": "stub"}}', {}
+            behavior = next(
+                (b for pid, b in self.behaviors.items() if f"for {pid}\n" in user),
+                self.behavior,
+            )
+            return f'{{"behavior": "{behavior}", "reasoning": "stub"}}', {}
         right = any(f"web answer for {pid}" in user for pid in self.right)
         return f'{{"correct": {"true" if right else "false"}}}', {}
 
@@ -129,34 +135,52 @@ needs_db = pytest.mark.needs_db
 
 
 @needs_db
-def test_a_false_premise_the_web_corrects_is_web_answerable(
+def test_a_false_premise_the_web_corrects_or_confirms_is_rejected(
     clean: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Graded by behaviour, as the run grades it: a correction makes it web
+    answerable; specifics its search backs mean the "false" detail is true
+    elsewhere (Tempo, Danantara's US$ 5 billion)."""
     correction = "The council restored the lighthouse."
+    ids = ("fp1", "fp2", "fp3", "fp4")
     with session_scope() as session:
         session.add_all(
             [
-                _pair("fp1", PREMISE, answer=correction, meta={"premise": "razed"}),
-                _pair("fp2", PREMISE, answer=correction, meta={"premise": "razed"}),
+                _pair(i, PREMISE, answer=correction, meta={"premise": "razed"})
+                for i in ids
             ]
         )
     web = _Web(monkeypatch)
-    web.right = {"fp1"}
-    web.cites = {"fp1": [OTHER], "fp2": [OTHER]}
+    web.behaviors = {
+        "fp1": "corrected",
+        "fp2": "made_up",
+        "fp3": "web_sourced",
+        "fp4": "web_sourced",
+    }
+    web.cites = {"fp1": [OTHER], "fp2": [], "fp3": [OTHER], "fp4": [MIRROR]}
 
     report = filter_stage.filter_pending(
         _space(), settings=_settings(), retrieve=_archive
     )
     rows = _rows()
 
-    assert {call["user"] for call in web.calls} == {"Question fp1?", "Question fp2?"}
+    assert {call["user"] for call in web.calls} == {f"Question {i}?" for i in ids}
     assert (rows["fp1"].status, rows["fp1"].status_reason) == (
         PairStatus.REJECTED.value,
         StatusReason.WEB_ANSWERABLE.value,
     )
     assert rows["fp1"].meta["web_check"]["verdict"] == "correct"
     assert rows["fp2"].status == PairStatus.ACTIVE.value
-    assert report.web is not None and report.web.removed == 1
+    assert (rows["fp3"].status, rows["fp3"].status_reason) == (
+        PairStatus.REJECTED.value,
+        StatusReason.PREMISE_CONFIRMED.value,
+    )
+    assert rows["fp3"].status_note == web_check.PREMISE_CONFIRMED
+    assert rows["fp3"].meta["web_check"]["behavior"] == "web_sourced"
+    # Backed by a reprint of the publisher only: not public.
+    assert rows["fp4"].status == PairStatus.ACTIVE.value
+    assert rows["fp4"].meta["web_check"]["mirror_only"] is True
+    assert report.web is not None and report.web.removed == 2
 
 
 @needs_db

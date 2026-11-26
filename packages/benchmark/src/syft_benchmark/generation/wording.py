@@ -14,9 +14,10 @@ ANCHOR_RULE = (
     'week" or a month without its year); every date carries its year, even '
     'where the text leaves it out ("on Oct 20, 2026", "el 20 de octubre de '
     '2026"; never "on Oct 20" or "el 20 de octubre"); name the writer of a '
-    "review or a "
+    "review, column, opinion or analysis piece or a "
     'first-person account as "<Outlet>\'s <Author>" ("WIRED\'s Nena '
-    'Farrell"), never "the reviewer" or "the author"; never refer to the '
+    'Farrell"), or "<Outlet>" when the header names no author, never "the '
+    'reviewer" or "the author"; never refer to the '
     "story by its title. An event the story announces for a date after its "
     "publish date had not happened when it was written: ask what was "
     'scheduled or planned ("was scheduled to start", "is planned for"), '
@@ -37,7 +38,9 @@ ATTRIBUTION_RULE = (
     "Keep a claim, estimate, accusation or opinion attributed to the person "
     "or body that makes it (\"according to Ana Pérez, Uruguay's minister of "
     'economy, ...", "según el Ministerio de Economía de Uruguay, ..."); never '
-    "turn it into established fact."
+    "turn it into established fact. In a column, opinion or analysis piece "
+    "the writer the header names makes its own claims (\"Tech Policy Press's "
+    'Natalia Viana argued that ...").'
 )
 
 # Bylines and author bios are on the author's profile pages: the web answers

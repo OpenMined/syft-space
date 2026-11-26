@@ -57,9 +57,14 @@ reporting (no wire copy — AFP, EFE, Reuters…, no press release reprinted as
 issued, no other outlet's reporting it cites); never ask about the byline,
 the author's bio or staff lines; turn a relative time into an absolute one
 from the publish date ("in July 2026", not "last month"); every date carries
-its year ("el 20 de octubre de 2026"); name a reviewer or first-person writer
-as "<Outlet>'s <Author>" ("WIRED's Nena Farrell"), never "the reviewer"; never
-refer to the story by its title. Fill-ins copy sentences verbatim, so they
+its year ("el 20 de octubre de 2026"); name the writer of a review, column,
+opinion or analysis piece or a first-person account as "<Outlet>'s <Author>"
+("WIRED's Nena Farrell"; "<Outlet>" without an author), never "the reviewer";
+never refer to the story by its title. In an opinion piece the writer makes
+its claims ("Tech Policy Press's Natalia Viana argued…"): the grounding check,
+the archive check and arm C see the same header, so such a claim is
+checkable. A false premise alters a value of the fragment the writer must not
+take from other reporting of the story. Fill-ins copy sentences verbatim, so they
 skip a sentence placed only by a relative time, a date without its year or
 naming only "the reviewer".
 
@@ -357,9 +362,11 @@ flowchart TB
     R2 -- "not grounded" --> REJ2["rejected"]
     R2 -- "grounded" --> AR{"archive check<br/><i>control.py</i><br/>(when retrieval is available)"}
     AR -- "answer not found" --> REJA["rejected: not_answerable"]
+    AR -- "another chunk contradicts it" --> REJC["rejected: corpus_contradiction"]
     AR -- "check failed" --> PEND
     AR -- "answer found" --> W{"web check<br/><i>web_check.py</i><br/>(when filter_model is set)"}
     W -- "answered correctly" --> REJW["rejected: web_answerable"]
+    W -- "false premise confirmed" --> REJF["rejected: premise_confirmed"]
     W -- "not answered" --> ACT[("active")]
     R3 -- "missing detail answered,<br/>or correction not found" --> REJ3["rejected: retrieval_gate"]
     R3 -- "correction found" --> ACT
@@ -392,6 +399,12 @@ Hedges (about, around, roughly, approximately, nearly, almost, some) do not
 count; digits do ("8%" is checked as "8", "$1.5 trillion" as "1", "5",
 "trillion").
 
+The stored chunk is read under its article header (title, outlet, author,
+publish date with the month named, from `meta.article_outlet`,
+`meta.article_author`, `meta.article_date`), so a claim attributed to the
+article's writer ("Tech Policy Press's Natalia Viana argued…") is grounded. A
+possessive "'s" is dropped before matching.
+
 Where the gold answer must differ from the text, the listed claims in
 `meta.claims` are checked instead, each by the same rule, and more than half
 must pass: the two true statements of `two_truths_one_lie`, the hop facts of
@@ -407,7 +420,20 @@ those facts. A multiple-choice answer goes in without its option letter. For
 `two_truths_one_lie` the lie goes in as a false premise and a chunk must state
 the true fact it alters.
 
+Each chunk reaches the judge under its article header, built from the
+metadata the endpoint returns with it (title, author, outlet, publish date;
+the outlet is the front matter's `source` where returned, else the article
+address's site; missing fields are left out). The same call asks whether
+another chunk contradicts the answer: a different figure, date, name or
+outcome for the same fact (figures for different dates or things, a later
+update and added detail are not), or, for a false premise, a chunk stating
+the premise as true.
+
 - Found → on to the web check. A question that makes no sense finds nothing.
+- Found, but another chunk contradicts it → rejected (`corpus_contradiction`,
+  note "contradiction in corpus: <quote>"): models given both chunks would be
+  marked wrong for quoting the outlet's other article (Tempo: Rp 833.4 vs
+  883.4 billion).
 - Not found, or nothing returned → rejected (`not_answerable`, note "not
   answerable from the archive"); the web check is not asked.
 - Retrieval unreachable or the judge call failed → stays `pending` with a
@@ -433,7 +459,8 @@ behaviour (`control.py`):
   that contradicts the premise. The judge gets the question, the premise, the
   correction (gold answer) and `meta.claims`, and quotes the chunk. Found →
   fit; not found or nothing returned → rejected (`retrieval_gate`, note
-  "correction not found in the archive").
+  "correction not found in the archive"); another chunk states the premise as
+  true → rejected (`corpus_contradiction`).
 - Retrieval unreachable or the judge call failed → rejected, `gate_checked:
   false`. Filtering control items therefore needs a reachable endpoint.
 
@@ -465,10 +492,13 @@ prompt ([05-judging.md](05-judging.md)).
     specifics its search supports (`web_sourced`) → rejected as
     `public_knowledge` (note "public knowledge"); a decline, or specifics with
     no citation behind them → active. The record keeps `behavior`.
-  - `false_premise`: the judge compares the answer with the correction (the
-    gold answer). The answer states it → the web refutes the premise without
-    the archive → rejected as `web_answerable`. A doubt without the fact does
-    not count.
+  - `false_premise`: the behaviour judge, as in the run. Corrected → the
+    web refutes the premise without the archive → rejected as
+    `web_answerable`. Specifics its search supports (`web_sourced`) → the
+    "false" detail is true by other sources → rejected as
+    `premise_confirmed` (note "false premise confirmed by the web"; Tempo:
+    Danantara's waste-to-energy plan at US$ 5 billion). A decline, or going
+    along with the premise without a source → active.
 - A key-facts item without key facts is rejected.
 - Pairs of the current cohort already in the set (active or held back by the
   cap) without a verdict from the current `filter_model` are checked in the
@@ -509,7 +539,7 @@ model", and `evaluate`/`freeze` report that no question passed.
 | `filter_judge_model` | `anthropic/claude-sonnet-5` | Judge of the web check; empty — the first judge |
 | `web_check_engine` | `plugin` | The web check's search: `plugin` (Exa) or `native` |
 | `web_check_max_calls` | `3` | Searches per question for the web check (the tested models: `web_search_max_calls`) |
-| `web_check_mirror_domains` | `[]` | Sites that reprint the publisher (per target, e.g. `["iberonoticias.com","elnotero.com"]` for la diaria); an answer citing only these keeps the question |
+| `web_check_mirror_domains` | `[]` | Sites that reprint the publisher and its social accounts (per target, e.g. `["vive.click"]` for la diaria, `["nationalcybersecurity.com","multikhabar.com","aiweekly.co","lsbrx.com","linkedin.com/company/tech-policy-press"]` for Tech Policy Press). Left out of the tested models' and the web check's searches with `web_search_excluded_domains`; a web check answer citing only these keeps the question; the report flags citations on them |
 | `web_check_recheck_days` | `0` | Check a question in the set again once its last check is this old; 0 — once |
 | `manual_status_priority` | `filter` | Whether the web check can override a hand-set status |
 | `web_search_generator` | `false` | The generator searches the web (OpenRouter models) |

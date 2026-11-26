@@ -280,6 +280,9 @@ class StatusReason(StrEnum):
     # Live retrieval did not find the answer to an ordinary question
     # (generation/filter_stage.py, the archive check).
     NOT_ANSWERABLE = "not_answerable"
+    # The archive check found the answer and another fragment contradicting
+    # it, or a fragment stating the false premise as true.
+    CORPUS_CONTRADICTION = "corpus_contradiction"
     # No row is stored for a duplicate (the unique index refuses it); the code
     # exists for the report's funnel.
     DUPLICATE = "duplicate"
@@ -292,6 +295,9 @@ class StatusReason(StrEnum):
     # A trick question the web check model answered with specifics its search
     # supports (generation/web_check.py).
     PUBLIC_KNOWLEDGE = "public_knowledge"
+    # A false premise the web check model's search confirms: its "false"
+    # detail is true by other sources (generation/web_check.py).
+    PREMISE_CONFIRMED = "premise_confirmed"
     # Rejected as written (generation/pipeline.py): the item is in another
     # language than its article, or names a subject the question alone does
     # not identify.
@@ -586,8 +592,11 @@ class Settings(BaseSettings):
         default_factory=list,
         max_length=MAX_EXCLUDED_DOMAINS,
         description=(
-            "Sites that reprint the publisher's text. A web check answer that "
-            "cites only these is not public: the question is kept"
+            "Sites that reprint the publisher's text, its social accounts "
+            'included ("linkedin.com/company/x"). Left out of the tested '
+            "models' and the web check's searches with "
+            "web_search_excluded_domains; a web check answer that cites only "
+            "these keeps the question; the report flags answers citing them"
         ),
     )
     web_check_recheck_days: int = Field(
@@ -1060,6 +1069,13 @@ class Settings(BaseSettings):
     def _search_domains(cls, value: list[str]) -> list[str]:
         return search_domains(value)
 
+    def search_exclusions(self) -> list[str]:
+        """What the tested models' and the web check's searches leave out:
+        the excluded domains and the publisher's mirrors."""
+        return search_domains(
+            [*self.web_search_excluded_domains, *self.web_check_mirror_domains]
+        )
+
     @field_validator("judge_temperature", mode="before")
     @classmethod
     def _model_default_temperature(cls, value: Any) -> Any:
@@ -1120,7 +1136,12 @@ class Settings(BaseSettings):
             # How the judges were tuned decides their verdicts.
             "judge_temperature": self.judge_temperature,
             "judge_reasoning_effort": self.judge_reasoning_effort.value,
-        }
+        } | (
+            # Also left out of the searches; recorded only where set.
+            {"web_check_mirror_domains": list(self.web_check_mirror_domains)}
+            if self.web_check_mirror_domains
+            else {}
+        )
 
 
 class ExternalCallBlocked(RuntimeError):

@@ -220,6 +220,7 @@
                   v-if="
                     armOf(detail, arm)?.search_engine ||
                     armOf(detail, arm)?.cites_article ||
+                    armOf(detail, arm)?.cites_mirror ||
                     armOf(detail, arm)?.search_exclusion === false ||
                     armOf(detail, arm)?.search_over_cap
                   "
@@ -237,11 +238,32 @@
                       }}</span
                     >
                   </Hint>
+                  <Hint
+                    v-if="armOf(detail, arm)?.search_engine"
+                    :text="
+                      typeof armOf(detail, arm)?.searches === 'number'
+                        ? SEARCHES_TIP
+                        : SEARCHES_UNKNOWN_TIP
+                    "
+                  >
+                    <span
+                      class="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      data-testid="search-count"
+                      >{{ answerSearchesText(armOf(detail, arm)?.searches) }}</span
+                    >
+                  </Hint>
                   <Hint v-if="armOf(detail, arm)?.cites_article" :text="CITES_ARTICLE_TIP">
                     <span
                       class="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
                       data-testid="cites-article"
                       ><FileText class="size-3" aria-hidden="true" />Cites this article</span
+                    >
+                  </Hint>
+                  <Hint v-if="armOf(detail, arm)?.cites_mirror" :text="CITES_MIRROR_TIP">
+                    <span
+                      class="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
+                      data-testid="cites-mirror"
+                      ><Copy class="size-3" aria-hidden="true" />Cites a reprint</span
                     >
                   </Hint>
                   <Hint
@@ -441,7 +463,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import { ChevronDown, CircleHelp, FileText, Search, SearchX } from 'lucide-vue-next'
+import { ChevronDown, CircleHelp, Copy, FileText, Search, SearchX } from 'lucide-vue-next'
 import type {
   BenchmarkQuestionDetail,
   BenchmarkQuestionJudge,
@@ -482,12 +504,15 @@ import { DASH, shortStamp } from './figures'
 import { kindLabel } from '../kinds'
 import {
   CITES_ARTICLE_TIP,
+  CITES_MIRROR_TIP,
   EXCLUSION_NOT_APPLIED_TIP,
   EXPECTED_FILTER_LABEL,
   EXPECTED_LABEL,
   EXPECTED_TIP,
   GROUP_LABEL,
   SEARCH_UNUSED_TIP,
+  SEARCHES_UNKNOWN_TIP,
+  answerSearchesText,
   judgesText,
   modelName,
   overSearchCapTip,
@@ -707,6 +732,8 @@ function judgeBehavior(judge: BenchmarkQuestionJudge, arm: Arm): string | null {
 function armOf(d: BenchmarkQuestionDetail, arm: Arm) {
   return d.arms[ARM_KEY[arm]]
 }
+
+const SEARCHES_TIP = 'Web searches the provider reports for this answer.'
 
 function searchLabel(engine: string): string {
   return searchEngineLabel(engine, run.model.value ?? '')

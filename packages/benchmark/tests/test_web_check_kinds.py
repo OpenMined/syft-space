@@ -203,7 +203,8 @@ class _Models:
             self.judged.append("tiered_explanation")
             return '{"covered": [true, true]}', {}
         if "How did the model handle the question?" in user:
-            self.judged.append("unanswerable_property")
+            premise = "Kind: false premise" in user
+            self.judged.append("false_premise" if premise else "unanswerable_property")
             return f'{{"behavior": "{self.trick_behavior}", "reasoning": "stub"}}', {}
         kind = next(k for k in KINDS if f"web answer for {k}" in user)
         self.judged.append(kind)

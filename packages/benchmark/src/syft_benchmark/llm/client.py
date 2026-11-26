@@ -20,6 +20,7 @@ from syft_benchmark.llm import catalog, cost
 from syft_benchmark.llm.errors import (
     BUSY_RETRIES,
     LLMBusyError,
+    LLMContentRefusedError,
     LLMError,
     LLMFatalError,
     LLMTruncatedError,
@@ -64,6 +65,28 @@ def _headers_for(api_key: str, app_name: str) -> dict[str, str]:
     }
 
 
+# How far above ``answer_max_tokens`` a reasoning model's budget may climb on
+# a cut-off: reasoning comes out of the same budget before the answer does.
+REASONING_HEADROOM = 4
+
+
+def answer_ceiling(model: str, base: int, conf: Settings) -> int:
+    """The most a cut-off answer's budget may climb to.
+
+    ``answer_max_tokens`` for most models; for one the catalogue lists with
+    ``reasoning``, ``REASONING_HEADROOM`` times it, within the model's own
+    output cap. A long reasoning still costs only the tokens it used.
+    """
+    ceiling = max(base, conf.answer_max_tokens)
+    entry = catalog.load(conf).get(model)
+    if entry is None or entry.local or "reasoning" not in entry.supports:
+        return ceiling
+    widened = conf.answer_max_tokens * REASONING_HEADROOM
+    if entry.max_output_tokens:
+        widened = min(widened, int(entry.max_output_tokens))
+    return max(ceiling, widened)
+
+
 def chat(
     system_prompt: str,
     user_prompt: str,
@@ -88,9 +111,9 @@ def chat(
         model: The model; defaults to the generator from the settings
         temperature: The temperature; defaults to the settings
         max_tokens: The answer cap to start from. An answer cut off at it is
-            asked for again with the cap doubled, up to the shared answer
-            ceiling: a reasoning model's appetite is not knowable in advance,
-            and max_tokens bounds rather than orders
+            asked for again with the cap doubled, up to ``answer_ceiling``:
+            a reasoning model's appetite is not knowable in advance, and
+            max_tokens bounds rather than orders
         retries: How many times to retry after a network error or an empty
             answer. Raising the cap is not one of these: a cut-off is not a
             failure to retry but a budget to widen
@@ -126,7 +149,7 @@ def chat(
         ("required", "named" or False), web_search_requests (the provider's
         count, or None) and web_search_retry (why the call was asked again
         with the Exa plugin: "leaked" or "unused"; absent — it was not) and,
-        when ``web_search_excluded_domains`` applies to the role (the tested
+        when ``search_exclusions()`` applies to the role (the tested
         models and the web check), web_search_exclusion (whether the search
         left them out; see ``excludes_domains``) and, for a tested model
         (``web_search_max_calls``) or the web check (``web_check_max_calls``),
@@ -182,7 +205,7 @@ def chat(
     # Kept out of the searches of the tested models and of the web check, which
     # decides what they could have found.
     excluded = (
-        conf.web_search_excluded_domains
+        conf.search_exclusions()
         if cost.role_of(role) in (cost.SUBJECTS, cost.WEB_CHECK)
         else []
     )
@@ -203,7 +226,7 @@ def chat(
     # How high the budget may be raised on a cut-off. A caller that asked for
     # more than the shared ceiling keeps what it asked for: this is a floor
     # under the retries, not a cap on the request.
-    ceiling = max(int(body["max_tokens"]), conf.answer_max_tokens)
+    ceiling = answer_ceiling(chosen, int(body["max_tokens"]), conf)
     doublings = 0
     # Failed attempts are counted apart from all attempts: `retries` bounds the
     # failures, and a cut-off is not one. Counted together, a call could spend
@@ -326,7 +349,7 @@ def chat(
                 # answered, just briefly.
                 #
                 # The doubling repeats until the answer fits or the budget
-                # reaches the ceiling every other call in the service uses: a
+                # reaches ``answer_ceiling``: a
                 # single doubling of any starting cap is just as arbitrary.
                 doublings += 1
                 # The floor of 1 is what keeps this loop finite: a caller that
@@ -341,8 +364,8 @@ def chat(
                 # call on a retry. It is retried and, still empty, fails this
                 # call only, so a judge is not stood down over it. Empty with
                 # length — the budget has climbed to the ceiling and the model
-                # printed nothing before reaching it. The budget is named,
-                # because that is the number to raise.
+                # printed nothing before reaching it — is not retried. The
+                # budget is named, because that is the number to raise.
                 raise (LLMTruncatedError if finish == "length" else LLMError)(
                     f"{named} returned an empty answer "
                     f"(finish_reason={finish}, max_tokens={body['max_tokens']})"
@@ -378,6 +401,13 @@ def chat(
                 return kept
             # There is nothing to retry: it is the key, access, the model name
             # or the money. We fail at once so the cause is visible.
+            raise
+        except (LLMContentRefusedError, LLMTruncatedError):
+            # One request's content refused, or the budget spent without an
+            # answer at the ceiling: the same call would end the same way.
+            kept = fallback()
+            if kept is not None:
+                return kept
             raise
         except LLMBusyError as exc:
             # A rate limit or an overload: wait, longer each time, as long as

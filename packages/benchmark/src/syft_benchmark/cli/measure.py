@@ -319,6 +319,61 @@ def judge(
             typer.echo(f"  {note}")
 
 
+def regrade_refusals(
+    space: SpaceKeys = None,
+    job: Annotated[
+        list[str] | None,
+        typer.Option("--job", help="Only these jobs (repeatable); all by default"),
+    ] = None,
+    apply: Annotated[
+        bool,
+        typer.Option("--apply", help="Call the judges and store the verdicts"),
+    ] = False,
+) -> None:
+    """Re-grade the direct-test verdicts the old refusal rule gave without a judge.
+
+    The old rule marked an answer abstain without a judge when a refusal
+    phrase stood anywhere in it or was glued to the answer after it. Each such
+    answer the current rule no longer reads as a refusal goes to the judge that
+    gave the verdict; the new verdict is stored as a further row marked as a
+    re-grade, the old one stays. A dry run by default: counts and an estimated
+    cost, nothing called or written.
+    """
+    from syft_benchmark.db import session_scope as scope
+    from syft_benchmark.runs import refusal_regrade
+
+    for node_conf, target in resolve_nodes(space):
+        with scope(node_conf) as session:
+            found = refusal_regrade.plan(session, target.key, job_ids=job)
+        typer.echo(f"--- {target.name}")
+        typer.echo(
+            f"  old-rule abstains: {found.found}; still a refusal now: "
+            f"{found.still_refusals}; to re-grade: {len(found.candidates)}"
+        )
+        for (job_id, model, judge), n in sorted(found.by_job_model().items()):
+            typer.echo(f"    job {job_id}  {model}  judge {judge}: {n}")
+        if not found.candidates:
+            continue
+        usd = found.estimated_usd()
+        unpriced = found.unpriced_judges()
+        cost = "unknown" if usd is None else f"~${usd:.4f}"
+        typer.echo(
+            f"  estimated judge cost: {cost}"
+            + (f" (no recorded price for {', '.join(unpriced)})" if unpriced else "")
+        )
+        if not apply:
+            typer.echo("  dry run: nothing called or written; --apply to run")
+            continue
+        outcome = refusal_regrade.apply(found, settings=node_conf)
+        tally = ", ".join(f"{n} {v}" for v, n in sorted(outcome.verdicts.items()))
+        typer.echo(
+            f"  re-graded {outcome.regraded} ({outcome.changed} changed"
+            f"{'; ' + tally if tally else ''}), failed {outcome.failed}"
+        )
+        if outcome.stopped:
+            typer.secho(f"  stopped: {outcome.stopped}", fg=typer.colors.YELLOW)
+
+
 def status(
     space: SpaceKeys = None,
     all_time: Annotated[

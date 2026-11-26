@@ -17,6 +17,10 @@ from sqlalchemy.orm import Session
 from syft_benchmark.db import Result, Run
 from syft_benchmark.db.run_cache import invalidate_run
 
+# Where a re-grade of an earlier verdict records what it replaced:
+# {"of": result id, "old_verdict", "old_reasoning", "rule"}.
+REGRADE_KEY = "regrade"
+
 # The keys of a result's ``audit`` that record who judged it and that judge's
 # model call. A new verdict on the same answer drops them: carried over, they
 # would show the original judge's prompt, reply and cost on the new verdict's
@@ -31,6 +35,7 @@ JUDGE_AUDIT_KEYS = frozenset(
         "judged_without_model",
         "judged_by_owner",
         "judged_by_console",
+        REGRADE_KEY,
     }
 )
 

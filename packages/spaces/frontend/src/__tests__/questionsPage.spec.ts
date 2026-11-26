@@ -348,7 +348,12 @@ describe('QuestionsPage', () => {
         ...base,
         arms: {
           alone: { ...base.arms.alone!, search_engine: 'exa', cites_article: true },
-          with: { ...base.arms.with!, search_engine: 'native', cites_article: false },
+          with: {
+            ...base.arms.with!,
+            search_engine: 'native',
+            cites_article: false,
+            searches: 2,
+          },
         },
       }
     })
@@ -358,11 +363,44 @@ describe('QuestionsPage', () => {
 
     const alone = wrapper.get('[data-testid="answer-closed"]')
     expect(alone.get('[data-testid="search-engine"]').text()).toBe('Exa search')
+    expect(alone.get('[data-testid="search-count"]').text()).toBe('Searches: unknown')
     expect(alone.get('[data-testid="cites-article"]').text()).toBe('Cites this article')
 
     const withData = wrapper.get('[data-testid="answer-ctx"]')
     expect(withData.get('[data-testid="search-engine"]').text()).toBe('Anthropic search')
+    expect(withData.get('[data-testid="search-count"]').text()).toBe('2 searches')
     expect(withData.find('[data-testid="cites-article"]').exists()).toBe(false)
+  })
+
+  it('flags an answer and a citation on a reprint of the publisher', async () => {
+    const report = fakeReport()
+    report.loadQuestion.mockImplementation(async (_job: string, qaId: string) => {
+      const base = questionDetail(qaId)
+      return {
+        ...base,
+        arms: {
+          alone: {
+            ...base.arms.alone!,
+            search_engine: 'exa',
+            cites_mirror: true,
+            citations: [
+              { url: 'https://nationalcybersecurity.com/copy', title: 'Copy', mirror: true },
+              { url: 'https://example.org/other', title: 'Other' },
+            ],
+          },
+          with: { ...base.arms.with!, cites_mirror: false },
+        },
+      }
+    })
+    const { wrapper } = await mountPage(report)
+    await wrapper.get('[data-testid="question-row"] button').trigger('click')
+    await flushPromises()
+
+    const alone = wrapper.get('[data-testid="answer-closed"]')
+    expect(alone.get('[data-testid="cites-mirror"]').text()).toBe('Cites a reprint')
+    expect(alone.findAll('[data-testid="mirror"]')).toHaveLength(1)
+    const withData = wrapper.get('[data-testid="answer-ctx"]')
+    expect(withData.find('[data-testid="cites-mirror"]').exists()).toBe(false)
   })
 
   it('marks an answer whose search could not leave out the excluded domains', async () => {

@@ -11,12 +11,14 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from loguru import logger
 
 from syft_benchmark.config import Settings, SpaceConfig, get_settings
 from syft_benchmark.db import QaPair
+from syft_benchmark.generation.article_dates import format_header
 from syft_benchmark.runs.judge import ERROR_PREFIX
 
 # The answer ceiling when only the retrieval is needed. On a `both` endpoint a
@@ -130,12 +132,46 @@ def endpoint_retriever(
             error = str(outcome["answer"]).removeprefix(ERROR_PREFIX).strip()
             raise EndpointFailed(f"{space.key}: {error}")
         return [
-            str(doc.get("content") or "")
+            headed(fragment_header(doc.get("metadata") or {}), str(doc["content"]))
             for doc in outcome["documents"]
             if doc.get("content")
         ]
 
     return retrieve
+
+
+# Values of the Space's own ``source`` key that name its connector, not an outlet.
+_CONNECTOR_SOURCES = frozenset({"local_file"})
+
+
+def _host(url: str) -> str:
+    return urlsplit(url.strip()).netloc.lower().removeprefix("www.")
+
+
+def fragment_header(meta: dict[str, Any]) -> str:
+    """The article header of a found chunk, from what the endpoint returned
+    with it: title, author, outlet, publish date; empty — none known.
+
+    The outlet is the header's ``source`` where the Space returns it, else the
+    article address's site.
+    """
+    source = str(meta.get("doc_source") or meta.get("source") or "").strip()
+    outlet = (
+        source
+        if source and source not in _CONNECTOR_SOURCES
+        else _host(str(meta.get("url") or ""))
+    )
+    return format_header(
+        str(meta.get("title") or meta.get("doc_title") or ""),
+        str(meta.get("author") or meta.get("doc_author") or ""),
+        outlet,
+        str(meta.get("published") or meta.get("doc_published_date") or ""),
+    )
+
+
+def headed(header: str, text: str) -> str:
+    """A chunk's text under its article header."""
+    return f"{header}\n{text}" if header else text
 
 
 def check_retrieval(
@@ -169,6 +205,8 @@ def check_retrieval(
         "retrieved": [
             {
                 "file_name": (doc.get("metadata") or {}).get("file_name", ""),
+                # The article header arm C shows above the chunk; "" — none known.
+                "header": fragment_header(doc.get("metadata") or {}),
                 "score": round(float(doc.get("similarity_score") or 0), 3),
                 # The chunk's text: what grounding is checked against and what
                 # arm C puts into the model's prompt.

@@ -37,6 +37,7 @@ from syft_benchmark.db import QaPair, session_scope
 from syft_benchmark.db.run_cache import invalidate_runs_with_pairs
 from syft_benchmark.generation import cohort as cohorts
 from syft_benchmark.generation import decisions
+from syft_benchmark.generation.article_dates import header_words
 from syft_benchmark.generation.control import (
     Gate,
     Retriever,
@@ -55,6 +56,7 @@ from syft_benchmark.generation.slots import (
 from syft_benchmark.generation.validate import review_answer, review_claims
 from syft_benchmark.generation.web_check import (
     CONTROL_NOTE,
+    PREMISE_CONFIRMED,
     PUBLIC_KNOWLEDGE,
     WEB_ANSWERABLE,
     WebChecker,
@@ -166,10 +168,13 @@ def _screen_pair(
     """
     if not generator.is_control:
         claims = row.meta.get("claims")
+        # The writer saw the article header: a claim may name its author or outlet.
+        header = header_words(row.document_title or "", row.meta)
+        passage = f"{header}\n{row.context}" if header else row.context
         verdict = (
-            review_claims([str(c) for c in claims], row.context, conf)
+            review_claims([str(c) for c in claims], passage, conf)
             if claims
-            else review_answer(row.answer, row.context, conf)
+            else review_answer(row.answer, passage, conf)
         )
         if not verdict.grounded:
             return PairStatus.REJECTED, StatusReason.GROUNDING, verdict.note, {}
@@ -183,6 +188,13 @@ def _screen_pair(
             return PairStatus.PENDING, None, f"{ARCHIVE_RETRY}: {outcome.note}", meta
         if outcome.clear:
             return PairStatus.ACTIVE, None, verdict.note, meta
+        if outcome.contradicted:
+            return (
+                PairStatus.REJECTED,
+                StatusReason.CORPUS_CONTRADICTION,
+                outcome.note,
+                meta,
+            )
         return (
             PairStatus.REJECTED,
             StatusReason.NOT_ANSWERABLE,
@@ -214,9 +226,14 @@ def _screen_pair(
         )
     else:
         outcome = gate_unanswerable(row.question, gate, settings=conf, judge=judge)
+    reason = (
+        StatusReason.CORPUS_CONTRADICTION
+        if outcome.contradicted
+        else StatusReason.RETRIEVAL_GATE
+    )
     return (
         PairStatus.ACTIVE if outcome.clear else PairStatus.REJECTED,
-        None if outcome.clear else StatusReason.RETRIEVAL_GATE,
+        None if outcome.clear else reason,
         outcome.note,
         _gate_meta(outcome),
     )
@@ -550,7 +567,7 @@ class Screening:
         if verdict.answerable is None:
             self._note_pending(row, verdict, meta)
         elif verdict.answerable:
-            reason, why = _removal(row)
+            reason, why = _removal(row, verdict)
             self._write(
                 row,
                 PairStatus.REJECTED,
@@ -581,7 +598,7 @@ class Screening:
         with self._lock:
             self.rechecked += 1
         if verdict.answerable:
-            reason, why = _removal(row)
+            reason, why = _removal(row, verdict)
             self._write(
                 row,
                 PairStatus.REJECTED,
@@ -605,10 +622,12 @@ class Screening:
         return self.report
 
 
-def _removal(row: QaPair) -> tuple[StatusReason, str]:
+def _removal(row: QaPair, verdict: WebVerdict) -> tuple[StatusReason, str]:
     """The reason and note of a pair the web check answers."""
     if checks_public(row):
         return StatusReason.PUBLIC_KNOWLEDGE, PUBLIC_KNOWLEDGE
+    if verdict.note == PREMISE_CONFIRMED:
+        return StatusReason.PREMISE_CONFIRMED, PREMISE_CONFIRMED
     return StatusReason.WEB_ANSWERABLE, WEB_ANSWERABLE
 
 

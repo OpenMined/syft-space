@@ -226,7 +226,7 @@ class RunCache:
                 search_mechanism(provider.model, settings),
                 settings.web_search_max_results,
                 settings.web_search_max_calls,
-                tuple(settings.web_search_excluded_domains),
+                tuple(settings.search_exclusions()),
             )
             if web_search
             else None

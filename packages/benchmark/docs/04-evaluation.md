@@ -47,7 +47,13 @@ block.
 | `oracle_chunk` | the ceiling: the item's source chunk, no retrieval | any |
 
 The first `context_docs` (5, equal to `retrieval_top_k`) chunks go into the
-prompt, each cut to `fragment_max_chars` (2000). The source is stored in
+prompt, each cut to `fragment_max_chars` (2000) and numbered under its
+article header — `[1] Title: … | Author: … | Outlet: … | Published: …`, the
+fields the endpoint returns (the outlet is the front matter's `source`, else
+the article's site; the file name when none is known; the oracle chunk from
+the question's stamp) — so a claim attributed to the article's writer can be
+checked. The same header goes with each chunk to the arm C grounding judge
+(`retrieved[].header` keeps it). The source is stored in
 `runs.context_source`; values are never added into one share.
 
 **Found and shown.** Each arm C answer records `retrieval_hit` and
@@ -206,6 +212,10 @@ answerer's passes, the others continue. A success resets the count; an empty
 context does not count. A provider refusing a model or judge outright (bad
 key, name or balance) stops that model's passes, or stands that judge down,
 for the rest of the launch (`max_consecutive_failures=0` disables this too).
+A request refused for its content (a search blocked by the provider's content
+policy, OpenRouter's moderation) fails that one answer as `technical` and is
+not retried; the model stays in the run. An answer that is still empty at the
+token ceiling fails the same way and is not retried.
 
 ---
 
@@ -274,7 +284,7 @@ through a chat has none of these limits — [05-judging.md](05-judging.md#judgin
 | `similarity_threshold` | `0.0` | Retrieval similarity threshold |
 | `endpoint_max_tokens` | `500` | Ceiling on the endpoint's answer, when arm C mixes it in |
 | `endpoint_temperature` | `0.1` | The endpoint's temperature, likewise |
-| `answer_max_tokens` | `8192` | Ceiling on any model answer |
+| `answer_max_tokens` | `8192` | Ceiling on any model answer; a model the catalogue lists with `reasoning` may climb to 4× it (within its own output cap), since its reasoning comes out of the same budget |
 | `subject_models` | empty | Models under test; empty — the generator model |
 | `web_search_closed_book` | `true` | The model under test may search the web in arm A |
 | `web_search_with_context` | `true` | The same in arm C |
@@ -282,6 +292,7 @@ through a chat has none of these limits — [05-judging.md](05-judging.md#judgin
 | `web_search_max_results` | `5` | Results per search with the Exa engine (1–20) |
 | `web_search_max_calls` | `1` | Searches one answer of a tested model may make (up to 30); `0` — no cap of ours, the provider's own limit (up to 30 on OpenRouter) |
 | `web_search_excluded_domains` | empty | Domains the tested models' and the web check's searches leave out (up to 20), e.g. the measured publisher's |
+| `web_check_mirror_domains` | empty | The publisher's reprints and social accounts: left out of the same searches, flagged in the report |
 | `consistency_floor` | `0.5` | Below it accuracy is not trusted |
 | `methodology_profile` | `default` | Written into every run |
 | `concurrency` | `16` | Model calls in flight |
@@ -343,6 +354,12 @@ and `web_search_engine: plugin` (Exa for every model) applies it everywhere.
 The job's `message` counts the answers it was not applied to, per model, and
 the Space's settings form warns before a run when the engine is `native` or
 `auto` and a tested model's own search may ignore the list.
+
+**Mirrors.** `web_check_mirror_domains` (sites that reprint the publisher,
+and its social accounts, e.g. `linkedin.com/company/tech-policy-press`) is
+sent with the excluded domains, one list. The question view marks a citation
+on a mirror and the answer (`cites_mirror`); the export's "Cites a mirror"
+column does the same, by the job's mirrors and the target's current ones.
 
 **The similarity threshold is an axis of the measurement.** At `0.0` the
 endpoint returns top-k for any question, including one the corpus cannot

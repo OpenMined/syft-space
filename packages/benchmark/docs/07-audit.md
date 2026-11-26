@@ -38,7 +38,9 @@ depend on the settings of the moment.
   `judge_call` (cost, latency);
 * `judged_without_model: true` when no judge was called (regex abstention,
   option letter or fill-in span match), `judged_by_console: <name>` for a
-  verdict imported from a chat, `judged_by_owner` for an owner override.
+  verdict imported from a chat, `judged_by_owner` for an owner override,
+  `regrade` (`of`, `old_verdict`, `old_reasoning`, `rule`) for a re-grade of
+  a verdict the old refusal rule gave.
 
 `results.extra` keeps the block transcripts: every `denial_loop` round
 (objection, answer, judge prompt and reply) and every `monte_carlo` trial.

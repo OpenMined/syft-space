@@ -77,10 +77,11 @@ from syft_benchmark.retrieval.arm_c import SHOWN_KEY, Shown, shown_of
 from syft_benchmark.runs.gate import passes
 from syft_benchmark.runs.judge import ERROR_PREFIX
 from syft_benchmark.runs.judge_stage import OWNER_OVERRIDE
+from syft_benchmark.runs.regrade import REGRADE_KEY
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 18
+AGGREGATE_VERSION = 19
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -147,6 +148,12 @@ class _Row:
     denial: dict[str, Any] | None
     repeats: dict[str, Any] | None
     job_id: str = ""
+    # The verdict a re-grade replaced (``runs.refusal_regrade``); None — none.
+    regraded_from: str | None = None
+    # Whether the answer was given web search, and the searches the provider
+    # reports for it (None — not reported).
+    searched: bool = False
+    searches: int | None = None
 
 
 def answer_key(row: _Row) -> AnswerKey:
@@ -172,6 +179,9 @@ def load_rows(session: Session, job_ids: Sequence[str]) -> list[_Row]:
             Result.extra["denial"].op("-")("log"),
             Result.extra["monte_carlo"].op("-")("log"),
             Run.job_id,
+            Result.audit[REGRADE_KEY]["old_verdict"].astext,
+            Result.audit["call"]["web_search"],
+            Result.audit["call"]["web_search_requests"],
         )
         .join(Run, Run.id == Result.run_id)
         .where(Run.job_id.in_(list(job_ids)), Run.context_mode.in_(list(ARM_OF)))
@@ -197,6 +207,9 @@ def load_rows(session: Session, job_ids: Sequence[str]) -> list[_Row]:
             denial=denial if isinstance(denial, dict) else None,
             repeats=repeats if isinstance(repeats, dict) else None,
             job_id=job_id or "",
+            regraded_from=regraded_from,
+            searched=bool(engine),
+            searches=_count(requests),
         )
         for (
             qa_id,
@@ -213,8 +226,15 @@ def load_rows(session: Session, job_ids: Sequence[str]) -> list[_Row]:
             denial,
             repeats,
             job_id,
+            regraded_from,
+            engine,
+            requests,
         ) in session.connection().execute(stmt).all()
     ]
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def counting_judges(session: Session, job: Job, *, configured: Panel = ()) -> list[str]:
@@ -266,7 +286,19 @@ _FAILURES: tuple[tuple[tuple[str, ...], str, str], ...] = (
         "Out of credits",
         "the provider key has no credits left",
     ),
-    (("-> 401", "-> 403", "api key"), "Key refused", "the provider refused the key"),
+    (
+        ("content policy", "moderation"),
+        "Blocked by content policy",
+        "the provider's content policy blocked the request",
+    ),
+    (
+        ("finish_reason=length",),
+        "Out of tokens",
+        "the model used its whole token budget without answering",
+    ),
+    (("empty answer",), "No answer", "the model returned an empty answer"),
+    (("-> 401", "api key"), "Key refused", "the provider refused the key"),
+    (("-> 403",), "Access refused", "the provider refused access to the model"),
     (
         ("-> 404", "valid model id", "no endpoints found"),
         "Unknown model",
@@ -513,6 +545,8 @@ def aggregate_core(
     retrieval: dict[tuple[str, str], tuple[bool | None, Shown]] = {}
     blocks: dict[tuple[str, str], list[_Row]] = defaultdict(list)
     agreement: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    regraded: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    searched: dict[tuple[str, str], list[_Row]] = defaultdict(list)
     for (model, mode, block, qa), (chosen, answer_rows) in answers.items():
         arm = ARM_OF[mode]
         counted = chosen.counted
@@ -522,6 +556,12 @@ def aggregate_core(
             direct[(model, arm, qa)] = counted.verdict
             if chosen.override is not None:
                 overridden.add((model, qa))
+            if qa in counted_main:
+                if counted.regraded_from is not None:
+                    regraded[model][0] += 1
+                    regraded[model][1] += counted.regraded_from != counted.verdict
+                if counted.searched:
+                    searched[(model, arm)].append(counted)
             if arm == WITH:
                 retrieval[(model, qa)] = (
                     counted.retrieval_hit,
@@ -562,6 +602,10 @@ def aggregate_core(
             WITH: _tally(with_[qa] for qa in asked_ids),
         }
         figures = _figures(model, len(asked_ids), tally)
+        figures["regrade"] = _regrade(regraded.get(model))
+        figures["searches"] = {
+            arm: _searches(searched.get((model, arm), [])) for arm in ARMS
+        }
         if figures["technical"] and model in errors:
             figures["failure"] = failure_of(errors[model], figures["technical"])
 
@@ -844,6 +888,30 @@ def _figures(
         "pending": alone["pending"] + with_["pending"],
         "technical": alone["technical"] + with_["technical"],
         "failure": None,
+        "regrade": None,
+        "searches": {ALONE: None, WITH: None},
+    }
+
+
+def _regrade(counts: list[int] | None) -> dict[str, int] | None:
+    """Counted answers whose verdict is a re-grade, and how many changed."""
+    if not counts or not counts[0]:
+        return None
+    return {"answers": counts[0], "changed": counts[1]}
+
+
+def _searches(rows: Sequence[_Row]) -> dict[str, Any] | None:
+    """How an arm's answers searched: the answers given search, how many of
+    them have a provider-reported count, its total and the largest. None — no
+    answer was given search."""
+    if not rows:
+        return None
+    counts = [r.searches for r in rows if r.searches is not None]
+    return {
+        "answers": len(rows),
+        "reported": len(counts),
+        "total": sum(counts),
+        "max": max(counts) if counts else None,
     }
 
 
@@ -862,6 +930,8 @@ FIGURE_KEYS = (
     "pending",
     "technical",
     "failure",
+    "regrade",
+    "searches",
 )
 
 

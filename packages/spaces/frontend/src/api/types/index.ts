@@ -746,6 +746,8 @@ export type BenchmarkWebSearch = 'native' | 'plugin' | 'none'
 export interface BenchmarkCitation {
   url: string
   title?: string | null
+  /** The page is on a reprint of the publisher (`web_check_mirror_domains`). */
+  mirror?: boolean
 }
 
 export interface BenchmarkModelCatalog {
@@ -1153,6 +1155,18 @@ export interface BenchmarkModelFigures {
   lift: number | null
   /** Why some answers failed; optional. */
   failure?: BenchmarkModelFailure | null
+  /** Counted answers whose verdict is a re-grade, and how many changed; null — none. */
+  regrade?: { answers: number; changed: number } | null
+  /** How each arm's answers searched; null — no search offered. */
+  searches?: { alone: BenchmarkArmSearches | null; with: BenchmarkArmSearches | null } | null
+}
+
+/** One arm's searches: answers given search, how many the provider reported a count for, its sum and largest. */
+export interface BenchmarkArmSearches {
+  answers: number
+  reported: number
+  total: number
+  max: number | null
 }
 
 /** A model's failed calls: a short label and a one-sentence tooltip. */
@@ -1484,6 +1498,8 @@ export interface BenchmarkArmDetail {
   search_engine?: 'exa' | 'native' | null
   /** A citation is the question's own article; null — the article's address is unknown. */
   cites_article?: boolean | null
+  /** A citation is on a reprint of the publisher or its social account. */
+  cites_mirror?: boolean | null
   /** Its search left out the run's excluded domains; null — none were set. */
   search_exclusion?: boolean | null
   /** Searches the provider reports for it; null — not reported. */

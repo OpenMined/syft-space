@@ -43,7 +43,30 @@ def judge_web_search(conf: Settings, judge: Provider) -> tuple[bool, str]:
 
 ERROR_PREFIX = "ERROR:"
 
+# An answer with no text measured nothing: a technical verdict, never a refusal.
+EMPTY_ANSWER = "empty answer"
+SEVERAL_OPTIONS = "named several options"
+_ONE_OPTION_NOTE = "An answer that picks more than one option is not correct.\n\n"
+
 _MCQ_LETTER = re.compile(r"\b([A-D])\s*[\)\.:]", re.IGNORECASE)
+
+# Two option letters picked together in an answer's first line: opening it
+# ("A and C", "**B) or D)**", "Options A, C") or after "both" anywhere in it.
+_OPTION = r"\(?([A-D])\b\)?[\s*_]*"
+_JOINED = (
+    r"(?:,|&|/|(?i:and|or|y|o|e|ou|et|und|oder|dan|atau)\b)[\s*_]*"
+    r"(?:(?i:options?|statements?)\s+)?\(?([A-D])\b"
+)
+_MCQ_SEVERAL = (
+    re.compile(
+        r"^[\W_]*(?:(?i:both|options?|answers?|statements?|letters?)\s+)?"
+        + _OPTION
+        + _JOINED
+    ),
+    re.compile(r"(?i:\bboth)\s+(?:(?i:options?|statements?)\s+)?" + _OPTION + _JOINED),
+)
+_BOTH = re.compile(r"\bboth\b", re.IGNORECASE)
+_LETTER = re.compile(r"\b([A-D])\b")
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,11 +204,14 @@ def grade_mcq(answer: str, expected: str) -> bool | None:
     The endpoint answers in prose ("The correct answer is C) Three"), so we look
     for the letter across the whole text. If several different letters are named,
     they cannot be decided on — we return None and hand the question to the judge.
+    An answer that picks several options (``names_several_options``) is wrong.
     """
     correct = _MCQ_LETTER.match(expected.strip())
     if not correct:
         return None
     letter = correct.group(1).upper()
+    if names_several_options(answer):
+        return False
 
     mentioned = {m.group(1).upper() for m in _MCQ_LETTER.finditer(answer or "")}
     if len(mentioned) == 1:
@@ -195,6 +221,21 @@ def grade_mcq(answer: str, expected: str) -> bool | None:
         if option_text and option_text in (answer or "").lower():
             return True
     return None
+
+
+def names_several_options(answer: str) -> bool:
+    """The answer picks two different options at once ("both A and C").
+
+    Only the first line is read: letters named later are usually the
+    explanation ("ruling out A and B").
+    """
+    first = (answer or "").strip().split("\n", 1)[0]
+    for pattern in _MCQ_SEVERAL:
+        found = pattern.search(first)
+        if found and found.group(1) != found.group(2):
+            return True
+    # "Both A) X and C are false": "both" and two letters in the one line.
+    return bool(_BOTH.search(first)) and len(set(_LETTER.findall(first))) > 1
 
 
 def date_note(now: datetime | None = None) -> str:
@@ -432,10 +473,14 @@ def grade(
         # A failed call speaks about the rig, not about the quality of the
         # answers, and has no business in the metrics denominator.
         return Grade(Verdict.TECHNICAL, answer[:300])
+    if not answer.strip():
+        return Grade(Verdict.TECHNICAL, EMPTY_ANSWER)
 
     if detect_abstain(answer):
         return Grade(Verdict.ABSTAIN, "refused to answer")
 
+    if is_mcq and names_several_options(answer):
+        return Grade(Verdict.HALLUCINATE, SEVERAL_OPTIONS)
     if is_mcq:
         by_letter = grade_mcq(answer, expected)
         if by_letter is not None:
@@ -459,6 +504,7 @@ def grade(
         f"Question:\n{question}\n\n"
         f"Expected answer:\n{expected}\n\n"
         f"{required}"
+        f"{_ONE_OPTION_NOTE if is_mcq else ''}"
         f"Model answer:\n{answer}\n\n"
         f"Is the model answer correct?"
     )
@@ -512,6 +558,8 @@ def grade_key_facts(
 
     if is_error(answer):
         return Grade(Verdict.TECHNICAL, answer[:300])
+    if not answer.strip():
+        return Grade(Verdict.TECHNICAL, EMPTY_ANSWER)
     if detect_abstain(answer):
         return Grade(Verdict.ABSTAIN, "refused to explain")
     if not facts:
@@ -806,9 +854,7 @@ def grade_control(
     if is_error(answer):
         return Grade(Verdict.TECHNICAL, answer[:300])
     if not answer.strip():
-        return Grade(
-            Verdict.ABSTAIN, "empty answer", behavior=ControlOutcome.DECLINED.value
-        )
+        return Grade(Verdict.TECHNICAL, EMPTY_ANSWER)
 
     cited = [c for c in citations if isinstance(c, dict) and c.get("url")]
     user = _control_prompt(case, answer, cited)

@@ -75,13 +75,21 @@ fr and de (`runs/refusal.py`: "I don't know", "No tengo información", "the
 context does not contain…"). Only first-person or about-the-context phrases:
 "the ministry said there is no information" is an answer. A hedge followed by
 an answer ("I'm not sure, but the answer is C", "No estoy seguro, pero…") is a
-guess and is graded as an answer. An empty answer is an abstention. A refusal
-no phrase matches goes to the judge, which grades it `abstain`.
+guess and is graded as an answer. Only a whole-answer refusal skips the judge:
+every sentence says the model does not know. A refusal phrase inside a longer
+answer ("… so I can't confirm the author") or glued to the text after it ("I
+don't knowThe two obligations…", seen when a model writes "I don't know"
+before a web search and its answer after it, and the provider joins the two
+with no separator) goes to the judge. A refusal no phrase matches goes to the
+judge, which grades it `abstain`. An empty answer is `technical`: nothing was
+measured.
 
 **Choice items** (`mcq`, `two_truths_one_lie`): the option letter is searched
-across the whole answer. Exactly one letter named decides correct or
-hallucinate; no letter but the option's text present counts as correct;
-several letters go to the free-text judge.
+across the whole answer. An answer whose first line picks two options ("both
+A and C", "A, C") is `hallucinate`. Otherwise exactly one letter named decides
+correct or hallucinate; no letter but the option's text present counts as
+correct; several letters go to the free-text judge, told that picking more
+than one option is not correct.
 
 **Key facts** (`tiered_explanation`): the judge marks each listed fact as
 covered or not (paraphrase counts, a contradicted fact does not). A second call
@@ -203,6 +211,30 @@ uv run syft-benchmark settings set judge_models '["anthropic/claude-sonnet-4","o
   ([06-report.md](06-report.md)); an owner override is not a judge there.
 
 ---
+
+## Re-grading the old refusal rule
+
+Before the rule above, an answer was marked `abstain` without a judge when a
+refusal phrase stood anywhere in it. `regrade-refusals` finds the `direct`
+verdicts that rule gave (`abstain`, "refused to answer" / "refused to
+explain", no model called) that are still their judge's latest, and sends each
+answer the current rule no longer reads as a refusal to the judge that gave
+the verdict.
+
+```bash
+uv run syft-benchmark regrade-refusals                      # dry run, every target
+uv run syft-benchmark regrade-refusals tempo --job <id>     # one target, one job
+uv run syft-benchmark regrade-refusals tempo --apply        # call the judges, store
+```
+
+The dry run prints the counts per job, model and judge and an estimated cost
+(the judge's average recorded call cost). `--apply` appends each new verdict as
+a further row in the answer's launch (run note "refusal rule re-grade"); the
+old row stays, and the new one records it under `audit.regrade` (`of`,
+`old_verdict`, `old_reasoning`). Figures read the new row by the usual
+precedence; the report shows per model how many counted answers are re-grades
+and how many changed. A failed judge call stores nothing, so a later run picks
+the answer up again; a second run finds nothing left.
 
 ## Deferred and standalone judging
 

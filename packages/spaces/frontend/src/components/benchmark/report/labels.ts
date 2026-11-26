@@ -1,5 +1,10 @@
 /** The report's customer wording: verdicts and their pill colours, outcomes and model names. */
-import type { BenchmarkBehavior, BenchmarkExpectedBehavior, BenchmarkModel } from '@/api/types'
+import type {
+  BenchmarkArmSearches,
+  BenchmarkBehavior,
+  BenchmarkExpectedBehavior,
+  BenchmarkModel,
+} from '@/api/types'
 import { TONE } from '../labels'
 import type { ControlExpected, Group } from './types'
 
@@ -67,8 +72,37 @@ export function searchEngineTip(engine: string): string {
 export const CITES_ARTICLE_TIP =
   'One of the pages it cited is the article this question was written from.'
 
+export const CITES_MIRROR_TIP =
+  'One of the pages it cited reprints your articles or is your outlet’s social account: it read your text elsewhere.'
+
 export const EXCLUSION_NOT_APPLIED_TIP =
   'The run keeps some domains out of search, but this model’s own search can’t leave them out, so it searched them too.'
+
+/** One answer's searches as the provider reports them: `2 searches`, `Searches: unknown`. */
+export function answerSearchesText(searches: number | null | undefined): string {
+  if (typeof searches !== 'number') return 'Searches: unknown'
+  return searches === 1 ? '1 search' : `${searches} searches`
+}
+
+export const SEARCHES_UNKNOWN_TIP =
+  'The provider does not report how many searches it made (Claude’s own search does not).'
+
+/** An arm's searches per answer: `1.7 per answer, max 3`, `unknown`; null — no search offered. */
+export function armSearchesText(s: BenchmarkArmSearches | null | undefined): string | null {
+  if (!s || !s.answers) return null
+  if (!s.reported) return 'unknown'
+  const mean = (s.total / s.reported).toFixed(1)
+  const partial = s.reported < s.answers ? `, ${s.reported} of ${s.answers} reported` : ''
+  return `${mean} per answer, max ${s.max ?? 0}${partial}`
+}
+
+/** A model's re-graded answers: `Re-graded 5, 3 changed`; null — none. */
+export function regradeText(r: { answers: number; changed: number } | null | undefined): string | null {
+  return r && r.answers ? `Re-graded ${r.answers}, ${r.changed} changed` : null
+}
+
+export const REGRADE_TIP =
+  'Answers the old refusal rule marked as “refused” without a judge, graded again by the judge. The old verdict is kept in the record.'
 
 /** Why an answer is marked for searching past the run's cap. */
 export function overSearchCapTip(searches: number | null | undefined): string {
@@ -219,11 +253,13 @@ export const REMOVED_REASON_LABEL: Record<string, string> = {
   grounding: 'Not supported by the article',
   retrieval_gate: 'Search could not find its passage',
   not_answerable: 'Not answerable from the archive',
+  corpus_contradiction: 'Contradicted elsewhere in the archive',
   duplicate: 'Duplicate',
   owner: 'Removed by you',
   rotation: 'Rotated out',
   web_answerable: 'Answerable from the web',
   public_knowledge: 'Public knowledge',
+  premise_confirmed: 'False premise confirmed on the web',
   wrong_language: 'Wrong language',
   ambiguous_entity: 'Unclear subject',
   quality: 'Failed the quality check',
