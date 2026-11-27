@@ -10,8 +10,6 @@ on:
     paths:
       - .github/scripts/space_changelog.py
       - .github/scripts/latest_image_revision.sh
-      - .github/prompts/space_changelog.txt
-      - .github/actions/space-changelog-wording/**
       - .github/workflows/space-changelog-preview.yml
 
 env:
@@ -24,8 +22,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      # Lets the built-in token call Copilot, billed to the organisation.
-      copilot-requests: write
 
     steps:
       # Full history: the entry lists the changes since the previous image.
@@ -40,34 +36,59 @@ jobs:
           echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "previous=$(.github/scripts/latest_image_revision.sh "${IMAGE}")" >> "$GITHUB_OUTPUT"
 
-      - name: Reword the changes with Copilot
-        id: wording
-        uses: ./.github/actions/space-changelog-wording
+      # On trial next to the script, to compare the two outputs.
+      # v6.5, pinned by commit.
+      - name: Build the same entry with release-changelog-builder-action
+        id: builder
+        continue-on-error: true
+        uses: mikepenz/release-changelog-builder-action@b0db9d18b53447ef9f940a46c8f31653c4d9f621
         with:
-          tag: ${{ steps.image.outputs.tag }}
-          since: ${{ steps.image.outputs.previous }}
+          token: ${{ github.token }}
+          fromTag: ${{ steps.image.outputs.previous }}
+          toTag: ${{ github.event.pull_request.base.sha || github.sha }}
+          includeOnlyPaths: |
+            packages/spaces/backend/
+            packages/spaces/frontend/
+          configurationJson: |
+            {
+              "template": "#{{CHANGELOG}}\n### Other\n\n#{{UNCATEGORIZED}}",
+              "pr_template": "- #{{TITLE}} ([##{{NUMBER}}](#{{URL}}))",
+              "empty_template": "No user-facing changes.",
+              "categories": [
+                { "title": "### Breaking", "labels": ["breaking"] },
+                { "title": "### Added", "labels": ["feat"], "exclude_labels": ["breaking"] },
+                { "title": "### Changed", "labels": ["perf", "refactor", "revert"], "exclude_labels": ["breaking"] },
+                { "title": "### Fixed", "labels": ["fix"], "exclude_labels": ["breaking"] }
+              ],
+              "ignore_labels": ["chore", "docs", "test", "ci", "style", "build"],
+              "label_extractor": [
+                { "pattern": "^([a-z]+)(\\([^)]*\\))?!?:.*", "on_property": "title", "target": "$1" },
+                { "pattern": "^[a-z]+(\\([^)]*\\))?!:.*", "on_property": "title", "target": "breaking" }
+              ],
+              "transformers": [
+                { "pattern": "- [a-z]+(\\([^)]*\\))?!?:\\s*", "target": "- " }
+              ],
+              "sort": { "order": "ASC", "on_property": "mergedAt" }
+            }
 
-      - name: Show the entry on the run's summary page
+      - name: Show both entries on the run's summary page
         env:
           GH_TOKEN: ${{ github.token }}
-          ANSWER: ${{ steps.wording.outputs.response-file }}
+          BUILDER_ENTRY: ${{ steps.builder.outputs.changelog }}
         run: |
           {
-            echo "### Changelog preview"
+            echo "## Changelog preview"
             echo
-            echo "Changes since \`${{ steps.image.outputs.previous }}\`. Copilot step: ${{ steps.wording.outputs.outcome }}."
+            echo "Changes since \`${{ steps.image.outputs.previous }}\`."
+            echo
+            echo "# From the script"
             echo
             python3 .github/scripts/space_changelog.py "${{ steps.image.outputs.tag }}" \
-              --since "${{ steps.image.outputs.previous }}" \
-              --wording "${ANSWER}" --dry-run
-            if [ -n "${ANSWER}" ] && [ -f "${ANSWER}" ]; then
-              echo
-              echo "<details><summary>Copilot's answer, as received</summary>"
-              echo
-              echo '```'
-              cat "${ANSWER}"
-              echo
-              echo '```'
-              echo "</details>"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+              --since "${{ steps.image.outputs.previous }}" --dry-run
+            echo
+            echo "# From release-changelog-builder-action (step: ${{ steps.builder.outcome }})"
+            echo
+            echo "## Docker image ${{ steps.image.outputs.tag }} ($(date -u +%F))"
+            echo
+            echo "${BUILDER_ENTRY}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"

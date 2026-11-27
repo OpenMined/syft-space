@@ -155,8 +155,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
-      # Lets the built-in token call Copilot, billed to the organisation.
-      copilot-requests: write
     # One at a time, so two builds can't race the changelog commit.
     concurrency:
       group: space-image-changelog
@@ -172,21 +170,12 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      # Optional: without an answer the entry uses the PR titles.
-      - name: Reword the changes with Copilot
-        id: wording
-        uses: ./.github/actions/space-changelog-wording
-        with:
-          tag: ${{ needs.manifest.outputs.tag }}
-          since: ${{ needs.manifest.outputs.previous }}
-
       - name: Add the changelog entry and push it
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 .github/scripts/space_changelog.py "${{ needs.manifest.outputs.tag }}" \
-            --since "${{ needs.manifest.outputs.previous }}" \
-            --wording "${{ steps.wording.outputs.response-file }}"
+            --since "${{ needs.manifest.outputs.previous }}"
           if git diff --quiet -- packages/spaces/CHANGELOG.md; then
             exit 0
           fi
