@@ -7,7 +7,11 @@
 # WHAT HAPPENS
 #
 #     ┌───────────────────────────────────────────────────────┐
-#     │ release   bump → <v>, commit to main, tag station-<v> │
+#     │ notes     the changes since the previous station-<v>  │
+#     └───────────────────────────┬───────────────────────────┘
+#     ┌───────────────────────────▼───────────────────────────┐
+#     │ release   bump → <v>, changelog entry, commit to      │
+#     │           main, tag station-<v>                       │
 #     └───────────────────────────┬───────────────────────────┘
 #                     ┌───────────┴───────────┐
 #            ┌────────▼────────┐     ┌────────▼────────┐
@@ -31,6 +35,9 @@
 #            packages/station/chart with version AND appVersion stamped to <v> at
 #            package time (the repo's Chart.yaml stays a placeholder).
 #   Git tag  station-<v> — a record of what shipped, not a trigger.
+#   Changelog  packages/station/CHANGELOG.md gets an entry for <v>, in the
+#            release commit: the pull requests merged since the previous tag
+#            that touch packages/station.
 #
 # INSTALLING WHAT IT PUBLISHED
 #   The chart's image tag defaults to appVersion, so chart <v> always deploys
@@ -69,9 +76,49 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # What changed since the previous release. Read-only: this job runs a
+  # third-party action, and hands only text to the job that commits.
+  notes:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      body: ${{ steps.notes.outputs.body }}
+    steps:
+      - name: Refuse to release from anywhere but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Releases cut from main only (dispatched from ${{ github.ref }})."
+          exit 1
+
+      # Full history and tags: the changes are listed since the last tag.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find the previous release
+        id: previous
+        run: |
+          tag=$(git describe --tags --abbrev=0 --match 'station-*' 2>/dev/null || true)
+          echo "Previous release: ${tag:-none}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: List the changes in this release
+        id: notes
+        uses: ./.github/actions/changelog-notes
+        with:
+          from: ${{ steps.previous.outputs.tag }}
+          to: ${{ github.sha }}
+          paths: |
+            packages/station/
+
   # 1. Decide the version everything else is stamped with.
   release:
     timeout-minutes: 10
+    needs: notes
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -91,16 +138,22 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Bump the version, commit, and tag
+      - name: Bump the version, add the changelog entry, commit, and tag
         id: bump
+        env:
+          BODY: ${{ needs.notes.outputs.body }}
         run: |
           cd packages/station/backend
           uv version --bump "${{ inputs.bump }}"
           version=$(uv version --short)
 
+          printf '%s\n' "${BODY}" > "${RUNNER_TEMP}/body.md"
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/changelog_entry.py" \
+            ../CHANGELOG.md "${version}" --body "${RUNNER_TEMP}/body.md"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml uv.lock
+          git add pyproject.toml uv.lock ../CHANGELOG.md
           git commit -m "chore(station): release ${version}"
           git tag -a "station-${version}" -m "Syft Station ${version}"
           git push origin HEAD:main "station-${version}"
