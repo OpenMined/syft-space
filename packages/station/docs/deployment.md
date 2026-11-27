@@ -94,7 +94,10 @@ everything in lockstep:
 
 ```
 Actions → "Station Release" → Run workflow → patch / minor / major
+  notes     the pull requests merged since the previous station-<v>
+            that touch packages/station
   release   uv version --bump on station/backend/pyproject.toml,
+            add the entry to packages/station/CHANGELOG.md,
             commit to main, tag station-<v>   (a record, not a trigger)
   build     multi-arch image (amd64 + arm64), frontend compiled in-image
   manifest  stitch ghcr.io/openmined/syft-station:<v> and :latest

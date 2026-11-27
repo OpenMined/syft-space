@@ -1,0 +1,98 @@
+# Shows the changelog entries the next Syft Space image and the next Syft
+# Station release would get, on the run's summary page. Builds nothing and
+# commits nothing.
+#
+# Runs on pull requests that change the changelog tooling, and on demand.
+name: Changelog Preview
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/changelog.json
+      - .github/scripts/changelog_entry.py
+      - .github/scripts/latest_image_revision.sh
+      - .github/scripts/space_changes_start.sh
+      - .github/actions/changelog-notes/**
+      - .github/workflows/changelog-preview.yml
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  # On a pull request the release would be cut from the base branch.
+  COMMIT: ${{ github.event.pull_request.base.sha || github.sha }}
+
+jobs:
+  space:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the entry lists the changes since the previous image.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pick the image tag and where the changes start
+        id: image
+        run: |
+          previous=$(.github/scripts/latest_image_revision.sh ghcr.io/openmined/syft-space)
+          echo "tag=$(git rev-parse --short "${COMMIT}")" >> "$GITHUB_OUTPUT"
+          echo "since=$(.github/scripts/space_changes_start.sh "${previous}" "${COMMIT}")" >> "$GITHUB_OUTPUT"
+
+      - name: List the changes in this image
+        id: notes
+        uses: ./.github/actions/changelog-notes
+        with:
+          from: ${{ steps.image.outputs.since }}
+          to: ${{ env.COMMIT }}
+          paths: |
+            packages/spaces/backend/
+            packages/spaces/frontend/
+            packages/spaces/Dockerfile
+
+      - name: Show the entry on the run's summary page
+        env:
+          BODY: ${{ steps.notes.outputs.body }}
+        run: |
+          printf '%s\n' "${BODY}" > "${RUNNER_TEMP}/body.md"
+          python3 .github/scripts/changelog_entry.py packages/spaces/CHANGELOG.md \
+            "Docker image ${{ steps.image.outputs.tag }}" \
+            --body "${RUNNER_TEMP}/body.md" --dry-run | tee -a "$GITHUB_STEP_SUMMARY"
+
+  station:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      # Full history and tags: the entry lists the changes since the last tag.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find the previous release
+        id: previous
+        run: |
+          tag=$(git describe --tags --abbrev=0 --match 'station-*' "${COMMIT}" 2>/dev/null || true)
+          echo "Previous release: ${tag:-none}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: List the changes in the next release
+        id: notes
+        uses: ./.github/actions/changelog-notes
+        with:
+          from: ${{ steps.previous.outputs.tag }}
+          to: ${{ env.COMMIT }}
+          paths: |
+            packages/station/
+
+      - name: Show the entry on the run's summary page
+        env:
+          BODY: ${{ steps.notes.outputs.body }}
+        run: |
+          printf '%s\n' "${BODY}" > "${RUNNER_TEMP}/body.md"
+          python3 .github/scripts/changelog_entry.py packages/station/CHANGELOG.md \
+            "Next release, after ${{ steps.previous.outputs.tag || 'none' }}" \
+            --body "${RUNNER_TEMP}/body.md" --dry-run | tee -a "$GITHUB_STEP_SUMMARY"

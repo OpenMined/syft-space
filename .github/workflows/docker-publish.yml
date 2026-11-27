@@ -165,12 +165,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Pick where the changes start
+        id: start
+        run: |
+          since=$(.github/scripts/space_changes_start.sh "${{ needs.manifest.outputs.previous }}" "${{ github.sha }}")
+          echo "Changes are listed from: ${since:-nowhere, no earlier image is known}"
+          echo "since=${since}" >> "$GITHUB_OUTPUT"
+
+      # The desktop shell (src-tauri) is not part of the image.
       - name: List the changes in this image
         id: notes
-        uses: ./.github/actions/space-changelog-notes
+        uses: ./.github/actions/changelog-notes
         with:
-          previous: ${{ needs.manifest.outputs.previous }}
-          commit: ${{ github.sha }}
+          from: ${{ steps.start.outputs.since }}
+          to: ${{ github.sha }}
+          paths: |
+            packages/spaces/backend/
+            packages/spaces/frontend/
+            packages/spaces/Dockerfile
 
   # Runs last, so only an image that was pushed gets an entry.
   changelog:
@@ -195,8 +207,8 @@ jobs:
           BODY: ${{ needs.notes.outputs.body }}
         run: |
           printf '%s\n' "${BODY}" > "${RUNNER_TEMP}/body.md"
-          python3 .github/scripts/space_changelog.py "${{ needs.manifest.outputs.tag }}" \
-            --body "${RUNNER_TEMP}/body.md"
+          python3 .github/scripts/changelog_entry.py packages/spaces/CHANGELOG.md \
+            "Docker image ${{ needs.manifest.outputs.tag }}" --body "${RUNNER_TEMP}/body.md"
           if git diff --quiet -- packages/spaces/CHANGELOG.md; then
             exit 0
           fi

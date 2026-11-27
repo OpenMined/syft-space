@@ -1,11 +1,11 @@
-"""Add one release entry to the Syft Space image changelog.
+"""Add one release entry to a package's changelog.
 
-An image is named by its tag, the short commit id it was built from. The
-entry's body, the list of changes, is built by the publish workflow and
-passed in as a file. This script gives it a heading and puts it at the top
-of the changelog.
+The entry's body, the list of changes, is built by the release workflow and
+passed in as a file. This script gives it a heading with today's date and
+puts it at the top of the changelog.
 
-    python .github/scripts/space_changelog.py a39dda6 --body body.md
+    python .github/scripts/changelog_entry.py packages/station/CHANGELOG.md \
+        "0.2.4" --body body.md
 """
 
 from __future__ import annotations
@@ -15,23 +15,22 @@ import datetime
 import re
 from pathlib import Path
 
-CHANGELOG = Path("packages/spaces/CHANGELOG.md")
-HEADING = re.compile(r"^## Docker image (?P<image>\S+) \(", flags=re.MULTILINE)
 BULLET_START = re.compile(r"^- ([a-z])", flags=re.MULTILINE)
 
 
-def listed_images(changelog: str) -> list[str]:
-    """Image tags that already have an entry, newest first."""
-    return [match.group("image") for match in HEADING.finditer(changelog)]
+def has_entry(changelog: str, heading: str) -> bool:
+    """Whether a release with this heading is already listed."""
+    pattern = rf"^## {re.escape(heading)} \("
+    return re.search(pattern, changelog, flags=re.MULTILINE) is not None
 
 
-def entry(image: str, date: str, body: str) -> str:
+def entry(heading: str, date: str, body: str) -> str:
     """The Markdown for one release: a heading, then the body tidied."""
     # Each line starts with a capital, and one blank line follows a heading.
     body = BULLET_START.sub(lambda match: f"- {match.group(1).upper()}", body.strip())
     body = re.sub(r"\n{3,}", "\n\n", body)
     body = re.sub(r"^(### .+)\n(?!\n)", r"\1\n\n", body, flags=re.MULTILINE)
-    return f"## Docker image {image} ({date})\n\n{body or 'No user-facing changes.'}\n"
+    return f"## {heading} ({date})\n\n{body or 'No user-facing changes.'}\n"
 
 
 def insert(changelog: str, new_entry: str) -> str:
@@ -44,22 +43,24 @@ def insert(changelog: str, new_entry: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("image", help="tag of the image: its short commit id")
+    parser.add_argument("changelog", help="the package's CHANGELOG.md")
+    parser.add_argument("heading", help='what is released, e.g. "0.2.4"')
     parser.add_argument("--body", required=True, help="file with the list of changes")
     parser.add_argument("--dry-run", action="store_true", help="print, do not write")
     args = parser.parse_args()
 
-    changelog = CHANGELOG.read_text()
-    if args.image in listed_images(changelog):
-        print(f"{args.image} already has an entry; nothing to do.")
+    path = Path(args.changelog)
+    changelog = path.read_text()
+    if has_entry(changelog, args.heading):
+        print(f"{args.heading} already has an entry; nothing to do.")
         return
 
     date = datetime.datetime.now(datetime.UTC).date().isoformat()
-    new_entry = entry(args.image, date, Path(args.body).read_text())
+    new_entry = entry(args.heading, date, Path(args.body).read_text())
     if args.dry_run:
         print(new_entry)
         return
-    CHANGELOG.write_text(insert(changelog, new_entry))
+    path.write_text(insert(changelog, new_entry))
 
 
 if __name__ == "__main__":

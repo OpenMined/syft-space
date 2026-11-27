@@ -1,0 +1,52 @@
+name: Changelog notes
+description: >-
+  Lists the pull requests merged between two commits that touch one package,
+  grouped by the type in their title. Needs the repository checked out, and
+  a token that can read pull requests.
+
+inputs:
+  from:
+    description: Commit or tag of the previous release; empty if there is none
+    required: false
+    default: ""
+  to:
+    description: Commit the new release is built from
+    required: true
+  paths:
+    description: Paths of the package, one per line; other changes are left out
+    required: true
+
+outputs:
+  body:
+    description: The entry's body, as Markdown
+    value: ${{ steps.body.outputs.text }}
+
+runs:
+  using: composite
+  steps:
+    # v6.5, pinned by commit. Grouping and wording: .github/changelog.json
+    - name: List the merged pull requests
+      id: builder
+      if: inputs.from != ''
+      uses: mikepenz/release-changelog-builder-action@b0db9d18b53447ef9f940a46c8f31653c4d9f621
+      with:
+        token: ${{ github.token }}
+        configuration: .github/changelog.json
+        fromTag: ${{ inputs.from }}
+        toTag: ${{ inputs.to }}
+        includeOnlyPaths: ${{ inputs.paths }}
+
+    - name: Hand the body on
+      id: body
+      shell: bash
+      env:
+        NOTES: ${{ steps.builder.outputs.changelog }}
+      run: |
+        if [ "${{ inputs.from }}" = "" ]; then
+          NOTES="No earlier release to compare with."
+        fi
+        {
+          echo "text<<END_OF_CHANGELOG_NOTES"
+          echo "${NOTES}"
+          echo "END_OF_CHANGELOG_NOTES"
+        } >> "$GITHUB_OUTPUT"
