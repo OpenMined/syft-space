@@ -1,0 +1,57 @@
+# Shows the changelog entry an image built from this commit would get,
+# on the run's summary page. Builds no image and commits nothing.
+#
+# Runs on pull requests that change the changelog tooling, and on demand.
+name: Space Changelog Preview
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/space-changelog.json
+      - .github/scripts/space_changelog.py
+      - .github/scripts/latest_image_revision.sh
+      - .github/actions/space-changelog-notes/**
+      - .github/workflows/space-changelog-preview.yml
+
+env:
+  IMAGE: ghcr.io/openmined/syft-space
+
+jobs:
+  preview:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      # Full history: the entry lists the changes since the previous image.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # On a pull request the image would be built from the base branch.
+      - name: Pick the commit and the previous image's commit
+        id: image
+        run: |
+          commit="${{ github.event.pull_request.base.sha || github.sha }}"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+          echo "tag=$(git rev-parse --short "${commit}")" >> "$GITHUB_OUTPUT"
+          echo "previous=$(.github/scripts/latest_image_revision.sh "${IMAGE}")" >> "$GITHUB_OUTPUT"
+
+      - name: List the changes in this image
+        id: notes
+        uses: ./.github/actions/space-changelog-notes
+        with:
+          previous: ${{ steps.image.outputs.previous }}
+          commit: ${{ steps.image.outputs.commit }}
+
+      - name: Show the entry on the run's summary page
+        env:
+          BODY: ${{ steps.notes.outputs.body }}
+        run: |
+          printf '%s\n' "${BODY}" > "${RUNNER_TEMP}/body.md"
+          python3 .github/scripts/space_changelog.py "${{ steps.image.outputs.tag }}" \
+            --body "${RUNNER_TEMP}/body.md" --dry-run | tee -a "$GITHUB_STEP_SUMMARY"

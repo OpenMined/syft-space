@@ -1,3 +1,5 @@
+# Builds the Syft Space image and pushes it as :<short commit id> and :latest.
+# A build from main then adds its entry to packages/spaces/CHANGELOG.md.
 name: Build and Push Docker Image
 
 on:
@@ -6,6 +8,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  CHANGELOG_URL: https://github.com/${{ github.repository }}/blob/main/packages/spaces/CHANGELOG.md
 
 jobs:
   build:
@@ -68,6 +71,8 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.sha.outputs.short }}-${{ steps.platform.outputs.suffix }}
+          labels: |
+            org.opencontainers.image.documentation=${{ env.CHANGELOG_URL }}
 
       - name: Build and push Docker image
         id: build
@@ -92,6 +97,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      tag: ${{ steps.sha.outputs.short }}
+      previous: ${{ steps.previous.outputs.revision }}
 
     steps:
       - name: Checkout repository
@@ -111,18 +119,90 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Read before :latest is replaced.
+      - name: Find the commit the current latest image was built from
+        id: previous
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          revision=$(.github/scripts/latest_image_revision.sh "${IMAGE,,}")
+          echo "Previous image was built from: ${revision:-unknown}"
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+
       - name: Create and push manifest
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           IMAGE="${IMAGE,,}"  # Convert to lowercase
           SHA="${{ steps.sha.outputs.short }}"
 
-          # Create and push multi-arch manifest for commit SHA tag
-          docker buildx imagetools create -t ${IMAGE}:${SHA} \
-            ${IMAGE}:${SHA}-amd64 \
-            ${IMAGE}:${SHA}-arm64
+          # Annotations go on the index: the registry shows those for a
+          # multi-arch tag, not the labels of the per-arch images.
+          docker buildx imagetools create \
+            -t "${IMAGE}:${SHA}" \
+            -t "${IMAGE}:latest" \
+            --annotation "index:org.opencontainers.image.description=Syft Space: publish datasets and models as endpoints on SyftHub." \
+            --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
+            --annotation "index:org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "index:org.opencontainers.image.documentation=${{ env.CHANGELOG_URL }}" \
+            "${IMAGE}:${SHA}-amd64" \
+            "${IMAGE}:${SHA}-arm64"
 
-          # Create and push multi-arch manifest for latest tag
-          docker buildx imagetools create -t ${IMAGE}:latest \
-            ${IMAGE}:${SHA}-amd64 \
-            ${IMAGE}:${SHA}-arm64
+  # What changed since the previous image. Read-only: this job runs a
+  # third-party action, and hands only text to the job that commits.
+  notes:
+    timeout-minutes: 10
+    needs: manifest
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      body: ${{ steps.notes.outputs.body }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List the changes in this image
+        id: notes
+        uses: ./.github/actions/space-changelog-notes
+        with:
+          previous: ${{ needs.manifest.outputs.previous }}
+          commit: ${{ github.sha }}
+
+  # Runs last, so only an image that was pushed gets an entry.
+  changelog:
+    timeout-minutes: 10
+    needs: [manifest, notes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One at a time, so two builds can't race the changelog commit.
+    concurrency:
+      group: space-image-changelog
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Add the changelog entry and push it
+        env:
+          BODY: ${{ needs.notes.outputs.body }}
+        run: |
+          printf '%s\n' "${BODY}" > "${RUNNER_TEMP}/body.md"
+          python3 .github/scripts/space_changelog.py "${{ needs.manifest.outputs.tag }}" \
+            --body "${RUNNER_TEMP}/body.md"
+          if git diff --quiet -- packages/spaces/CHANGELOG.md; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/spaces/CHANGELOG.md
+          git commit -m "docs(spaces): changelog for image ${{ needs.manifest.outputs.tag }}"
+          git push origin HEAD:main
