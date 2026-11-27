@@ -146,36 +146,57 @@ jobs:
             "${IMAGE}:${SHA}-amd64" \
             "${IMAGE}:${SHA}-arm64"
 
-  # Runs last, so only an image that was pushed gets an entry.
-  changelog:
+  # What changed since the previous image. Read-only: this job runs a
+  # third-party action, and hands only text to the job that commits.
+  notes:
     timeout-minutes: 10
     needs: manifest
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: read
+    outputs:
+      body: ${{ steps.notes.outputs.body }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List the changes in this image
+        id: notes
+        uses: ./.github/actions/space-changelog-notes
+        with:
+          previous: ${{ needs.manifest.outputs.previous }}
+          commit: ${{ github.sha }}
+
+  # Runs last, so only an image that was pushed gets an entry.
+  changelog:
+    timeout-minutes: 10
+    needs: [manifest, notes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # One at a time, so two builds can't race the changelog commit.
     concurrency:
       group: space-image-changelog
       cancel-in-progress: false
 
     steps:
-      # Full history of main as it is now: the entry lists the changes
-      # between the previous image's commit and this one. Without a previous
-      # commit from the registry, the newest changelog entry is used.
       - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
 
       - name: Add the changelog entry and push it
         env:
-          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ needs.notes.outputs.body }}
         run: |
+          printf '%s\n' "${BODY}" > "${RUNNER_TEMP}/body.md"
           python3 .github/scripts/space_changelog.py "${{ needs.manifest.outputs.tag }}" \
-            --since "${{ needs.manifest.outputs.previous }}"
+            --body "${RUNNER_TEMP}/body.md"
           if git diff --quiet -- packages/spaces/CHANGELOG.md; then
             exit 0
           fi

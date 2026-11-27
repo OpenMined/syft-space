@@ -1,0 +1,39 @@
+{
+  "template": "#{{CHANGELOG}}",
+  "pr_template": "- #{{TITLE}} ([##{{NUMBER}}](#{{URL}}))",
+  "empty_template": "No user-facing changes.",
+  "categories": [
+    {
+      "title": "### Breaking",
+      "labels": ["breaking", "breaking change:", "breaking-change:"],
+      "consume": true
+    },
+    { "title": "### Added", "labels": ["feat"] },
+    { "title": "### Changed", "labels": ["perf", "refactor", "revert"] },
+    { "title": "### Fixed", "labels": ["fix"] },
+    { "title": "### Other", "labels": [] }
+  ],
+  "ignore_labels": ["chore", "docs", "test", "ci", "style", "build"],
+  "label_extractor": [
+    {
+      "pattern": "^([a-z]+)(\\([^)]*\\))?!?:.*",
+      "on_property": "title",
+      "target": "$1"
+    },
+    {
+      "pattern": "^[a-z]+(\\([^)]*\\))?!:.*",
+      "on_property": "title",
+      "target": "breaking"
+    },
+    {
+      "pattern": "^BREAKING[ -]CHANGE:",
+      "on_property": "body",
+      "method": "match",
+      "flags": "gum"
+    }
+  ],
+  "transformers": [
+    { "pattern": "^[a-z]+(\\([^)]*\\))?!?: +", "target": "" }
+  ],
+  "sort": { "order": "ASC", "on_property": "mergedAt" }
+}

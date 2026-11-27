@@ -8,8 +8,10 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - .github/space-changelog.json
       - .github/scripts/space_changelog.py
       - .github/scripts/latest_image_revision.sh
+      - .github/actions/space-changelog-notes/**
       - .github/workflows/space-changelog-preview.yml
 
 env:
@@ -30,65 +32,26 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Pick the image tag and the previous image's commit
+      # On a pull request the image would be built from the base branch.
+      - name: Pick the commit and the previous image's commit
         id: image
         run: |
-          echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          commit="${{ github.event.pull_request.base.sha || github.sha }}"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+          echo "tag=$(git rev-parse --short "${commit}")" >> "$GITHUB_OUTPUT"
           echo "previous=$(.github/scripts/latest_image_revision.sh "${IMAGE}")" >> "$GITHUB_OUTPUT"
 
-      # On trial next to the script, to compare the two outputs.
-      # v6.5, pinned by commit.
-      - name: Build the same entry with release-changelog-builder-action
-        id: builder
-        continue-on-error: true
-        uses: mikepenz/release-changelog-builder-action@b0db9d18b53447ef9f940a46c8f31653c4d9f621
+      - name: List the changes in this image
+        id: notes
+        uses: ./.github/actions/space-changelog-notes
         with:
-          token: ${{ github.token }}
-          fromTag: ${{ steps.image.outputs.previous }}
-          toTag: ${{ github.event.pull_request.base.sha || github.sha }}
-          includeOnlyPaths: |
-            packages/spaces/backend/
-            packages/spaces/frontend/
-          configurationJson: |
-            {
-              "template": "#{{CHANGELOG}}\n### Other\n\n#{{UNCATEGORIZED}}",
-              "pr_template": "- #{{TITLE}} ([##{{NUMBER}}](#{{URL}}))",
-              "empty_template": "No user-facing changes.",
-              "categories": [
-                { "title": "### Breaking", "labels": ["breaking"] },
-                { "title": "### Added", "labels": ["feat"], "exclude_labels": ["breaking"] },
-                { "title": "### Changed", "labels": ["perf", "refactor", "revert"], "exclude_labels": ["breaking"] },
-                { "title": "### Fixed", "labels": ["fix"], "exclude_labels": ["breaking"] }
-              ],
-              "ignore_labels": ["chore", "docs", "test", "ci", "style", "build"],
-              "label_extractor": [
-                { "pattern": "^([a-z]+)(\\([^)]*\\))?!?:.*", "on_property": "title", "target": "$1" },
-                { "pattern": "^[a-z]+(\\([^)]*\\))?!:.*", "on_property": "title", "target": "breaking" }
-              ],
-              "transformers": [
-                { "pattern": "- [a-z]+(\\([^)]*\\))?!?:\\s*", "target": "- " }
-              ],
-              "sort": { "order": "ASC", "on_property": "mergedAt" }
-            }
+          previous: ${{ steps.image.outputs.previous }}
+          commit: ${{ steps.image.outputs.commit }}
 
-      - name: Show both entries on the run's summary page
+      - name: Show the entry on the run's summary page
         env:
-          GH_TOKEN: ${{ github.token }}
-          BUILDER_ENTRY: ${{ steps.builder.outputs.changelog }}
+          BODY: ${{ steps.notes.outputs.body }}
         run: |
-          {
-            echo "## Changelog preview"
-            echo
-            echo "Changes since \`${{ steps.image.outputs.previous }}\`."
-            echo
-            echo "# From the script"
-            echo
-            python3 .github/scripts/space_changelog.py "${{ steps.image.outputs.tag }}" \
-              --since "${{ steps.image.outputs.previous }}" --dry-run
-            echo
-            echo "# From release-changelog-builder-action (step: ${{ steps.builder.outcome }})"
-            echo
-            echo "## Docker image ${{ steps.image.outputs.tag }} ($(date -u +%F))"
-            echo
-            echo "${BUILDER_ENTRY}"
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "${BODY}" > "${RUNNER_TEMP}/body.md"
+          python3 .github/scripts/space_changelog.py "${{ steps.image.outputs.tag }}" \
+            --body "${RUNNER_TEMP}/body.md" --dry-run | tee -a "$GITHUB_STEP_SUMMARY"

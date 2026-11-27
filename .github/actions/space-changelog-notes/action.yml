@@ -1,0 +1,69 @@
+name: Space changelog notes
+description: >-
+  Lists the pull requests merged between the previous Syft Space image and a
+  commit, grouped by the type in their title. Needs the repository checked
+  out with full history, and a token that can read pull requests.
+
+inputs:
+  previous:
+    description: Commit the previous image was built from; may be empty
+    required: false
+    default: ""
+  commit:
+    description: Commit the new image is built from
+    required: true
+
+outputs:
+  body:
+    description: The entry's body, as Markdown
+    value: ${{ steps.body.outputs.text }}
+
+runs:
+  using: composite
+  steps:
+    # The registry's answer, unless it is missing or is this very commit (a
+    # re-run after :latest moved); then the newest entry in the changelog.
+    - name: Pick where the changes start
+      id: start
+      shell: bash
+      run: |
+        since="${{ inputs.previous }}"
+        if [ -z "$since" ] || [ "$(git rev-parse "$since^{commit}" 2>/dev/null)" = "$(git rev-parse "${{ inputs.commit }}^{commit}")" ]; then
+          since=$(grep -m1 -oP '^## Docker image \K\S+' packages/spaces/CHANGELOG.md || true)
+        fi
+        if [ -n "$since" ] && ! git rev-parse --verify --quiet "$since^{commit}" >/dev/null; then
+          since=""
+        fi
+        echo "Changes are listed from: ${since:-nowhere, no earlier image is known}"
+        echo "since=${since}" >> "$GITHUB_OUTPUT"
+
+    # v6.5, pinned by commit. Grouping and wording: .github/space-changelog.json
+    - name: List the merged pull requests
+      id: builder
+      if: steps.start.outputs.since != ''
+      uses: mikepenz/release-changelog-builder-action@b0db9d18b53447ef9f940a46c8f31653c4d9f621
+      with:
+        token: ${{ github.token }}
+        configuration: .github/space-changelog.json
+        fromTag: ${{ steps.start.outputs.since }}
+        toTag: ${{ inputs.commit }}
+        # What the image is built from; the desktop shell is not part of it.
+        includeOnlyPaths: |
+          packages/spaces/backend/
+          packages/spaces/frontend/
+          packages/spaces/Dockerfile
+
+    - name: Hand the body on
+      id: body
+      shell: bash
+      env:
+        NOTES: ${{ steps.builder.outputs.changelog }}
+      run: |
+        if [ "${{ steps.start.outputs.since }}" = "" ]; then
+          NOTES="No earlier image to compare with."
+        fi
+        {
+          echo "text<<END_OF_SPACE_CHANGELOG"
+          echo "${NOTES}"
+          echo "END_OF_SPACE_CHANGELOG"
+        } >> "$GITHUB_OUTPUT"
