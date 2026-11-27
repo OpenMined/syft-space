@@ -141,8 +141,12 @@ the rest of the sentence gives away (the country before its own prime \
 minister, "one", "this year") or lets you work out (a unit conversion).
   - Use a sentence only if it names its people, organisations and \
 products so they are identifiable without the story: full name plus role \
-or affiliation, a product with its maker. Skip a sentence whose subject is \
-a first name, a pseudonym or an anonymous source.
+or affiliation, a product with its maker. Where the sentence gives a person \
+one name or an organisation an abbreviation and the story says more, add it \
+in square brackets right after: "Prabowo [Subianto, Indonesia's president]", \
+"KPU [General Elections Commission]"; never next to the blank, where it would \
+give the answer away. Skip a sentence whose subject is a first name, a \
+pseudonym or an anonymous source.
   - {OWN_JOURNALISM_RULE}
   - {NO_BYLINE_RULE}
   - {FILL_IN_TIME_RULE}

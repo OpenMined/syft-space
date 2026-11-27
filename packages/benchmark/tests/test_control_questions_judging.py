@@ -475,6 +475,18 @@ def test_a_run_grades_both_kinds_in_both_conditions(
     premise = next(k for k in model["kinds"] if k["generator"] == FALSE_PREMISE)
     assert (premise["web_alone"], premise["web_with"]) == (1, 0)
     assert (checks["trick_asked"], checks["trick_answered"]) == (2, 1)
+    # Trick questions have their row: right is "I don't know", and an answer
+    # that found the detail on the web is left out.
+    trick = next(
+        k for k in model["kinds"] if k["generator"] == run_view.TRICK_GENERATOR
+    )
+    assert trick["asked"] == 2
+    assert (trick["graded_alone"], trick["right_alone"], trick["web_alone"]) == (
+        1,
+        1,
+        1,
+    )
+    assert (trick["graded_with"], trick["right_with"]) == (2, 1)
 
     # The question detail carries the fine outcome: counted and per judge.
     with session_scope() as session:

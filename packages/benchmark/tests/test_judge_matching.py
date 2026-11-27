@@ -391,3 +391,19 @@ def test_mcq_letter_is_read_from_prose() -> None:
 def test_several_letters_go_to_the_judge() -> None:
     """Several letters named — they cannot be decided on."""
     assert grade_mcq("Either A) One or C) Three", "C) Three") is None
+
+
+def test_an_initial_is_not_a_pick() -> None:
+    """Tempo 26.11: "A." of "A.N.M." was read as the answer A."""
+    answer = (
+        "**C is false.** — **A is true.** It quotes a poem by her husband "
+        "Yudhistira A.N.M. Massardi."
+    )
+    assert grade_mcq(answer, "C) She read it alone") is True
+    assert grade_mcq("It was in B. J. Habibie's time.", "B) x") is None
+
+
+def test_the_pick_is_read_from_the_first_line_only() -> None:
+    assert grade_mcq("**B**\n\nA. and C. are ruled out.", "B) x") is True
+    assert grade_mcq("Let me think.\n... the details of statement B.", "B) x") is None
+    assert grade_mcq("Statement A is true, statement C is false.", "C) x") is True

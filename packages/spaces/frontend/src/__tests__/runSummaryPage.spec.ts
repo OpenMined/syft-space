@@ -150,35 +150,16 @@ describe('RunSummaryPage', () => {
     expect(await hintText(badge)).toBe(detail)
   })
 
-  it('shows searches per answer and re-graded answers next to a model', async () => {
+  it('shows re-graded answers next to a model', () => {
     const { wrapper } = mountPage(
       runReport({
-        models: [
-          modelReport(OPUS, {
-            searches: {
-              alone: { answers: 10, reported: 0, total: 0, max: null },
-              with: null,
-            },
-            regrade: { answers: 4, changed: 3 },
-          }),
-          modelReport(QWEN, {
-            searches: {
-              alone: { answers: 10, reported: 10, total: 17, max: 3 },
-              with: { answers: 10, reported: 8, total: 8, max: 1 },
-            },
-          }),
-        ],
+        models: [modelReport(OPUS, { regrade: { answers: 4, changed: 3 } }), modelReport(QWEN)],
       }),
     )
     const rows = wrapper.findAll('[data-testid="model-row"]')
-    const opus = rows[0]!.get('[data-testid="model-searches"]')
-    expect(opus.text()).toBe('Searches: unknown on its own')
-    expect(await hintText(opus)).toMatch(/does not report/)
     expect(rows[0]!.get('[data-testid="model-regrade"]').text()).toBe('Re-graded 4, 3 changed')
-    expect(rows[1]!.get('[data-testid="model-searches"]').text()).toBe(
-      'Searches: 1.7 per answer, max 3 on its own · 1.0 per answer, max 1, 8 of 10 reported with your data',
-    )
     expect(rows[1]!.find('[data-testid="model-regrade"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="model-searches"]').exists()).toBe(false)
   })
 
   it('shows time and cost, split by role', () => {

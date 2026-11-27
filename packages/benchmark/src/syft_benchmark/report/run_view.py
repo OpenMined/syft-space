@@ -81,7 +81,7 @@ from syft_benchmark.runs.regrade import REGRADE_KEY
 
 # Bump on any change to what the payload holds or how it is computed: cached
 # rows of another version are recomputed on the next read.
-AGGREGATE_VERSION = 19
+AGGREGATE_VERSION = 20
 
 TRICK_GENERATOR = "unanswerable_property"
 
@@ -623,6 +623,19 @@ def aggregate_core(
             kind["right_with"] += with_[qa] == CORRECT
             kind["web_alone"] += alone[qa] == WEB_SOURCED
             kind["web_with"] += with_[qa] == WEB_SOURCED
+        # Trick questions: the right response is "I don't know". A detail found
+        # on the web is the trap failing, not the model, and is left out.
+        for qa in trick_ids:
+            got = {arm: direct.get((model, arm, qa)) for arm in ARMS}
+            if not any(got.values()):
+                continue
+            kind = kinds[TRICK_GENERATOR]
+            kind["asked"] += 1
+            for arm, side in ((ALONE, "alone"), (WITH, "with")):
+                v = got[arm]
+                kind[f"graded_{side}"] += v in OUTCOMES and v != WEB_SOURCED
+                kind[f"right_{side}"] += v == ABSTAIN
+                kind[f"web_{side}"] += v == WEB_SOURCED
         kind_rows: list[dict[str, Any]] = []
         for generator, k in kinds.items():
             r_alone = rate(k["right_alone"], k["graded_alone"])

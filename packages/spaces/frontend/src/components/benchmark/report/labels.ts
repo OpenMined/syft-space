@@ -1,6 +1,5 @@
 /** The report's customer wording: verdicts and their pill colours, outcomes and model names. */
 import type {
-  BenchmarkArmSearches,
   BenchmarkBehavior,
   BenchmarkExpectedBehavior,
   BenchmarkModel,
@@ -86,15 +85,6 @@ export function answerSearchesText(searches: number | null | undefined): string 
 
 export const SEARCHES_UNKNOWN_TIP =
   'The provider does not report how many searches it made (Claude’s own search does not).'
-
-/** An arm's searches per answer: `1.7 per answer, max 3`, `unknown`; null — no search offered. */
-export function armSearchesText(s: BenchmarkArmSearches | null | undefined): string | null {
-  if (!s || !s.answers) return null
-  if (!s.reported) return 'unknown'
-  const mean = (s.total / s.reported).toFixed(1)
-  const partial = s.reported < s.answers ? `, ${s.reported} of ${s.answers} reported` : ''
-  return `${mean} per answer, max ${s.max ?? 0}${partial}`
-}
 
 /** A model's re-graded answers: `Re-graded 5, 3 changed`; null — none. */
 export function regradeText(r: { answers: number; changed: number } | null | undefined): string | null {

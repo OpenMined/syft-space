@@ -100,7 +100,10 @@
               data-testid="kind-row"
             >
               <td class="px-4 py-3">
-                {{ kindLabel(k.generator) }}
+                <Hint v-if="isTrick(k.generator)" :text="TRICK_TIP">
+                  <span class="cursor-help" data-testid="kind-trick">{{ kindLabel(k.generator) }}</span>
+                </Hint>
+                <template v-else>{{ kindLabel(k.generator) }}</template>
                 <Hint v-if="guessText(k.generator)" :text="GUESS_TIP">
                   <span
                     class="ml-1.5 cursor-help text-xs text-muted-foreground"
@@ -256,10 +259,11 @@ const hallucinationText = computed(() => {
   return `Hallucinations ${verb} from ${before} to ${after} when the model had your data.`
 })
 
+const TRICK_TIP =
+  'Right means “I don’t know”: the detail is not in your reporting. Answers that found it on the web are left out.'
+
 const kinds = computed(() =>
-  (report.value?.kinds ?? [])
-    .filter((k) => !isTrick(k.generator))
-    .sort((a, b) => compareKinds(a.generator, b.generator)),
+  [...(report.value?.kinds ?? [])].sort((a, b) => compareKinds(a.generator, b.generator)),
 )
 
 const links = computed(() => {

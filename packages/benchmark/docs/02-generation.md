@@ -348,7 +348,10 @@ Writing-stage filter decision, so they appear in the run's Rejected sheet and Fi
 they do not count against a kind's budget. The writer prompts ask for the same
 thing up front: every person, organisation and product named with a full name
 plus role or affiliation, never a first name, pseudonym or anonymous source as
-the subject.
+the subject. A person the story calls by one name gets full name and role on
+first mention, an abbreviation is spelled out; a fill-in, which keeps its
+sentence verbatim, adds them in square brackets ("Prabowo [Subianto,
+Indonesia's president]"), never next to the blank.
 
 ---
 

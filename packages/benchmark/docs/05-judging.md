@@ -84,12 +84,13 @@ with no separator) goes to the judge. A refusal no phrase matches goes to the
 judge, which grades it `abstain`. An empty answer is `technical`: nothing was
 measured.
 
-**Choice items** (`mcq`, `two_truths_one_lie`): the option letter is searched
-across the whole answer. An answer whose first line picks two options ("both
-A and C", "A, C") is `hallucinate`. Otherwise exactly one letter named decides
-correct or hallucinate; no letter but the option's text present counts as
-correct; several letters go to the free-text judge, told that picking more
-than one option is not correct.
+**Choice items** (`mcq`, `two_truths_one_lie`): the pick is read from the
+answer's first line; letters further down are the explanation. An answer whose
+first line picks two options ("both A and C", "A, C") is `hallucinate`. One
+letter picked there ("C) Three", "Answer: C", "C is false") decides correct or
+hallucinate; initials ("A.N.M. Massardi") are not a pick. No letter anywhere
+but the option's text present counts as correct. Anything else goes to the
+free-text judge, told that picking more than one option is not correct.
 
 **Key facts** (`tiered_explanation`): the judge marks each listed fact as
 covered or not (paraphrase counts, a contradicted fact does not). A second call

@@ -84,6 +84,7 @@ SHEETS = (
 )
 
 TEXT_METRICS = ("bleu", "rouge1_f", "rouge2_f", "rougeL_f", "bertscore_f1")
+UNKNOWN = "unknown"
 
 # The Rejected stage of questions the set cap took out.
 CAP = "cap"
@@ -703,6 +704,11 @@ def _answer_rows(
     call = _dict(audit.get("call"))
     metrics = _dict(_dict(result.extra).get("text_metrics"))
     requests = call.get("web_search_requests")
+    over = search_over_cap_of(audit)
+    # Searched, but the provider does not say how often (Claude).
+    unknown = (
+        UNKNOWN if call.get("web_search") and not isinstance(requests, int) else None
+    )
     shown = shown_of(
         result.retrieval_hit,
         result.retrieval_rank,
@@ -720,8 +726,8 @@ def _answer_rows(
         audit.get("context"),
         result.answer,
         call.get("web_search") if "web_search" in call else None,
-        requests if isinstance(requests, int) else None,
-        search_over_cap_of(audit),
+        requests if isinstance(requests, int) else unknown,
+        over if over is not None else unknown,
         _citations(audit.get("citations")),
         (
             cites_article(list(audit.get("citations") or []), lead.article_url)

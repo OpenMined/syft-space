@@ -68,6 +68,22 @@ _MCQ_SEVERAL = (
 _BOTH = re.compile(r"\bboth\b", re.IGNORECASE)
 _LETTER = re.compile(r"\b([A-D])\b")
 
+# The pick in an answer's first line. A letter marked as an option ("C)",
+# "C:", "C."), never an initial ("Yudhistira A.N.M. Massardi", "B. J. Habibie").
+_MARKED = re.compile(
+    r"(?<![A-Za-z]\.)(?<![A-Za-z]\. )\b([A-D])(?:\s*[\):]|\.(?![A-Za-z]|\s[A-Za-z]\.))"
+)
+_NAMED = re.compile(
+    r"(?i:options?|statements?|answer(?:\s+is)?|choice|letter)\s*:?[\s*_]*\(?([A-D])\b"
+)
+_ALONE = re.compile(r"^[\W_]*([A-D])[\W_]*$")
+# Two truths and a lie: "C is false" picks C even when the line goes on with
+# "A is true".
+_THE_LIE = re.compile(
+    r"\b([A-D])\b\)?[\s*_]*(?i:is|was)\s+(?i:the\s+)?"
+    r"(?i:false|the\s+lie|lie|incorrect|untrue|wrong|not\s+true)\b"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Grade:
@@ -201,10 +217,10 @@ def judge_trail(verdict: Grade) -> dict[str, Any]:
 def grade_mcq(answer: str, expected: str) -> bool | None:
     """A multiple-choice question: match the letter without calling a judge.
 
-    The endpoint answers in prose ("The correct answer is C) Three"), so we look
-    for the letter across the whole text. If several different letters are named,
-    they cannot be decided on — we return None and hand the question to the judge.
-    An answer that picks several options (``names_several_options``) is wrong.
+    The pick is read from the answer's first line (``picked_option``); letters
+    further down are the explanation. No single pick there — None, the judge
+    decides. An answer that picks several options (``names_several_options``)
+    is wrong.
     """
     correct = _MCQ_LETTER.match(expected.strip())
     if not correct:
@@ -213,14 +229,29 @@ def grade_mcq(answer: str, expected: str) -> bool | None:
     if names_several_options(answer):
         return False
 
-    mentioned = {m.group(1).upper() for m in _MCQ_LETTER.finditer(answer or "")}
-    if len(mentioned) == 1:
-        return mentioned.pop() == letter
-    if not mentioned:
+    picked = picked_option(answer)
+    if picked:
+        return picked == letter
+    if not _MARKED.search(answer or ""):
         option_text = expected.strip()[2:].strip(" )").lower()
         if option_text and option_text in (answer or "").lower():
             return True
     return None
+
+
+def picked_option(answer: str) -> str | None:
+    """The one option letter the answer's first line picks; None — none, or
+    several."""
+    first = next((line for line in (answer or "").splitlines() if line.strip()), "")
+    lie = {m.group(1) for m in _THE_LIE.finditer(first)}
+    if len(lie) == 1:
+        return lie.pop()
+    found = {
+        m.group(1)
+        for pattern in (_MARKED, _NAMED, _ALONE)
+        for m in pattern.finditer(first)
+    }
+    return found.pop() if len(found) == 1 else None
 
 
 def names_several_options(answer: str) -> bool:

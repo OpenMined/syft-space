@@ -135,15 +135,6 @@
             >
               {{ m.failure.label }}
             </AlertBadge>
-            <Hint
-              v-if="searchesLine(m)"
-              :text="searchesTip(m)"
-              :focusable="false"
-            >
-              <span class="mt-1 text-xs text-muted-foreground" data-testid="model-searches">{{
-                searchesLine(m)
-              }}</span>
-            </Hint>
             <Hint v-if="regradeText(m.regrade)" :text="REGRADE_TIP" :focusable="false">
               <span class="text-xs text-muted-foreground" data-testid="model-regrade">{{
                 regradeText(m.regrade)
@@ -316,7 +307,6 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { BenchmarkModelFigures } from '@/api/types'
 import { toast } from 'vue-sonner'
 import { ChevronRight } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -326,14 +316,7 @@ import AlertBadge from './AlertBadge.vue'
 import { useReport, useRun } from './context'
 import { useDetails } from './details/useDetails'
 import { barWidth, count, DASH, dayTime, points, utcStamp } from './figures'
-import {
-  armSearchesText,
-  modelName,
-  REGRADE_TIP,
-  regradeText,
-  SEARCHES_UNKNOWN_TIP,
-  vendorName,
-} from './labels'
+import { modelName, REGRADE_TIP, regradeText, vendorName } from './labels'
 import { methodLocation, modelLocation, runLocation } from './routing'
 import { runHeading, triggerLabel } from './combined'
 import { reaskName } from './reask'
@@ -392,23 +375,6 @@ const lead = computed(() => {
   const hi = bare(Math.max(...lifts))
   return `Your data added ${lo === hi ? lo : `${lo} to ${hi}`} points. ${tail}`
 })
-
-/** Searches per answer in each arm: `Searches: 1.7 per answer, max 3 on its own · unknown with your data`. */
-function searchesLine(m: BenchmarkModelFigures): string | null {
-  const alone = armSearchesText(m.searches?.alone)
-  const withData = armSearchesText(m.searches?.with)
-  const parts = [
-    alone ? `${alone} on its own` : null,
-    withData ? `${withData} with your data` : null,
-  ].filter((x): x is string => x !== null)
-  return parts.length ? `Searches: ${parts.join(' · ')}` : null
-}
-
-function searchesTip(m: BenchmarkModelFigures): string {
-  const unknown = [m.searches?.alone, m.searches?.with].some((s) => s && s.answers && !s.reported)
-  const base = 'Web searches per answer, as the provider reports them.'
-  return unknown ? `${base} ${SEARCHES_UNKNOWN_TIP}` : base
-}
 
 function ofText(right: number, graded: number): string {
   return graded > 0 ? `${count(right)} of ${count(graded)}` : DASH

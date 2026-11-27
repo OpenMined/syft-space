@@ -18,7 +18,11 @@ ANCHOR_RULE = (
     'first-person account as "<Outlet>\'s <Author>" ("WIRED\'s Nena '
     'Farrell"), or "<Outlet>" when the header names no author, never "the '
     'reviewer" or "the author"; never refer to the '
-    "story by its title. An event the story announces for a date after its "
+    "story by its title. Name a person by full name and role the first time, "
+    'even where the story uses one name ("Indonesian President Prabowo '
+    'Subianto", never "Prabowo"); spell out an abbreviation the first time '
+    '("the General Elections Commission (KPU)"). An event the story announces '
+    "for a date after its "
     "publish date had not happened when it was written: ask what was "
     'scheduled or planned ("was scheduled to start", "is planned for"), '
     'never how it went ("was played", "ended").'

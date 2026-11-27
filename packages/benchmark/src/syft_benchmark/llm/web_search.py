@@ -322,10 +322,12 @@ def search_count_of(audit: dict[str, Any]) -> int | None:
 
 def search_over_cap_of(audit: dict[str, Any]) -> bool | None:
     """Whether the answer searched more than ``web_search_max_calls`` let it;
-    None — no cap was set, or it did not search."""
+    None — no cap was set, it did not search, or the provider reports no count."""
     call = audit.get("call")
     over = call.get("web_search_over_cap") if isinstance(call, dict) else None
-    return over if isinstance(over, bool) else None
+    if over is True:
+        return True
+    return False if over is False and search_count_of(audit) is not None else None
 
 
 def search_exclusion_of(audit: dict[str, Any]) -> bool | None:

@@ -1582,6 +1582,9 @@ def test_the_audit_and_the_report_say_an_answer_passed_the_search_cap() -> None:
     assert web_search.search_over_cap_of(record) is True
     assert web_search.search_count_of(record) == 9
     assert web_search.search_over_cap_of({"call": {"web_search": "plugin"}}) is None
+    # No count reported (Claude): not "no", unknown.
+    unreported = {"call": {"web_search": "native", "web_search_over_cap": False}}
+    assert web_search.search_over_cap_of(unreported) is None
     assert web_search.over_cap({"web_search_requests": 9}, 0) is False
     assert web_search.over_cap({"web_search_requests": None}, 5) is False
 

@@ -126,6 +126,19 @@ describe('ModelPage', () => {
     expect(await hintText(guesses[0]!)).toBe('What picking an option at random would score.')
   })
 
+  it('lists trick questions with what counts as right', async () => {
+    const [names] = modelReport(OPUS).kinds
+    const report = runReport({
+      models: [
+        modelReport(OPUS, { kinds: [{ ...names!, generator: 'unanswerable_property' }, names!] }),
+      ],
+    })
+    const wrapper = mountPage(report, OPUS)
+    const rows = wrapper.findAll('[data-testid="kind-row"]')
+    expect(rows.map((r) => r.find('td').text())).toEqual(['Names', 'Trick questions'])
+    expect(await hintText(wrapper.get('[data-testid="kind-trick"]'))).toMatch(/I don’t know/)
+  })
+
   it('links to the questions and the checks of this model', () => {
     const wrapper = mountPage(runReport(), OPUS)
     const links = wrapper.findAllComponents(RouterLinkStub)
